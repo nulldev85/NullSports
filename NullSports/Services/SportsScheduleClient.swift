@@ -34,33 +34,38 @@ struct SportsScheduleClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        let payload = try JSONDecoder().decode(Scoreboard.self, from: data)
-        return payload.events.compactMap { event in
-            guard let contest = event.competitions.first,
-                  let home = contest.competitors.first(where: { $0.homeAway == "home" }),
-                  let away = contest.competitors.first(where: { $0.homeAway == "away" }),
-                  let start = ISO8601DateFormatter().date(from: event.date)
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let events = root["events"] as? [[String: Any]]
+        else { throw URLError(.cannotParseResponse) }
+        return events.compactMap { event in
+            guard let id = event["id"] as? String,
+                  let date = event["date"] as? String,
+                  let start = ISO8601DateFormatter().date(from: date),
+                  let competitions = event["competitions"] as? [[String: Any]],
+                  let contest = competitions.first,
+                  let competitors = contest["competitors"] as? [[String: Any]],
+                  let home = competitor("home", in: competitors),
+                  let away = competitor("away", in: competitors)
             else { return nil }
+            let status = ((event["status"] as? [String: Any])?["type"] as? [String: Any]) ?? [:]
+            let broadcasts = contest["broadcasts"] as? [[String: Any]]
+            let names = broadcasts?.first?["names"] as? [String]
             return SportsGame(
-                id: "\(league.rawValue)-\(event.id)", league: league, start: start,
-                awayTeam: away.team.displayName, homeTeam: home.team.displayName,
-                awayAbbreviation: away.team.abbreviation ?? String(away.team.displayName.prefix(3)).uppercased(),
-                homeAbbreviation: home.team.abbreviation ?? String(home.team.displayName.prefix(3)).uppercased(),
-                status: event.status.type.shortDetail ?? event.status.type.description ?? "Scheduled",
-                state: event.status.type.state ?? "pre",
-                broadcast: contest.broadcasts?.first?.names.first ?? ""
+                id: "\(league.rawValue)-\(id)", league: league, start: start,
+                awayTeam: away.name, homeTeam: home.name,
+                awayAbbreviation: away.abbreviation, homeAbbreviation: home.abbreviation,
+                status: status["shortDetail"] as? String ?? status["description"] as? String ?? "Scheduled",
+                state: status["state"] as? String ?? "pre",
+                broadcast: names?.first ?? ""
             )
         }.sorted { $0.start < $1.start }
     }
-}
 
-private struct Scoreboard: Decodable {
-    let events: [Event]
-    struct Event: Decodable { let id: String; let date: String; let status: Status; let competitions: [Competition] }
-    struct Status: Decodable { let type: StatusType }
-    struct StatusType: Decodable { let state: String?; let description: String?; let shortDetail: String? }
-    struct Competition: Decodable { let competitors: [Competitor]; let broadcasts: [Broadcast]? }
-    struct Competitor: Decodable { let homeAway: String; let team: Team }
-    struct Team: Decodable { let displayName: String; let abbreviation: String? }
-    struct Broadcast: Decodable { let names: [String] }
+    private func competitor(_ side: String, in competitors: [[String: Any]]) -> (name: String, abbreviation: String)? {
+        guard let entry = competitors.first(where: { $0["homeAway"] as? String == side }),
+              let team = entry["team"] as? [String: Any],
+              let name = team["displayName"] as? String
+        else { return nil }
+        return (name, team["abbreviation"] as? String ?? String(name.prefix(3)).uppercased())
+    }
 }
