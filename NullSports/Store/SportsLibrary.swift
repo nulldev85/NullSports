@@ -8,6 +8,8 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var streams: [XtreamStream] = []
     @Published private(set) var professionalStreams: [XtreamStream] = []
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
+    @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
+    @Published private(set) var isScheduleLoading = false
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
     @Published var errorMessage: String?
@@ -81,6 +83,7 @@ final class SportsLibrary: ObservableObject {
             streams = try await loadedStreams
             rebuildProfessionalStreams()
             isLoading = false
+            refreshSportsSchedule()
             refreshGuide(client: client, profileID: profile.id)
         } catch {
             isLoading = false
@@ -109,6 +112,41 @@ final class SportsLibrary: ObservableObject {
 
     func upcomingEvents(for league: SportsLeague) -> [ScheduledStream] {
         (eventCache[league] ?? []).filter { $0.program.start > Date() }
+    }
+
+    func games(for league: SportsLeague?) -> [SportsGame] {
+        let games = league.map { gamesByLeague[$0] ?? [] } ?? SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
+        return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
+    }
+
+    private func refreshSportsSchedule() {
+        isScheduleLoading = true
+        Task { [weak self] in
+            let games = await SportsScheduleClient().gamesToday()
+            guard let self else { return }
+            self.gamesByLeague = games
+            self.isScheduleLoading = false
+        }
+    }
+
+    func stream(for game: SportsGame) -> XtreamStream? {
+        let candidates = streams(for: game.league)
+        let away = game.awayTeam.lowercased()
+        let home = game.homeTeam.lowercased()
+        let awayNickname = away.split(separator: " ").last.map(String.init) ?? away
+        let homeNickname = home.split(separator: " ").last.map(String.init) ?? home
+        let broadcast = game.broadcast.lowercased()
+        func score(_ stream: XtreamStream) -> Int {
+            let guide = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
+            let text = "\(stream.name.lowercased()) \(guide)"
+            return (text.contains(away) ? 5 : 0) + (text.contains(home) ? 5 : 0)
+                + (text.contains(awayNickname) ? 3 : 0) + (text.contains(homeNickname) ? 3 : 0)
+                + (!broadcast.isEmpty && text.contains(broadcast) ? 4 : 0)
+                + (text.contains(game.league.rawValue) ? 1 : 0)
+        }
+        let ranked = candidates.map { ($0, score($0)) }.sorted { $0.1 > $1.1 }
+        guard let best = ranked.first, best.1 > 0 else { return nil }
+        return best.0
     }
 
     func program(for stream: XtreamStream) -> CurrentProgram? {
@@ -162,6 +200,8 @@ final class SportsLibrary: ObservableObject {
         leagueStreamCache = [:]
         eventCache = [:]
         programsByChannel = [:]
+        gamesByLeague = [:]
+        isScheduleLoading = false
         isGuideLoading = false
         persistProfiles()
     }

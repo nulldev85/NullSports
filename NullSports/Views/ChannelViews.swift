@@ -6,15 +6,10 @@ struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
     @State private var selectedLeague: SportsLeague?
 
-    private var events: [ScheduledStream] {
-        let leagues = selectedLeague.map { [$0] } ?? SportsLeague.allCases
-        let values = leagues.flatMap { library.liveEvents(for: $0) + library.upcomingEvents(for: $0) }
-        return Dictionary(grouping: values, by: \.id).compactMap { $0.value.first }
-            .sorted { $0.program.start < $1.program.start }
-    }
+    private var events: [SportsGame] { library.games(for: selectedLeague) }
 
-    private var liveEvents: [ScheduledStream] { events.filter { $0.program.isLive } }
-    private var laterEvents: [ScheduledStream] { events.filter { !$0.program.isLive } }
+    private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
+    private var laterEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
     var body: some View {
         NavigationStack {
@@ -35,11 +30,11 @@ struct LiveView: View {
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else if events.isEmpty {
-                        EmptySchedule(isLoading: library.isGuideLoading)
+                        EmptySchedule(isLoading: library.isScheduleLoading)
                     } else {
                         ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
-                            if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) { league(for: $0) } }
-                            if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) { league(for: $0) } }
+                            if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) }
+                            if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) }
                         }.padding(.vertical, 8) }
                     }
                 }
@@ -56,11 +51,7 @@ struct LiveView: View {
     }
 
     private var scheduleDetail: String {
-        library.isGuideLoading ? "Updating the schedule…" : "Live now and later today"
-    }
-
-    private func league(for event: ScheduledStream) -> SportsLeague {
-        SportsLeague.allCases.first { library.streams(for: $0).contains(event.stream) } ?? .nfl
+        library.isScheduleLoading ? "Updating official schedules…" : "Verified game times and opponents"
     }
 }
 
@@ -126,8 +117,7 @@ private struct SidebarButton: View {
 
 private struct ScheduleSection: View {
     let title: String
-    let events: [ScheduledStream]
-    let leagueFor: (ScheduledStream) -> SportsLeague
+    let events: [SportsGame]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -135,7 +125,7 @@ private struct ScheduleSection: View {
                 Text(title).font(.headline).foregroundStyle(NullSportsStyle.text)
                 Rectangle().fill(NullSportsStyle.line).frame(height: 1)
             }
-            ForEach(events) { event in GameRow(event: event, league: leagueFor(event)) }
+            ForEach(events) { event in GameRow(event: event) }
         }
     }
 }
@@ -165,81 +155,60 @@ private struct EmptySchedule: View {
 
 private struct GameRow: View {
     @EnvironmentObject private var library: SportsLibrary
-    let event: ScheduledStream
-    let league: SportsLeague
+    let event: SportsGame
     @State private var showPlayer = false
-    private var matchup: (String, String)? { MatchupParser.teams(from: event.program.title) }
+    private var stream: XtreamStream? { library.stream(for: event) }
 
     var body: some View {
         Button { showPlayer = true } label: {
             HStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(event.program.isLive ? "LIVE NOW" : event.program.start.formatted(date: .omitted, time: .shortened))
-                        .font(.headline.weight(.bold)).foregroundStyle(event.program.isLive ? .white : NullSportsStyle.text)
+                    Text(event.isLive ? "LIVE NOW" : event.start.formatted(date: .omitted, time: .shortened))
+                        .font(.headline.weight(.bold)).foregroundStyle(event.isLive ? .white : NullSportsStyle.text)
                         .lineLimit(2)
-                    if event.program.isLive { Text("ON AIR").font(.caption2.weight(.bold)).foregroundStyle(.white.opacity(0.75)) }
+                    Text(event.status.uppercased()).font(.caption2.weight(.bold)).foregroundStyle(event.isLive ? .white.opacity(0.75) : NullSportsStyle.secondary)
                 }
                 .frame(width: 98, alignment: .leading)
-                Rectangle().fill(event.program.isLive ? NullSportsStyle.field : league.color).frame(width: 3, height: 72)
+                Rectangle().fill(event.isLive ? NullSportsStyle.field : event.league.color).frame(width: 3, height: 72)
                 VStack(alignment: .leading, spacing: 9) {
-                    if let matchup {
-                        TeamLine(name: matchup.0, league: league, secondary: false)
-                        TeamLine(name: matchup.1, league: league, secondary: true)
-                    } else {
-                        Text(event.program.title).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text)
-                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    }
+                    TeamLine(name: event.awayTeam, abbreviation: event.awayAbbreviation, league: event.league, secondary: false)
+                    TeamLine(name: event.homeTeam, abbreviation: event.homeAbbreviation, league: event.league, secondary: true)
                 }
                 Spacer(minLength: 20)
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(league.shortName).font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
-                    Text(event.stream.name).font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
+                    Text(event.league.shortName).font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
+                    Text(event.broadcast.isEmpty ? (stream?.name ?? "No matching channel") : event.broadcast)
+                        .font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
                         .multilineTextAlignment(.trailing)
                 }
                 .frame(width: 210, alignment: .trailing)
                 Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
             }
             .padding(.horizontal, 24).frame(minHeight: 108)
-            .background(event.program.isLive ? NullSportsStyle.liveSurface : NullSportsStyle.surface)
+            .background(event.isLive ? NullSportsStyle.liveSurface : NullSportsStyle.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(event.program.isLive ? NullSportsStyle.liveBorder : NullSportsStyle.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(event.isLive ? NullSportsStyle.liveBorder : NullSportsStyle.line, lineWidth: 1))
         }
         .buttonStyle(.card)
-        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: event.stream)) }
+        .disabled(stream == nil)
+        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: stream.map { library.playbackURLs(for: $0) } ?? []) }
     }
 }
 
 private struct TeamLine: View {
     let name: String
+    let abbreviation: String
     let league: SportsLeague
     let secondary: Bool
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(secondary ? NullSportsStyle.raised : league.color.opacity(0.75))
-                Text(String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
-                    .font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
-            }.frame(width: 30, height: 30)
+                Text(abbreviation).font(.system(size: 9, weight: .bold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+            }.frame(width: 34, height: 34)
             Text(name.trimmingCharacters(in: .whitespacesAndNewlines))
                 .font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(1)
         }
-    }
-}
-
-private enum MatchupParser {
-    static func teams(from title: String) -> (String, String)? {
-        for separator in [" vs. ", " vs ", " at ", " @ "] {
-            if let range = title.range(of: separator, options: .caseInsensitive) {
-                let first = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let second = String(title[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !first.isEmpty && !second.isEmpty { return (clean(first), clean(second)) }
-            }
-        }
-        return nil
-    }
-
-    private static func clean(_ value: String) -> String {
-        value.replacingOccurrences(of: #"^(NFL|NBA|NHL|MLB)\s*[:\-]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
     }
 }
 

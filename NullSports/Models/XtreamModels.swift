@@ -68,6 +68,22 @@ struct ScheduledStream: Identifiable, Hashable {
     var id: String { "\(stream.id)-\(program.start.timeIntervalSince1970)" }
 }
 
+struct SportsGame: Identifiable, Hashable, Sendable {
+    let id: String
+    let league: SportsLeague
+    let start: Date
+    let awayTeam: String
+    let homeTeam: String
+    let awayAbbreviation: String
+    let homeAbbreviation: String
+    let status: String
+    let state: String
+    let broadcast: String
+
+    var isLive: Bool { state == "in" }
+    var isUpcoming: Bool { state == "pre" }
+}
+
 struct XtreamEnvelope: Codable {
     struct UserInfo: Codable {
         let auth: Int?
@@ -103,7 +119,7 @@ struct XtreamEnvelope: Codable {
     }
 }
 
-enum SportsLeague: String, CaseIterable, Identifiable {
+enum SportsLeague: String, CaseIterable, Identifiable, Sendable {
     case nfl, nba, nhl, mlb
 
     var id: String { rawValue }
