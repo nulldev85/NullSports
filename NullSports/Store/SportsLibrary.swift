@@ -8,6 +8,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var streams: [XtreamStream] = []
     @Published private(set) var currentPrograms: [String: CurrentProgram] = [:]
     @Published private(set) var isLoading = false
+    @Published private(set) var isGuideLoading = false
     @Published var errorMessage: String?
 
     private let profilesKey = "NullSports.profiles"
@@ -59,17 +60,27 @@ final class SportsLibrary: ObservableObject {
         guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
         do {
             let client = XtreamClient(profile: profile, password: password)
             async let loadedCategories = client.categories()
             async let loadedStreams = client.streams()
-            async let loadedPrograms = client.currentPrograms()
             categories = try await loadedCategories
             streams = try await loadedStreams
-            currentPrograms = (try? await loadedPrograms) ?? [:]
+            isLoading = false
+            refreshGuide(client: client, profileID: profile.id)
         } catch {
+            isLoading = false
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshGuide(client: XtreamClient, profileID: UUID) {
+        isGuideLoading = true
+        Task { [weak self] in
+            let programs = (try? await client.currentPrograms()) ?? [:]
+            guard let self, self.activeProfile?.id == profileID else { return }
+            self.currentPrograms = programs
+            self.isGuideLoading = false
         }
     }
 
@@ -116,6 +127,7 @@ final class SportsLibrary: ObservableObject {
         categories = []
         streams = []
         currentPrograms = [:]
+        isGuideLoading = false
         persistProfiles()
     }
 

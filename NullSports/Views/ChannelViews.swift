@@ -1,5 +1,6 @@
-import AVKit
 import SwiftUI
+import UIKit
+import VLCKit
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -12,6 +13,10 @@ struct LiveView: View {
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else {
+                        if library.isGuideLoading {
+                            ProgressView("Checking what’s live…")
+                                .foregroundStyle(NullSportsStyle.secondary)
+                        }
                         ForEach(SportsLeague.allCases) { league in
                             ChannelRail(league: league, streams: Array(library.liveStreams(for: league).prefix(20)))
                         }
@@ -101,48 +106,66 @@ struct ChannelCard: View {
 struct PlayerView: View {
     let title: String
     let urls: [URL]
-    @State private var player: AVPlayer
-    @State private var urlIndex = 0
-    @State private var waitingChecks = 0
+    @StateObject private var controller = VLCPlaybackController()
 
     init(title: String, urls: [URL]) {
         self.title = title
         self.urls = urls
-        let item = AVPlayerItem(url: urls[0])
-        item.preferredForwardBufferDuration = 18
-        _player = State(initialValue: AVPlayer(playerItem: item))
     }
 
     var body: some View {
-        VideoPlayer(player: player)
+        VLCVideoSurface(player: controller.player)
+            .background(Color.black)
             .ignoresSafeArea()
             .navigationTitle(title)
-            .onAppear { player.play() }
-            .onDisappear { player.pause() }
-            .task {
-                player.automaticallyWaitsToMinimizeStalling = true
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if player.currentItem?.status == .failed {
-                        tryNextURL()
-                    } else if player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
-                        waitingChecks += 1
-                        if waitingChecks >= 5 { tryNextURL() }
-                    } else {
-                        waitingChecks = 0
-                    }
-                }
-            }
+            .focusable()
+            .onPlayPauseCommand { controller.togglePlayback() }
+            .onAppear { controller.start(urls: urls) }
+            .onDisappear { controller.stop() }
+    }
+}
+
+@MainActor
+private final class VLCPlaybackController: ObservableObject {
+    let player = VLCMediaPlayer()
+
+    func start(urls: [URL]) {
+        guard let url = urls.last ?? urls.first else { return }
+        stop()
+        let media = VLCMedia(url: url)
+        media.addOption(":network-caching=5000")
+        media.addOption(":live-caching=5000")
+        media.addOption(":http-reconnect=true")
+        player.media = media
+        player.play()
     }
 
-    private func tryNextURL() {
-        guard urlIndex + 1 < urls.count else { return }
-        urlIndex += 1
-        waitingChecks = 0
-        let item = AVPlayerItem(url: urls[urlIndex])
-        item.preferredForwardBufferDuration = 18
-        player.replaceCurrentItem(with: item)
-        player.play()
+    func togglePlayback() {
+        if player.isPlaying {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
+    func stop() {
+        player.stop()
+        player.media = nil
+    }
+}
+
+private struct VLCVideoSurface: UIViewRepresentable {
+    let player: VLCMediaPlayer
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        player.drawable = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if player.drawable == nil { player.drawable = uiView }
     }
 }
 
@@ -210,7 +233,7 @@ struct AccountView: View {
                     }
                 }
                 Section("About") {
-                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1")
+                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.2")
                 }
             }
             .navigationTitle("Account")

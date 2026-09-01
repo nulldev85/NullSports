@@ -1,0 +1,7 @@
+{
+  "layers" : [
+    { "filename" : "Foreground.imagestacklayer" },
+    { "filename" : "Background.imagestacklayer" }
+  ],
+  "info" : { "author" : "com.nulldev85.NullSports", "version" : 1 }
+}
