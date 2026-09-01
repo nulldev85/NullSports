@@ -8,12 +8,12 @@ struct LiveView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 42) {
-                    PageTitle(eyebrow: "Now", title: "Live sports", detail: "Channels from your provider, organized for game night.")
+                    PageTitle(eyebrow: "Now", title: "Live sports", detail: "Games airing right now. No network filler or upcoming listings.")
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else {
                         ForEach(SportsLeague.allCases) { league in
-                            ChannelRail(league: league, streams: Array(library.streams(for: league).prefix(20)))
+                            ChannelRail(league: league, streams: Array(library.liveStreams(for: league).prefix(20)))
                         }
                     }
                 }
@@ -40,10 +40,10 @@ struct ChannelRail: View {
                 LeagueMark(league: league)
                 Text(league.fullName).font(.title2.bold()).foregroundStyle(NullSportsStyle.text)
                 Spacer()
-                Text("\(streams.count) channels").foregroundStyle(NullSportsStyle.secondary)
+                Text("\(streams.count) live").foregroundStyle(NullSportsStyle.secondary)
             }
             if streams.isEmpty {
-                Text("No matching channels from this provider.")
+                Text("No live games right now.")
                     .foregroundStyle(NullSportsStyle.secondary)
                     .frame(height: 100)
             } else {
@@ -63,8 +63,8 @@ struct ChannelCard: View {
 
     var body: some View {
         NavigationLink {
-            if let url = library.playbackURL(for: stream) {
-                PlayerView(title: stream.name, url: url)
+            if !library.playbackURLs(for: stream).isEmpty {
+                PlayerView(title: stream.name, urls: library.playbackURLs(for: stream))
             } else {
                 Text("Stream unavailable")
             }
@@ -85,6 +85,13 @@ struct ChannelCard: View {
                     .foregroundStyle(NullSportsStyle.text)
                     .lineLimit(2)
                     .frame(width: 300, alignment: .leading)
+                if let program = library.program(for: stream) {
+                    Text(program.title)
+                        .font(.caption)
+                        .foregroundStyle(NullSportsStyle.secondary)
+                        .lineLimit(1)
+                        .frame(width: 300, alignment: .leading)
+                }
             }
         }
         .buttonStyle(.plain)
@@ -93,13 +100,17 @@ struct ChannelCard: View {
 
 struct PlayerView: View {
     let title: String
-    let url: URL
+    let urls: [URL]
     @State private var player: AVPlayer
+    @State private var urlIndex = 0
+    @State private var waitingChecks = 0
 
-    init(title: String, url: URL) {
+    init(title: String, urls: [URL]) {
         self.title = title
-        self.url = url
-        _player = State(initialValue: AVPlayer(url: url))
+        self.urls = urls
+        let item = AVPlayerItem(url: urls[0])
+        item.preferredForwardBufferDuration = 18
+        _player = State(initialValue: AVPlayer(playerItem: item))
     }
 
     var body: some View {
@@ -108,6 +119,30 @@ struct PlayerView: View {
             .navigationTitle(title)
             .onAppear { player.play() }
             .onDisappear { player.pause() }
+            .task {
+                player.automaticallyWaitsToMinimizeStalling = true
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if player.currentItem?.status == .failed {
+                        tryNextURL()
+                    } else if player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+                        waitingChecks += 1
+                        if waitingChecks >= 5 { tryNextURL() }
+                    } else {
+                        waitingChecks = 0
+                    }
+                }
+            }
+    }
+
+    private func tryNextURL() {
+        guard urlIndex + 1 < urls.count else { return }
+        urlIndex += 1
+        waitingChecks = 0
+        let item = AVPlayerItem(url: urls[urlIndex])
+        item.preferredForwardBufferDuration = 18
+        player.replaceCurrentItem(with: item)
+        player.play()
     }
 }
 
@@ -175,7 +210,7 @@ struct AccountView: View {
                     }
                 }
                 Section("About") {
-                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
+                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0")
                 }
             }
             .navigationTitle("Account")

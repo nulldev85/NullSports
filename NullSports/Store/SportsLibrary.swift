@@ -6,6 +6,7 @@ final class SportsLibrary: ObservableObject {
     @Published var activeProfile: XtreamProfile?
     @Published private(set) var categories: [XtreamCategory] = []
     @Published private(set) var streams: [XtreamStream] = []
+    @Published private(set) var currentPrograms: [String: CurrentProgram] = [:]
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -53,8 +54,10 @@ final class SportsLibrary: ObservableObject {
             let client = XtreamClient(profile: profile, password: password)
             async let loadedCategories = client.categories()
             async let loadedStreams = client.streams()
+            async let loadedPrograms = client.currentPrograms()
             categories = try await loadedCategories
             streams = try await loadedStreams
+            currentPrograms = (try? await loadedPrograms) ?? [:]
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -67,9 +70,32 @@ final class SportsLibrary: ObservableObject {
         }
     }
 
-    func playbackURL(for stream: XtreamStream) -> URL? {
-        guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return nil }
-        return XtreamClient(profile: profile, password: password).playbackURL(for: stream)
+    func liveStreams(for league: SportsLeague) -> [XtreamStream] {
+        streams.filter { stream in
+            guard !isExcluded(stream),
+                  let channelID = stream.epgChannelID,
+                  let program = currentPrograms[channelID]
+            else { return false }
+            let listing = "\(program.title) \(program.detail)"
+            let looksLikeGame = listing.localizedCaseInsensitiveContains(" vs ")
+                || listing.localizedCaseInsensitiveContains(" vs. ")
+                || listing.localizedCaseInsensitiveContains(" at ")
+            return league.matches(listing) && looksLikeGame
+        }
+    }
+
+    func program(for stream: XtreamStream) -> CurrentProgram? {
+        stream.epgChannelID.flatMap { currentPrograms[$0] }
+    }
+
+    func playbackURLs(for stream: XtreamStream) -> [URL] {
+        guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return [] }
+        return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
+    }
+
+    private func isExcluded(_ stream: XtreamStream) -> Bool {
+        let category = categories.first { $0.id == stream.categoryID }?.categoryName ?? ""
+        return "\(stream.name) \(category)".localizedCaseInsensitiveContains("NFHS")
     }
 
     func removeActiveProfile() {
@@ -79,6 +105,7 @@ final class SportsLibrary: ObservableObject {
         activeProfile = profiles.first
         categories = []
         streams = []
+        currentPrograms = [:]
         persistProfiles()
     }
 

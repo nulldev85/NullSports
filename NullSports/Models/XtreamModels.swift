@@ -48,6 +48,14 @@ struct XtreamStream: Codable, Identifiable, Hashable {
     }
 }
 
+struct CurrentProgram: Hashable, Sendable {
+    let channelID: String
+    let title: String
+    let detail: String
+    let start: Date
+    let end: Date
+}
+
 struct XtreamEnvelope: Codable {
     struct UserInfo: Codable {
         let auth: Int?
@@ -108,10 +116,14 @@ enum SportsLeague: String, CaseIterable, Identifiable {
     func matches(_ text: String) -> Bool {
         let value = text.lowercased()
         return switch self {
-        case .nfl: value.contains("nfl") || value.contains("football")
-        case .nba: value.contains("nba") || value.contains("basketball")
-        case .nhl: value.contains("nhl") || value.contains("hockey")
-        case .mlb: value.contains("mlb") || value.contains("baseball")
+        case .nfl: containsAny(value, ["nfl", "football", "49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"])
+        case .nba: containsAny(value, ["nba", "basketball", "76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"])
+        case .nhl: containsAny(value, ["nhl", "hockey", "avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars", "utah"])
+        case .mlb: containsAny(value, ["mlb", "baseball", "angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"])
         }
+    }
+
+    private func containsAny(_ text: String, _ terms: [String]) -> Bool {
+        terms.contains { text.contains($0) }
     }
 }
