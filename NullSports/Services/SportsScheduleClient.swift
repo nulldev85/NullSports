@@ -29,43 +29,40 @@ struct SportsScheduleClient: Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
         let day = formatter.string(from: Date())
-        guard let url = URL(string: "https://sports.mateomedia.link/v1/scoreboard/\(league.rawValue)?date=\(day)") else { return [] }
+        guard let url = URL(string: "https://sports.mateomedia.link/v1/games/\(league.rawValue)?date=\(day)") else { return [] }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("0.6.2", forHTTPHeaderField: "X-NullSports-Version")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let events = root["events"] as? [[String: Any]]
-        else { throw URLError(.cannotParseResponse) }
-        return events.compactMap { event in
-            guard let id = event["id"] as? String,
-                  let date = event["date"] as? String,
-                  let start = ISO8601DateFormatter().date(from: date),
-                  let competitions = event["competitions"] as? [[String: Any]],
-                  let contest = competitions.first,
-                  let competitors = contest["competitors"] as? [[String: Any]],
-                  let home = competitor("home", in: competitors),
-                  let away = competitor("away", in: competitors)
-            else { return nil }
-            let status = ((event["status"] as? [String: Any])?["type"] as? [String: Any]) ?? [:]
-            let broadcasts = contest["broadcasts"] as? [[String: Any]]
-            let names = broadcasts?.first?["names"] as? [String]
+        let envelope = try JSONDecoder().decode(GamesEnvelope.self, from: data)
+        guard envelope.schema == 1, envelope.league == league.rawValue else { throw URLError(.cannotParseResponse) }
+        return envelope.games.compactMap { game in
+            guard let start = ISO8601DateFormatter().date(from: game.start) else { return nil }
             return SportsGame(
-                id: "\(league.rawValue)-\(id)", league: league, start: start,
-                awayTeam: away.name, homeTeam: home.name,
-                awayAbbreviation: away.abbreviation, homeAbbreviation: home.abbreviation,
-                status: status["shortDetail"] as? String ?? status["description"] as? String ?? "Scheduled",
-                state: status["state"] as? String ?? "pre",
-                broadcast: names?.first ?? ""
+                id: "\(league.rawValue)-\(game.id)", league: league, start: start,
+                awayTeam: game.awayTeam, homeTeam: game.homeTeam,
+                awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
+                status: game.status, state: game.state, broadcast: game.broadcast
             )
         }.sorted { $0.start < $1.start }
     }
+}
 
-    private func competitor(_ side: String, in competitors: [[String: Any]]) -> (name: String, abbreviation: String)? {
-        guard let entry = competitors.first(where: { $0["homeAway"] as? String == side }),
-              let team = entry["team"] as? [String: Any],
-              let name = team["displayName"] as? String
-        else { return nil }
-        return (name, team["abbreviation"] as? String ?? String(name.prefix(3)).uppercased())
+private struct GamesEnvelope: Decodable {
+    let schema: Int
+    let league: String
+    let games: [Game]
+
+    struct Game: Decodable {
+        let id: String
+        let start: String
+        let awayTeam: String
+        let homeTeam: String
+        let awayAbbreviation: String
+        let homeAbbreviation: String
+        let status: String
+        let state: String
+        let broadcast: String
     }
 }

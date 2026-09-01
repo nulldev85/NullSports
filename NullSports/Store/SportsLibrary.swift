@@ -73,6 +73,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     func reload() async {
+        refreshSchedule()
         guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         isLoading = true
         errorMessage = nil
@@ -84,7 +85,6 @@ final class SportsLibrary: ObservableObject {
             streams = try await loadedStreams
             rebuildProfessionalStreams()
             isLoading = false
-            refreshSportsSchedule()
             refreshGuide(client: client, profileID: profile.id)
         } catch {
             isLoading = false
@@ -120,7 +120,7 @@ final class SportsLibrary: ObservableObject {
         return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
     }
 
-    private func refreshSportsSchedule() {
+    func refreshSchedule() {
         isScheduleLoading = true
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()
