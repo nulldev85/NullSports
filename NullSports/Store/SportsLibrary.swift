@@ -26,6 +26,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     var hasProfile: Bool { activeProfile != nil }
+    var professionalStreams: [XtreamStream] {
+        let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
+        streams.filter { stream in
+            let category = categoryNames[stream.categoryID ?? ""] ?? ""
+            guard !isExcluded(stream, categoryName: category) else { return false }
+            let program = program(for: stream).map { "\($0.title) \($0.detail)" } ?? ""
+            let searchable = "\(stream.name) \(category) \(program)"
+            return SportsLeague.allCases.contains { $0.matches(searchable) }
+        }
+    }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let profile = XtreamProfile(name: name.isEmpty ? "My IPTV" : name, serverURL: serverURL, username: username)
@@ -64,23 +74,22 @@ final class SportsLibrary: ObservableObject {
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {
-        let categoryNames = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.categoryName) })
-        return streams.filter { stream in
+        let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
+        return professionalStreams.filter { stream in
             league.matches(stream.name) || league.matches(categoryNames[stream.categoryID ?? ""] ?? "")
         }
     }
 
     func liveStreams(for league: SportsLeague) -> [XtreamStream] {
-        streams.filter { stream in
-            guard !isExcluded(stream),
-                  let channelID = stream.epgChannelID,
+        professionalStreams.filter { stream in
+            guard let channelID = stream.epgChannelID,
                   let program = currentPrograms[channelID]
             else { return false }
             let listing = "\(program.title) \(program.detail)"
             let looksLikeGame = listing.localizedCaseInsensitiveContains(" vs ")
                 || listing.localizedCaseInsensitiveContains(" vs. ")
                 || listing.localizedCaseInsensitiveContains(" at ")
-            return league.matches(listing) && looksLikeGame
+            return league.matchesProfessionalGame(listing) && looksLikeGame
         }
     }
 
@@ -93,9 +102,10 @@ final class SportsLibrary: ObservableObject {
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
     }
 
-    private func isExcluded(_ stream: XtreamStream) -> Bool {
-        let category = categories.first { $0.id == stream.categoryID }?.categoryName ?? ""
-        return "\(stream.name) \(category)".localizedCaseInsensitiveContains("NFHS")
+    private func isExcluded(_ stream: XtreamStream, categoryName: String) -> Bool {
+        let value = "\(stream.name) \(categoryName)".lowercased()
+        let blocked = ["nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
+        return blocked.contains { value.contains($0) }
     }
 
     func removeActiveProfile() {

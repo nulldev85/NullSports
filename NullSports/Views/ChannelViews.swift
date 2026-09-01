@@ -181,7 +181,7 @@ struct GuideView: View {
     @State private var query = ""
 
     var filtered: [XtreamStream] {
-        query.isEmpty ? library.streams : library.streams.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        query.isEmpty ? library.professionalStreams : library.professionalStreams.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -210,7 +210,7 @@ struct AccountView: View {
                     }
                 }
                 Section("About") {
-                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0")
+                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1")
                 }
             }
             .navigationTitle("Account")
