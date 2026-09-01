@@ -25,20 +25,12 @@ struct SportsScheduleClient: Sendable {
     }
 
     private func games(for league: SportsLeague) async throws -> [SportsGame] {
-        let path: String
-        switch league {
-        case .nfl: path = "football/nfl"
-        case .nba: path = "basketball/nba"
-        case .nhl: path = "hockey/nhl"
-        case .mlb: path = "baseball/mlb"
-        }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
         let day = formatter.string(from: Date())
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(path)/scoreboard?dates=\(day)&limit=100") else { return [] }
+        guard let url = URL(string: "https://sports.mateomedia.link/v1/scoreboard/\(league.rawValue)?date=\(day)") else { return [] }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        request.setValue("curl/8.7.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
