@@ -78,7 +78,7 @@ private struct SportsSidebar: View {
                         Text("All Sports").font(.headline)
                         Spacer()
                     }
-                    .foregroundStyle(.white).padding(.horizontal, 20).frame(height: 58)
+                    .foregroundStyle(.black).padding(.horizontal, 20).frame(height: 58)
                     .background(NullSportsStyle.field)
                     .clipShape(Capsule())
                 }
