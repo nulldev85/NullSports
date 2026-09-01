@@ -34,6 +34,8 @@ final class SportsLibrary: ObservableObject {
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
         professionalStreams = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
+            guard stream.streamType?.lowercased() != "radio_streams",
+                  stream.streamType?.lowercased() != "radio" else { return false }
             guard !isExcluded(stream, categoryName: category) else { return false }
             let program = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ")
             let searchable = "\(stream.name) \(category) \(program)"
@@ -41,7 +43,9 @@ final class SportsLibrary: ObservableObject {
         }
         leagueStreamCache = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
             (league, professionalStreams.filter { stream in
-                league.matches(stream.name) || league.matches(categoryNames[stream.categoryID ?? ""] ?? "")
+                let category = categoryNames[stream.categoryID ?? ""] ?? ""
+                let listings = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ")
+                return league.matches("\(stream.name) \(category) \(listings)")
             })
         })
         rebuildEventCache()
@@ -126,7 +130,9 @@ final class SportsLibrary: ObservableObject {
                     || listing.localizedCaseInsensitiveContains(" vs. ")
                     || listing.localizedCaseInsensitiveContains(" at ")
                 guard matchup else { continue }
-                for league in SportsLeague.allCases where league.matchesProfessionalGame(listing) {
+                for league in SportsLeague.allCases
+                where leagueStreamCache[league, default: []].contains(stream)
+                    && league.matchesProfessionalGame(listing) {
                     rebuilt[league, default: []].append(ScheduledStream(stream: stream, program: program))
                 }
             }
@@ -141,7 +147,7 @@ final class SportsLibrary: ObservableObject {
 
     private func isExcluded(_ stream: XtreamStream, categoryName: String) -> Bool {
         let value = "\(stream.name) \(categoryName)".lowercased()
-        let blocked = ["nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
+        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
         return blocked.contains { value.contains($0) }
     }
 

@@ -4,6 +4,7 @@ enum NullSportsStyle {
     static let background = Color(red: 0.035, green: 0.038, blue: 0.036)
     static let surface = Color(red: 0.075, green: 0.080, blue: 0.076)
     static let raised = Color(red: 0.105, green: 0.110, blue: 0.105)
+    static let selected = Color(red: 0.13, green: 0.15, blue: 0.14)
     static let line = Color.white.opacity(0.11)
     static let text = Color(red: 0.92, green: 0.91, blue: 0.86)
     static let secondary = Color(red: 0.61, green: 0.62, blue: 0.58)
