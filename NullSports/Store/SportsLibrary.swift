@@ -6,13 +6,16 @@ final class SportsLibrary: ObservableObject {
     @Published var activeProfile: XtreamProfile?
     @Published private(set) var categories: [XtreamCategory] = []
     @Published private(set) var streams: [XtreamStream] = []
-    @Published private(set) var currentPrograms: [String: CurrentProgram] = [:]
+    @Published private(set) var professionalStreams: [XtreamStream] = []
+    @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
     @Published var errorMessage: String?
 
     private let profilesKey = "NullSports.profiles"
     private let activeKey = "NullSports.activeProfile"
+    private var eventCache: [SportsLeague: [ScheduledStream]] = [:]
+    private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
 
     init() {
         if let data = UserDefaults.standard.data(forKey: profilesKey),
@@ -27,15 +30,21 @@ final class SportsLibrary: ObservableObject {
     }
 
     var hasProfile: Bool { activeProfile != nil }
-    var professionalStreams: [XtreamStream] {
+    private func rebuildProfessionalStreams() {
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
-        return streams.filter { stream in
+        professionalStreams = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
             guard !isExcluded(stream, categoryName: category) else { return false }
-            let program = program(for: stream).map { "\($0.title) \($0.detail)" } ?? ""
+            let program = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ")
             let searchable = "\(stream.name) \(category) \(program)"
             return SportsLeague.allCases.contains { $0.matches(searchable) }
         }
+        leagueStreamCache = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+            (league, professionalStreams.filter { stream in
+                league.matches(stream.name) || league.matches(categoryNames[stream.categoryID ?? ""] ?? "")
+            })
+        })
+        rebuildEventCache()
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -66,6 +75,7 @@ final class SportsLibrary: ObservableObject {
             async let loadedStreams = client.streams()
             categories = try await loadedCategories
             streams = try await loadedStreams
+            rebuildProfessionalStreams()
             isLoading = false
             refreshGuide(client: client, profileID: profile.id)
         } catch {
@@ -77,35 +87,51 @@ final class SportsLibrary: ObservableObject {
     private func refreshGuide(client: XtreamClient, profileID: UUID) {
         isGuideLoading = true
         Task { [weak self] in
-            let programs = (try? await client.currentPrograms()) ?? [:]
+            let programs = (try? await client.programsToday()) ?? [:]
             guard let self, self.activeProfile?.id == profileID else { return }
-            self.currentPrograms = programs
+            self.programsByChannel = programs
+            self.rebuildProfessionalStreams()
             self.isGuideLoading = false
         }
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {
-        let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
-        return professionalStreams.filter { stream in
-            league.matches(stream.name) || league.matches(categoryNames[stream.categoryID ?? ""] ?? "")
-        }
+        leagueStreamCache[league] ?? []
     }
 
-    func liveStreams(for league: SportsLeague) -> [XtreamStream] {
-        professionalStreams.filter { stream in
-            guard let channelID = stream.epgChannelID,
-                  let program = currentPrograms[channelID]
-            else { return false }
-            let listing = "\(program.title) \(program.detail)"
-            let looksLikeGame = listing.localizedCaseInsensitiveContains(" vs ")
-                || listing.localizedCaseInsensitiveContains(" vs. ")
-                || listing.localizedCaseInsensitiveContains(" at ")
-            return league.matchesProfessionalGame(listing) && looksLikeGame
-        }
+    func liveEvents(for league: SportsLeague) -> [ScheduledStream] {
+        (eventCache[league] ?? []).filter { $0.program.isLive }
+    }
+
+    func upcomingEvents(for league: SportsLeague) -> [ScheduledStream] {
+        (eventCache[league] ?? []).filter { $0.program.start > Date() }
     }
 
     func program(for stream: XtreamStream) -> CurrentProgram? {
-        stream.epgChannelID.flatMap { currentPrograms[$0] }
+        let listings = programs(for: stream)
+        return listings.first(where: \.isLive) ?? listings.first
+    }
+
+    private func programs(for stream: XtreamStream) -> [CurrentProgram] {
+        guard let channelID = stream.epgChannelID else { return [] }
+        return programsByChannel[channelID] ?? []
+    }
+
+    private func rebuildEventCache() {
+        var rebuilt = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, [ScheduledStream]()) })
+        for stream in professionalStreams {
+            for program in programs(for: stream) {
+                let listing = "\(program.title) \(program.detail)"
+                let matchup = listing.localizedCaseInsensitiveContains(" vs ")
+                    || listing.localizedCaseInsensitiveContains(" vs. ")
+                    || listing.localizedCaseInsensitiveContains(" at ")
+                guard matchup else { continue }
+                for league in SportsLeague.allCases where league.matchesProfessionalGame(listing) {
+                    rebuilt[league, default: []].append(ScheduledStream(stream: stream, program: program))
+                }
+            }
+        }
+        eventCache = rebuilt.mapValues { $0.sorted { $0.program.start < $1.program.start } }
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
@@ -126,7 +152,10 @@ final class SportsLibrary: ObservableObject {
         activeProfile = profiles.first
         categories = []
         streams = []
-        currentPrograms = [:]
+        professionalStreams = []
+        leagueStreamCache = [:]
+        eventCache = [:]
+        programsByChannel = [:]
         isGuideLoading = false
         persistProfiles()
     }

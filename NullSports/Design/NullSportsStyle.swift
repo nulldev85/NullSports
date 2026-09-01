@@ -23,7 +23,7 @@ struct PageTitle: View {
                 .tracking(1.8)
                 .foregroundStyle(NullSportsStyle.field)
             Text(title)
-                .font(.system(size: 50, weight: .bold, design: .rounded))
+                .font(.system(size: 50, weight: .semibold))
                 .foregroundStyle(NullSportsStyle.text)
             if let detail {
                 Text(detail)
@@ -39,12 +39,11 @@ struct LeagueMark: View {
 
     var body: some View {
         Text(league.shortName)
-            .font(.system(size: 16, weight: .black, design: .rounded))
+            .font(.system(size: 16, weight: .bold))
             .tracking(0.6)
             .foregroundStyle(NullSportsStyle.text)
-            .frame(width: 70, height: 42)
+            .frame(width: 72, height: 44)
             .background(NullSportsStyle.raised)
             .overlay(Rectangle().frame(height: 3).foregroundStyle(league.color), alignment: .bottom)
     }
 }
-

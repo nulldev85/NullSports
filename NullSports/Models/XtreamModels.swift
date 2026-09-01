@@ -54,6 +54,18 @@ struct CurrentProgram: Hashable, Sendable {
     let detail: String
     let start: Date
     let end: Date
+
+    var isLive: Bool {
+        let now = Date()
+        return start <= now && now < end
+    }
+}
+
+struct ScheduledStream: Identifiable, Hashable {
+    let stream: XtreamStream
+    let program: CurrentProgram
+
+    var id: String { "\(stream.id)-\(program.start.timeIntervalSince1970)" }
 }
 
 struct XtreamEnvelope: Codable {

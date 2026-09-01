@@ -24,7 +24,7 @@ struct XtreamClient {
         return ["m3u8", "ts"].map { root.appendingPathComponent("\(stream.streamID).\($0)") }
     }
 
-    func currentPrograms() async throws -> [String: CurrentProgram] {
+    func programsToday() async throws -> [String: [CurrentProgram]] {
         guard let base = normalizedBaseURL,
               var components = URLComponents(url: base.appendingPathComponent("xmltv.php"), resolvingAgainstBaseURL: false)
         else { throw XtreamError.invalidServer }

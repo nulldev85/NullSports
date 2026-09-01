@@ -8,7 +8,8 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     private var title = ""
     private var detail = ""
     private var text = ""
-    private(set) var programs: [String: CurrentProgram] = [:]
+    private let endOfDay: Date
+    private(set) var programs: [String: [CurrentProgram]] = [:]
     private lazy var dateFormatters: [DateFormatter] = ["yyyyMMddHHmmss Z", "yyyyMMddHHmmssZ", "yyyyMMddHHmm Z"].map {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -16,13 +17,16 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         return formatter
     }
 
-    init(now: Date = Date()) { self.now = now }
+    init(now: Date = Date()) {
+        self.now = now
+        endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now
+    }
 
-    func parse(_ data: Data) -> [String: CurrentProgram] {
+    func parse(_ data: Data) -> [String: [CurrentProgram]] {
         let parser = XMLParser(data: data)
         parser.delegate = self
         _ = parser.parse()
-        return programs
+        return programs.mapValues { $0.sorted { $0.start < $1.start } }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
@@ -41,8 +45,8 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         if elementName == "title" { title = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "desc" { detail = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "programme", let start = currentStart, let end = currentEnd,
-           start <= now, now < end, !currentChannel.isEmpty {
-            programs[currentChannel] = CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end)
+           end > now, start < endOfDay, !currentChannel.isEmpty {
+            programs[currentChannel, default: []].append(CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end))
         }
         text = ""
     }
