@@ -13,24 +13,34 @@ struct LiveView: View {
             .sorted { $0.program.start < $1.program.start }
     }
 
+    private var liveEvents: [ScheduledStream] { events.filter { $0.program.isLive } }
+    private var laterEvents: [ScheduledStream] { events.filter { !$0.program.isLive } }
+
     var body: some View {
         NavigationStack {
             HStack(alignment: .top, spacing: 54) {
                 SportsSidebar(title: "TODAY", selectedLeague: $selectedLeague, includeAll: true)
                     .frame(width: 285)
-                VStack(alignment: .leading, spacing: 24) {
-                    ScreenHeading(title: selectedLeague?.fullName ?? "Today’s games", detail: scheduleDetail)
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .top) {
+                        ScreenHeading(title: selectedLeague?.fullName ?? "Today’s games", detail: scheduleDetail)
+                        Spacer()
+                        Text("TODAY")
+                            .font(.caption.weight(.bold)).tracking(1.4)
+                            .foregroundStyle(NullSportsStyle.text)
+                            .padding(.horizontal, 24).frame(height: 46)
+                            .background(NullSportsStyle.selected)
+                            .clipShape(Capsule())
+                    }
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else if events.isEmpty {
                         EmptySchedule(isLoading: library.isGuideLoading)
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 12) {
-                                ForEach(events) { GameRow(event: $0, league: league(for: $0)) }
-                            }
-                            .padding(.vertical, 8)
-                        }
+                        ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
+                            if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) { league(for: $0) } }
+                            if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) { league(for: $0) } }
+                        }.padding(.vertical, 8) }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,7 +70,7 @@ private struct SportsSidebar: View {
     let includeAll: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
                 .padding(.leading, 18)
             if includeAll { SidebarButton(title: "All leagues", symbol: "star", selected: selectedLeague == nil) { selectedLeague = nil } }
@@ -73,6 +83,7 @@ private struct SportsSidebar: View {
 }
 
 private struct SidebarButton: View {
+    @Environment(\.isFocused) private var isFocused
     let title: String
     let symbol: String
     let selected: Bool
@@ -85,14 +96,31 @@ private struct SidebarButton: View {
                 Text(title).font(.headline)
                 Spacer()
             }
-            .foregroundStyle(selected ? NullSportsStyle.text : NullSportsStyle.secondary)
-            .padding(.horizontal, 18).frame(height: 58)
-            .background(selected ? NullSportsStyle.selected : NullSportsStyle.surface)
+            .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
+            .padding(.horizontal, 18).frame(height: 56)
+            .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.surface))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(alignment: .leading) {
-                if selected { Rectangle().fill(NullSportsStyle.field).frame(width: 4) }
+                if selected { Capsule().fill(NullSportsStyle.field).frame(width: 4, height: 34).padding(.leading, 5) }
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct ScheduleSection: View {
+    let title: String
+    let events: [ScheduledStream]
+    let leagueFor: (ScheduledStream) -> SportsLeague
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 14) {
+                Text(title).font(.headline).foregroundStyle(NullSportsStyle.text)
+                Rectangle().fill(NullSportsStyle.line).frame(height: 1)
+            }
+            ForEach(events) { event in GameRow(event: event, league: leagueFor(event)) }
+        }
     }
 }
 
@@ -124,22 +152,25 @@ private struct GameRow: View {
     let event: ScheduledStream
     let league: SportsLeague
     @State private var showPlayer = false
+    private var matchup: (String, String)? { MatchupParser.teams(from: event.program.title) }
 
     var body: some View {
         Button { showPlayer = true } label: {
-            HStack(spacing: 24) {
+            HStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(event.program.isLive ? "LIVE" : event.program.start.formatted(date: .omitted, time: .shortened))
                         .font(.headline).foregroundStyle(event.program.isLive ? NullSportsStyle.field : NullSportsStyle.text)
                     if event.program.isLive { Text("NOW").font(.caption2.weight(.bold)).foregroundStyle(NullSportsStyle.secondary) }
                 }
-                .frame(width: 105, alignment: .leading)
-                Rectangle().fill(event.program.isLive ? NullSportsStyle.field : league.color).frame(width: 3, height: 68)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(event.program.title).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text)
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    if !event.program.detail.isEmpty {
-                        Text(event.program.detail).font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                .frame(width: 98, alignment: .leading)
+                Rectangle().fill(event.program.isLive ? NullSportsStyle.field : league.color).frame(width: 3, height: 72)
+                VStack(alignment: .leading, spacing: 9) {
+                    if let matchup {
+                        TeamLine(name: matchup.0, league: league, secondary: false)
+                        TeamLine(name: matchup.1, league: league, secondary: true)
+                    } else {
+                        Text(event.program.title).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 20)
@@ -151,11 +182,46 @@ private struct GameRow: View {
                 .frame(width: 210, alignment: .trailing)
                 Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
             }
-            .padding(.horizontal, 24).frame(minHeight: 104).background(NullSportsStyle.surface)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(NullSportsStyle.line, lineWidth: 1))
+            .padding(.horizontal, 24).frame(minHeight: 108).background(NullSportsStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(NullSportsStyle.line, lineWidth: 1))
         }
         .buttonStyle(.card)
         .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: event.stream)) }
+    }
+}
+
+private struct TeamLine: View {
+    let name: String
+    let league: SportsLeague
+    let secondary: Bool
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(secondary ? NullSportsStyle.raised : league.color.opacity(0.75))
+                Text(String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+                    .font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
+            }.frame(width: 30, height: 30)
+            Text(name.trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+        }
+    }
+}
+
+private enum MatchupParser {
+    static func teams(from title: String) -> (String, String)? {
+        for separator in [" vs. ", " vs ", " at ", " @ "] {
+            if let range = title.range(of: separator, options: .caseInsensitive) {
+                let first = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let second = String(title[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !first.isEmpty && !second.isEmpty { return (clean(first), clean(second)) }
+            }
+        }
+        return nil
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.replacingOccurrences(of: #"^(NFL|NBA|NHL|MLB)\s*[:\-]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
     }
 }
 
@@ -200,7 +266,8 @@ private struct ChannelRow: View {
                 Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
             }
             .padding(.horizontal, 22).frame(minHeight: 90).background(NullSportsStyle.surface)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(NullSportsStyle.line, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(NullSportsStyle.line, lineWidth: 1))
         }
         .buttonStyle(.card)
         .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }

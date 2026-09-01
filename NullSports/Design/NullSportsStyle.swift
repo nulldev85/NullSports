@@ -1,14 +1,15 @@
 import SwiftUI
 
 enum NullSportsStyle {
-    static let background = Color(red: 0.035, green: 0.038, blue: 0.036)
-    static let surface = Color(red: 0.075, green: 0.080, blue: 0.076)
-    static let raised = Color(red: 0.105, green: 0.110, blue: 0.105)
-    static let selected = Color(red: 0.13, green: 0.15, blue: 0.14)
-    static let line = Color.white.opacity(0.11)
-    static let text = Color(red: 0.92, green: 0.91, blue: 0.86)
-    static let secondary = Color(red: 0.61, green: 0.62, blue: 0.58)
-    static let field = Color(red: 0.38, green: 0.57, blue: 0.40)
+    static let background = Color(red: 0.040, green: 0.047, blue: 0.065)
+    static let surface = Color(red: 0.075, green: 0.090, blue: 0.125)
+    static let raised = Color(red: 0.105, green: 0.125, blue: 0.170)
+    static let selected = Color(red: 0.145, green: 0.200, blue: 0.315)
+    static let focused = Color(red: 0.205, green: 0.300, blue: 0.500)
+    static let line = Color(red: 0.43, green: 0.49, blue: 0.62).opacity(0.30)
+    static let text = Color(red: 0.94, green: 0.95, blue: 0.97)
+    static let secondary = Color(red: 0.63, green: 0.68, blue: 0.76)
+    static let field = Color(red: 0.48, green: 0.67, blue: 0.93)
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
