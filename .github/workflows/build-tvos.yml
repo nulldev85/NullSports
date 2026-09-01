@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -50,4 +50,3 @@ jobs:
           path: NullSports-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
-

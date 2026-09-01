@@ -107,7 +107,7 @@ enum SportsLeague: String, CaseIterable, Identifiable {
 
     func matches(_ text: String) -> Bool {
         let value = text.lowercased()
-        switch self {
+        return switch self {
         case .nfl: value.contains("nfl") || value.contains("football")
         case .nba: value.contains("nba") || value.contains("basketball")
         case .nhl: value.contains("nhl") || value.contains("hockey")
