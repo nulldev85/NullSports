@@ -28,7 +28,7 @@ final class SportsLibrary: ObservableObject {
     var hasProfile: Bool { activeProfile != nil }
     var professionalStreams: [XtreamStream] {
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
-        streams.filter { stream in
+        return streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
             guard !isExcluded(stream, categoryName: category) else { return false }
             let program = program(for: stream).map { "\($0.title) \($0.detail)" } ?? ""
