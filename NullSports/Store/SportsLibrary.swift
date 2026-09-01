@@ -9,6 +9,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var professionalStreams: [XtreamStream] = []
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
+    @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
     @Published private(set) var isScheduleLoading = false
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
@@ -122,11 +123,17 @@ final class SportsLibrary: ObservableObject {
     private func refreshSportsSchedule() {
         isScheduleLoading = true
         Task { [weak self] in
-            let games = await SportsScheduleClient().gamesToday()
+            let snapshot = await SportsScheduleClient().gamesToday()
             guard let self else { return }
-            self.gamesByLeague = games
+            self.gamesByLeague = snapshot.games
+            self.scheduleLoadedLeagues = snapshot.loadedLeagues
             self.isScheduleLoading = false
         }
+    }
+
+    func scheduleAvailable(for league: SportsLeague?) -> Bool {
+        if let league { return scheduleLoadedLeagues.contains(league) }
+        return Set(SportsLeague.allCases).isSubset(of: scheduleLoadedLeagues)
     }
 
     func stream(for game: SportsGame) -> XtreamStream? {
@@ -201,6 +208,7 @@ final class SportsLibrary: ObservableObject {
         eventCache = [:]
         programsByChannel = [:]
         gamesByLeague = [:]
+        scheduleLoadedLeagues = []
         isScheduleLoading = false
         isGuideLoading = false
         persistProfiles()

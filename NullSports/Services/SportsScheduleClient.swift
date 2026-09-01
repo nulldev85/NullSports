@@ -1,14 +1,26 @@
 import Foundation
 
 struct SportsScheduleClient: Sendable {
-    func gamesToday() async -> [SportsLeague: [SportsGame]] {
-        await withTaskGroup(of: (SportsLeague, [SportsGame]).self) { group in
+    struct Snapshot: Sendable {
+        let games: [SportsLeague: [SportsGame]]
+        let loadedLeagues: Set<SportsLeague>
+    }
+
+    func gamesToday() async -> Snapshot {
+        await withTaskGroup(of: (SportsLeague, [SportsGame], Bool).self) { group in
             for league in SportsLeague.allCases {
-                group.addTask { (league, (try? await games(for: league)) ?? []) }
+                group.addTask {
+                    do { return (league, try await games(for: league), true) }
+                    catch { return (league, [], false) }
+                }
             }
             var result: [SportsLeague: [SportsGame]] = [:]
-            for await (league, games) in group { result[league] = games }
-            return result
+            var loaded: Set<SportsLeague> = []
+            for await (league, games, succeeded) in group {
+                result[league] = games
+                if succeeded { loaded.insert(league) }
+            }
+            return Snapshot(games: result, loadedLeagues: loaded)
         }
     }
 
@@ -25,8 +37,11 @@ struct SportsScheduleClient: Sendable {
         formatter.dateFormat = "yyyyMMdd"
         let day = formatter.string(from: Date())
         guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(path)/scoreboard?dates=\(day)&limit=100") else { return [] }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("curl/8.7.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         let payload = try JSONDecoder().decode(Scoreboard.self, from: data)
         return payload.events.compactMap { event in
             guard let contest = event.competitions.first,
