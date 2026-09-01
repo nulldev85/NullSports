@@ -132,7 +132,7 @@ private final class VLCPlaybackController: ObservableObject {
     func start(urls: [URL]) {
         guard let url = urls.last ?? urls.first else { return }
         stop()
-        let media = VLCMedia(url: url)
+        guard let media = VLCMedia(url: url) else { return }
         media.addOption(":network-caching=5000")
         media.addOption(":live-caching=5000")
         media.addOption(":http-reconnect=true")
