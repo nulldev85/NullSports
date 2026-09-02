@@ -63,6 +63,8 @@ struct SportsScheduleClient: Sendable {
                     id: "\(league.rawValue)-\(game.id)", league: league, start: start,
                     awayTeam: game.awayTeam, homeTeam: game.homeTeam,
                     awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
+                    awayLogo: game.awayLogo ?? "", homeLogo: game.homeLogo ?? "",
+                    awayScore: game.awayScore ?? "", homeScore: game.homeScore ?? "",
                     status: game.status, state: game.state, broadcast: game.broadcast
                 )
             }.sorted { $0.start < $1.start }
@@ -143,6 +145,10 @@ private struct CombinedEnvelope: Decodable {
         let homeTeam: String
         let awayAbbreviation: String
         let homeAbbreviation: String
+        let awayLogo: String?
+        let homeLogo: String?
+        let awayScore: String?
+        let homeScore: String?
         let status: String
         let state: String
         let broadcast: String

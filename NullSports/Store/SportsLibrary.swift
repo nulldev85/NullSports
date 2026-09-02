@@ -181,8 +181,8 @@ final class SportsLibrary: ObservableObject {
             return query.isEmpty || stream.name.localizedCaseInsensitiveContains(query)
         }
         if favoritesOnly {
-            let positions = Dictionary(uniqueKeysWithValues: favoriteStreamOrder.enumerated().map { ($0.element, $0.offset) })
-            return filtered.sorted { positions[$0.id, default: .max] < positions[$1.id, default: .max] }
+            let streamsByID = Dictionary(grouping: filtered, by: \.id).compactMapValues { $0.first }
+            return favoriteStreamOrder.compactMap { streamsByID[$0] }
         }
         return filtered.sorted {
             if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }

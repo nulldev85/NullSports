@@ -76,6 +76,10 @@ struct SportsGame: Identifiable, Hashable, Sendable {
     let homeTeam: String
     let awayAbbreviation: String
     let homeAbbreviation: String
+    let awayLogo: String
+    let homeLogo: String
+    let awayScore: String
+    let homeScore: String
     let status: String
     let state: String
     let broadcast: String

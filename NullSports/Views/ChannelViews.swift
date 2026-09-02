@@ -5,58 +5,77 @@ import VLCKit
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
     @State private var selectedLeague: SportsLeague?
+    @State private var selectedDay = 0
+    @State private var selectedStream: XtreamStream?
 
-    private var events: [SportsGame] { library.games(for: selectedLeague) }
-
+    private var dayStart: Date { Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: selectedDay, to: Date()) ?? Date()) }
+    private var nextDayStart: Date { Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart }
+    private var events: [SportsGame] { library.games(for: selectedLeague).filter { $0.start >= dayStart && $0.start < nextDayStart } }
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
-    private var tomorrowStart: Date { Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()) }
-    private var dayAfterTomorrow: Date { Calendar.current.date(byAdding: .day, value: 1, to: tomorrowStart) ?? tomorrowStart }
-    private var laterEvents: [SportsGame] { events.filter { $0.isUpcoming && $0.start < tomorrowStart } }
-    private var tomorrowEvents: [SportsGame] { events.filter { $0.isUpcoming && $0.start >= tomorrowStart && $0.start < dayAfterTomorrow } }
+    private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
     var body: some View {
         NavigationStack {
-            HStack(alignment: .top, spacing: 30) {
-                SportsSidebar(title: "MY SPORTS", selectedLeague: $selectedLeague, includeAll: true)
-                    .frame(width: 230)
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .center, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(selectedLeague?.fullName ?? "Live Sports")
-                                .font(.system(size: 34, weight: .semibold))
-                                .foregroundStyle(NullSportsStyle.text)
-                            Text(scheduleDetail)
-                                .font(.caption).foregroundStyle(NullSportsStyle.secondary)
-                        }
-                        Spacer()
-                        Text("48-HOUR SCHEDULE")
-                            .font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
-                        Button { Task { await library.reload() } } label: {
-                            Image(systemName: "arrow.clockwise").font(.callout.weight(.semibold)).frame(width: 42, height: 36)
-                        }.buttonStyle(.bordered)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    LiveFilterButton(title: "Today", selected: selectedDay == 0) { selectedDay = 0 }
+                    LiveFilterButton(title: "Tomorrow", selected: selectedDay == 1) { selectedDay = 1 }
+                    Spacer()
+                    Text(scheduleDetail).font(.caption).foregroundStyle(NullSportsStyle.secondary)
+                    Button { Task { await library.reload() } } label: {
+                        Image(systemName: "arrow.clockwise").font(.callout.weight(.semibold)).frame(width: 40, height: 34)
+                    }.buttonStyle(.bordered)
+                }
+                HStack(spacing: 8) {
+                    LiveFilterButton(title: "All", selected: selectedLeague == nil) { selectedLeague = nil }
+                    ForEach(SportsLeague.allCases) { league in
+                        LiveFilterButton(title: league.shortName, selected: selectedLeague == league) { selectedLeague = league }
                     }
-                    .frame(height: 58)
-                    if library.isLoading {
-                        ProgressView("Loading channels…")
-                    } else if events.isEmpty {
-                        EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
-                    } else {
-                        ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
-                            if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) }
-                            if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) }
-                            if !tomorrowEvents.isEmpty { ScheduleSection(title: "Tomorrow", events: tomorrowEvents) }
-                        }.padding(.horizontal, 10).padding(.vertical, 10) }
+                    Spacer()
+                }
+                if library.isLoading {
+                    ProgressView("Loading channels…")
+                } else if events.isEmpty {
+                    EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 20) {
+                            if !liveEvents.isEmpty {
+                                ScheduleSection(title: "Live now", events: liveEvents) { game in play(game) }
+                            }
+                            if !upcomingEvents.isEmpty {
+                                ScheduleSection(title: selectedDay == 0 ? "Later today" : "Tomorrow", events: upcomingEvents) { game in play(game) }
+                            }
+                        }.padding(.horizontal, 10).padding(.vertical, 8)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 34).padding(.top, 14).padding(.bottom, 22)
             .background(NullSportsStyle.background)
+            .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
         }
     }
 
     private var scheduleDetail: String {
         library.isScheduleLoading ? "Updating official schedules…" : "Today and tomorrow"
+    }
+
+    private func play(_ game: SportsGame) {
+        selectedStream = library.stream(for: game)
+    }
+}
+
+private struct LiveFilterButton: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.callout.weight(.semibold)).padding(.horizontal, 20).frame(height: 42)
+                .foregroundStyle(selected ? NullSportsStyle.text : NullSportsStyle.secondary)
+                .background(selected ? NullSportsStyle.selected : NullSportsStyle.surface)
+                .clipShape(Capsule()).overlay(Capsule().stroke(selected ? NullSportsStyle.field.opacity(0.7) : NullSportsStyle.line, lineWidth: 1))
+        }.buttonStyle(.plain)
     }
 }
 
@@ -107,14 +126,18 @@ private struct SidebarButton: View {
 private struct ScheduleSection: View {
     let title: String
     let events: [SportsGame]
+    let onPlay: (SportsGame) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 14) {
-                Text(title.uppercased()).font(.caption.weight(.bold)).tracking(1.2).foregroundStyle(NullSportsStyle.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if title == "Live now" { Circle().fill(Color(red: 0.92, green: 0.25, blue: 0.23)).frame(width: 9, height: 9) }
+                Text(title.uppercased()).font(.caption.weight(.bold)).tracking(1.5)
+                    .foregroundStyle(title == "Live now" ? Color(red: 0.95, green: 0.33, blue: 0.30) : NullSportsStyle.secondary)
+                Text("(\(events.count))").font(.caption).foregroundStyle(NullSportsStyle.secondary)
                 Rectangle().fill(NullSportsStyle.line).frame(height: 1)
             }
-            ForEach(events) { event in GameRow(event: event) }
+            ForEach(events) { event in GameEventCard(event: event) { onPlay(event) } }
         }
     }
 }
@@ -144,48 +167,100 @@ private struct EmptySchedule: View {
     }
 }
 
-private struct GameRow: View {
+private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
     let event: SportsGame
-    @State private var showPlayer = false
+    let onPlay: () -> Void
     private var stream: XtreamStream? { library.stream(for: event) }
 
     var body: some View {
-        Button { showPlayer = true } label: {
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(event.isLive ? "LIVE NOW" : event.start.formatted(date: .omitted, time: .shortened))
-                        .font(.headline.weight(.bold)).foregroundStyle(event.isLive ? .white : NullSportsStyle.text)
-                        .lineLimit(1).minimumScaleFactor(0.72)
-                    Text(event.status.uppercased())
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(event.isLive ? .white.opacity(0.75) : NullSportsStyle.secondary)
-                        .lineLimit(1).minimumScaleFactor(0.72)
+        Button(action: onPlay) {
+            VStack(spacing: 0) {
+                HStack(spacing: 24) {
+                    MatchupArtwork(event: event)
+                    VStack(alignment: .leading, spacing: 10) {
+                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam)
+                        Text("@").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 20)
+                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam)
+                        HStack(spacing: 12) {
+                            Text(event.league.shortName)
+                                .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
+                                .background(NullSportsStyle.selected).clipShape(Capsule())
+                            if event.isLive && (!event.awayScore.isEmpty || !event.homeScore.isEmpty) {
+                                Text("\(event.awayScore) – \(event.homeScore)")
+                                    .font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(Color(red: 0.96, green: 0.34, blue: 0.30))
+                            } else {
+                                Text(event.status).font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                            }
+                        }
+                    }
+                    Spacer(minLength: 20)
+                    VStack(alignment: .trailing, spacing: 22) {
+                        Text(event.isLive ? "●  LIVE" : event.start.formatted(date: .omitted, time: .shortened))
+                            .font(.callout.weight(.bold)).foregroundStyle(event.isLive ? Color(red: 0.96, green: 0.36, blue: 0.32) : NullSportsStyle.text)
+                            .padding(.horizontal, 15).frame(height: 38)
+                            .background(event.isLive ? Color(red: 0.30, green: 0.10, blue: 0.10) : NullSportsStyle.raised)
+                            .clipShape(Capsule()).overlay(Capsule().stroke(event.isLive ? Color.red.opacity(0.65) : NullSportsStyle.line, lineWidth: 1))
+                        Image(systemName: "play.fill").font(.title2).foregroundStyle(.black)
+                            .frame(width: 56, height: 56).background(NullSportsStyle.field).clipShape(Circle())
+                    }
                 }
-                .frame(width: 138, alignment: .leading)
-                Rectangle().fill(event.isLive ? NullSportsStyle.field : event.league.color).frame(width: 3, height: 68)
-                VStack(alignment: .leading, spacing: 9) {
-                    TeamLine(name: event.awayTeam, abbreviation: event.awayAbbreviation, league: event.league, secondary: false)
-                    TeamLine(name: event.homeTeam, abbreviation: event.homeAbbreviation, league: event.league, secondary: true)
+                .padding(.horizontal, 22).padding(.vertical, 18)
+                Rectangle().fill(NullSportsStyle.line).frame(height: 1)
+                HStack(spacing: 12) {
+                    Image(systemName: stream == nil ? "tv.slash" : "checkmark.circle.fill")
+                        .foregroundStyle(stream == nil ? NullSportsStyle.warning : Color(red: 0.42, green: 0.78, blue: 0.48))
+                    Text(stream?.name ?? (event.broadcast.isEmpty ? "No matching channel" : event.broadcast))
+                        .font(.callout.weight(.medium)).foregroundStyle(stream == nil ? NullSportsStyle.secondary : Color(red: 0.50, green: 0.82, blue: 0.55)).lineLimit(1)
+                    Spacer()
+                    if stream == nil {
+                        Label("No channel", systemImage: "display").font(.caption.weight(.semibold)).foregroundStyle(NullSportsStyle.secondary)
+                    }
                 }
-                Spacer(minLength: 20)
-                VStack(alignment: .trailing, spacing: 6) {
-                    Text(event.league.shortName).font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
-                    Text(event.broadcast.isEmpty ? (stream?.name ?? "No matching channel") : event.broadcast)
-                        .font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
-                        .multilineTextAlignment(.trailing)
-                }
-                .frame(width: 190, alignment: .trailing)
-                Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
+                .padding(.horizontal, 22).frame(height: 50)
             }
-            .padding(.horizontal, 20).frame(minHeight: 94)
-            .background(event.isLive ? NullSportsStyle.liveSurface : NullSportsStyle.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(event.isLive ? NullSportsStyle.liveBorder : NullSportsStyle.line, lineWidth: 1))
+            .background(event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(event.isLive ? Color.red.opacity(0.48) : NullSportsStyle.line, lineWidth: 1))
         }
         .buttonStyle(.card)
         .disabled(stream == nil)
-        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: stream.map { library.playbackURLs(for: $0) } ?? []) }
+    }
+}
+
+private struct MatchupArtwork: View {
+    let event: SportsGame
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10).fill(NullSportsStyle.raised)
+            HStack(spacing: 16) {
+                TeamLogo(url: event.awayLogo, fallback: event.awayAbbreviation).frame(width: 76, height: 76)
+                Text("VS").font(.caption2.weight(.bold)).foregroundStyle(NullSportsStyle.secondary)
+                    .frame(width: 32, height: 32).background(NullSportsStyle.background).clipShape(Circle())
+                TeamLogo(url: event.homeLogo, fallback: event.homeAbbreviation).frame(width: 76, height: 76)
+            }
+        }.frame(width: 260, height: 150)
+    }
+}
+
+private struct GameTeamLine: View {
+    let logo: String
+    let name: String
+    var body: some View {
+        HStack(spacing: 12) {
+            TeamLogo(url: logo, fallback: String(name.prefix(3)).uppercased()).frame(width: 34, height: 34)
+            Text(name).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+        }
+    }
+}
+
+private struct TeamLogo: View {
+    let url: String
+    let fallback: String
+    var body: some View {
+        AsyncImage(url: URL(string: url)) { image in image.resizable().scaledToFit() } placeholder: {
+            Text(fallback).font(.caption2.weight(.bold)).foregroundStyle(NullSportsStyle.secondary)
+        }
     }
 }
 
@@ -269,8 +344,12 @@ struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = false
-    @State private var showSearch = false
-    private var filtered: [XtreamStream] { library.guideStreams(categoryID: selectedCategoryID, favoritesOnly: favoritesOnly, query: "") }
+    @State private var searchActive = false
+    @State private var query = ""
+    @State private var selectedStream: XtreamStream?
+    private var filtered: [XtreamStream] {
+        library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
+    }
     private var selectedTitle: String {
         if favoritesOnly { return "Favorites" }
         return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
@@ -283,17 +362,30 @@ struct GuideView: View {
                     .frame(width: 330)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 18) {
-                        Text(selectedTitle)
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(NullSportsStyle.text)
-                            .lineLimit(1)
+                        if searchActive {
+                            TextField("Channel name", text: $query)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 28, weight: .medium))
+                                .foregroundStyle(NullSportsStyle.text)
+                                .padding(.horizontal, 16).frame(maxWidth: 560, minHeight: 44)
+                                .background(NullSportsStyle.raised)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        } else {
+                            Text(selectedTitle)
+                                .font(.system(size: 30, weight: .semibold))
+                                .foregroundStyle(NullSportsStyle.text)
+                                .lineLimit(1)
+                        }
                         Spacer()
                         if library.isGuideLoading { ProgressView().controlSize(.small) }
                         Text("\(filtered.count) channels")
                             .font(.caption.weight(.bold)).tracking(1.3)
                             .foregroundStyle(NullSportsStyle.secondary)
-                        Button { showSearch = true } label: {
-                            Label("Search", systemImage: "magnifyingglass")
+                        Button {
+                            searchActive.toggle()
+                            if !searchActive { query = "" }
+                        } label: {
+                            Label(searchActive ? "Close" : "Search", systemImage: searchActive ? "xmark" : "magnifyingglass")
                                 .font(.callout.weight(.semibold))
                         }.buttonStyle(.bordered)
                     }
@@ -305,7 +397,9 @@ struct GuideView: View {
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 4) {
-                                ForEach(filtered) { GuideChannelRow(stream: $0, favoritesMode: favoritesOnly) }
+                                ForEach(filtered) { stream in
+                                    GuideChannelRow(stream: stream, favoritesMode: favoritesOnly && !searchActive) { selectedStream = stream }
+                                }
                             }.padding(.vertical, 2)
                         }
                     }
@@ -313,7 +407,7 @@ struct GuideView: View {
             }
             .padding(.horizontal, 36).padding(.top, 16).padding(.bottom, 22)
             .background(NullSportsStyle.background)
-            .fullScreenCover(isPresented: $showSearch) { GuideSearchView() }
+            .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
         }
     }
 }
@@ -387,13 +481,13 @@ private struct GuideChannelRow: View {
     @Environment(\.isFocused) private var isFocused
     let stream: XtreamStream
     let favoritesMode: Bool
-    @State private var showPlayer = false
+    let onPlay: () -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
     private var current: CurrentProgram? { programs.first(where: \.isLive) }
     private var next: CurrentProgram? { programs.first { $0.start > Date() } }
 
     var body: some View {
-        Button { showPlayer = true } label: {
+        Button(action: onPlay) {
             HStack(spacing: 18) {
                 HStack(spacing: 12) {
                     Text(stream.num.map(String.init) ?? "—")
@@ -425,7 +519,6 @@ private struct GuideChannelRow: View {
                 Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
             }
         }
-        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }
     }
 }
 
@@ -460,32 +553,6 @@ private struct GuideProgramCell: View {
         let duration = program.end.timeIntervalSince(program.start)
         guard duration > 0 else { return 0 }
         return CGFloat(min(max(Date().timeIntervalSince(program.start) / duration, 0), 1))
-    }
-}
-
-private struct GuideSearchView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var library: SportsLibrary
-    @State private var query = ""
-    private var results: [XtreamStream] { library.guideStreams(categoryID: nil, favoritesOnly: false, query: query) }
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Search channels").font(.system(size: 34, weight: .semibold)).foregroundStyle(NullSportsStyle.text)
-                    Spacer()
-                    Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
-                }
-                if query.isEmpty {
-                    Text("Start typing to find a channel.").font(.title3).foregroundStyle(NullSportsStyle.secondary)
-                } else {
-                    ScrollView { LazyVStack(spacing: 5) { ForEach(results) { GuideChannelRow(stream: $0, favoritesMode: false) } } }
-                }
-            }
-            .padding(.horizontal, 52).padding(.vertical, 24).background(NullSportsStyle.background)
-            .searchable(text: $query, prompt: "Channel name")
-        }
     }
 }
 
