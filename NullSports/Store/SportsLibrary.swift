@@ -8,6 +8,12 @@ private struct LibraryCache: Codable, Sendable {
     let libraryUpdatedAt: Date?
 }
 
+private struct SportsIndex: Sendable {
+    let professional: [XtreamStream]
+    let leagues: [SportsLeague: [XtreamStream]]
+    let searchText: [Int: String]
+}
+
 @MainActor
 final class SportsLibrary: ObservableObject {
     @Published private(set) var profiles: [XtreamProfile] = []
@@ -30,6 +36,7 @@ final class SportsLibrary: ObservableObject {
     private let favoritesKey = "NullSports.favoriteStreams"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
+    private var streamSearchText: [Int: String] = [:]
     private var gameStreamCache: [String: XtreamStream] = [:]
     private var gameMatchSignatures: [String: String] = [:]
     private var scheduleRefreshInFlight = false
@@ -57,25 +64,42 @@ final class SportsLibrary: ObservableObject {
     }
 
     var hasProfile: Bool { activeProfile != nil }
-    private func rebuildProfessionalStreams() {
+    private func rebuildProfessionalStreams() async {
+        let currentCategories = categories
+        let currentStreams = streams
+        let currentPrograms = programsByChannel
+        let index = await Task.detached(priority: .utility) {
+            Self.makeSportsIndex(categories: currentCategories, streams: currentStreams, programs: currentPrograms)
+        }.value
+        professionalStreams = index.professional
+        leagueStreamCache = index.leagues
+        streamSearchText = index.searchText
+        rebuildGameStreamCache(force: true)
+    }
+
+    nonisolated private static func makeSportsIndex(
+        categories: [XtreamCategory], streams: [XtreamStream], programs: [String: [CurrentProgram]]
+    ) -> SportsIndex {
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
-        professionalStreams = streams.filter { stream in
+        let programText = programs.mapValues { listings in
+            listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
+        }
+        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
+        var searchText: [Int: String] = [:]
+        let professional = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
-            guard stream.streamType?.lowercased() != "radio_streams",
-                  stream.streamType?.lowercased() != "radio" else { return false }
-            guard !isExcluded(stream, categoryName: category) else { return false }
-            let program = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ")
-            let searchable = "\(stream.name) \(category) \(program)"
+            let type = stream.streamType?.lowercased()
+            guard type != "radio_streams", type != "radio" else { return false }
+            let base = "\(stream.name) \(category)".lowercased()
+            guard !blocked.contains(where: { base.contains($0) }) else { return false }
+            let searchable = "\(base) \(stream.epgChannelID.flatMap { programText[$0] } ?? "")"
+            searchText[stream.id] = searchable
             return SportsLeague.allCases.contains { $0.matches(searchable) }
         }
-        leagueStreamCache = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
-            (league, professionalStreams.filter { stream in
-                let category = categoryNames[stream.categoryID ?? ""] ?? ""
-                let listings = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ")
-                return league.matches("\(stream.name) \(category) \(listings)")
-            })
+        let leagues = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+            (league, professional.filter { league.matches(searchText[$0.id] ?? $0.name) })
         })
-        rebuildGameStreamCache(force: true)
+        return SportsIndex(professional: professional, leagues: leagues, searchText: searchText)
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -104,7 +128,7 @@ final class SportsLibrary: ObservableObject {
             programsByChannel = cached.programsByChannel
             guideUpdatedAt = cached.guideUpdatedAt
             libraryUpdatedAt = cached.libraryUpdatedAt
-            rebuildProfessionalStreams()
+            await rebuildProfessionalStreams()
         }
         refreshSchedule()
         if isLibraryFresh && isGuideFresh { return }
@@ -127,7 +151,7 @@ final class SportsLibrary: ObservableObject {
             categories = try await loadedCategories
             streams = try await loadedStreams
             libraryUpdatedAt = Date()
-            rebuildProfessionalStreams()
+            await rebuildProfessionalStreams()
             isLoading = false
             saveCache(profileID: profile.id)
             if forceGuide { refreshGuide(client: client, profileID: profile.id) }
@@ -144,7 +168,7 @@ final class SportsLibrary: ObservableObject {
             guard let self, self.activeProfile?.id == profileID else { return }
             self.programsByChannel = programs
             self.guideUpdatedAt = Date()
-            self.rebuildProfessionalStreams()
+            await self.rebuildProfessionalStreams()
             self.isGuideLoading = false
             self.saveCache(profileID: profileID)
         }
@@ -249,7 +273,7 @@ final class SportsLibrary: ObservableObject {
         let broadcast = game.broadcast.lowercased()
         func rank(_ stream: XtreamStream) -> (namedTeamMatches: Int, score: Int) {
             let name = stream.name.lowercased()
-            let guide = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
+            let guide = streamSearchText[stream.id] ?? stream.name.lowercased()
             let awayInName = name.contains(away) || name.contains(awayNickname)
             let homeInName = name.contains(home) || name.contains(homeNickname)
             let namedMatches = (awayInName ? 1 : 0) + (homeInName ? 1 : 0)
@@ -366,6 +390,7 @@ final class SportsLibrary: ObservableObject {
         streams = []
         professionalStreams = []
         leagueStreamCache = [:]
+        streamSearchText = [:]
         gameStreamCache = [:]
         gameMatchSignatures = [:]
         programsByChannel = [:]
