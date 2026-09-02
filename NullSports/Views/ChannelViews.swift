@@ -276,19 +276,184 @@ private struct ChannelLogo: View {
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @State private var query = ""
-    private var filtered: [XtreamStream] {
-        query.isEmpty ? library.professionalStreams : library.professionalStreams.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    @State private var selectedCategoryID: String?
+    @State private var favoritesOnly = false
+    private var filtered: [XtreamStream] { library.guideStreams(categoryID: selectedCategoryID, favoritesOnly: favoritesOnly, query: query) }
+    private var selectedTitle: String {
+        if favoritesOnly { return "Favorites" }
+        return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
     }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 22) {
-                ScreenHeading(title: "Channel guide", detail: "NFL, NBA, NHL and MLB")
-                ScrollView { LazyVStack(spacing: 12) { ForEach(filtered) { ChannelRow(stream: $0) } }.padding(.vertical, 8) }
+            HStack(alignment: .top, spacing: 42) {
+                GuideSidebar(selectedCategoryID: $selectedCategoryID, favoritesOnly: $favoritesOnly)
+                    .frame(width: 300)
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .bottom) {
+                        ScreenHeading(title: selectedTitle, detail: guideDetail)
+                        Spacer()
+                        Text("\(filtered.count) CHANNELS")
+                            .font(.caption.weight(.bold)).tracking(1.3)
+                            .foregroundStyle(NullSportsStyle.secondary)
+                    }
+                    GuideColumnHeader()
+                    if filtered.isEmpty {
+                        Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
+                            .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 38)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 7) {
+                                ForEach(filtered) { GuideChannelRow(stream: $0) }
+                            }.padding(.vertical, 4)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 120).padding(.vertical, 42).background(NullSportsStyle.background)
+            .padding(.horizontal, 58).padding(.vertical, 38).background(NullSportsStyle.background)
             .searchable(text: $query, prompt: "Search channels")
         }
+    }
+
+    private var guideDetail: String {
+        library.isGuideLoading ? "Updating program listings…" : "Now playing and up next"
+    }
+}
+
+private struct GuideSidebar: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @Binding var selectedCategoryID: String?
+    @Binding var favoritesOnly: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("GUIDE").font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 16)
+            GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
+                selectedCategoryID = nil; favoritesOnly = false
+            }
+            GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly) {
+                selectedCategoryID = nil; favoritesOnly = true
+            }
+            HStack(spacing: 12) {
+                Text("CATEGORIES").font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
+                Rectangle().fill(NullSportsStyle.line).frame(height: 1)
+            }.padding(.leading, 16).padding(.top, 14)
+            ScrollView {
+                LazyVStack(spacing: 7) {
+                    ForEach(library.categories) { category in
+                        GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
+                            selectedCategoryID = category.id; favoritesOnly = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct GuideSidebarButton: View {
+    @Environment(\.isFocused) private var isFocused
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                Image(systemName: symbol).frame(width: 25)
+                Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+                Spacer()
+            }
+            .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
+            .padding(.horizontal, 16).frame(height: 50)
+            .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }.buttonStyle(.plain)
+    }
+}
+
+private struct GuideColumnHeader: View {
+    var body: some View {
+        HStack(spacing: 18) {
+            Text("CHANNEL").frame(width: 290, alignment: .leading)
+            Text("ON NOW").frame(maxWidth: .infinity, alignment: .leading)
+            Text("UP NEXT").frame(width: 270, alignment: .leading)
+            Color.clear.frame(width: 44)
+        }
+        .font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
+        .padding(.horizontal, 18)
+    }
+}
+
+private struct GuideChannelRow: View {
+    @EnvironmentObject private var library: SportsLibrary
+    let stream: XtreamStream
+    @State private var showPlayer = false
+    private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
+    private var current: CurrentProgram? { programs.first(where: \.isLive) }
+    private var next: CurrentProgram? { programs.first { $0.start > Date() } }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button { showPlayer = true } label: {
+                HStack(spacing: 18) {
+                    HStack(spacing: 12) {
+                        Text(stream.num.map(String.init) ?? "—")
+                            .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).frame(width: 42, alignment: .trailing)
+                        ChannelLogo(url: stream.streamIcon).frame(width: 54, height: 44).clipped()
+                        Text(stream.name).font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(2)
+                    }.frame(width: 290, alignment: .leading)
+                    GuideProgramCell(program: current, empty: "No listing", showsProgress: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    GuideProgramCell(program: next, empty: "No upcoming listing", showsProgress: false)
+                        .frame(width: 270, alignment: .leading)
+                }
+                .padding(.horizontal, 18).frame(minHeight: 76)
+                .background(NullSportsStyle.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }.buttonStyle(.card)
+            Button { library.toggleFavorite(stream) } label: {
+                Image(systemName: library.favoriteStreamIDs.contains(stream.id) ? "star.fill" : "star")
+                    .font(.body).foregroundStyle(library.favoriteStreamIDs.contains(stream.id) ? NullSportsStyle.field : NullSportsStyle.secondary)
+                    .frame(width: 44, height: 58)
+            }.buttonStyle(.plain)
+        }
+        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }
+    }
+}
+
+private struct GuideProgramCell: View {
+    let program: CurrentProgram?
+    let empty: String
+    let showsProgress: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let program {
+                Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                HStack(spacing: 10) {
+                    Text(program.start.formatted(date: .omitted, time: .shortened))
+                        .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+                    if showsProgress {
+                        GeometryReader { proxy in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(NullSportsStyle.raised)
+                                Capsule().fill(NullSportsStyle.field).frame(width: proxy.size.width * progress(program))
+                            }
+                        }.frame(width: 72, height: 4)
+                    }
+                }
+            } else {
+                Text(empty).font(.callout).foregroundStyle(NullSportsStyle.secondary)
+            }
+        }
+    }
+
+    private func progress(_ program: CurrentProgram) -> CGFloat {
+        let duration = program.end.timeIntervalSince(program.start)
+        guard duration > 0 else { return 0 }
+        return CGFloat(min(max(Date().timeIntervalSince(program.start) / duration, 0), 1))
     }
 }
 
