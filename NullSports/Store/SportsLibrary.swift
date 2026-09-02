@@ -8,7 +8,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var streams: [XtreamStream] = []
     @Published private(set) var professionalStreams: [XtreamStream] = []
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
-    @Published private(set) var favoriteStreamIDs: Set<Int> = []
+    @Published private(set) var favoriteStreamOrder: [Int] = []
     @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
     @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
     @Published private(set) var scheduleErrorMessage: String?
@@ -33,7 +33,7 @@ final class SportsLibrary: ObservableObject {
         } else {
             activeProfile = profiles.first
         }
-        favoriteStreamIDs = Set(UserDefaults.standard.array(forKey: favoritesKey) as? [Int] ?? [])
+        favoriteStreamOrder = UserDefaults.standard.array(forKey: favoritesKey) as? [Int] ?? []
     }
 
     var hasProfile: Bool { activeProfile != nil }
@@ -173,22 +173,52 @@ final class SportsLibrary: ObservableObject {
     }
 
     func guideStreams(categoryID: String?, favoritesOnly: Bool, query: String) -> [XtreamStream] {
-        streams.filter { stream in
+        let filtered = streams.filter { stream in
             guard stream.streamType?.lowercased() != "radio_streams",
                   stream.streamType?.lowercased() != "radio" else { return false }
-            if favoritesOnly && !favoriteStreamIDs.contains(stream.id) { return false }
+            if favoritesOnly && !isFavorite(stream) { return false }
             if let categoryID, stream.categoryID != categoryID { return false }
             return query.isEmpty || stream.name.localizedCaseInsensitiveContains(query)
-        }.sorted {
+        }
+        if favoritesOnly {
+            let positions = Dictionary(uniqueKeysWithValues: favoriteStreamOrder.enumerated().map { ($0.element, $0.offset) })
+            return filtered.sorted { positions[$0.id, default: .max] < positions[$1.id, default: .max] }
+        }
+        return filtered.sorted {
             if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }
             return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
 
-    func toggleFavorite(_ stream: XtreamStream) {
-        if favoriteStreamIDs.contains(stream.id) { favoriteStreamIDs.remove(stream.id) }
-        else { favoriteStreamIDs.insert(stream.id) }
-        UserDefaults.standard.set(Array(favoriteStreamIDs).sorted(), forKey: favoritesKey)
+    func isFavorite(_ stream: XtreamStream) -> Bool {
+        favoriteStreamOrder.contains(stream.id)
+    }
+
+    func addFavorite(_ stream: XtreamStream) {
+        guard !isFavorite(stream) else { return }
+        favoriteStreamOrder.append(stream.id)
+        persistFavorites()
+    }
+
+    func removeFavorite(_ stream: XtreamStream) {
+        favoriteStreamOrder.removeAll { $0 == stream.id }
+        persistFavorites()
+    }
+
+    func canMoveFavorite(_ stream: XtreamStream, offset: Int) -> Bool {
+        guard let index = favoriteStreamOrder.firstIndex(of: stream.id) else { return false }
+        return favoriteStreamOrder.indices.contains(index + offset)
+    }
+
+    func moveFavorite(_ stream: XtreamStream, offset: Int) {
+        guard let index = favoriteStreamOrder.firstIndex(of: stream.id),
+              favoriteStreamOrder.indices.contains(index + offset) else { return }
+        favoriteStreamOrder.swapAt(index, index + offset)
+        persistFavorites()
+    }
+
+    private func persistFavorites() {
+        UserDefaults.standard.set(favoriteStreamOrder, forKey: favoritesKey)
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
