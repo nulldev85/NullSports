@@ -48,7 +48,10 @@ struct SportsScheduleClient: Sendable {
                 )
             }.sorted { $0.start < $1.start }
         }
-        return Snapshot(games: result, loadedLeagues: Set(SportsLeague.allCases), errorMessage: nil)
+        let failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:)))
+        let loaded = Set(SportsLeague.allCases).subtracting(failed)
+        let errorMessage = failed.isEmpty ? nil : "Temporarily unavailable: \(failed.map(\.shortName).sorted().joined(separator: ", "))."
+        return Snapshot(games: result, loadedLeagues: loaded, errorMessage: errorMessage)
     }
 
     private static func describe(_ error: Error) -> String {
@@ -88,6 +91,17 @@ private struct CombinedEnvelope: Decodable {
     let schema: Int
     let date: String
     let leagues: [String: [Game]]
+    let failedLeagues: [String]
+
+    enum CodingKeys: String, CodingKey { case schema, date, leagues, failedLeagues }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try values.decode(Int.self, forKey: .schema)
+        date = try values.decode(String.self, forKey: .date)
+        leagues = try values.decode([String: [Game]].self, forKey: .leagues)
+        failedLeagues = try values.decodeIfPresent([String].self, forKey: .failedLeagues) ?? []
+    }
 
     struct Game: Decodable {
         let id: String

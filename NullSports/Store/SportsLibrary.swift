@@ -157,7 +157,9 @@ final class SportsLibrary: ObservableObject {
                 + (text.contains(game.league.rawValue) ? 1 : 0)
         }
         let ranked = candidates.map { ($0, score($0)) }.sorted { $0.1 > $1.1 }
-        guard let best = ranked.first, best.1 > 0 else { return nil }
+        // A league-only or generic network match is not enough to identify a game.
+        // Require at least one strong team match instead of opening an unrelated feed.
+        guard let best = ranked.first, best.1 >= 5 else { return nil }
         return best.0
     }
 
