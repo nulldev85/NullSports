@@ -1,7 +1,9 @@
 import SwiftUI
+import Foundation
 
 struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -13,7 +15,17 @@ struct RootView: View {
         }
         .background(NullSportsStyle.background.ignoresSafeArea())
         .task {
-            if library.hasProfile && library.streams.isEmpty { await library.reload() }
+            guard library.hasProfile else { return }
+            if library.streams.isEmpty { await library.reload() }
+            else { library.refreshSchedule() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && library.hasProfile && !library.streams.isEmpty {
+                library.refreshSchedule()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            if library.hasProfile { library.refreshSchedule() }
         }
         .alert("Couldn’t Connect", isPresented: Binding(
             get: { library.errorMessage != nil },
@@ -41,4 +53,3 @@ struct MainView: View {
         .tint(NullSportsStyle.field)
     }
 }
-
