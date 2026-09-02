@@ -116,7 +116,7 @@ struct XtreamEnvelope: Codable {
     }
 }
 
-enum SportsLeague: String, CaseIterable, Identifiable, Sendable {
+enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     case nfl, nba, nhl, mlb
 
     var id: String { rawValue }
