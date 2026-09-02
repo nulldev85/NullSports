@@ -217,18 +217,30 @@ final class SportsLibrary: ObservableObject {
         let awayNickname = away.split(separator: " ").last.map(String.init) ?? away
         let homeNickname = home.split(separator: " ").last.map(String.init) ?? home
         let broadcast = game.broadcast.lowercased()
-        func score(_ stream: XtreamStream) -> Int {
+        func rank(_ stream: XtreamStream) -> (namedTeamMatches: Int, score: Int) {
+            let name = stream.name.lowercased()
             let guide = programs(for: stream).map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
-            let text = "\(stream.name.lowercased()) \(guide)"
-            return (text.contains(away) ? 5 : 0) + (text.contains(home) ? 5 : 0)
-                + (text.contains(awayNickname) ? 3 : 0) + (text.contains(homeNickname) ? 3 : 0)
-                + (!broadcast.isEmpty && text.contains(broadcast) ? 4 : 0)
-                + (text.contains(game.league.rawValue) ? 1 : 0)
+            let awayInName = name.contains(away) || name.contains(awayNickname)
+            let homeInName = name.contains(home) || name.contains(homeNickname)
+            let namedMatches = (awayInName ? 1 : 0) + (homeInName ? 1 : 0)
+            let score = (name.contains(away) ? 16 : 0) + (name.contains(home) ? 16 : 0)
+                + (name.contains(awayNickname) ? 10 : 0) + (name.contains(homeNickname) ? 10 : 0)
+                + (guide.contains(away) ? 5 : 0) + (guide.contains(home) ? 5 : 0)
+                + (guide.contains(awayNickname) ? 3 : 0) + (guide.contains(homeNickname) ? 3 : 0)
+                + (!broadcast.isEmpty && name.contains(broadcast) ? 5 : 0)
+                + (!broadcast.isEmpty && guide.contains(broadcast) ? 2 : 0)
+                + (name.contains(game.league.rawValue) ? 1 : 0)
+            return (namedMatches, score)
         }
-        let ranked = candidates.map { ($0, score($0)) }.sorted { $0.1 > $1.1 }
+        let ranked = candidates.map { ($0, rank($0)) }.sorted {
+            if $0.1.namedTeamMatches != $1.1.namedTeamMatches {
+                return $0.1.namedTeamMatches > $1.1.namedTeamMatches
+            }
+            return $0.1.score > $1.1.score
+        }
         // A league-only or generic network match is not enough to identify a game.
         // Require at least one strong team match instead of opening an unrelated feed.
-        guard let best = ranked.first, best.1 >= 5 else { return nil }
+        guard let best = ranked.first, best.1.score >= 5 else { return nil }
         return best.0
     }
 
