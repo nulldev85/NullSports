@@ -58,7 +58,7 @@ struct SportsScheduleClient: Sendable {
                 throw ScheduleError.missingLeague(league.rawValue.uppercased())
             }
             result[league] = remoteGames.compactMap { game in
-                guard let start = ISO8601DateFormatter().date(from: game.start) else { return nil }
+                guard let start = Self.parseDate(game.start) else { return nil }
                 return SportsGame(
                     id: "\(league.rawValue)-\(game.id)", league: league, start: start,
                     awayTeam: game.awayTeam, homeTeam: game.homeTeam,
@@ -84,6 +84,20 @@ struct SportsScheduleClient: Sendable {
             }
         }
         return error.localizedDescription
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let internet = ISO8601DateFormatter()
+        if let date = internet.date(from: value) { return date }
+        let formats = ["yyyy-MM-dd'T'HH:mmXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX", "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"]
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
+        }
+        return nil
     }
 
     private static func path(_ codingPath: [CodingKey]) -> String {
