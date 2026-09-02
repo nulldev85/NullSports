@@ -64,17 +64,16 @@ struct LiveView: View {
 }
 
 private struct LiveFilterButton: View {
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let title: String
     let selected: Bool
     let action: () -> Void
     var body: some View {
-        Button(action: action) {
-            Text(title).font(.callout.weight(.semibold)).padding(.horizontal, 20).frame(height: 42)
-                .foregroundStyle(isFocused ? Color.black : (selected ? NullSportsStyle.text : NullSportsStyle.secondary))
-                .background(isFocused ? NullSportsStyle.field : (selected ? NullSportsStyle.selected : NullSportsStyle.surface))
-                .clipShape(Capsule())
-        }.buttonStyle(.plain).focusEffectDisabled()
+        Text(title).font(.callout.weight(.semibold)).padding(.horizontal, 20).frame(height: 42)
+            .foregroundStyle(isFocused ? Color.black : (selected ? NullSportsStyle.text : NullSportsStyle.secondary))
+            .background(isFocused ? NullSportsStyle.field : (selected ? NullSportsStyle.selected : NullSportsStyle.surface))
+            .clipShape(Capsule())
+            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
     }
 }
 
@@ -97,29 +96,26 @@ private struct SportsSidebar: View {
 }
 
 private struct SidebarButton: View {
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 15) {
-                Image(systemName: symbol).font(.callout).frame(width: 24)
-                Text(title).font(.callout.weight(.semibold))
-                Spacer()
-            }
-            .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
-            .padding(.horizontal, 14).frame(height: 48)
-            .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(alignment: .leading) {
-                if selected { Rectangle().fill(NullSportsStyle.field).frame(width: 3, height: 26).padding(.leading, 4) }
-            }
+        HStack(spacing: 15) {
+            Image(systemName: symbol).font(.callout).frame(width: 24)
+            Text(title).font(.callout.weight(.semibold))
+            Spacer()
         }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
+        .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
+        .padding(.horizontal, 14).frame(height: 48)
+        .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(alignment: .leading) {
+            if selected { Rectangle().fill(NullSportsStyle.field).frame(width: 3, height: 26).padding(.leading, 4) }
+        }
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
     }
 }
 
@@ -169,14 +165,13 @@ private struct EmptySchedule: View {
 
 private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let event: SportsGame
     let onPlay: () -> Void
     private var stream: XtreamStream? { library.stream(for: event) }
 
     var body: some View {
-        Button(action: onPlay) {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 HStack(spacing: 24) {
                     MatchupArtwork(event: event)
                     VStack(alignment: .leading, spacing: 10) {
@@ -221,14 +216,11 @@ private struct GameEventCard: View {
                     }
                 }
                 .padding(.horizontal, 22).frame(height: 50)
-            }
-            .background(isFocused ? NullSportsStyle.focused : (event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? Color.red.opacity(0.42) : NullSportsStyle.line, lineWidth: 1))
         }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
-        .disabled(stream == nil)
+        .background(isFocused ? NullSportsStyle.focused : (event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? Color.red.opacity(0.42) : NullSportsStyle.line, lineWidth: 1))
+        .contentShape(Rectangle()).focusable(stream != nil).focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
     }
 }
 
@@ -309,27 +301,28 @@ struct LeaguesView: View {
 
 private struct ChannelRow: View {
     @EnvironmentObject private var library: SportsLibrary
+    @FocusState private var isFocused: Bool
     let stream: XtreamStream
     @State private var showPlayer = false
 
     var body: some View {
-        Button { showPlayer = true } label: {
-            HStack(spacing: 20) {
-                ChannelLogo(url: stream.streamIcon)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(stream.name).font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(2)
-                    if let program = library.program(for: stream) {
-                        Text(program.title).font(.callout).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
-                    }
+        HStack(spacing: 20) {
+            ChannelLogo(url: stream.streamIcon)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(stream.name).font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(2)
+                if let program = library.program(for: stream) {
+                    Text(program.title).font(.callout).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
                 }
-                Spacer()
-                Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
             }
-            .padding(.horizontal, 22).frame(minHeight: 90).background(NullSportsStyle.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(NullSportsStyle.line, lineWidth: 1))
+            Spacer()
+            Label("Watch", systemImage: "play.fill").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
+                .padding(.horizontal, 15).frame(height: 38).background(NullSportsStyle.selected).clipShape(Capsule())
         }
-        .buttonStyle(.card)
+        .padding(.horizontal, 22).frame(minHeight: 86)
+        .background(isFocused ? NullSportsStyle.focused : NullSportsStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9).inset(by: 1).stroke(NullSportsStyle.line, lineWidth: 1))
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture { showPlayer = true }
         .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }
     }
 }
@@ -445,41 +438,39 @@ private struct GuideSidebar: View {
 }
 
 private struct GuideSidebarButton: View {
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 13) {
-                Image(systemName: symbol).font(.caption).frame(width: 22)
-                Text(title).font(.callout.weight(.medium)).lineLimit(1).minimumScaleFactor(0.78)
-                Spacer()
-            }
-            .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
-            .padding(.horizontal, 14).frame(height: 44)
-            .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }.buttonStyle(.plain).focusEffectDisabled()
+        HStack(spacing: 13) {
+            Image(systemName: symbol).font(.caption).frame(width: 22)
+            Text(title).font(.callout.weight(.medium)).lineLimit(1).minimumScaleFactor(0.78)
+            Spacer()
+        }
+        .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
+        .padding(.horizontal, 14).frame(height: 44)
+        .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
     }
 }
 
 private struct GuideHeaderButton: View {
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
     let action: () -> Void
     var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(isFocused ? Color.black : NullSportsStyle.text)
-                .padding(.horizontal, 18).frame(height: 42)
-                .background(isFocused ? NullSportsStyle.field : NullSportsStyle.raised)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }.buttonStyle(.plain).focusEffectDisabled()
+        Label(title, systemImage: symbol)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(isFocused ? Color.black : NullSportsStyle.text)
+            .padding(.horizontal, 18).frame(height: 42)
+            .background(isFocused ? NullSportsStyle.field : NullSportsStyle.raised)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
     }
 }
 
@@ -497,7 +488,7 @@ private struct GuideColumnHeader: View {
 
 private struct GuideChannelRow: View {
     @EnvironmentObject private var library: SportsLibrary
-    @Environment(\.isFocused) private var isFocused
+    @FocusState private var isFocused: Bool
     let stream: XtreamStream
     let favoritesMode: Bool
     let onPlay: () -> Void
@@ -506,8 +497,7 @@ private struct GuideChannelRow: View {
     private var next: CurrentProgram? { programs.first { $0.start > Date() } }
 
     var body: some View {
-        Button(action: onPlay) {
-            HStack(spacing: 18) {
+        HStack(spacing: 18) {
                 HStack(spacing: 12) {
                     Text(stream.num.map(String.init) ?? "—")
                         .font(.caption2.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
@@ -519,14 +509,12 @@ private struct GuideChannelRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 GuideProgramCell(program: next, empty: "No upcoming listing", showsProgress: false)
                     .frame(width: 250, alignment: .leading)
-            }
-            .padding(.horizontal, 14).frame(height: 62)
-            .background(isFocused ? NullSportsStyle.focused : NullSportsStyle.surface)
-            .clipShape(RoundedRectangle(cornerRadius: isFocused ? 8 : 4, style: .continuous))
-            .overlay(alignment: .bottom) { if !isFocused { Rectangle().fill(NullSportsStyle.line).frame(height: 1) } }
         }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
+        .padding(.horizontal, 14).frame(height: 62)
+        .background(isFocused ? NullSportsStyle.focused : NullSportsStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: isFocused ? 8 : 4, style: .continuous))
+        .overlay(alignment: .bottom) { if !isFocused { Rectangle().fill(NullSportsStyle.line).frame(height: 1) } }
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
         .contextMenu {
             if favoritesMode {
                 Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
