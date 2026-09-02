@@ -39,7 +39,7 @@ struct LiveView: View {
                             if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) }
                             if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) }
                             if !tomorrowEvents.isEmpty { ScheduleSection(title: "Tomorrow", events: tomorrowEvents) }
-                        }.padding(.vertical, 8) }
+                        }.padding(.horizontal, 10).padding(.vertical, 10) }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,15 +167,18 @@ private struct GameRow: View {
 
     var body: some View {
         Button { showPlayer = true } label: {
-            HStack(spacing: 22) {
+            HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(event.isLive ? "LIVE NOW" : event.start.formatted(date: .omitted, time: .shortened))
                         .font(.headline.weight(.bold)).foregroundStyle(event.isLive ? .white : NullSportsStyle.text)
-                        .lineLimit(2)
-                    Text(event.status.uppercased()).font(.caption2.weight(.bold)).foregroundStyle(event.isLive ? .white.opacity(0.75) : NullSportsStyle.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.72)
+                    Text(event.status.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(event.isLive ? .white.opacity(0.75) : NullSportsStyle.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.72)
                 }
-                .frame(width: 98, alignment: .leading)
-                Rectangle().fill(event.isLive ? NullSportsStyle.field : event.league.color).frame(width: 3, height: 72)
+                .frame(width: 138, alignment: .leading)
+                Rectangle().fill(event.isLive ? NullSportsStyle.field : event.league.color).frame(width: 3, height: 68)
                 VStack(alignment: .leading, spacing: 9) {
                     TeamLine(name: event.awayTeam, abbreviation: event.awayAbbreviation, league: event.league, secondary: false)
                     TeamLine(name: event.homeTeam, abbreviation: event.homeAbbreviation, league: event.league, secondary: true)
@@ -187,10 +190,10 @@ private struct GameRow: View {
                         .font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
                         .multilineTextAlignment(.trailing)
                 }
-                .frame(width: 210, alignment: .trailing)
+                .frame(width: 190, alignment: .trailing)
                 Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(NullSportsStyle.text)
             }
-            .padding(.horizontal, 24).frame(minHeight: 108)
+            .padding(.horizontal, 22).frame(minHeight: 102)
             .background(event.isLive ? NullSportsStyle.liveSurface : NullSportsStyle.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(event.isLive ? NullSportsStyle.liveBorder : NullSportsStyle.line, lineWidth: 1))
