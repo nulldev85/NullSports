@@ -61,7 +61,7 @@ struct CurrentProgram: Codable, Hashable, Sendable {
     }
 }
 
-struct SportsGame: Identifiable, Hashable, Sendable {
+struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let league: SportsLeague
     let start: Date

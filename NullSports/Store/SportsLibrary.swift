@@ -28,6 +28,7 @@ final class SportsLibrary: ObservableObject {
     private let profilesKey = "NullSports.profiles"
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
+    private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var gameStreamCache: [String: XtreamStream] = [:]
     private var guideUpdatedAt: Date?
@@ -46,6 +47,11 @@ final class SportsLibrary: ObservableObject {
             activeProfile = profiles.first
         }
         favoriteStreamOrder = UserDefaults.standard.array(forKey: favoritesKey) as? [Int] ?? []
+        if let data = UserDefaults.standard.data(forKey: scheduleKey),
+           let cached = try? JSONDecoder().decode([String: [SportsGame]].self, from: data) {
+            gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached[$0.rawValue] ?? []) })
+            scheduleLoadedLeagues = Set(SportsLeague.allCases)
+        }
     }
 
     var hasProfile: Bool { activeProfile != nil }
@@ -194,11 +200,23 @@ final class SportsLibrary: ObservableObject {
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()
             guard let self else { return }
-            self.gamesByLeague = snapshot.games
-            self.scheduleLoadedLeagues = snapshot.loadedLeagues
+            if !snapshot.loadedLeagues.isEmpty {
+                for league in snapshot.loadedLeagues {
+                    self.gamesByLeague[league] = snapshot.games[league] ?? []
+                }
+                self.scheduleLoadedLeagues.formUnion(snapshot.loadedLeagues)
+                self.persistSchedule()
+            }
             self.scheduleErrorMessage = snapshot.errorMessage
             self.rebuildGameStreamCache()
             self.isScheduleLoading = false
+        }
+    }
+
+    private func persistSchedule() {
+        let value = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
+        if let data = try? JSONEncoder().encode(value) {
+            UserDefaults.standard.set(data, forKey: scheduleKey)
         }
     }
 
