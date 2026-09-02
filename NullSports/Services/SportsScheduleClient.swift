@@ -25,7 +25,9 @@ struct SportsScheduleClient: Sendable {
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("0.8.0", forHTTPHeaderField: "X-NullSports-Version")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        request.setValue("\(version) (\(build))", forHTTPHeaderField: "X-NullSports-Version")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ScheduleError.noHTTPResponse }
         guard http.statusCode == 200 else { throw ScheduleError.httpStatus(http.statusCode) }
