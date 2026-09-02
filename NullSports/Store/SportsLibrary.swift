@@ -10,6 +10,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
     @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
+    @Published private(set) var scheduleErrorMessage: String?
     @Published private(set) var isScheduleLoading = false
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
@@ -127,6 +128,7 @@ final class SportsLibrary: ObservableObject {
             guard let self else { return }
             self.gamesByLeague = snapshot.games
             self.scheduleLoadedLeagues = snapshot.loadedLeagues
+            self.scheduleErrorMessage = snapshot.errorMessage
             self.isScheduleLoading = false
         }
     }
@@ -209,6 +211,7 @@ final class SportsLibrary: ObservableObject {
         programsByChannel = [:]
         gamesByLeague = [:]
         scheduleLoadedLeagues = []
+        scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false
         persistProfiles()

@@ -30,7 +30,7 @@ struct LiveView: View {
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else if events.isEmpty {
-                        EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague))
+                        EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
                     } else {
                         ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
                             if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) }
@@ -144,10 +144,11 @@ private struct ScreenHeading: View {
 private struct EmptySchedule: View {
     let isLoading: Bool
     let isAvailable: Bool
+    let errorMessage: String?
     var body: some View {
         HStack(spacing: 16) {
             if isLoading { ProgressView() } else { Image(systemName: isAvailable ? "calendar" : "wifi.exclamationmark") }
-            Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled for today" : "Schedule unavailable — try Refresh"))
+            Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled for today" : (errorMessage ?? "Schedule unavailable — try Refresh")))
         }
         .font(.title3).foregroundStyle(NullSportsStyle.secondary)
         .padding(.vertical, 46)
