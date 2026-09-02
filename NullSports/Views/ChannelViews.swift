@@ -55,7 +55,7 @@ struct LiveView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { return }
-                    library.refreshSchedule()
+                    library.refreshSchedule(showsLoading: false)
                 }
             }
         }

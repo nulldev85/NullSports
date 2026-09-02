@@ -31,6 +31,8 @@ final class SportsLibrary: ObservableObject {
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var gameStreamCache: [String: XtreamStream] = [:]
+    private var gameMatchSignatures: [String: String] = [:]
+    private var scheduleRefreshInFlight = false
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
@@ -73,7 +75,7 @@ final class SportsLibrary: ObservableObject {
                 return league.matches("\(stream.name) \(category) \(listings)")
             })
         })
-        rebuildGameStreamCache()
+        rebuildGameStreamCache(force: true)
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -194,29 +196,38 @@ final class SportsLibrary: ObservableObject {
         return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
     }
 
-    func refreshSchedule() {
-        guard !isScheduleLoading else { return }
-        isScheduleLoading = true
+    func refreshSchedule(showsLoading: Bool = true) {
+        guard !scheduleRefreshInFlight else { return }
+        scheduleRefreshInFlight = true
+        if showsLoading { isScheduleLoading = true }
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()
             guard let self else { return }
             if !snapshot.loadedLeagues.isEmpty {
+                var updatedGames = self.gamesByLeague
                 for league in snapshot.loadedLeagues {
-                    self.gamesByLeague[league] = snapshot.games[league] ?? []
+                    updatedGames[league] = snapshot.games[league] ?? []
+                }
+                if updatedGames != self.gamesByLeague {
+                    self.gamesByLeague = updatedGames
+                    self.persistSchedule()
+                    self.rebuildGameStreamCache()
                 }
                 self.scheduleLoadedLeagues.formUnion(snapshot.loadedLeagues)
-                self.persistSchedule()
             }
             self.scheduleErrorMessage = snapshot.errorMessage
-            self.rebuildGameStreamCache()
-            self.isScheduleLoading = false
+            self.scheduleRefreshInFlight = false
+            if showsLoading { self.isScheduleLoading = false }
         }
     }
 
     private func persistSchedule() {
         let value = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
-        if let data = try? JSONEncoder().encode(value) {
-            UserDefaults.standard.set(data, forKey: scheduleKey)
+        let key = scheduleKey
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(value) {
+                UserDefaults.standard.set(data, forKey: key)
+            }
         }
     }
 
@@ -263,10 +274,17 @@ final class SportsLibrary: ObservableObject {
         return best.0
     }
 
-    private func rebuildGameStreamCache() {
+    private func rebuildGameStreamCache(force: Bool = false) {
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
-        gameStreamCache = games.reduce(into: [:]) { result, game in
-            if let stream = matchedStream(for: game) { result[game.id] = stream }
+        let activeIDs = Set(games.map(\.id))
+        gameStreamCache = gameStreamCache.filter { activeIDs.contains($0.key) }
+        gameMatchSignatures = gameMatchSignatures.filter { activeIDs.contains($0.key) }
+        for game in games {
+            let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+            guard force || gameMatchSignatures[game.id] != signature else { continue }
+            if let stream = matchedStream(for: game) { gameStreamCache[game.id] = stream }
+            else { gameStreamCache.removeValue(forKey: game.id) }
+            gameMatchSignatures[game.id] = signature
         }
     }
 
@@ -349,6 +367,7 @@ final class SportsLibrary: ObservableObject {
         professionalStreams = []
         leagueStreamCache = [:]
         gameStreamCache = [:]
+        gameMatchSignatures = [:]
         programsByChannel = [:]
         gamesByLeague = [:]
         scheduleLoadedLeagues = []
