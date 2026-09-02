@@ -22,9 +22,7 @@ struct LiveView: View {
                     LiveFilterButton(title: "Tomorrow", selected: selectedDay == 1) { selectedDay = 1 }
                     Spacer()
                     Text(scheduleDetail).font(.caption).foregroundStyle(NullSportsStyle.secondary)
-                    Button { Task { await library.reload() } } label: {
-                        Image(systemName: "arrow.clockwise").font(.callout.weight(.semibold)).frame(width: 40, height: 34)
-                    }.buttonStyle(.bordered)
+                    GuideHeaderButton(title: "Refresh", symbol: "arrow.clockwise") { Task { await library.reload() } }
                 }
                 HStack(spacing: 8) {
                     LiveFilterButton(title: "All", selected: selectedLeague == nil) { selectedLeague = nil }
@@ -66,16 +64,17 @@ struct LiveView: View {
 }
 
 private struct LiveFilterButton: View {
+    @Environment(\.isFocused) private var isFocused
     let title: String
     let selected: Bool
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Text(title).font(.callout.weight(.semibold)).padding(.horizontal, 20).frame(height: 42)
-                .foregroundStyle(selected ? NullSportsStyle.text : NullSportsStyle.secondary)
-                .background(selected ? NullSportsStyle.selected : NullSportsStyle.surface)
-                .clipShape(Capsule()).overlay(Capsule().stroke(selected ? NullSportsStyle.field.opacity(0.7) : NullSportsStyle.line, lineWidth: 1))
-        }.buttonStyle(.plain)
+                .foregroundStyle(isFocused ? Color.black : (selected ? NullSportsStyle.text : NullSportsStyle.secondary))
+                .background(isFocused ? NullSportsStyle.field : (selected ? NullSportsStyle.selected : NullSportsStyle.surface))
+                .clipShape(Capsule())
+        }.buttonStyle(.plain).focusEffectDisabled()
     }
 }
 
@@ -120,6 +119,7 @@ private struct SidebarButton: View {
             }
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 }
 
@@ -169,6 +169,7 @@ private struct EmptySchedule: View {
 
 private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.isFocused) private var isFocused
     let event: SportsGame
     let onPlay: () -> Void
     private var stream: XtreamStream? { library.stream(for: event) }
@@ -201,8 +202,10 @@ private struct GameEventCard: View {
                             .padding(.horizontal, 15).frame(height: 38)
                             .background(event.isLive ? Color(red: 0.30, green: 0.10, blue: 0.10) : NullSportsStyle.raised)
                             .clipShape(Capsule()).overlay(Capsule().stroke(event.isLive ? Color.red.opacity(0.65) : NullSportsStyle.line, lineWidth: 1))
-                        Image(systemName: "play.fill").font(.title2).foregroundStyle(.black)
-                            .frame(width: 56, height: 56).background(NullSportsStyle.field).clipShape(Circle())
+                        Label("Watch", systemImage: "play.fill")
+                            .font(.callout.weight(.bold)).foregroundStyle(NullSportsStyle.text)
+                            .padding(.horizontal, 18).frame(height: 44)
+                            .background(NullSportsStyle.selected).clipShape(Capsule())
                     }
                 }
                 .padding(.horizontal, 22).padding(.vertical, 18)
@@ -219,11 +222,12 @@ private struct GameEventCard: View {
                 }
                 .padding(.horizontal, 22).frame(height: 50)
             }
-            .background(event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface)
+            .background(isFocused ? NullSportsStyle.focused : (event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(event.isLive ? Color.red.opacity(0.48) : NullSportsStyle.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? Color.red.opacity(0.42) : NullSportsStyle.line, lineWidth: 1))
         }
-        .buttonStyle(.card)
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
         .disabled(stream == nil)
     }
 }
@@ -365,6 +369,7 @@ struct GuideView: View {
                         if searchActive {
                             TextField("Channel name", text: $query)
                                 .textFieldStyle(.plain)
+                                .focusEffectDisabled()
                                 .font(.system(size: 28, weight: .medium))
                                 .foregroundStyle(NullSportsStyle.text)
                                 .padding(.horizontal, 16).frame(maxWidth: 560, minHeight: 44)
@@ -381,13 +386,10 @@ struct GuideView: View {
                         Text("\(filtered.count) channels")
                             .font(.caption.weight(.bold)).tracking(1.3)
                             .foregroundStyle(NullSportsStyle.secondary)
-                        Button {
+                        GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                             searchActive.toggle()
                             if !searchActive { query = "" }
-                        } label: {
-                            Label(searchActive ? "Close" : "Search", systemImage: searchActive ? "xmark" : "magnifyingglass")
-                                .font(.callout.weight(.semibold))
-                        }.buttonStyle(.bordered)
+                        }
                     }
                     .frame(height: 52)
                     GuideColumnHeader()
@@ -460,14 +462,31 @@ private struct GuideSidebarButton: View {
             .padding(.horizontal, 14).frame(height: 44)
             .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).focusEffectDisabled()
+    }
+}
+
+private struct GuideHeaderButton: View {
+    @Environment(\.isFocused) private var isFocused
+    let title: String
+    let symbol: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(isFocused ? Color.black : NullSportsStyle.text)
+                .padding(.horizontal, 18).frame(height: 42)
+                .background(isFocused ? NullSportsStyle.field : NullSportsStyle.raised)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }.buttonStyle(.plain).focusEffectDisabled()
     }
 }
 
 private struct GuideColumnHeader: View {
     var body: some View {
         HStack(spacing: 18) {
-            Text("CHANNEL").frame(width: 300, alignment: .leading)
+            Text("CHANNEL").frame(width: 330, alignment: .leading)
             Text("ON NOW").frame(maxWidth: .infinity, alignment: .leading)
             Text("UP NEXT").frame(width: 250, alignment: .leading)
         }
@@ -491,10 +510,11 @@ private struct GuideChannelRow: View {
             HStack(spacing: 18) {
                 HStack(spacing: 12) {
                     Text(stream.num.map(String.init) ?? "—")
-                        .font(.caption2.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).frame(width: 38, alignment: .trailing)
+                        .font(.caption2.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                        .minimumScaleFactor(0.7).frame(width: 58, alignment: .trailing)
                     ChannelLogo(url: stream.streamIcon).frame(width: 48, height: 36).clipped()
                     Text(stream.name).font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-                }.frame(width: 300, alignment: .leading)
+                }.frame(width: 330, alignment: .leading)
                 GuideProgramCell(program: current, empty: "No listing", showsProgress: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 GuideProgramCell(program: next, empty: "No upcoming listing", showsProgress: false)
@@ -506,6 +526,7 @@ private struct GuideChannelRow: View {
             .overlay(alignment: .bottom) { if !isFocused { Rectangle().fill(NullSportsStyle.line).frame(height: 1) } }
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .contextMenu {
             if favoritesMode {
                 Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
