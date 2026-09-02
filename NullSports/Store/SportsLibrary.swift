@@ -1,5 +1,13 @@
 import Foundation
 
+private struct LibraryCache: Codable, Sendable {
+    let categories: [XtreamCategory]
+    let streams: [XtreamStream]
+    let programsByChannel: [String: [CurrentProgram]]
+    let guideUpdatedAt: Date?
+    let libraryUpdatedAt: Date?
+}
+
 @MainActor
 final class SportsLibrary: ObservableObject {
     @Published private(set) var profiles: [XtreamProfile] = []
@@ -22,6 +30,10 @@ final class SportsLibrary: ObservableObject {
     private let favoritesKey = "NullSports.favoriteStreams"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var gameStreamCache: [String: XtreamStream] = [:]
+    private var guideUpdatedAt: Date?
+    private var libraryUpdatedAt: Date?
+    private let guideLifetime: TimeInterval = 3 * 60 * 60
+    private let libraryLifetime: TimeInterval = 6 * 60 * 60
 
     init() {
         if let data = UserDefaults.standard.data(forKey: profilesKey),
@@ -76,10 +88,29 @@ final class SportsLibrary: ObservableObject {
         }
     }
 
+    func bootstrap() async {
+        guard let profile = activeProfile else { return }
+        if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
+            categories = cached.categories
+            streams = cached.streams
+            programsByChannel = cached.programsByChannel
+            guideUpdatedAt = cached.guideUpdatedAt
+            libraryUpdatedAt = cached.libraryUpdatedAt
+            rebuildProfessionalStreams()
+        }
+        refreshSchedule()
+        if isLibraryFresh && isGuideFresh { return }
+        await refreshLibrary(forceGuide: !isGuideFresh)
+    }
+
     func reload() async {
         refreshSchedule()
+        await refreshLibrary(forceGuide: true)
+    }
+
+    private func refreshLibrary(forceGuide: Bool) async {
         guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
-        isLoading = true
+        isLoading = streams.isEmpty
         errorMessage = nil
         do {
             let client = XtreamClient(profile: profile, password: password)
@@ -87,9 +118,11 @@ final class SportsLibrary: ObservableObject {
             async let loadedStreams = client.streams()
             categories = try await loadedCategories
             streams = try await loadedStreams
+            libraryUpdatedAt = Date()
             rebuildProfessionalStreams()
             isLoading = false
-            refreshGuide(client: client, profileID: profile.id)
+            saveCache(profileID: profile.id)
+            if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         } catch {
             isLoading = false
             errorMessage = error.localizedDescription
@@ -102,9 +135,48 @@ final class SportsLibrary: ObservableObject {
             let programs = (try? await client.programsToday()) ?? [:]
             guard let self, self.activeProfile?.id == profileID else { return }
             self.programsByChannel = programs
+            self.guideUpdatedAt = Date()
             self.rebuildProfessionalStreams()
             self.isGuideLoading = false
+            self.saveCache(profileID: profileID)
         }
+    }
+
+    private var isGuideFresh: Bool {
+        guard !programsByChannel.isEmpty, let guideUpdatedAt else { return false }
+        return Calendar.current.isDate(guideUpdatedAt, inSameDayAs: Date())
+            && Date().timeIntervalSince(guideUpdatedAt) < guideLifetime
+    }
+
+    private var isLibraryFresh: Bool {
+        guard !streams.isEmpty, let libraryUpdatedAt else { return false }
+        return Date().timeIntervalSince(libraryUpdatedAt) < libraryLifetime
+    }
+
+    private func saveCache(profileID: UUID) {
+        let snapshot = LibraryCache(
+            categories: categories,
+            streams: streams,
+            programsByChannel: programsByChannel,
+            guideUpdatedAt: guideUpdatedAt,
+            libraryUpdatedAt: libraryUpdatedAt
+        )
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: Self.cacheURL(profileID: profileID), options: .atomic)
+        }
+    }
+
+    nonisolated private static func readCache(profileID: UUID) async -> LibraryCache? {
+        await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: cacheURL(profileID: profileID)) else { return nil }
+            return try? JSONDecoder().decode(LibraryCache.self, from: data)
+        }.value
+    }
+
+    nonisolated private static func cacheURL(profileID: UUID) -> URL {
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return directory.appendingPathComponent("nullsports-\(profileID.uuidString).json")
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {
@@ -252,6 +324,9 @@ final class SportsLibrary: ObservableObject {
         scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false
+        guideUpdatedAt = nil
+        libraryUpdatedAt = nil
+        try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
         persistProfiles()
     }
 

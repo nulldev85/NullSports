@@ -15,7 +15,7 @@ struct XtreamProfile: Codable, Identifiable, Equatable {
     }
 }
 
-struct XtreamCategory: Codable, Identifiable, Hashable {
+struct XtreamCategory: Codable, Identifiable, Hashable, Sendable {
     let categoryID: String
     let categoryName: String
 
@@ -27,7 +27,7 @@ struct XtreamCategory: Codable, Identifiable, Hashable {
     }
 }
 
-struct XtreamStream: Codable, Identifiable, Hashable {
+struct XtreamStream: Codable, Identifiable, Hashable, Sendable {
     let num: Int?
     let name: String
     let streamType: String?
@@ -48,7 +48,7 @@ struct XtreamStream: Codable, Identifiable, Hashable {
     }
 }
 
-struct CurrentProgram: Hashable, Sendable {
+struct CurrentProgram: Codable, Hashable, Sendable {
     let channelID: String
     let title: String
     let detail: String

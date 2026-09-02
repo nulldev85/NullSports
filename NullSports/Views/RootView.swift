@@ -16,7 +16,7 @@ struct RootView: View {
         .background(NullSportsStyle.background.ignoresSafeArea())
         .task {
             guard library.hasProfile else { return }
-            if library.streams.isEmpty { await library.reload() }
+            if library.streams.isEmpty { await library.bootstrap() }
             else { library.refreshSchedule() }
         }
         .onChange(of: scenePhase) { _, phase in
