@@ -20,8 +20,8 @@ final class SportsLibrary: ObservableObject {
     private let profilesKey = "NullSports.profiles"
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
-    private var eventCache: [SportsLeague: [ScheduledStream]] = [:]
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
+    private var gameStreamCache: [String: XtreamStream] = [:]
 
     init() {
         if let data = UserDefaults.standard.data(forKey: profilesKey),
@@ -55,7 +55,7 @@ final class SportsLibrary: ObservableObject {
                 return league.matches("\(stream.name) \(category) \(listings)")
             })
         })
-        rebuildEventCache()
+        rebuildGameStreamCache()
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -111,14 +111,6 @@ final class SportsLibrary: ObservableObject {
         leagueStreamCache[league] ?? []
     }
 
-    func liveEvents(for league: SportsLeague) -> [ScheduledStream] {
-        (eventCache[league] ?? []).filter { $0.program.isLive }
-    }
-
-    func upcomingEvents(for league: SportsLeague) -> [ScheduledStream] {
-        (eventCache[league] ?? []).filter { $0.program.start > Date() }
-    }
-
     func games(for league: SportsLeague?) -> [SportsGame] {
         let games = league.map { gamesByLeague[$0] ?? [] } ?? SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
         return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
@@ -132,6 +124,7 @@ final class SportsLibrary: ObservableObject {
             self.gamesByLeague = snapshot.games
             self.scheduleLoadedLeagues = snapshot.loadedLeagues
             self.scheduleErrorMessage = snapshot.errorMessage
+            self.rebuildGameStreamCache()
             self.isScheduleLoading = false
         }
     }
@@ -142,6 +135,10 @@ final class SportsLibrary: ObservableObject {
     }
 
     func stream(for game: SportsGame) -> XtreamStream? {
+        gameStreamCache[game.id]
+    }
+
+    private func matchedStream(for game: SportsGame) -> XtreamStream? {
         let candidates = streams(for: game.league)
         let away = game.awayTeam.lowercased()
         let home = game.homeTeam.lowercased()
@@ -163,9 +160,11 @@ final class SportsLibrary: ObservableObject {
         return best.0
     }
 
-    func program(for stream: XtreamStream) -> CurrentProgram? {
-        let listings = programs(for: stream)
-        return listings.first(where: \.isLive) ?? listings.first
+    private func rebuildGameStreamCache() {
+        let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
+        gameStreamCache = games.reduce(into: [:]) { result, game in
+            if let stream = matchedStream(for: game) { result[game.id] = stream }
+        }
     }
 
     func guidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
@@ -226,25 +225,6 @@ final class SportsLibrary: ObservableObject {
         return programsByChannel[channelID] ?? []
     }
 
-    private func rebuildEventCache() {
-        var rebuilt = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, [ScheduledStream]()) })
-        for stream in professionalStreams {
-            for program in programs(for: stream) {
-                let listing = "\(program.title) \(program.detail)"
-                let matchup = listing.localizedCaseInsensitiveContains(" vs ")
-                    || listing.localizedCaseInsensitiveContains(" vs. ")
-                    || listing.localizedCaseInsensitiveContains(" at ")
-                guard matchup else { continue }
-                for league in SportsLeague.allCases
-                where leagueStreamCache[league, default: []].contains(stream)
-                    && league.matchesProfessionalGame(listing) {
-                    rebuilt[league, default: []].append(ScheduledStream(stream: stream, program: program))
-                }
-            }
-        }
-        eventCache = rebuilt.mapValues { $0.sorted { $0.program.start < $1.program.start } }
-    }
-
     func playbackURLs(for stream: XtreamStream) -> [URL] {
         guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return [] }
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
@@ -265,7 +245,7 @@ final class SportsLibrary: ObservableObject {
         streams = []
         professionalStreams = []
         leagueStreamCache = [:]
-        eventCache = [:]
+        gameStreamCache = [:]
         programsByChannel = [:]
         gamesByLeague = [:]
         scheduleLoadedLeagues = []

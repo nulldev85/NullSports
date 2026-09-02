@@ -61,13 +61,6 @@ struct CurrentProgram: Hashable, Sendable {
     }
 }
 
-struct ScheduledStream: Identifiable, Hashable {
-    let stream: XtreamStream
-    let program: CurrentProgram
-
-    var id: String { "\(stream.id)-\(program.start.timeIntervalSince1970)" }
-}
-
 struct SportsGame: Identifiable, Hashable, Sendable {
     let id: String
     let league: SportsLeague
@@ -148,12 +141,6 @@ enum SportsLeague: String, CaseIterable, Identifiable, Sendable {
     func matches(_ text: String) -> Bool {
         let value = text.lowercased()
         return containsLeagueToken(value) || containsAny(value, teamTerms)
-    }
-
-    func matchesProfessionalGame(_ text: String) -> Bool {
-        let value = text.lowercased()
-        if containsLeagueToken(value) { return true }
-        return teamTerms.reduce(0) { $0 + (value.contains($1) ? 1 : 0) } >= 2
     }
 
     private var teamTerms: [String] {

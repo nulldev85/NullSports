@@ -43,8 +43,6 @@ struct MainView: View {
         TabView {
             LiveView()
                 .tabItem { Label("Live", systemImage: "play.rectangle.fill") }
-            LeaguesView()
-                .tabItem { Label("Leagues", systemImage: "sportscourt.fill") }
             GuideView()
                 .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }
             AccountView()

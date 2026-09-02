@@ -77,48 +77,6 @@ private struct LiveFilterButton: View {
     }
 }
 
-private struct SportsSidebar: View {
-    let title: String
-    @Binding var selectedLeague: SportsLeague?
-    let includeAll: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
-                .padding(.leading, 14).frame(height: 28)
-            if includeAll { SidebarButton(title: "All games", symbol: "rectangle.stack", selected: selectedLeague == nil) { selectedLeague = nil } }
-            ForEach(SportsLeague.allCases) { league in
-                SidebarButton(title: league.shortName, symbol: league.symbol, selected: selectedLeague == league) { selectedLeague = league }
-            }
-            Spacer()
-        }
-    }
-}
-
-private struct SidebarButton: View {
-    @FocusState private var isFocused: Bool
-    let title: String
-    let symbol: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 15) {
-            Image(systemName: symbol).font(.callout).frame(width: 24)
-            Text(title).font(.callout.weight(.semibold))
-            Spacer()
-        }
-        .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
-        .padding(.horizontal, 14).frame(height: 48)
-        .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(alignment: .leading) {
-            if selected { Rectangle().fill(NullSportsStyle.field).frame(width: 3, height: 26).padding(.leading, 4) }
-        }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
-    }
-}
-
 private struct ScheduleSection: View {
     let title: String
     let events: [SportsGame]
@@ -256,74 +214,7 @@ private struct TeamLogo: View {
     var body: some View {
         AsyncImage(url: URL(string: url)) { image in image.resizable().scaledToFit() } placeholder: {
             Text(fallback).font(.caption2.weight(.bold)).foregroundStyle(NullSportsStyle.secondary)
-        }
-    }
-}
-
-private struct TeamLine: View {
-    let name: String
-    let abbreviation: String
-    let league: SportsLeague
-    let secondary: Bool
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(secondary ? NullSportsStyle.raised : NullSportsStyle.selected)
-                Text(abbreviation).font(.system(size: 9, weight: .bold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-            }.frame(width: 32, height: 32)
-            Text(name.trimmingCharacters(in: .whitespacesAndNewlines))
-                .font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-        }
-    }
-}
-
-struct LeaguesView: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @State private var selectedLeague: SportsLeague? = .nfl
-
-    var body: some View {
-        NavigationStack {
-            HStack(alignment: .top, spacing: 54) {
-                SportsSidebar(title: "LEAGUES", selectedLeague: $selectedLeague, includeAll: false).frame(width: 285)
-                VStack(alignment: .leading, spacing: 24) {
-                    ScreenHeading(title: selectedLeague?.fullName ?? "Leagues", detail: "Professional channels only")
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(selectedLeague.map { library.streams(for: $0) } ?? []) { ChannelRow(stream: $0) }
-                        }.padding(.vertical, 8)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 66).padding(.vertical, 42).background(NullSportsStyle.background)
-        }
-    }
-}
-
-private struct ChannelRow: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @FocusState private var isFocused: Bool
-    let stream: XtreamStream
-    @State private var showPlayer = false
-
-    var body: some View {
-        HStack(spacing: 20) {
-            ChannelLogo(url: stream.streamIcon)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(stream.name).font(.headline).foregroundStyle(NullSportsStyle.text).lineLimit(2)
-                if let program = library.program(for: stream) {
-                    Text(program.title).font(.callout).foregroundStyle(NullSportsStyle.secondary).lineLimit(2)
-                }
-            }
-            Spacer()
-            Label("Watch", systemImage: "play.fill").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.text)
-                .padding(.horizontal, 15).frame(height: 38).background(NullSportsStyle.selected).clipShape(Capsule())
-        }
-        .padding(.horizontal, 22).frame(minHeight: 86)
-        .background(isFocused ? NullSportsStyle.focused : NullSportsStyle.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 9).inset(by: 1).stroke(NullSportsStyle.line, lineWidth: 1))
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture { showPlayer = true }
-        .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }
+        }.transaction { $0.animation = nil }
     }
 }
 
@@ -331,9 +222,10 @@ private struct ChannelLogo: View {
     let url: String?
     var body: some View {
         AsyncImage(url: URL(string: url ?? "")) { $0.resizable().scaledToFit() } placeholder: {
-            Image(systemName: "tv").font(.title2).foregroundStyle(NullSportsStyle.secondary)
+            Image(systemName: "tv").font(.caption).foregroundStyle(NullSportsStyle.secondary)
         }
-        .padding(8).frame(width: 68, height: 54).background(NullSportsStyle.raised)
+        .transaction { $0.animation = nil }
+        .padding(4).frame(width: 48, height: 36).background(NullSportsStyle.raised)
     }
 }
 
@@ -645,10 +537,4 @@ private struct VLCVideoSurface: UIViewRepresentable {
     let player: VLCMediaPlayer
     func makeUIView(context: Context) -> UIView { let view = UIView(); view.backgroundColor = .black; player.drawable = view; return view }
     func updateUIView(_ uiView: UIView, context: Context) { if player.drawable == nil { player.drawable = uiView } }
-}
-
-private extension SportsLeague {
-    var symbol: String {
-        switch self { case .nfl: "american.football"; case .nba: "basketball"; case .nhl: "hockey.puck"; case .mlb: "baseball" }
-    }
 }
