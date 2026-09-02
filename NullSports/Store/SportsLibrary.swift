@@ -189,6 +189,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     func refreshSchedule() {
+        guard !isScheduleLoading else { return }
         isScheduleLoading = true
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()

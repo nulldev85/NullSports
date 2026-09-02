@@ -51,6 +51,13 @@ struct LiveView: View {
             .padding(.horizontal, 34).padding(.top, 14).padding(.bottom, 22)
             .background(NullSportsStyle.background)
             .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    library.refreshSchedule()
+                }
+            }
         }
     }
 
@@ -133,19 +140,14 @@ private struct GameEventCard: View {
                 HStack(spacing: 24) {
                     MatchupArtwork(event: event)
                     VStack(alignment: .leading, spacing: 10) {
-                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam)
+                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
                         Text("@").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 20)
-                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam)
+                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
                         HStack(spacing: 12) {
                             Text(event.league.shortName)
                                 .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
                                 .background(NullSportsStyle.selected).clipShape(Capsule())
-                            if event.isLive && (!event.awayScore.isEmpty || !event.homeScore.isEmpty) {
-                                Text("\(event.awayScore) – \(event.homeScore)")
-                                    .font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(Color(red: 0.96, green: 0.34, blue: 0.30))
-                            } else {
-                                Text(event.status).font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
-                            }
+                            Text(event.status).font(.caption).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 20)
@@ -200,10 +202,15 @@ private struct MatchupArtwork: View {
 private struct GameTeamLine: View {
     let logo: String
     let name: String
+    let score: String?
     var body: some View {
         HStack(spacing: 12) {
             TeamLogo(url: logo, fallback: String(name.prefix(3)).uppercased()).frame(width: 34, height: 34)
             Text(name).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+            Spacer(minLength: 12)
+            if let score, !score.isEmpty {
+                Text(score).font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(NullSportsStyle.text)
+            }
         }
     }
 }
