@@ -8,18 +8,35 @@ struct SportsScheduleClient: Sendable {
     }
 
     func gamesToday() async -> Snapshot {
-        do {
-            return try await combinedSchedule()
-        } catch {
-            return Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error))
-        }
-    }
-
-    private func combinedSchedule() async throws -> Snapshot {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
-        let day = formatter.string(from: Date())
+        let today = formatter.string(from: Date())
+        let tomorrowDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let tomorrow = formatter.string(from: tomorrowDate)
+
+        async let todaySnapshot = snapshot(for: today)
+        async let tomorrowSnapshot = snapshot(for: tomorrow)
+        let (first, second) = await (todaySnapshot, tomorrowSnapshot)
+        var merged: [SportsLeague: [SportsGame]] = [:]
+        for league in SportsLeague.allCases {
+            let games = (first.games[league] ?? []) + (second.games[league] ?? [])
+            merged[league] = Dictionary(grouping: games, by: \.id).values.compactMap { $0.first }.sorted { $0.start < $1.start }
+        }
+        let errors = [first.errorMessage, second.errorMessage].compactMap { $0 }
+        return Snapshot(
+            games: merged,
+            loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
+            errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
+        )
+    }
+
+    private func snapshot(for day: String) async -> Snapshot {
+        do { return try await combinedSchedule(for: day) }
+        catch { return Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error)) }
+    }
+
+    private func combinedSchedule(for day: String) async throws -> Snapshot {
         guard let url = URL(string: "https://sports.mateomedia.link/v1/games?date=\(day)") else {
             throw ScheduleError.invalidURL
         }

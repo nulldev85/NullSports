@@ -9,7 +9,10 @@ struct LiveView: View {
     private var events: [SportsGame] { library.games(for: selectedLeague) }
 
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
-    private var laterEvents: [SportsGame] { events.filter { $0.isUpcoming } }
+    private var tomorrowStart: Date { Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()) }
+    private var dayAfterTomorrow: Date { Calendar.current.date(byAdding: .day, value: 1, to: tomorrowStart) ?? tomorrowStart }
+    private var laterEvents: [SportsGame] { events.filter { $0.isUpcoming && $0.start < tomorrowStart } }
+    private var tomorrowEvents: [SportsGame] { events.filter { $0.isUpcoming && $0.start >= tomorrowStart && $0.start < dayAfterTomorrow } }
 
     var body: some View {
         NavigationStack {
@@ -20,7 +23,7 @@ struct LiveView: View {
                     HStack(alignment: .top) {
                         ScreenHeading(title: selectedLeague?.fullName ?? "My Sports", detail: scheduleDetail)
                         Spacer()
-                        Text("TODAY")
+                        Text("48 HOURS")
                             .font(.caption.weight(.bold)).tracking(1.4)
                             .foregroundStyle(NullSportsStyle.text)
                             .padding(.horizontal, 24).frame(height: 46)
@@ -35,6 +38,7 @@ struct LiveView: View {
                         ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
                             if !liveEvents.isEmpty { ScheduleSection(title: "Live now", events: liveEvents) }
                             if !laterEvents.isEmpty { ScheduleSection(title: "Later today", events: laterEvents) }
+                            if !tomorrowEvents.isEmpty { ScheduleSection(title: "Tomorrow", events: tomorrowEvents) }
                         }.padding(.vertical, 8) }
                     }
                 }
@@ -51,7 +55,7 @@ struct LiveView: View {
     }
 
     private var scheduleDetail: String {
-        library.isScheduleLoading ? "Updating official schedules…" : "Verified game times and opponents"
+        library.isScheduleLoading ? "Updating official schedules…" : "Today and tomorrow"
     }
 }
 
@@ -148,7 +152,7 @@ private struct EmptySchedule: View {
     var body: some View {
         HStack(spacing: 16) {
             if isLoading { ProgressView() } else { Image(systemName: isAvailable ? "calendar" : "wifi.exclamationmark") }
-            Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled for today" : (errorMessage ?? "Schedule unavailable — try Refresh")))
+            Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled today or tomorrow" : (errorMessage ?? "Schedule unavailable — try Refresh")))
         }
         .font(.title3).foregroundStyle(NullSportsStyle.secondary)
         .padding(.vertical, 46)
@@ -275,10 +279,10 @@ private struct ChannelLogo: View {
 
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
-    @State private var query = ""
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = false
-    private var filtered: [XtreamStream] { library.guideStreams(categoryID: selectedCategoryID, favoritesOnly: favoritesOnly, query: query) }
+    @State private var showSearch = false
+    private var filtered: [XtreamStream] { library.guideStreams(categoryID: selectedCategoryID, favoritesOnly: favoritesOnly, query: "") }
     private var selectedTitle: String {
         if favoritesOnly { return "Favorites" }
         return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
@@ -286,37 +290,43 @@ struct GuideView: View {
 
     var body: some View {
         NavigationStack {
-            HStack(alignment: .top, spacing: 42) {
+            HStack(alignment: .top, spacing: 22) {
                 GuideSidebar(selectedCategoryID: $selectedCategoryID, favoritesOnly: $favoritesOnly)
-                    .frame(width: 300)
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .bottom) {
-                        ScreenHeading(title: selectedTitle, detail: guideDetail)
+                    .frame(width: 330)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 18) {
+                        Text(selectedTitle)
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(NullSportsStyle.text)
+                            .lineLimit(1)
                         Spacer()
-                        Text("\(filtered.count) CHANNELS")
+                        if library.isGuideLoading { ProgressView().controlSize(.small) }
+                        Text("\(filtered.count) channels")
                             .font(.caption.weight(.bold)).tracking(1.3)
                             .foregroundStyle(NullSportsStyle.secondary)
+                        Button { showSearch = true } label: {
+                            Label("Search", systemImage: "magnifyingglass")
+                                .font(.callout.weight(.semibold))
+                        }.buttonStyle(.bordered)
                     }
+                    .frame(height: 52)
                     GuideColumnHeader()
                     if filtered.isEmpty {
                         Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
-                            .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 38)
+                            .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 7) {
+                            LazyVStack(spacing: 4) {
                                 ForEach(filtered) { GuideChannelRow(stream: $0) }
-                            }.padding(.vertical, 4)
+                            }.padding(.vertical, 2)
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 58).padding(.vertical, 38).background(NullSportsStyle.background)
-            .searchable(text: $query, prompt: "Search channels")
+            .padding(.horizontal, 36).padding(.top, 16).padding(.bottom, 22)
+            .background(NullSportsStyle.background)
+            .fullScreenCover(isPresented: $showSearch) { GuideSearchView() }
         }
-    }
-
-    private var guideDetail: String {
-        library.isGuideLoading ? "Updating program listings…" : "Now playing and up next"
     }
 }
 
@@ -326,20 +336,19 @@ private struct GuideSidebar: View {
     @Binding var favoritesOnly: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("GUIDE").font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 16)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+                .lineLimit(1).padding(.leading, 14).frame(height: 24)
             GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
                 selectedCategoryID = nil; favoritesOnly = false
             }
             GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly) {
                 selectedCategoryID = nil; favoritesOnly = true
             }
-            HStack(spacing: 12) {
-                Text("CATEGORIES").font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
-                Rectangle().fill(NullSportsStyle.line).frame(height: 1)
-            }.padding(.leading, 16).padding(.top, 14)
+            Text("CATEGORIES").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+                .lineLimit(1).padding(.leading, 14).padding(.top, 8).frame(height: 30)
             ScrollView {
-                LazyVStack(spacing: 7) {
+                LazyVStack(spacing: 4) {
                     ForEach(library.categories) { category in
                         GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
                             selectedCategoryID = category.id; favoritesOnly = false
@@ -361,14 +370,14 @@ private struct GuideSidebarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 13) {
-                Image(systemName: symbol).frame(width: 25)
-                Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+                Image(systemName: symbol).font(.caption).frame(width: 22)
+                Text(title).font(.callout.weight(.medium)).lineLimit(1).minimumScaleFactor(0.78)
                 Spacer()
             }
             .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
-            .padding(.horizontal, 16).frame(height: 50)
+            .padding(.horizontal, 14).frame(height: 44)
             .background(isFocused ? NullSportsStyle.focused : (selected ? NullSportsStyle.selected : NullSportsStyle.sidebarRow))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }.buttonStyle(.plain)
     }
 }
@@ -376,13 +385,13 @@ private struct GuideSidebarButton: View {
 private struct GuideColumnHeader: View {
     var body: some View {
         HStack(spacing: 18) {
-            Text("CHANNEL").frame(width: 290, alignment: .leading)
+            Text("CHANNEL").frame(width: 300, alignment: .leading)
             Text("ON NOW").frame(maxWidth: .infinity, alignment: .leading)
-            Text("UP NEXT").frame(width: 270, alignment: .leading)
-            Color.clear.frame(width: 44)
+            Text("UP NEXT").frame(width: 250, alignment: .leading)
+            Color.clear.frame(width: 40)
         }
         .font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14).frame(height: 28)
     }
 }
 
@@ -400,23 +409,23 @@ private struct GuideChannelRow: View {
                 HStack(spacing: 18) {
                     HStack(spacing: 12) {
                         Text(stream.num.map(String.init) ?? "—")
-                            .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).frame(width: 42, alignment: .trailing)
-                        ChannelLogo(url: stream.streamIcon).frame(width: 54, height: 44).clipped()
-                        Text(stream.name).font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(2)
-                    }.frame(width: 290, alignment: .leading)
+                            .font(.caption2.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).frame(width: 38, alignment: .trailing)
+                        ChannelLogo(url: stream.streamIcon).frame(width: 48, height: 36).clipped()
+                        Text(stream.name).font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                    }.frame(width: 300, alignment: .leading)
                     GuideProgramCell(program: current, empty: "No listing", showsProgress: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     GuideProgramCell(program: next, empty: "No upcoming listing", showsProgress: false)
-                        .frame(width: 270, alignment: .leading)
+                        .frame(width: 250, alignment: .leading)
                 }
-                .padding(.horizontal, 18).frame(minHeight: 76)
+                .padding(.horizontal, 14).frame(height: 60)
                 .background(NullSportsStyle.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            }.buttonStyle(.card)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }.buttonStyle(.plain)
             Button { library.toggleFavorite(stream) } label: {
                 Image(systemName: library.favoriteStreamIDs.contains(stream.id) ? "star.fill" : "star")
                     .font(.body).foregroundStyle(library.favoriteStreamIDs.contains(stream.id) ? NullSportsStyle.field : NullSportsStyle.secondary)
-                    .frame(width: 44, height: 58)
+                    .frame(width: 40, height: 52)
             }.buttonStyle(.plain)
         }
         .fullScreenCover(isPresented: $showPlayer) { PlayerView(urls: library.playbackURLs(for: stream)) }
@@ -429,7 +438,7 @@ private struct GuideProgramCell: View {
     let showsProgress: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 3) {
             if let program {
                 Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout).foregroundStyle(NullSportsStyle.text).lineLimit(1)
                 HStack(spacing: 10) {
@@ -454,6 +463,32 @@ private struct GuideProgramCell: View {
         let duration = program.end.timeIntervalSince(program.start)
         guard duration > 0 else { return 0 }
         return CGFloat(min(max(Date().timeIntervalSince(program.start) / duration, 0), 1))
+    }
+}
+
+private struct GuideSearchView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: SportsLibrary
+    @State private var query = ""
+    private var results: [XtreamStream] { library.guideStreams(categoryID: nil, favoritesOnly: false, query: query) }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Search channels").font(.system(size: 34, weight: .semibold)).foregroundStyle(NullSportsStyle.text)
+                    Spacer()
+                    Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
+                }
+                if query.isEmpty {
+                    Text("Start typing to find a channel.").font(.title3).foregroundStyle(NullSportsStyle.secondary)
+                } else {
+                    ScrollView { LazyVStack(spacing: 5) { ForEach(results) { GuideChannelRow(stream: $0) } } }
+                }
+            }
+            .padding(.horizontal, 52).padding(.vertical, 24).background(NullSportsStyle.background)
+            .searchable(text: $query, prompt: "Channel name")
+        }
     }
 }
 
