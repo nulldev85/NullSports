@@ -225,7 +225,7 @@ private struct ChannelLogo: View {
             Image(systemName: "tv").font(.caption).foregroundStyle(NullSportsStyle.secondary)
         }
         .transaction { $0.animation = nil }
-        .padding(4).frame(width: 48, height: 36).background(NullSportsStyle.raised)
+        .padding(3).frame(width: 60, height: 44).background(NullSportsStyle.raised)
     }
 }
 
@@ -394,7 +394,7 @@ private struct GuideChannelRow: View {
                     Text(stream.num.map(String.init) ?? "—")
                         .font(.caption2.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
                         .minimumScaleFactor(0.7).frame(width: 58, alignment: .trailing)
-                    ChannelLogo(url: stream.streamIcon).frame(width: 48, height: 36).clipped()
+                    ChannelLogo(url: stream.streamIcon)
                     Text(stream.name).font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
                 }.frame(width: 330, alignment: .leading)
                 GuideProgramCell(program: current, empty: "No listing", showsProgress: true)
