@@ -319,7 +319,7 @@ struct GuideView: View {
                             .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 7) {
+                            LazyVStack(alignment: .leading, spacing: 7) {
                                 ForEach(filtered) { stream in
                                     GuideChannelRow(stream: stream, favoritesMode: favoritesOnly && !searchActive, now: guideNow) { selectedStream = stream }
                                 }
@@ -424,7 +424,7 @@ private struct GuideTimelineHeader: View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 Text("CHANNEL").frame(width: guideChannelWidth, alignment: .leading)
-                ForEach(0..<4, id: \.self) { step in
+                ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                     Text(anchor.addingTimeInterval(Double(step) * 1800).formatted(date: .omitted, time: .shortened))
                         .frame(width: guideSlotWidth, alignment: .leading)
                 }
@@ -448,6 +448,8 @@ private struct GuideTimelineHeader: View {
 
 private let guideChannelWidth: CGFloat = 350
 private let guideSlotWidth: CGFloat = 270
+private let guideVisibleSlotCount = 4
+private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
 
 private func guideTimelineAnchor(_ date: Date) -> Date {
     let calendar = Calendar.current
@@ -472,24 +474,35 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    ChannelLogo(url: stream.streamIcon)
-                    Text(stream.name)
-                        .font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text)
-                        .lineLimit(2).minimumScaleFactor(0.82)
-                }.frame(width: guideChannelWidth, alignment: .leading)
-                HStack(spacing: 6) {
-                    ForEach(Array(programs.prefix(4).enumerated()), id: \.offset) { index, program in
-                        GuideProgramCell(program: program, empty: "No listing", showsProgress: index == 0 && program.isLive, onPlay: onPlay)
-                            .frame(width: 264, alignment: .leading)
-                    }
-                    if programs.isEmpty {
-                        GuideProgramCell(program: nil, empty: "No guide information", showsProgress: false, onPlay: onPlay)
-                            .frame(width: 264, alignment: .leading)
-                    }
+            HStack(spacing: 12) {
+                ChannelLogo(url: stream.streamIcon)
+                Text(stream.name)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(NullSportsStyle.text)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: guideChannelWidth, alignment: .leading)
+            .clipped()
+
+            HStack(spacing: 6) {
+                ForEach(0..<guideVisibleSlotCount, id: \.self) { index in
+                    let program = index < programs.count ? programs[index] : nil
+                    GuideProgramCell(
+                        program: program,
+                        empty: index == 0 ? "No guide information" : "",
+                        showsProgress: index == 0 && (program?.isLive ?? false),
+                        onPlay: onPlay
+                    )
+                    .frame(width: guideSlotWidth - 6, alignment: .leading)
                 }
+            }
         }
-        .padding(.horizontal, 14).frame(height: 72)
+        .padding(.horizontal, 14)
+        .frame(width: guideGridWidth + 28, height: 72, alignment: .leading)
         .background(NullSportsStyle.surface.opacity(0.86))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(alignment: .leading) {
