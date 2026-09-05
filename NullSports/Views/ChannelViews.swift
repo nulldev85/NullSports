@@ -28,7 +28,14 @@ struct LiveView: View {
                     if library.isLoading {
                         ProgressView("Loading channels…")
                     } else if events.isEmpty {
-                        EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
+                        LiveEmptySlateDashboard(
+                            tickerEvents: tickerEvents,
+                            selectedLeague: $selectedLeague,
+                            focusedGame: $focusedGame,
+                            isLoading: library.isScheduleLoading,
+                            isAvailable: library.scheduleAvailable(for: selectedLeague),
+                            errorMessage: library.scheduleErrorMessage
+                        )
                     } else {
                         LiveSlateDashboard(
                             events: events,
@@ -124,6 +131,47 @@ struct LiveView: View {
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
+    }
+}
+
+private struct LiveEmptySlateDashboard: View {
+    let tickerEvents: [SportsGame]
+    @Binding var selectedLeague: SportsLeague?
+    @Binding var focusedGame: SportsGame?
+    let isLoading: Bool
+    let isAvailable: Bool
+    let errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 18) {
+                LiveLeagueFilterButton(title: "ALL SPORTS", league: nil, selected: selectedLeague == nil, onMoveDown: {}) {
+                    selectedLeague = nil
+                    focusedGame = nil
+                }
+                ForEach(SportsLeague.allCases) { league in
+                    LiveLeagueFilterButton(title: league.shortName, league: league, selected: selectedLeague == league, onMoveDown: {}) {
+                        selectedLeague = league
+                        focusedGame = nil
+                    }
+                }
+                Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    .font(.system(size: 20, weight: .medium, design: .serif)).italic()
+                    .foregroundStyle(NullSportsStyle.secondary)
+                Spacer()
+                Text("0 LIVE  ·  0 SCHEDULED")
+                    .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
+            }
+            .padding(.horizontal, 42).frame(height: 62)
+            .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+
+            EmptySchedule(isLoading: isLoading, isAvailable: isAvailable, errorMessage: errorMessage)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            LiveTicker(events: tickerEvents)
+                .frame(height: 54)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -455,7 +503,7 @@ private struct LiveTicker: View {
                 .clipped()
             }
         }
-        .padding(.horizontal, 42).background(Color.black)
+        .padding(.horizontal, 42).background(Color.black.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
         .onPreferenceChange(TickerWidthKey.self) { if $0 > 1 { contentWidth = $0 } }
         .onChange(of: events.map(\.id)) { _ in epoch = Date() }
