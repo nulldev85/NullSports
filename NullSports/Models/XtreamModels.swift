@@ -84,8 +84,8 @@ extension Array where Element == CurrentProgram {
                     channelID: previous.channelID,
                     title: previous.title.isEmpty ? program.title : previous.title,
                     detail: previous.detail.isEmpty ? program.detail : previous.detail,
-                    start: min(previous.start, program.start),
-                    end: max(previous.end, program.end)
+                    start: Swift.min(previous.start, program.start),
+                    end: Swift.max(previous.end, program.end)
                 )
                 continue
             }
