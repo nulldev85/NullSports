@@ -6,6 +6,8 @@ struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
     @State private var selectedLeague: SportsLeague?
     @State private var selectedStream: XtreamStream?
+    @State private var multiviewPrimary: XtreamStream?
+    @State private var multiviewSession: MultiviewSession?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -17,10 +19,23 @@ struct LiveView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
-                    Text("LIVE & UPCOMING")
-                        .font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
+                    if let multiviewPrimary {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("MULTIVIEW · CHOOSE SECOND GAME")
+                                .font(.caption2.weight(.bold)).tracking(1.3)
+                                .foregroundStyle(NullSportsStyle.secondary)
+                            Text(multiviewPrimary.name)
+                                .font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                        }
+                    } else {
+                        Text("LIVE & UPCOMING")
+                            .font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
+                    }
                     Spacer()
                     Text(scheduleDetail).font(.caption).foregroundStyle(NullSportsStyle.secondary)
+                    if multiviewPrimary != nil {
+                        GuideHeaderButton(title: "Cancel", symbol: "xmark") { multiviewPrimary = nil }
+                    }
                     GuideHeaderButton(title: "Refresh", symbol: "arrow.clockwise") { Task { await library.reload() } }
                 }
                 HStack(spacing: 8) {
@@ -38,10 +53,22 @@ struct LiveView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 20) {
                             if !liveEvents.isEmpty {
-                                ScheduleSection(title: "Live now", events: liveEvents) { game in play(game) }
+                                ScheduleSection(
+                                    title: "Live now",
+                                    events: liveEvents,
+                                    multiviewPrimaryID: multiviewPrimary?.id,
+                                    onPlay: select,
+                                    onStartMultiview: startMultiview
+                                )
                             }
                             if !upcomingEvents.isEmpty {
-                                ScheduleSection(title: "Upcoming", events: upcomingEvents) { game in play(game) }
+                                ScheduleSection(
+                                    title: "Upcoming",
+                                    events: upcomingEvents,
+                                    multiviewPrimaryID: multiviewPrimary?.id,
+                                    onPlay: select,
+                                    onStartMultiview: startMultiview
+                                )
                             }
                         }.padding(.horizontal, 10).padding(.vertical, 8)
                     }
@@ -55,6 +82,14 @@ struct LiveView: View {
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .fullScreenCover(item: $multiviewSession) { session in
+                MultiviewView(
+                    primary: session.primary,
+                    secondary: session.secondary,
+                    primaryURLs: library.playbackURLs(for: session.primary),
+                    secondaryURLs: library.playbackURLs(for: session.secondary)
+                )
+            }
             .task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(30))
@@ -69,8 +104,20 @@ struct LiveView: View {
         library.isScheduleLoading ? "Updating official schedules…" : "Today and tomorrow"
     }
 
-    private func play(_ game: SportsGame) {
-        selectedStream = library.stream(for: game)
+    private func select(_ game: SportsGame) {
+        guard let stream = library.stream(for: game) else { return }
+        guard let primary = multiviewPrimary else {
+            selectedStream = stream
+            return
+        }
+        guard primary.id != stream.id else { return }
+        multiviewPrimary = nil
+        multiviewSession = MultiviewSession(primary: primary, secondary: stream)
+    }
+
+    private func startMultiview(_ game: SportsGame) {
+        guard let stream = library.stream(for: game) else { return }
+        multiviewPrimary = stream
     }
 }
 
@@ -93,7 +140,9 @@ private struct LiveFilterButton: View {
 private struct ScheduleSection: View {
     let title: String
     let events: [SportsGame]
+    let multiviewPrimaryID: Int?
     let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -105,7 +154,14 @@ private struct ScheduleSection: View {
                 Rectangle().fill(NullSportsStyle.line).frame(height: 1)
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)], spacing: 18) {
-                ForEach(events) { event in GameEventCard(event: event) { onPlay(event) } }
+                ForEach(events) { event in
+                    GameEventCard(
+                        event: event,
+                        multiviewPrimaryID: multiviewPrimaryID,
+                        onPlay: { onPlay(event) },
+                        onStartMultiview: { onStartMultiview(event) }
+                    )
+                }
             }
         }
     }
@@ -140,7 +196,9 @@ private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
     @FocusState private var isFocused: Bool
     let event: SportsGame
+    let multiviewPrimaryID: Int?
     let onPlay: () -> Void
+    let onStartMultiview: () -> Void
     private var stream: XtreamStream? { library.stream(for: event) }
 
     var body: some View {
@@ -189,7 +247,20 @@ private struct GameEventCard: View {
         .background(isFocused ? NullSportsStyle.focused : (event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? Color.red.opacity(0.42) : NullSportsStyle.line, lineWidth: 1))
+        .overlay {
+            if multiviewPrimaryID == stream?.id {
+                RoundedRectangle(cornerRadius: 14).inset(by: 2).stroke(NullSportsStyle.text.opacity(0.8), lineWidth: 3)
+            }
+        }
         .contentShape(Rectangle()).focusable(stream != nil).focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contextMenu {
+            if stream != nil {
+                Button(multiviewPrimaryID == stream?.id ? "First Multiview Game" : "Start Multiview", systemImage: "rectangle.split.2x1") {
+                    onStartMultiview()
+                }
+                .disabled(multiviewPrimaryID == stream?.id)
+            }
+        }
         .focusLift(isFocused)
         .animation(.easeOut(duration: 0.18), value: isFocused)
     }
