@@ -480,7 +480,13 @@ private struct GuideChannelRow: View {
     let favoritesMode: Bool
     let now: Date
     let onPlay: () -> Void
-    private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
+    private var programs: [CurrentProgram] { library.guidePrograms(for: stream).normalizedEPG() }
+
+    private var visiblePrograms: [CurrentProgram] {
+        let start = guideTimelineAnchor(now)
+        let end = start.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
+        return programs.filter { $0.end > start && $0.start < end }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -498,18 +504,20 @@ private struct GuideChannelRow: View {
             .frame(width: guideChannelWidth, alignment: .leading)
             .clipped()
 
-            HStack(spacing: 6) {
-                ForEach(0..<guideVisibleSlotCount, id: \.self) { index in
-                    let program = index < programs.count ? programs[index] : nil
-                    GuideProgramCell(
-                        program: program,
-                        empty: index == 0 ? "No guide information" : "",
-                        showsProgress: index == 0 && (program?.isLive ?? false),
-                        onPlay: onPlay
-                    )
-                    .frame(width: guideSlotWidth - 6, alignment: .leading)
+            ZStack(alignment: .leading) {
+                if visiblePrograms.isEmpty {
+                    GuideProgramCell(program: nil, empty: "No guide information", showsProgress: false, onPlay: onPlay)
+                        .frame(width: guideSlotWidth - 6, alignment: .leading)
+                } else {
+                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
+                        GuideProgramCell(program: program, empty: "", showsProgress: program.isLive, onPlay: onPlay)
+                            .frame(width: guideProgramWidth(program, now: now), alignment: .leading)
+                            .offset(x: guideProgramX(program, now: now))
+                    }
                 }
             }
+            .frame(width: guideSlotWidth * CGFloat(guideVisibleSlotCount), alignment: .leading)
+            .clipped()
         }
         .padding(.horizontal, 14)
         .frame(width: guideGridWidth + 28, height: 72, alignment: .leading)
@@ -535,6 +543,21 @@ private struct GuideChannelRow: View {
             }
         }
     }
+}
+
+private func guideProgramX(_ program: CurrentProgram, now: Date) -> CGFloat {
+    let anchor = guideTimelineAnchor(now)
+    let visibleStart = max(program.start, anchor)
+    return max(0, CGFloat(visibleStart.timeIntervalSince(anchor) / 1800) * guideSlotWidth)
+}
+
+private func guideProgramWidth(_ program: CurrentProgram, now: Date) -> CGFloat {
+    let anchor = guideTimelineAnchor(now)
+    let windowEnd = anchor.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
+    let visibleStart = max(program.start, anchor)
+    let visibleEnd = min(program.end, windowEnd)
+    let durationWidth = CGFloat(max(0, visibleEnd.timeIntervalSince(visibleStart)) / 1800) * guideSlotWidth
+    return max(72, durationWidth - 6)
 }
 
 private struct GuideProgramCell: View {

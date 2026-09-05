@@ -61,6 +61,54 @@ struct CurrentProgram: Codable, Hashable, Sendable {
     }
 }
 
+extension Array where Element == CurrentProgram {
+    /// Produces a stable, non-overlapping XMLTV timeline. Providers sometimes
+    /// repeat the same listing or publish a corrected listing over an older one.
+    func normalizedEPG() -> [CurrentProgram] {
+        let sorted = self.sorted {
+            $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
+        }
+        var result: [CurrentProgram] = []
+
+        for program in sorted where program.end > program.start {
+            guard let previous = result.last else {
+                result.append(program)
+                continue
+            }
+
+            let sameTitle = previous.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(program.title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+
+            if sameTitle && program.start <= previous.end {
+                result[result.count - 1] = CurrentProgram(
+                    channelID: previous.channelID,
+                    title: previous.title.isEmpty ? program.title : previous.title,
+                    detail: previous.detail.isEmpty ? program.detail : previous.detail,
+                    start: min(previous.start, program.start),
+                    end: max(previous.end, program.end)
+                )
+                continue
+            }
+
+            if program.start < previous.end {
+                if program.start > previous.start {
+                    result[result.count - 1] = CurrentProgram(
+                        channelID: previous.channelID,
+                        title: previous.title,
+                        detail: previous.detail,
+                        start: previous.start,
+                        end: program.start
+                    )
+                } else {
+                    result.removeLast()
+                }
+            }
+            result.append(program)
+        }
+        return result
+    }
+}
+
 struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let league: SportsLeague

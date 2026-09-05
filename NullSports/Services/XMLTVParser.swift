@@ -26,7 +26,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         let parser = XMLParser(data: data)
         parser.delegate = self
         _ = parser.parse()
-        return programs.mapValues { $0.sorted { $0.start < $1.start } }
+        return programs.mapValues { $0.normalizedEPG() }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
