@@ -79,14 +79,19 @@ private struct LaunchRefreshIndicator: View {
 }
 
 struct MainView: View {
+    @State private var selectedTab = 0
+
     var body: some View {
-        TabView {
-            LiveView()
+        TabView(selection: $selectedTab) {
+            LiveView(isActive: selectedTab == 0)
                 .tabItem { Label("Live", systemImage: "play.rectangle.fill") }
+                .tag(0)
             GuideView()
                 .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }
+                .tag(1)
             AccountView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                .tag(2)
         }
         .tint(NullSportsStyle.field)
     }

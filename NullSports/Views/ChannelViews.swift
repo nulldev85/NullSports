@@ -4,11 +4,15 @@ import VLCKit
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var selectedStream: XtreamStream?
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
     @State private var focusedGame: SportsGame?
+    @State private var previewStream: XtreamStream?
+    @State private var previewGameID: String?
+    @State private var playbackTransitionID: UUID?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -31,12 +35,15 @@ struct LiveView: View {
                             tickerEvents: tickerEvents,
                             selectedLeague: $selectedLeague,
                             focusedGame: $focusedGame,
+                            previewStream: previewStream,
+                            previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                             multiviewPrimaryID: multiviewPrimary?.id,
                             multiviewTitle: multiviewPrimary?.name,
                             isUpdating: library.isScheduleLoading,
                             onPlay: select,
                             onStartMultiview: startMultiview,
-                            onCancelMultiview: { multiviewPrimary = nil }
+                            onCancelMultiview: { multiviewPrimary = nil },
+                            onStopPreview: stopPreview
                         )
                     }
                 }
@@ -66,6 +73,9 @@ struct LiveView: View {
                     library.refreshSchedule(showsLoading: false)
                 }
             }
+            .onChange(of: isActive) { _, active in
+                if !active { stopPreview() }
+            }
 #if DEBUG
             .onAppear {
                 let tabBounds = container.frame(in: .global)
@@ -80,7 +90,22 @@ struct LiveView: View {
     private func select(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
         guard let primary = multiviewPrimary else {
-            selectedStream = stream
+            if previewGameID == game.id {
+                let transitionID = UUID()
+                playbackTransitionID = transitionID
+                previewStream = nil
+                previewGameID = nil
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(180))
+                    guard isActive, playbackTransitionID == transitionID else { return }
+                    playbackTransitionID = nil
+                    selectedStream = stream
+                }
+            } else {
+                playbackTransitionID = nil
+                previewStream = stream
+                previewGameID = game.id
+            }
             return
         }
         guard primary.id != stream.id else { return }
@@ -90,7 +115,14 @@ struct LiveView: View {
 
     private func startMultiview(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
+        stopPreview()
         multiviewPrimary = stream
+    }
+
+    private func stopPreview() {
+        playbackTransitionID = nil
+        previewStream = nil
+        previewGameID = nil
     }
 }
 
@@ -100,12 +132,15 @@ private struct LiveSlateDashboard: View {
     let tickerEvents: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
+    let previewStream: XtreamStream?
+    let previewURLs: [URL]
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
     let isUpdating: Bool
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
+    let onStopPreview: () -> Void
 
     private var featured: SportsGame { focusedGame.flatMap { focused in events.first(where: { $0.id == focused.id }) } ?? events[0] }
     private var liveCount: Int { events.filter(\.isLive).count }
@@ -140,8 +175,15 @@ private struct LiveSlateDashboard: View {
             .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
 
             HStack(spacing: 0) {
-                LiveGameHero(game: featured)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if let previewStream {
+                        LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                            .id(previewStream.id)
+                    } else {
+                        LiveGameHero(game: featured)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 LiveGameSlate(
                     events: events,
                     focusedGame: $focusedGame,
@@ -158,9 +200,36 @@ private struct LiveSlateDashboard: View {
                 .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onExitCommand {
+            if previewStream != nil { onStopPreview() }
+        }
     }
 
     private func focusFirstGame() { requestedGameFocusID = events.first?.id }
+}
+
+private struct LiveSelectedPreview: View {
+    @StateObject private var controller = VLCPlaybackController()
+    let stream: XtreamStream
+    let urls: [URL]
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            VLCVideoSurface(player: controller.player).background(Color.black)
+            HStack(spacing: 10) {
+                Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
+                Text("NOW PLAYING").font(.caption2.weight(.bold)).tracking(2)
+                Text(stream.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Spacer()
+                Text("Select this game again for full screen")
+                    .font(.caption).foregroundStyle(NullSportsStyle.secondary)
+            }
+            .padding(.horizontal, 24).frame(height: 54)
+            .background(Color.black.opacity(0.82))
+        }
+        .onAppear { controller.start(urls: urls, muted: false) }
+        .onDisappear { controller.stop() }
+    }
 }
 
 private struct LiveLeagueFilterButton: View {
