@@ -367,6 +367,10 @@ private struct LiveSlateRow: View {
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
     private var stream: XtreamStream? { library.stream(for: game) }
+    private var isTomorrow: Bool {
+        guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return false }
+        return Calendar.current.isDate(game.start, inSameDayAs: tomorrow)
+    }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -380,8 +384,15 @@ private struct LiveSlateRow: View {
             Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
             Text(game.homeAbbreviation).foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
             Spacer()
-            Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
-                .font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
+                    .font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+                if isTomorrow && !game.isLive {
+                    Text("Tomorrow")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(NullSportsStyle.secondary.opacity(0.72))
+                }
+            }
         }
         .font(.system(size: 24, weight: .bold, design: .serif))
         .padding(.horizontal, 28).frame(height: 76)
