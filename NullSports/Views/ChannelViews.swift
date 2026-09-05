@@ -656,6 +656,7 @@ struct GuideView: View {
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
     @State private var previewPlaybackStream: XtreamStream?
+    @State private var pinnedPreviewItem: GuideFocusItem?
     @State private var playbackTransitionID: UUID?
     @State private var previewHidden = false
     @State private var sidebarVisible = true
@@ -677,6 +678,9 @@ struct GuideView: View {
         }
         return nil
     }
+    private var displayedPreviewItem: GuideFocusItem? {
+        previewPlaybackStream == nil ? previewItem : pinnedPreviewItem
+    }
 
     var body: some View {
         NavigationStack {
@@ -691,7 +695,7 @@ struct GuideView: View {
                     onCancelMultiview: { multiviewPrimary = nil }
                 )
 
-                if !previewHidden, let previewItem {
+                if !previewHidden, let previewItem = displayedPreviewItem {
                     GuidePreviewPanel(
                         item: previewItem,
                         categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
@@ -781,6 +785,7 @@ struct GuideView: View {
                     playbackTransitionID = nil
                 } else if previewPlaybackStream != nil {
                     previewPlaybackStream = nil
+                    pinnedPreviewItem = nil
                 } else if !previewHidden {
                     previewHidden = true
                 }
@@ -794,6 +799,7 @@ struct GuideView: View {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
                 previewPlaybackStream = nil
+                pinnedPreviewItem = nil
                 previewHidden = true
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(180))
@@ -803,6 +809,17 @@ struct GuideView: View {
                 }
             } else {
                 playbackTransitionID = nil
+                let selectedProgram = focusedGuideItem.flatMap { $0.stream.id == stream.id ? $0.program : nil }
+                    ?? library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end })
+                    ?? library.guidePrograms(for: stream).normalizedEPG().first
+                    ?? CurrentProgram(
+                        channelID: stream.epgChannelID ?? String(stream.id),
+                        title: stream.name,
+                        detail: "Live channel preview",
+                        start: guideNow,
+                        end: guideNow.addingTimeInterval(3600)
+                    )
+                pinnedPreviewItem = GuideFocusItem(stream: stream, program: selectedProgram)
                 previewPlaybackStream = stream
                 previewHidden = false
             }
