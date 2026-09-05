@@ -145,24 +145,28 @@ private struct GameEventCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-                HStack(spacing: 18) {
-                    MatchupArtwork(event: event)
-                    VStack(alignment: .leading, spacing: 10) {
-                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
-                        Text("@").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 20)
-                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
-                        HStack(spacing: 12) {
-                            Text(event.league.shortName)
-                                .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
-                                .background(NullSportsStyle.selected).clipShape(Capsule())
-                            Text(event.start.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
-                        }
+            HStack(spacing: 18) {
+                MatchupArtwork(event: event)
+                VStack(alignment: .leading, spacing: 8) {
+                    GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
+                    Text("@").font(.caption.weight(.bold)).foregroundStyle(NullSportsStyle.secondary).padding(.leading, 20)
+                    GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
+                    HStack(spacing: 12) {
+                        Text(event.league.shortName)
+                            .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
+                            .background(NullSportsStyle.selected).clipShape(Capsule())
+                        Text(event.start.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                        Spacer(minLength: 118)
                     }
-                    Spacer(minLength: 20)
-                    GameStatusBadge(event: event)
                 }
-                .padding(.horizontal, 18).padding(.vertical, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .overlay(alignment: .bottomTrailing) {
+                GameStatusBadge(event: event)
+                    .padding(.trailing, 18).padding(.bottom, 16)
+            }
                 Rectangle().fill(NullSportsStyle.line).frame(height: 1)
                 HStack(spacing: 12) {
                     Image(systemName: stream == nil ? "tv.slash" : "checkmark.circle.fill")
@@ -234,7 +238,13 @@ private struct GameTeamLine: View {
     var body: some View {
         HStack(spacing: 12) {
             TeamLogo(url: logo, fallback: String(name.prefix(3)).uppercased()).frame(width: 34, height: 34)
-            Text(name).font(.title3.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+            Text(name)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(NullSportsStyle.text)
+                .lineLimit(1)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.68)
+                .layoutPriority(1)
             Spacer(minLength: 12)
             if let score, !score.isEmpty {
                 Text(score).font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(NullSportsStyle.text)
