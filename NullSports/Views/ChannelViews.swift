@@ -84,6 +84,7 @@ struct LiveView: View {
             }
 #endif
         }
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(NullSportsStyle.background.ignoresSafeArea())
     }
 

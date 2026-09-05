@@ -29,6 +29,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var isScheduleLoading = false
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
+    @Published private(set) var isRefreshingData = false
     @Published var errorMessage: String?
 
     private let profilesKey = "NullSports.profiles"
@@ -40,6 +41,7 @@ final class SportsLibrary: ObservableObject {
     private var gameStreamCache: [String: XtreamStream] = [:]
     private var gameMatchSignatures: [String: String] = [:]
     private var scheduleRefreshInFlight = false
+    private var activeRefreshOperations = 0
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
@@ -122,6 +124,8 @@ final class SportsLibrary: ObservableObject {
 
     func bootstrap() async {
         guard let profile = activeProfile else { return }
+        beginRefreshOperation()
+        defer { endRefreshOperation() }
         if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
             categories = cached.categories
             streams = cached.streams
@@ -136,12 +140,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     func reload() async {
+        beginRefreshOperation()
+        defer { endRefreshOperation() }
         refreshSchedule()
         await refreshLibrary(forceGuide: true)
     }
 
     private func refreshLibrary(forceGuide: Bool) async {
         guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
+        beginRefreshOperation()
+        defer { endRefreshOperation() }
         isLoading = streams.isEmpty
         errorMessage = nil
         do {
@@ -163,13 +171,18 @@ final class SportsLibrary: ObservableObject {
 
     private func refreshGuide(client: XtreamClient, profileID: UUID) {
         isGuideLoading = true
+        beginRefreshOperation()
         Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.isGuideLoading = false
+                self.endRefreshOperation()
+            }
             let programs = (try? await client.programsToday()) ?? [:]
-            guard let self, self.activeProfile?.id == profileID else { return }
+            guard self.activeProfile?.id == profileID else { return }
             self.programsByChannel = programs
             self.guideUpdatedAt = Date()
             await self.rebuildProfessionalStreams()
-            self.isGuideLoading = false
             self.saveCache(profileID: profileID)
         }
     }
@@ -239,16 +252,26 @@ final class SportsLibrary: ObservableObject {
     func refreshSchedule(showsLoading: Bool = true) {
         guard !scheduleRefreshInFlight else { return }
         scheduleRefreshInFlight = true
+        let tracksNetworkRefresh = showsLoading
+        if tracksNetworkRefresh { beginRefreshOperation() }
         if showsLoading { isScheduleLoading = true }
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()
             guard let self else { return }
+            var tracksProcessingRefresh = false
+            defer {
+                if tracksNetworkRefresh || tracksProcessingRefresh { self.endRefreshOperation() }
+            }
             if !snapshot.loadedLeagues.isEmpty {
                 var updatedGames = self.gamesByLeague
                 for league in snapshot.loadedLeagues {
                     updatedGames[league] = snapshot.games[league] ?? []
                 }
                 if updatedGames != self.gamesByLeague {
+                    if !tracksNetworkRefresh {
+                        self.beginRefreshOperation()
+                        tracksProcessingRefresh = true
+                    }
                     self.gamesByLeague = updatedGames
                     self.persistSchedule()
                     self.rebuildGameStreamCache()
@@ -259,6 +282,16 @@ final class SportsLibrary: ObservableObject {
             self.scheduleRefreshInFlight = false
             if showsLoading { self.isScheduleLoading = false }
         }
+    }
+
+    private func beginRefreshOperation() {
+        activeRefreshOperations += 1
+        if !isRefreshingData { isRefreshingData = true }
+    }
+
+    private func endRefreshOperation() {
+        activeRefreshOperations = max(0, activeRefreshOperations - 1)
+        if activeRefreshOperations == 0 { isRefreshingData = false }
     }
 
     private func persistSchedule() {
@@ -415,6 +448,8 @@ final class SportsLibrary: ObservableObject {
         scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false
+        activeRefreshOperations = 0
+        isRefreshingData = false
         guideUpdatedAt = nil
         libraryUpdatedAt = nil
         try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))

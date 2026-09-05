@@ -4,7 +4,6 @@ import Foundation
 struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.scenePhase) private var scenePhase
-    @State private var launchRefreshActive = false
 
     var body: some View {
         Group {
@@ -16,7 +15,7 @@ struct RootView: View {
         }
         .background(NullSportsStyle.background.ignoresSafeArea())
         .overlay {
-            if launchRefreshActive {
+            if library.isRefreshingData {
                 LaunchRefreshIndicator()
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -24,14 +23,8 @@ struct RootView: View {
         }
         .task {
             guard library.hasProfile else { return }
-            launchRefreshActive = true
             if library.streams.isEmpty { await library.bootstrap() }
             else { library.refreshSchedule() }
-            while library.isLoading || library.isGuideLoading || library.isScheduleLoading {
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled else { return }
-            }
-            withAnimation(.easeOut(duration: 0.25)) { launchRefreshActive = false }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && library.hasProfile && !library.streams.isEmpty {
