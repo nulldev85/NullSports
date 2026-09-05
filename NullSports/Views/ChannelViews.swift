@@ -172,19 +172,19 @@ private struct LiveLeagueFilterButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                if let league { LeagueLogo(league: league, size: 23) }
-                Text(title).font(.caption.weight(.bold)).tracking(1.4)
-            }
-            .foregroundStyle(selected || isFocused ? Color.black : Color.white)
-            .padding(.horizontal, 15).frame(height: 40)
-            .background(selected || isFocused ? Color.white : Color.white.opacity(0.09))
-            .clipShape(Capsule())
+        HStack(spacing: 8) {
+            if let league { LeagueLogo(league: league, size: 23) }
+            Text(title).font(.caption.weight(.bold)).tracking(1.4)
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(selected || isFocused ? Color.black : Color.white)
+        .padding(.horizontal, 15).frame(height: 40)
+        .background(selected || isFocused ? Color.white : Color.white.opacity(0.09))
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
+        .onTapGesture(perform: action)
         .onMoveCommand { direction in if direction == .down { onMoveDown() } }
     }
 }
