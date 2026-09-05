@@ -655,6 +655,8 @@ struct GuideView: View {
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
+    @State private var previewPlaybackStream: XtreamStream?
+    @State private var playbackTransitionID: UUID?
     @State private var previewHidden = false
     @State private var sidebarVisible = true
     private var filtered: [XtreamStream] {
@@ -694,6 +696,7 @@ struct GuideView: View {
                         item: previewItem,
                         categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                         quality: guideQuality(previewItem.stream),
+                        previewURLs: previewPlaybackStream?.id == previewItem.stream.id ? library.playbackURLs(for: previewItem.stream) : nil,
                         now: guideNow
                     )
                     .frame(height: 178)
@@ -774,15 +777,35 @@ struct GuideView: View {
                 }
             }
             .onExitCommand {
-                if !previewHidden { previewHidden = true }
+                if playbackTransitionID != nil {
+                    playbackTransitionID = nil
+                } else if previewPlaybackStream != nil {
+                    previewPlaybackStream = nil
+                } else if !previewHidden {
+                    previewHidden = true
+                }
             }
         }
     }
 
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
-            previewHidden = true
-            selectedStream = stream
+            if previewPlaybackStream?.id == stream.id {
+                let transitionID = UUID()
+                playbackTransitionID = transitionID
+                previewPlaybackStream = nil
+                previewHidden = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(180))
+                    guard playbackTransitionID == transitionID else { return }
+                    playbackTransitionID = nil
+                    selectedStream = stream
+                }
+            } else {
+                playbackTransitionID = nil
+                previewPlaybackStream = stream
+                previewHidden = false
+            }
             return
         }
         guard primary.id != stream.id else { return }
@@ -840,6 +863,7 @@ private struct GuidePreviewPanel: View {
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
+    let previewURLs: [URL]?
     let now: Date
 
     private var progress: CGFloat {
@@ -850,7 +874,14 @@ private struct GuidePreviewPanel: View {
 
     var body: some View {
         HStack(spacing: 24) {
-            GuidePreviewArtwork(stream: item.stream)
+            Group {
+                if let previewURLs {
+                    GuidePreviewVideo(urls: previewURLs)
+                        .id(item.stream.id)
+                } else {
+                    GuidePreviewArtwork(stream: item.stream)
+                }
+            }
                 .frame(width: 330, height: 174)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(NullSportsStyle.line, lineWidth: 1))
@@ -885,6 +916,18 @@ private struct GuidePreviewPanel: View {
         }
         .padding(.horizontal, 12)
         .background(NullSportsStyle.background)
+    }
+}
+
+private struct GuidePreviewVideo: View {
+    @StateObject private var controller = VLCPlaybackController()
+    let urls: [URL]
+
+    var body: some View {
+        VLCVideoSurface(player: controller.player)
+            .background(Color.black)
+            .onAppear { controller.start(urls: urls, muted: false) }
+            .onDisappear { controller.stop() }
     }
 }
 
