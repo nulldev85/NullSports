@@ -281,6 +281,8 @@ struct GuideView: View {
     @State private var searchActive = false
     @State private var query = ""
     @State private var selectedStream: XtreamStream?
+    @State private var multiviewPrimary: XtreamStream?
+    @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
@@ -297,7 +299,15 @@ struct GuideView: View {
                     .frame(width: 286)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 18) {
-                        if searchActive {
+                        if let multiviewPrimary {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("MULTIVIEW · CHOOSE SECOND CHANNEL")
+                                    .font(.caption2.weight(.bold)).tracking(1.3)
+                                    .foregroundStyle(NullSportsStyle.secondary)
+                                Text(multiviewPrimary.name)
+                                    .font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                            }
+                        } else if searchActive {
                             TextField("Channel name", text: $query)
                                 .textFieldStyle(.plain)
                                 .focusEffectDisabled()
@@ -321,6 +331,9 @@ struct GuideView: View {
                             searchActive.toggle()
                             if !searchActive { query = "" }
                         }
+                        if multiviewPrimary != nil {
+                            GuideHeaderButton(title: "Cancel", symbol: "xmark") { multiviewPrimary = nil }
+                        }
                     }
                     .frame(height: 52)
                     GuideTimelineHeader(now: guideNow)
@@ -331,7 +344,14 @@ struct GuideView: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 7) {
                                 ForEach(filtered) { stream in
-                                    GuideChannelRow(stream: stream, favoritesMode: favoritesOnly && !searchActive, now: guideNow) { selectedStream = stream }
+                                    GuideChannelRow(
+                                        stream: stream,
+                                        favoritesMode: favoritesOnly && !searchActive,
+                                        now: guideNow,
+                                        multiviewPrimaryID: multiviewPrimary?.id,
+                                        onPlay: { select(stream) },
+                                        onStartMultiview: { multiviewPrimary = stream }
+                                    )
                                 }
                             }.padding(.vertical, 2)
                         }
@@ -346,6 +366,14 @@ struct GuideView: View {
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .fullScreenCover(item: $multiviewSession) { session in
+                MultiviewView(
+                    primary: session.primary,
+                    secondary: session.secondary,
+                    primaryURLs: library.playbackURLs(for: session.primary),
+                    secondaryURLs: library.playbackURLs(for: session.secondary)
+                )
+            }
             .task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(60))
@@ -354,6 +382,22 @@ struct GuideView: View {
             }
         }
     }
+
+    private func select(_ stream: XtreamStream) {
+        guard let primary = multiviewPrimary else {
+            selectedStream = stream
+            return
+        }
+        guard primary.id != stream.id else { return }
+        multiviewPrimary = nil
+        multiviewSession = MultiviewSession(primary: primary, secondary: stream)
+    }
+}
+
+private struct MultiviewSession: Identifiable {
+    let id = UUID()
+    let primary: XtreamStream
+    let secondary: XtreamStream
 }
 
 private struct GuideSidebar: View {
@@ -479,7 +523,9 @@ private struct GuideChannelRow: View {
     let stream: XtreamStream
     let favoritesMode: Bool
     let now: Date
+    let multiviewPrimaryID: Int?
     let onPlay: () -> Void
+    let onStartMultiview: () -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream).normalizedEPG() }
 
     private var visiblePrograms: [CurrentProgram] {
@@ -528,8 +574,17 @@ private struct GuideChannelRow: View {
                 .offset(x: guidePlayheadX(now) + 14)
         }
         .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+        .overlay {
+            if multiviewPrimaryID == stream.id {
+                RoundedRectangle(cornerRadius: 12).stroke(NullSportsStyle.focusGlow.opacity(0.9), lineWidth: 2)
+            }
+        }
         .contentShape(Rectangle())
         .contextMenu {
+            Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
+                onStartMultiview()
+            }
+            .disabled(multiviewPrimaryID == stream.id)
             if favoritesMode {
                 Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
                     .disabled(!library.canMoveFavorite(stream, offset: -1))
@@ -650,6 +705,99 @@ private struct AccountRow: View {
     }
 }
 
+private struct MultiviewView: View {
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedPane: Int?
+    @State private var expandedPane: Int?
+    let primary: XtreamStream
+    let secondary: XtreamStream
+    let primaryURLs: [URL]
+    let secondaryURLs: [URL]
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let expandedPane {
+                MultiviewPane(
+                    title: expandedPane == 0 ? primary.name : secondary.name,
+                    urls: expandedPane == 0 ? primaryURLs : secondaryURLs,
+                    audible: true,
+                    expanded: true,
+                    onExpand: {}
+                )
+            } else {
+                HStack(spacing: 14) {
+                    MultiviewPane(title: primary.name, urls: primaryURLs, audible: focusedPane == 0, expanded: false) {
+                        expandedPane = 0
+                    }
+                    .focusable().focused($focusedPane, equals: 0).focusEffectDisabled()
+
+                    MultiviewPane(title: secondary.name, urls: secondaryURLs, audible: focusedPane == 1, expanded: false) {
+                        expandedPane = 1
+                    }
+                    .focusable().focused($focusedPane, equals: 1).focusEffectDisabled()
+                }
+                .padding(34)
+            }
+        }
+        .onAppear { focusedPane = 0 }
+        .onExitCommand {
+            if expandedPane != nil { expandedPane = nil }
+            else { dismiss() }
+        }
+    }
+}
+
+private struct MultiviewPane: View {
+    @StateObject private var controller = VLCPlaybackController()
+    let title: String
+    let urls: [URL]
+    let audible: Bool
+    let expanded: Bool
+    let onExpand: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            VLCVideoSurface(player: controller.player).background(Color.black)
+            if urls.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle").font(.title2)
+                    Text("Stream unavailable").font(.headline)
+                }
+                .foregroundStyle(.white.opacity(0.8)).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            HStack(spacing: 10) {
+                Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+                Spacer()
+                if !expanded { Text("SELECT TO EXPAND").font(.caption2.weight(.bold)).tracking(1.1) }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18).frame(height: 50)
+            .background(Color.black.opacity(0.56))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: expanded ? 0 : 16, style: .continuous))
+        .overlay {
+            if !expanded {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(audible ? Color.white.opacity(0.92) : Color.white.opacity(0.18), lineWidth: audible ? 3 : 1)
+            }
+        }
+        .scaleEffect(!expanded && audible ? 1.012 : 1)
+        .shadow(color: !expanded && audible ? Color.white.opacity(0.16) : .clear, radius: 18)
+        .animation(.easeOut(duration: 0.18), value: audible)
+        .contentShape(Rectangle()).onTapGesture(perform: onExpand)
+        .contextMenu {
+            Button("Retry Stream", systemImage: "arrow.clockwise") {
+                controller.start(urls: urls, muted: !audible)
+            }
+        }
+        .onAppear { controller.start(urls: urls, muted: !audible) }
+        .onChange(of: audible) { _, value in controller.setMuted(!value) }
+        .onDisappear { controller.stop() }
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     let urls: [URL]
@@ -668,12 +816,13 @@ struct PlayerView: View {
 
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
-    func start(urls: [URL]) {
+    func start(urls: [URL], muted: Bool = false) {
         guard let url = urls.last ?? urls.first else { return }; stop()
         guard let media = VLCMedia(url: url) else { return }
         media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
-        player.media = media; player.play()
+        player.media = media; player.play(); setMuted(muted)
     }
+    func setMuted(_ muted: Bool) { player.audio?.isMuted = muted }
     func togglePlayback() { player.isPlaying ? player.pause() : player.play() }
     func stop() { player.stop(); player.media = nil }
 }
