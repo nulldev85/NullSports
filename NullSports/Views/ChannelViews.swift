@@ -100,6 +100,7 @@ struct LiveView: View {
 }
 
 private struct LiveSlateDashboard: View {
+    @State private var requestedGameFocusID: String?
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
@@ -121,24 +122,14 @@ private struct LiveSlateDashboard: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 18) {
-                Menu {
-                    Button("All leagues") { selectedLeague = nil; focusedGame = nil }
-                    ForEach(SportsLeague.allCases) { league in
-                        Button(league.shortName) { selectedLeague = league; focusedGame = nil }
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        if let selectedLeague { LeagueLogo(league: selectedLeague, size: 25) }
-                        Text(selectedLeague?.shortName ?? "ALL SPORTS")
-                            .font(.caption.weight(.bold)).tracking(2)
-                    }
-                    .foregroundStyle(Color.white)
-                    .padding(.horizontal, 18)
-                    .frame(height: 42)
-                    .background(Color.white.opacity(0.09))
-                    .clipShape(Capsule())
+                LiveLeagueFilterButton(title: "ALL SPORTS", league: nil, selected: selectedLeague == nil, onMoveDown: focusFirstGame) {
+                    selectedLeague = nil; focusedGame = nil
                 }
-                .buttonStyle(.plain)
+                ForEach(SportsLeague.allCases) { league in
+                    LiveLeagueFilterButton(title: league.shortName, league: league, selected: selectedLeague == league, onMoveDown: focusFirstGame) {
+                        selectedLeague = league; focusedGame = nil
+                    }
+                }
                 Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
                     .font(.system(size: 20, weight: .medium, design: .serif)).italic()
                     .foregroundStyle(NullSportsStyle.secondary)
@@ -168,6 +159,7 @@ private struct LiveSlateDashboard: View {
                 LiveGameSlate(
                     events: events,
                     focusedGame: $focusedGame,
+                    requestedFocusID: $requestedGameFocusID,
                     inlineGameID: inlineGameID,
                     multiviewPrimaryID: multiviewPrimaryID,
                     onPlay: onPlay,
@@ -184,6 +176,31 @@ private struct LiveSlateDashboard: View {
         .onExitCommand {
             if inlineStream != nil { onStopInline() }
         }
+    }
+
+    private func focusFirstGame() { requestedGameFocusID = events.first?.id }
+}
+
+private struct LiveLeagueFilterButton: View {
+    let title: String
+    let league: SportsLeague?
+    let selected: Bool
+    let onMoveDown: () -> Void
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let league { LeagueLogo(league: league, size: 23) }
+                Text(title).font(.caption.weight(.bold)).tracking(1.4)
+            }
+            .foregroundStyle(selected ? Color.black : Color.white)
+            .padding(.horizontal, 15).frame(height: 40)
+            .background(selected ? Color.white : Color.white.opacity(0.09))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onMoveCommand { direction in if direction == .down { onMoveDown() } }
     }
 }
 
@@ -277,6 +294,7 @@ private struct LiveHeroTeam: View {
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
+    @Binding var requestedFocusID: String?
     let inlineGameID: String?
     let multiviewPrimaryID: Int?
     let onPlay: (SportsGame) -> Void
@@ -296,10 +314,11 @@ private struct LiveGameSlate: View {
                     ForEach(events) { game in
                         LiveSlateRow(
                             game: game,
+                            requestFocus: requestedFocusID == game.id,
                             selected: focusedGame?.id == game.id,
                             nowPlaying: inlineGameID == game.id,
                             multiviewPrimaryID: multiviewPrimaryID,
-                            onFocus: { focusedGame = game },
+                            onFocus: { focusedGame = game; requestedFocusID = nil },
                             onPlay: { onPlay(game) },
                             onStartMultiview: { onStartMultiview(game) }
                         )
@@ -315,6 +334,7 @@ private struct LiveSlateRow: View {
     @EnvironmentObject private var library: SportsLibrary
     @FocusState private var isFocused: Bool
     let game: SportsGame
+    let requestFocus: Bool
     let selected: Bool
     let nowPlaying: Bool
     let multiviewPrimaryID: Int?
@@ -348,6 +368,7 @@ private struct LiveSlateRow: View {
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
         .onChange(of: isFocused) { value in if value { onFocus() } }
+        .onChange(of: requestFocus) { value in if value { isFocused = true } }
         .contextMenu {
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
@@ -661,6 +682,7 @@ struct GuideView: View {
     @State private var focusedGuideItem: GuideFocusItem?
     @State private var previewHidden = false
     @State private var browseFiltersVisible = false
+    @State private var requestedFilterFocusID: String?
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -689,6 +711,7 @@ struct GuideView: View {
                     searchActive: $searchActive,
                     query: $query,
                     browseFiltersVisible: $browseFiltersVisible,
+                    requestedFilterFocusID: $requestedFilterFocusID,
                     multiviewTitle: multiviewPrimary?.name,
                     isLoading: library.isGuideLoading,
                     onCancelMultiview: { multiviewPrimary = nil }
@@ -699,7 +722,8 @@ struct GuideView: View {
                         categories: library.categories,
                         selectedCategoryID: $selectedCategoryID,
                         favoritesOnly: $favoritesOnly,
-                        isPresented: $browseFiltersVisible
+                        isPresented: $browseFiltersVisible,
+                        requestedFocusID: $requestedFilterFocusID
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -793,6 +817,7 @@ private struct GuideControlBar: View {
     @Binding var searchActive: Bool
     @Binding var query: String
     @Binding var browseFiltersVisible: Bool
+    @Binding var requestedFilterFocusID: String?
     let multiviewTitle: String?
     let isLoading: Bool
     let onCancelMultiview: () -> Void
@@ -816,7 +841,7 @@ private struct GuideControlBar: View {
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
             Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
-            GuideHeaderButton(title: browseFiltersVisible ? "Hide" : "Browse", symbol: "line.3.horizontal.decrease") {
+            GuideHeaderButton(title: browseFiltersVisible ? "Hide" : "Browse", symbol: "line.3.horizontal.decrease", onMoveDown: revealAndFocusFilters) {
                 withAnimation(.easeInOut(duration: 0.2)) { browseFiltersVisible.toggle() }
             }
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
@@ -828,6 +853,13 @@ private struct GuideControlBar: View {
         .foregroundStyle(NullSportsStyle.text)
         .frame(height: 44)
     }
+
+    private func revealAndFocusFilters() {
+        if !browseFiltersVisible {
+            withAnimation(.easeInOut(duration: 0.2)) { browseFiltersVisible = true }
+        }
+        requestedFilterFocusID = "all"
+    }
 }
 
 private struct GuideFilterShelf: View {
@@ -835,19 +867,20 @@ private struct GuideFilterShelf: View {
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
     @Binding var isPresented: Bool
+    @Binding var requestedFocusID: String?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                filterButton("All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
+                filterButton("All channels", id: "all", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
                     selectedCategoryID = nil; favoritesOnly = false
                 }
-                filterButton("Favorites", symbol: "star.fill", selected: favoritesOnly) {
+                filterButton("Favorites", id: "favorites", symbol: "star.fill", selected: favoritesOnly) {
                     selectedCategoryID = nil; favoritesOnly = true
                 }
                 Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 30).padding(.horizontal, 4)
                 ForEach(categories) { category in
-                    filterButton(category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
+                    filterButton(category.categoryName, id: category.id, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
                         selectedCategoryID = category.id; favoritesOnly = false
                     }
                 }
@@ -857,20 +890,39 @@ private struct GuideFilterShelf: View {
         .frame(height: 52)
     }
 
-    private func filterButton(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
+    private func filterButton(_ title: String, id: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        GuideFilterShelfButton(title: title, id: id, symbol: symbol, selected: selected, requestedFocusID: $requestedFocusID) {
             action()
             withAnimation(.easeInOut(duration: 0.2)) { isPresented = false }
-        } label: {
+        }
+    }
+}
+
+private struct GuideFilterShelfButton: View {
+    @FocusState private var isFocused: Bool
+    let title: String
+    let id: String
+    let symbol: String
+    let selected: Bool
+    @Binding var requestedFocusID: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
             Label(title, systemImage: symbol)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(selected ? Color.black : NullSportsStyle.text)
-                .padding(.horizontal, 15)
-                .frame(height: 38)
+                .padding(.horizontal, 15).frame(height: 38)
                 .background(selected ? Color.white : NullSportsStyle.raised)
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).focused($isFocused)
+        .onAppear {
+            if requestedFocusID == id { isFocused = true; requestedFocusID = nil }
+        }
+        .onChange(of: requestedFocusID) { value in
+            if value == id { isFocused = true; requestedFocusID = nil }
+        }
     }
 }
 
@@ -1027,6 +1079,7 @@ private struct GuideHeaderButton: View {
     @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
+    var onMoveDown: (() -> Void)? = nil
     let action: () -> Void
     var body: some View {
         Label(title, systemImage: symbol)
@@ -1037,6 +1090,7 @@ private struct GuideHeaderButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).nullGlass(cornerRadius: 14)
             .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
             .focusLift(isFocused, scale: 1.055)
+            .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
     }
 }
 
