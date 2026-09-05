@@ -33,11 +33,11 @@ struct LiveView: View {
                         isUpdating: library.isScheduleLoading,
                         onPlay: select,
                         onStartMultiview: startMultiview,
-                        onCancelMultiview: { multiviewPrimary = nil },
-                        onRefresh: { Task { await library.reload() } }
+                        onCancelMultiview: { multiviewPrimary = nil }
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -90,7 +90,6 @@ private struct LiveSlateDashboard: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
-    let onRefresh: () -> Void
 
     private var featured: SportsGame { focusedGame.flatMap { focused in events.first(where: { $0.id == focused.id }) } ?? events[0] }
     private var liveCount: Int { events.filter(\.isLive).count }
@@ -105,10 +104,18 @@ private struct LiveSlateDashboard: View {
                         Button(league.shortName) { selectedLeague = league; focusedGame = nil }
                     }
                 } label: {
-                    Text(selectedLeague?.shortName ?? "ALL SPORTS")
-                        .font(.caption.weight(.bold)).tracking(2)
+                    HStack(spacing: 10) {
+                        if let selectedLeague { LeagueLogo(league: selectedLeague, size: 25) }
+                        Text(selectedLeague?.shortName ?? "ALL SPORTS")
+                            .font(.caption.weight(.bold)).tracking(2)
+                    }
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 42)
+                    .background(Color.white.opacity(0.09))
+                    .clipShape(Capsule())
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
                     .font(.system(size: 20, weight: .medium, design: .serif)).italic()
                     .foregroundStyle(NullSportsStyle.secondary)
@@ -122,7 +129,6 @@ private struct LiveSlateDashboard: View {
                 Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
                 Text("\(liveCount) LIVE  ·  \(scheduledCount) SCHEDULED")
                     .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
-                GuideHeaderButton(title: "Refresh", symbol: "arrow.clockwise", action: onRefresh)
             }
             .padding(.horizontal, 42).frame(height: 62)
             .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
@@ -144,6 +150,7 @@ private struct LiveSlateDashboard: View {
             LiveTicker(events: events.filter { $0.id != featured.id })
                 .frame(height: 54)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -256,7 +263,7 @@ private struct LiveSlateRow: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: sportsSymbol(game.league)).font(.title3).frame(width: 34).foregroundStyle(NullSportsStyle.secondary)
+            LeagueLogo(league: game.league, size: 32).frame(width: 38)
             Text(game.awayAbbreviation).foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
             Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
             Text(game.homeAbbreviation).foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
@@ -319,6 +326,31 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .nba: "basketball.fill"
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
+    }
+}
+
+private struct LeagueLogo: View {
+    let league: SportsLeague
+    let size: CGFloat
+
+    private var logoURL: URL? {
+        URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
+    }
+
+    var body: some View {
+        AsyncImage(url: logoURL) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFit()
+            } else {
+                Image(systemName: sportsSymbol(league))
+                    .resizable().scaledToFit()
+                    .padding(size * 0.18)
+                    .foregroundStyle(NullSportsStyle.secondary)
+            }
+        }
+        .transaction { $0.animation = nil }
+        .frame(width: size, height: size)
+        .clipped()
     }
 }
 
@@ -558,6 +590,7 @@ struct GuideView: View {
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
     @State private var previewHidden = false
+    @State private var browseFiltersVisible = false
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -583,15 +616,23 @@ struct GuideView: View {
                 GuideControlBar(
                     title: selectedTitle,
                     channelCount: filtered.count,
-                    categories: library.categories,
-                    selectedCategoryID: $selectedCategoryID,
-                    favoritesOnly: $favoritesOnly,
                     searchActive: $searchActive,
                     query: $query,
+                    browseFiltersVisible: $browseFiltersVisible,
                     multiviewTitle: multiviewPrimary?.name,
                     isLoading: library.isGuideLoading,
                     onCancelMultiview: { multiviewPrimary = nil }
                 )
+
+                if browseFiltersVisible && !searchActive {
+                    GuideFilterShelf(
+                        categories: library.categories,
+                        selectedCategoryID: $selectedCategoryID,
+                        favoritesOnly: $favoritesOnly,
+                        isPresented: $browseFiltersVisible
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
 
                 if !previewHidden, let previewItem {
                     GuidePreviewPanel(
@@ -679,11 +720,9 @@ private struct GuideFocusItem: Equatable {
 private struct GuideControlBar: View {
     let title: String
     let channelCount: Int
-    let categories: [XtreamCategory]
-    @Binding var selectedCategoryID: String?
-    @Binding var favoritesOnly: Bool
     @Binding var searchActive: Bool
     @Binding var query: String
+    @Binding var browseFiltersVisible: Bool
     let multiviewTitle: String?
     let isLoading: Bool
     let onCancelMultiview: () -> Void
@@ -707,17 +746,9 @@ private struct GuideControlBar: View {
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
             Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
-            Menu {
-                Button("All channels") { selectedCategoryID = nil; favoritesOnly = false }
-                Button("Favorites") { selectedCategoryID = nil; favoritesOnly = true }
-                Divider()
-                ForEach(categories) { category in
-                    Button(category.categoryName) { selectedCategoryID = category.id; favoritesOnly = false }
-                }
-            } label: {
-                Label("Browse", systemImage: "line.3.horizontal.decrease")
+            GuideHeaderButton(title: browseFiltersVisible ? "Hide" : "Browse", symbol: "line.3.horizontal.decrease") {
+                withAnimation(.easeInOut(duration: 0.2)) { browseFiltersVisible.toggle() }
             }
-            .buttonStyle(.bordered)
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                 searchActive.toggle()
                 if !searchActive { query = "" }
@@ -726,6 +757,50 @@ private struct GuideControlBar: View {
         }
         .foregroundStyle(NullSportsStyle.text)
         .frame(height: 44)
+    }
+}
+
+private struct GuideFilterShelf: View {
+    let categories: [XtreamCategory]
+    @Binding var selectedCategoryID: String?
+    @Binding var favoritesOnly: Bool
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                filterButton("All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
+                    selectedCategoryID = nil; favoritesOnly = false
+                }
+                filterButton("Favorites", symbol: "star.fill", selected: favoritesOnly) {
+                    selectedCategoryID = nil; favoritesOnly = true
+                }
+                Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 30).padding(.horizontal, 4)
+                ForEach(categories) { category in
+                    filterButton(category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
+                        selectedCategoryID = category.id; favoritesOnly = false
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .frame(height: 52)
+    }
+
+    private func filterButton(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            withAnimation(.easeInOut(duration: 0.2)) { isPresented = false }
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(selected ? Color.black : NullSportsStyle.text)
+                .padding(.horizontal, 15)
+                .frame(height: 38)
+                .background(selected ? Color.white : NullSportsStyle.raised)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
