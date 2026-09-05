@@ -623,12 +623,14 @@ private struct GuideChannelRow: View {
 
             ZStack(alignment: .leading) {
                 if visiblePrograms.isEmpty {
-                    GuideProgramCell(program: nil, empty: "No guide information", showsProgress: false, onPlay: onPlay)
+                    GuideProgramCell(program: nil, empty: "No guide information", showsProgress: false, showsTime: true, onPlay: onPlay)
                         .frame(width: guideSlotWidth - 6, alignment: .leading)
                 } else {
                     ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
-                        GuideProgramCell(program: program, empty: "", showsProgress: program.isLive, onPlay: onPlay)
-                            .frame(width: guideProgramWidth(program, now: now), alignment: .leading)
+                        let width = guideProgramWidth(program, now: now)
+                        GuideProgramCell(program: program, empty: "", showsProgress: program.isLive, showsTime: width >= 110, onPlay: onPlay)
+                            .frame(width: width, alignment: .leading)
+                            .clipped()
                             .offset(x: guideProgramX(program, now: now))
                     }
                 }
@@ -683,7 +685,7 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date) -> CGFloat 
     let visibleStart = max(program.start, anchor)
     let visibleEnd = min(program.end, windowEnd)
     let durationWidth = CGFloat(max(0, visibleEnd.timeIntervalSince(visibleStart)) / 1800) * guideSlotWidth
-    return max(72, durationWidth - 6)
+    return max(1, durationWidth - 6)
 }
 
 private struct GuideProgramCell: View {
@@ -691,22 +693,25 @@ private struct GuideProgramCell: View {
     let program: CurrentProgram?
     let empty: String
     let showsProgress: Bool
+    let showsTime: Bool
     let onPlay: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-                HStack(spacing: 10) {
-                    Text(program.start.formatted(date: .omitted, time: .shortened))
-                        .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
-                    if showsProgress {
-                        GeometryReader { proxy in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(NullSportsStyle.raised)
-                                Capsule().fill(NullSportsStyle.field).frame(width: proxy.size.width * progress(program))
-                            }
-                        }.frame(width: 72, height: 4)
+                if showsTime {
+                    HStack(spacing: 10) {
+                        Text(program.start.formatted(date: .omitted, time: .shortened))
+                            .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+                        if showsProgress {
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(NullSportsStyle.raised)
+                                    Capsule().fill(NullSportsStyle.field).frame(width: proxy.size.width * progress(program))
+                                }
+                            }.frame(width: 72, height: 4)
+                        }
                     }
                 }
             } else {
@@ -797,7 +802,7 @@ private struct MultiviewView: View {
                     onExpand: {}
                 )
             } else {
-                HStack(spacing: 14) {
+                HStack(spacing: 2) {
                     MultiviewPane(title: primary.name, urls: primaryURLs, audible: focusedPane == 0, expanded: false) {
                         expandedPane = 0
                     }
@@ -808,7 +813,8 @@ private struct MultiviewView: View {
                     }
                     .focusable().focused($focusedPane, equals: 1).focusEffectDisabled()
                 }
-                .padding(34)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
             }
         }
         .onAppear { focusedPane = 0 }
@@ -847,10 +853,11 @@ private struct MultiviewPane: View {
             .padding(.horizontal, 18).frame(height: 50)
             .background(Color.black.opacity(0.56))
         }
-        .clipShape(RoundedRectangle(cornerRadius: expanded ? 0 : 16, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
         .overlay {
             if !expanded {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 0)
                     .stroke(audible ? Color.white.opacity(0.92) : Color.white.opacity(0.18), lineWidth: audible ? 3 : 1)
             }
         }

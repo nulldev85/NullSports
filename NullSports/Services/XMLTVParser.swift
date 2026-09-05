@@ -8,7 +8,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     private var title = ""
     private var detail = ""
     private var text = ""
-    private let endOfDay: Date
+    private let endOfWindow: Date
     private(set) var programs: [String: [CurrentProgram]] = [:]
     private lazy var dateFormatters: [DateFormatter] = ["yyyyMMddHHmmss Z", "yyyyMMddHHmmssZ", "yyyyMMddHHmm Z"].map {
         let formatter = DateFormatter()
@@ -19,7 +19,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
 
     init(now: Date = Date()) {
         self.now = now
-        endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now
+        endOfWindow = Calendar.current.date(byAdding: .day, value: 2, to: Calendar.current.startOfDay(for: now)) ?? now
     }
 
     func parse(_ data: Data) -> [String: [CurrentProgram]] {
@@ -45,7 +45,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         if elementName == "title" { title = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "desc" { detail = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "programme", let start = currentStart, let end = currentEnd,
-           end > now, start < endOfDay, !currentChannel.isEmpty {
+           end > now, start < endOfWindow, !currentChannel.isEmpty {
             programs[currentChannel, default: []].append(CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end))
         }
         text = ""
