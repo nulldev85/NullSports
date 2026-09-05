@@ -20,30 +20,32 @@ struct LiveView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if library.isLoading {
-                    ProgressView("Loading channels…")
-                } else if events.isEmpty {
-                    EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
-                } else {
-                    LiveSlateDashboard(
-                        events: events,
-                        selectedLeague: $selectedLeague,
-                        focusedGame: $focusedGame,
-                        inlineStream: inlineStream,
-                        inlineGameID: inlineGameID,
-                        inlineURLs: inlineStream.map { library.playbackURLs(for: $0) } ?? [],
-                        multiviewPrimaryID: multiviewPrimary?.id,
-                        multiviewTitle: multiviewPrimary?.name,
-                        isUpdating: library.isScheduleLoading,
-                        onPlay: select,
-                        onStartMultiview: startMultiview,
-                        onCancelMultiview: { multiviewPrimary = nil },
-                        onStopInline: stopInlinePlayback
-                    )
+            GeometryReader { container in
+                Group {
+                    if library.isLoading {
+                        ProgressView("Loading channels…")
+                    } else if events.isEmpty {
+                        EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
+                    } else {
+                        LiveSlateDashboard(
+                            events: events,
+                            selectedLeague: $selectedLeague,
+                            focusedGame: $focusedGame,
+                            inlineStream: inlineStream,
+                            inlineGameID: inlineGameID,
+                            inlineURLs: inlineStream.map { library.playbackURLs(for: $0) } ?? [],
+                            multiviewPrimaryID: multiviewPrimary?.id,
+                            multiviewTitle: multiviewPrimary?.name,
+                            isUpdating: library.isScheduleLoading,
+                            onPlay: select,
+                            onStartMultiview: startMultiview,
+                            onCancelMultiview: { multiviewPrimary = nil },
+                            onStopInline: stopInlinePlayback
+                        )
+                    }
                 }
+                .frame(width: container.size.width, height: container.size.height)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -671,6 +673,7 @@ private struct ChannelLogo: View {
 
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @FocusState private var sidebarToggleFocused: Bool
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = false
     @State private var searchActive = false
@@ -681,8 +684,7 @@ struct GuideView: View {
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
     @State private var previewHidden = false
-    @State private var browseFiltersVisible = false
-    @State private var requestedFilterFocusID: String?
+    @State private var sidebarVisible = true
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -710,23 +712,10 @@ struct GuideView: View {
                     channelCount: filtered.count,
                     searchActive: $searchActive,
                     query: $query,
-                    browseFiltersVisible: $browseFiltersVisible,
-                    requestedFilterFocusID: $requestedFilterFocusID,
                     multiviewTitle: multiviewPrimary?.name,
                     isLoading: library.isGuideLoading,
                     onCancelMultiview: { multiviewPrimary = nil }
                 )
-
-                if browseFiltersVisible && !searchActive {
-                    GuideFilterShelf(
-                        categories: library.categories,
-                        selectedCategoryID: $selectedCategoryID,
-                        favoritesOnly: $favoritesOnly,
-                        isPresented: $browseFiltersVisible,
-                        requestedFocusID: $requestedFilterFocusID
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
 
                 if !previewHidden, let previewItem {
                     GuidePreviewPanel(
@@ -740,30 +729,52 @@ struct GuideView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                GuideTimelineHeader(now: guideNow)
-                if filtered.isEmpty {
-                    Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
-                        .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 5) {
-                            ForEach(filtered) { stream in
-                                GuideChannelRow(
-                                    stream: stream,
-                                    favoritesMode: favoritesOnly && !searchActive,
-                                    now: guideNow,
-                                    multiviewPrimaryID: multiviewPrimary?.id,
-                                    onPlay: { select(stream) },
-                                    onStartMultiview: { multiviewPrimary = stream },
-                                    onFocusProgram: { program in
-                                        withAnimation(.easeOut(duration: 0.18)) {
-                                            focusedGuideItem = GuideFocusItem(stream: stream, program: program)
-                                            previewHidden = false
-                                        }
+                ZStack(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        GuideTimelineHeader(now: guideNow)
+                        if filtered.isEmpty {
+                            Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
+                                .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 5) {
+                                    ForEach(filtered) { stream in
+                                        GuideChannelRow(
+                                            stream: stream,
+                                            favoritesMode: favoritesOnly && !searchActive,
+                                            now: guideNow,
+                                            multiviewPrimaryID: multiviewPrimary?.id,
+                                            onPlay: { select(stream) },
+                                            onStartMultiview: { multiviewPrimary = stream },
+                                            onFocusProgram: { program in
+                                                withAnimation(.easeOut(duration: 0.18)) {
+                                                    focusedGuideItem = GuideFocusItem(stream: stream, program: program)
+                                                    previewHidden = false
+                                                }
+                                            }
+                                        )
                                     }
-                                )
+                                }.padding(.vertical, 2)
                             }
-                        }.padding(.vertical, 2)
+                        }
+                    }
+
+                    if sidebarVisible && !searchActive {
+                        GuideSidebar(
+                            selectedCategoryID: $selectedCategoryID,
+                            favoritesOnly: $favoritesOnly,
+                            toggleFocus: $sidebarToggleFocused,
+                            onCollapse: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = false } }
+                        )
+                        .frame(width: guideChannelWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(NullSportsStyle.background)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .focusSection()
+                    } else if !searchActive {
+                        GuideSidebarExpandButton(toggleFocus: $sidebarToggleFocused) {
+                            withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = true }
+                        }
                     }
                 }
             }
@@ -816,8 +827,6 @@ private struct GuideControlBar: View {
     let channelCount: Int
     @Binding var searchActive: Bool
     @Binding var query: String
-    @Binding var browseFiltersVisible: Bool
-    @Binding var requestedFilterFocusID: String?
     let multiviewTitle: String?
     let isLoading: Bool
     let onCancelMultiview: () -> Void
@@ -841,9 +850,6 @@ private struct GuideControlBar: View {
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
             Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
-            GuideHeaderButton(title: browseFiltersVisible ? "Hide" : "Browse", symbol: "line.3.horizontal.decrease", onMoveDown: revealAndFocusFilters) {
-                withAnimation(.easeInOut(duration: 0.2)) { browseFiltersVisible.toggle() }
-            }
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                 searchActive.toggle()
                 if !searchActive { query = "" }
@@ -854,76 +860,6 @@ private struct GuideControlBar: View {
         .frame(height: 44)
     }
 
-    private func revealAndFocusFilters() {
-        if !browseFiltersVisible {
-            withAnimation(.easeInOut(duration: 0.2)) { browseFiltersVisible = true }
-        }
-        requestedFilterFocusID = "all"
-    }
-}
-
-private struct GuideFilterShelf: View {
-    let categories: [XtreamCategory]
-    @Binding var selectedCategoryID: String?
-    @Binding var favoritesOnly: Bool
-    @Binding var isPresented: Bool
-    @Binding var requestedFocusID: String?
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                filterButton("All channels", id: "all", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
-                    selectedCategoryID = nil; favoritesOnly = false
-                }
-                filterButton("Favorites", id: "favorites", symbol: "star.fill", selected: favoritesOnly) {
-                    selectedCategoryID = nil; favoritesOnly = true
-                }
-                Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 30).padding(.horizontal, 4)
-                ForEach(categories) { category in
-                    filterButton(category.categoryName, id: category.id, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
-                        selectedCategoryID = category.id; favoritesOnly = false
-                    }
-                }
-            }
-            .padding(.horizontal, 4)
-        }
-        .frame(height: 52)
-    }
-
-    private func filterButton(_ title: String, id: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        GuideFilterShelfButton(title: title, id: id, symbol: symbol, selected: selected, requestedFocusID: $requestedFocusID) {
-            action()
-            withAnimation(.easeInOut(duration: 0.2)) { isPresented = false }
-        }
-    }
-}
-
-private struct GuideFilterShelfButton: View {
-    @FocusState private var isFocused: Bool
-    let title: String
-    let id: String
-    let symbol: String
-    let selected: Bool
-    @Binding var requestedFocusID: String?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(selected ? Color.black : NullSportsStyle.text)
-                .padding(.horizontal, 15).frame(height: 38)
-                .background(selected ? Color.white : NullSportsStyle.raised)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain).focused($isFocused)
-        .onAppear {
-            if requestedFocusID == id { isFocused = true; requestedFocusID = nil }
-        }
-        .onChange(of: requestedFocusID) { value in
-            if value == id { isFocused = true; requestedFocusID = nil }
-        }
-    }
 }
 
 private struct GuidePreviewPanel: View {
@@ -1026,11 +962,21 @@ private struct GuideSidebar: View {
     @EnvironmentObject private var library: SportsLibrary
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
+    let toggleFocus: FocusState<Bool>.Binding
+    let onCollapse: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
-                .lineLimit(1).padding(.leading, 14).frame(height: 24)
+            HStack(spacing: 8) {
+                Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+                Spacer()
+                Button(action: onCollapse) {
+                    Image(systemName: "sidebar.left").font(.callout.weight(.semibold))
+                        .frame(width: 40, height: 36).background(NullSportsStyle.raised).clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain).focused(toggleFocus).accessibilityLabel("Hide channel sidebar")
+            }
+            .padding(.leading, 14).frame(height: 42)
             GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
                 selectedCategoryID = nil; favoritesOnly = false
             }
@@ -1049,6 +995,24 @@ private struct GuideSidebar: View {
                 }
             }
         }
+        .padding(.trailing, 8)
+    }
+}
+
+private struct GuideSidebarExpandButton: View {
+    let toggleFocus: FocusState<Bool>.Binding
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.right")
+                .font(.callout.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .background(NullSportsStyle.raised)
+                .clipShape(RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(.plain).focused(toggleFocus)
+        .accessibilityLabel("Show channel sidebar")
+        .padding(.top, 2)
     }
 }
 
