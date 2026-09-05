@@ -167,7 +167,7 @@ private struct LiveSlateDashboard: View {
                     GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview)
                 }
                 if isUpdating { ProgressView().controlSize(.small) }
-                Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
+                PulsingLiveDot(size: 8)
                 Text("\(liveCount) LIVE  ·  \(scheduledCount) SCHEDULED")
                     .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
             }
@@ -370,6 +370,11 @@ private struct LiveSlateRow: View {
 
     var body: some View {
         HStack(spacing: 16) {
+            if game.isLive {
+                PulsingLiveDot(size: 9)
+                    .frame(width: 12)
+                    .accessibilityLabel("Live")
+            }
             LeagueLogo(league: game.league, size: 32).frame(width: 38)
             Text(game.awayAbbreviation).foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
             Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
@@ -395,6 +400,23 @@ private struct LiveSlateRow: View {
             }
         }
         .focusLift(isFocused, scale: 1.018)
+    }
+}
+
+private struct PulsingLiveDot: View {
+    let size: CGFloat
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(NullSportsStyle.live)
+            .frame(width: size, height: size)
+            .scaleEffect(isPulsing ? 1.22 : 0.92)
+            .opacity(isPulsing ? 0.58 : 1)
+            .shadow(color: NullSportsStyle.live.opacity(isPulsing ? 0.25 : 0.72), radius: isPulsing ? 7 : 3)
+            .animation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true), value: isPulsing)
+            .onAppear { isPulsing = true }
+            .accessibilityHidden(true)
     }
 }
 
