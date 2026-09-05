@@ -164,6 +164,7 @@ private struct LiveSlateDashboard: View {
 }
 
 private struct LiveLeagueFilterButton: View {
+    @FocusState private var isFocused: Bool
     let title: String
     let league: SportsLeague?
     let selected: Bool
@@ -176,12 +177,14 @@ private struct LiveLeagueFilterButton: View {
                 if let league { LeagueLogo(league: league, size: 23) }
                 Text(title).font(.caption.weight(.bold)).tracking(1.4)
             }
-            .foregroundStyle(selected ? Color.black : Color.white)
+            .foregroundStyle(selected || isFocused ? Color.black : Color.white)
             .padding(.horizontal, 15).frame(height: 40)
-            .background(selected ? Color.white : Color.white.opacity(0.09))
+            .background(selected || isFocused ? Color.white : Color.white.opacity(0.09))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
+        .focusEffectDisabled()
         .onMoveCommand { direction in if direction == .down { onMoveDown() } }
     }
 }
