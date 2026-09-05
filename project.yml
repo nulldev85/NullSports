@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.15.2"
-    CURRENT_PROJECT_VERSION: "40"
+    MARKETING_VERSION: "0.16.0"
+    CURRENT_PROJECT_VERSION: "41"
 packages:
   VLCKit:
     url: https://code.videolan.org/videolan/VLCKit.git

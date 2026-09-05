@@ -7,6 +7,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     private var currentEnd: Date?
     private var title = ""
     private var detail = ""
+    private var currentIsNew = false
     private var text = ""
     private let endOfWindow: Date
     private(set) var programs: [String: [CurrentProgram]] = [:]
@@ -37,6 +38,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         currentEnd = date(attributeDict["stop"])
         title = ""
         detail = ""
+        currentIsNew = false
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
@@ -44,9 +46,10 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
         if elementName == "title" { title = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "desc" { detail = text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if elementName == "new" { currentIsNew = true }
         if elementName == "programme", let start = currentStart, let end = currentEnd,
            end > now, start < endOfWindow, !currentChannel.isEmpty {
-            programs[currentChannel, default: []].append(CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end))
+            programs[currentChannel, default: []].append(CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end, isNew: currentIsNew))
         }
         text = ""
     }

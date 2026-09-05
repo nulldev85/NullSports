@@ -8,6 +8,7 @@ struct LiveView: View {
     @State private var selectedStream: XtreamStream?
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
+    @State private var focusedGame: SportsGame?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -17,64 +18,26 @@ struct LiveView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    if let multiviewPrimary {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("MULTIVIEW · CHOOSE SECOND GAME")
-                                .font(.caption2.weight(.bold)).tracking(1.3)
-                                .foregroundStyle(NullSportsStyle.secondary)
-                            Text(multiviewPrimary.name)
-                                .font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-                        }
-                    } else {
-                        Text("LIVE & UPCOMING")
-                            .font(.caption.weight(.bold)).tracking(1.6).foregroundStyle(NullSportsStyle.secondary)
-                    }
-                    Spacer()
-                    Text(scheduleDetail).font(.caption).foregroundStyle(NullSportsStyle.secondary)
-                    if multiviewPrimary != nil {
-                        GuideHeaderButton(title: "Cancel", symbol: "xmark") { multiviewPrimary = nil }
-                    }
-                    GuideHeaderButton(title: "Refresh", symbol: "arrow.clockwise") { Task { await library.reload() } }
-                }
-                HStack(spacing: 8) {
-                    LiveFilterButton(title: "All", selected: selectedLeague == nil) { selectedLeague = nil }
-                    ForEach(SportsLeague.allCases) { league in
-                        LiveFilterButton(title: league.shortName, selected: selectedLeague == league) { selectedLeague = league }
-                    }
-                    Spacer()
-                }
+            Group {
                 if library.isLoading {
                     ProgressView("Loading channels…")
                 } else if events.isEmpty {
                     EmptySchedule(isLoading: library.isScheduleLoading, isAvailable: library.scheduleAvailable(for: selectedLeague), errorMessage: library.scheduleErrorMessage)
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 20) {
-                            if !liveEvents.isEmpty {
-                                ScheduleSection(
-                                    title: "Live now",
-                                    events: liveEvents,
-                                    multiviewPrimaryID: multiviewPrimary?.id,
-                                    onPlay: select,
-                                    onStartMultiview: startMultiview
-                                )
-                            }
-                            if !upcomingEvents.isEmpty {
-                                ScheduleSection(
-                                    title: "Upcoming",
-                                    events: upcomingEvents,
-                                    multiviewPrimaryID: multiviewPrimary?.id,
-                                    onPlay: select,
-                                    onStartMultiview: startMultiview
-                                )
-                            }
-                        }.padding(.horizontal, 10).padding(.vertical, 8)
-                    }
+                    LiveSlateDashboard(
+                        events: events,
+                        selectedLeague: $selectedLeague,
+                        focusedGame: $focusedGame,
+                        multiviewPrimaryID: multiviewPrimary?.id,
+                        multiviewTitle: multiviewPrimary?.name,
+                        isUpdating: library.isScheduleLoading,
+                        onPlay: select,
+                        onStartMultiview: startMultiview,
+                        onCancelMultiview: { multiviewPrimary = nil },
+                        onRefresh: { Task { await library.reload() } }
+                    )
                 }
             }
-            .padding(.horizontal, 42).padding(.top, 12).padding(.bottom, 18)
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -100,10 +63,6 @@ struct LiveView: View {
         }
     }
 
-    private var scheduleDetail: String {
-        library.isScheduleLoading ? "Updating official schedules…" : "Today and tomorrow"
-    }
-
     private func select(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
         guard let primary = multiviewPrimary else {
@@ -118,6 +77,248 @@ struct LiveView: View {
     private func startMultiview(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
         multiviewPrimary = stream
+    }
+}
+
+private struct LiveSlateDashboard: View {
+    let events: [SportsGame]
+    @Binding var selectedLeague: SportsLeague?
+    @Binding var focusedGame: SportsGame?
+    let multiviewPrimaryID: Int?
+    let multiviewTitle: String?
+    let isUpdating: Bool
+    let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
+    let onCancelMultiview: () -> Void
+    let onRefresh: () -> Void
+
+    private var featured: SportsGame { focusedGame.flatMap { focused in events.first(where: { $0.id == focused.id }) } ?? events[0] }
+    private var liveCount: Int { events.filter(\.isLive).count }
+    private var scheduledCount: Int { events.filter(\.isUpcoming).count }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 18) {
+                Menu {
+                    Button("All leagues") { selectedLeague = nil; focusedGame = nil }
+                    ForEach(SportsLeague.allCases) { league in
+                        Button(league.shortName) { selectedLeague = league; focusedGame = nil }
+                    }
+                } label: {
+                    Text(selectedLeague?.shortName ?? "ALL SPORTS")
+                        .font(.caption.weight(.bold)).tracking(2)
+                }
+                .buttonStyle(.bordered)
+                Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    .font(.system(size: 20, weight: .medium, design: .serif)).italic()
+                    .foregroundStyle(NullSportsStyle.secondary)
+                Spacer()
+                if let multiviewTitle {
+                    Text("MULTIVIEW · CHOOSE SECOND GAME · \(multiviewTitle)")
+                        .font(.caption2.weight(.bold)).tracking(1.2).lineLimit(1)
+                    GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview)
+                }
+                if isUpdating { ProgressView().controlSize(.small) }
+                Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
+                Text("\(liveCount) LIVE  ·  \(scheduledCount) SCHEDULED")
+                    .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
+                GuideHeaderButton(title: "Refresh", symbol: "arrow.clockwise", action: onRefresh)
+            }
+            .padding(.horizontal, 42).frame(height: 62)
+            .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+
+            HStack(spacing: 0) {
+                LiveGameHero(game: featured)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LiveGameSlate(
+                    events: events,
+                    focusedGame: $focusedGame,
+                    multiviewPrimaryID: multiviewPrimaryID,
+                    onPlay: onPlay,
+                    onStartMultiview: onStartMultiview
+                )
+                .frame(width: 580)
+            }
+            .frame(maxHeight: .infinity)
+
+            LiveTicker(events: events.filter { $0.id != featured.id })
+                .frame(height: 54)
+        }
+    }
+}
+
+private struct LiveGameHero: View {
+    let game: SportsGame
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                sportsTeamColor(game.awayColor)?.opacity(0.28) ?? Color.clear
+                sportsTeamColor(game.homeColor)?.opacity(0.28) ?? Color.clear
+            }
+            LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.64)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(game.league.fullName.uppercased())  ·  \(game.isLive ? "LIVE" : "SCHEDULED")")
+                            .font(.caption.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
+                        if let location = nonempty(game.location) {
+                            Text(location).font(.system(size: 23, weight: .medium, design: .serif)).italic()
+                        }
+                        if let venue = nonempty(game.venue) {
+                            Text(venue).font(.callout).foregroundStyle(NullSportsStyle.secondary)
+                        }
+                    }
+                    Spacer()
+                    Text(game.isLive ? game.status.uppercased() : game.start.formatted(date: .omitted, time: .shortened).uppercased())
+                        .font(.caption.weight(.bold).monospacedDigit()).tracking(2)
+                        .padding(.horizontal, 18).frame(height: 38)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(NullSportsStyle.secondary, lineWidth: 1))
+                }
+                Spacer()
+                HStack(alignment: .center, spacing: 34) {
+                    LiveHeroTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation, record: game.awayRecord)
+                    Text("at").font(.system(size: 22, weight: .medium, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
+                    LiveHeroTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation, record: game.homeRecord)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer()
+                if !game.broadcast.isEmpty {
+                    Text(game.broadcast.uppercased()).font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
+                }
+            }
+            .padding(38)
+        }
+        .clipped()
+    }
+}
+
+private struct LiveHeroTeam: View {
+    let name: String
+    let logo: String
+    let abbreviation: String
+    let record: String?
+    var body: some View {
+        VStack(spacing: 14) {
+            TeamLogo(url: logo, fallback: abbreviation).frame(width: 126, height: 126)
+            Text(name).font(.system(size: 34, weight: .medium, design: .serif)).lineLimit(2).multilineTextAlignment(.center)
+            if let record = nonempty(record) { Text(record).font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary) }
+        }
+        .frame(maxWidth: 330)
+    }
+}
+
+private struct LiveGameSlate: View {
+    let events: [SportsGame]
+    @Binding var focusedGame: SportsGame?
+    let multiviewPrimaryID: Int?
+    let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Today's slate").font(.system(size: 27, weight: .medium, design: .serif))
+                Spacer()
+                Text("\(events.count) GAMES  ·  \(events.filter(\.isLive).count) LIVE")
+                    .font(.caption2.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
+            }
+            .padding(.horizontal, 28).frame(height: 72)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(events) { game in
+                        LiveSlateRow(
+                            game: game,
+                            selected: focusedGame?.id == game.id,
+                            multiviewPrimaryID: multiviewPrimaryID,
+                            onFocus: { focusedGame = game },
+                            onPlay: { onPlay(game) },
+                            onStartMultiview: { onStartMultiview(game) }
+                        )
+                    }
+                }
+            }
+        }
+        .background(NullSportsStyle.surface.opacity(0.72))
+    }
+}
+
+private struct LiveSlateRow: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @FocusState private var isFocused: Bool
+    let game: SportsGame
+    let selected: Bool
+    let multiviewPrimaryID: Int?
+    let onFocus: () -> Void
+    let onPlay: () -> Void
+    let onStartMultiview: () -> Void
+    private var stream: XtreamStream? { library.stream(for: game) }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: sportsSymbol(game.league)).font(.title3).frame(width: 34).foregroundStyle(NullSportsStyle.secondary)
+            Text(game.awayAbbreviation).foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
+            Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
+            Text(game.homeAbbreviation).foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
+            Spacer()
+            Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
+                .font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+        }
+        .font(.system(size: 24, weight: .bold, design: .serif))
+        .padding(.horizontal, 28).frame(height: 76)
+        .background(isFocused || selected ? Color.white.opacity(0.10) : Color.clear)
+        .overlay(alignment: .leading) { if multiviewPrimaryID == stream?.id { Rectangle().fill(Color.white).frame(width: 3) } }
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled()
+        .onTapGesture(perform: onPlay)
+        .onChange(of: isFocused) { value in if value { onFocus() } }
+        .contextMenu {
+            if stream != nil {
+                Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
+                    .disabled(multiviewPrimaryID == stream?.id)
+            }
+        }
+        .focusLift(isFocused, scale: 1.018)
+    }
+}
+
+private struct LiveTicker: View {
+    let events: [SportsGame]
+    var body: some View {
+        HStack(spacing: 24) {
+            Text("ELSEWHERE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
+            Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 28)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 38) {
+                    ForEach(events.prefix(16)) { game in
+                        Text("\(game.league.shortName)   \(game.awayAbbreviation)  \(game.start.formatted(date: .omitted, time: .shortened))  \(game.homeAbbreviation)")
+                            .font(.callout.monospaced()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 42).background(Color.black)
+        .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+    }
+}
+
+private func sportsTeamColor(_ value: String?) -> Color? {
+    guard var value = nonempty(value) else { return nil }
+    value = value.replacingOccurrences(of: "#", with: "")
+    guard value.count == 6, let hex = UInt64(value, radix: 16) else { return nil }
+    return Color(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255)
+}
+
+private func nonempty(_ value: String?) -> String? {
+    guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    return value
+}
+
+private func sportsSymbol(_ league: SportsLeague) -> String {
+    switch league {
+    case .nfl: "football.fill"
+    case .nba: "basketball.fill"
+    case .nhl: "hockey.puck.fill"
+    case .mlb: "baseball.fill"
     }
 }
 
@@ -355,6 +556,8 @@ struct GuideView: View {
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
+    @State private var focusedGuideItem: GuideFocusItem?
+    @State private var previewHidden = false
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -362,74 +565,74 @@ struct GuideView: View {
         if favoritesOnly { return "Favorites" }
         return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
     }
+    private var previewItem: GuideFocusItem? {
+        if let focusedGuideItem, filtered.contains(where: { $0.id == focusedGuideItem.stream.id }) {
+            return focusedGuideItem
+        }
+        for stream in filtered {
+            if let program = library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end }) {
+                return GuideFocusItem(stream: stream, program: program)
+            }
+        }
+        return nil
+    }
 
     var body: some View {
         NavigationStack {
-            HStack(alignment: .top, spacing: 22) {
-                GuideSidebar(selectedCategoryID: $selectedCategoryID, favoritesOnly: $favoritesOnly)
-                    .frame(width: 286)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 18) {
-                        if let multiviewPrimary {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("MULTIVIEW · CHOOSE SECOND CHANNEL")
-                                    .font(.caption2.weight(.bold)).tracking(1.3)
-                                    .foregroundStyle(NullSportsStyle.secondary)
-                                Text(multiviewPrimary.name)
-                                    .font(.callout.weight(.semibold)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+            VStack(alignment: .leading, spacing: 7) {
+                GuideControlBar(
+                    title: selectedTitle,
+                    channelCount: filtered.count,
+                    categories: library.categories,
+                    selectedCategoryID: $selectedCategoryID,
+                    favoritesOnly: $favoritesOnly,
+                    searchActive: $searchActive,
+                    query: $query,
+                    multiviewTitle: multiviewPrimary?.name,
+                    isLoading: library.isGuideLoading,
+                    onCancelMultiview: { multiviewPrimary = nil }
+                )
+
+                if !previewHidden, let previewItem {
+                    GuidePreviewPanel(
+                        item: previewItem,
+                        categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
+                        quality: guideQuality(previewItem.stream),
+                        urls: selectedStream == nil && multiviewSession == nil ? library.playbackURLs(for: previewItem.stream) : [],
+                        now: guideNow
+                    )
+                    .frame(height: 178)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                GuideTimelineHeader(now: guideNow)
+                if filtered.isEmpty {
+                    Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
+                        .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 5) {
+                            ForEach(filtered) { stream in
+                                GuideChannelRow(
+                                    stream: stream,
+                                    favoritesMode: favoritesOnly && !searchActive,
+                                    now: guideNow,
+                                    multiviewPrimaryID: multiviewPrimary?.id,
+                                    onPlay: { select(stream) },
+                                    onStartMultiview: { multiviewPrimary = stream },
+                                    onFocusProgram: { program in
+                                        withAnimation(.easeOut(duration: 0.18)) {
+                                            focusedGuideItem = GuideFocusItem(stream: stream, program: program)
+                                            previewHidden = false
+                                        }
+                                    }
+                                )
                             }
-                        } else if searchActive {
-                            TextField("Channel name", text: $query)
-                                .textFieldStyle(.plain)
-                                .focusEffectDisabled()
-                                .font(.system(size: 28, weight: .medium))
-                                .foregroundStyle(NullSportsStyle.text)
-                                .padding(.horizontal, 16).frame(maxWidth: 560, minHeight: 44)
-                                .background(NullSportsStyle.raised)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        } else {
-                            Text(selectedTitle)
-                                .font(.system(size: 30, weight: .semibold))
-                                .foregroundStyle(NullSportsStyle.text)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        if library.isGuideLoading { ProgressView().controlSize(.small) }
-                        Text("\(filtered.count) channels")
-                            .font(.caption.weight(.bold)).tracking(1.3)
-                            .foregroundStyle(NullSportsStyle.secondary)
-                        GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
-                            searchActive.toggle()
-                            if !searchActive { query = "" }
-                        }
-                        if multiviewPrimary != nil {
-                            GuideHeaderButton(title: "Cancel", symbol: "xmark") { multiviewPrimary = nil }
-                        }
+                        }.padding(.vertical, 2)
                     }
-                    .frame(height: 52)
-                    GuideTimelineHeader(now: guideNow)
-                    if filtered.isEmpty {
-                        Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
-                            .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
-                    } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 7) {
-                                ForEach(filtered) { stream in
-                                    GuideChannelRow(
-                                        stream: stream,
-                                        favoritesMode: favoritesOnly && !searchActive,
-                                        now: guideNow,
-                                        multiviewPrimaryID: multiviewPrimary?.id,
-                                        onPlay: { select(stream) },
-                                        onStartMultiview: { multiviewPrimary = stream }
-                                    )
-                                }
-                            }.padding(.vertical, 2)
-                        }
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .padding(.horizontal, 42).padding(.top, 12).padding(.bottom, 18)
+            .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 12)
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -451,6 +654,9 @@ struct GuideView: View {
                     guideNow = Date()
                 }
             }
+            .onExitCommand {
+                if !previewHidden { previewHidden = true }
+            }
         }
     }
 
@@ -463,6 +669,154 @@ struct GuideView: View {
         multiviewPrimary = nil
         multiviewSession = MultiviewSession(primary: primary, secondary: stream)
     }
+}
+
+private struct GuideFocusItem: Equatable {
+    let stream: XtreamStream
+    let program: CurrentProgram
+}
+
+private struct GuideControlBar: View {
+    let title: String
+    let channelCount: Int
+    let categories: [XtreamCategory]
+    @Binding var selectedCategoryID: String?
+    @Binding var favoritesOnly: Bool
+    @Binding var searchActive: Bool
+    @Binding var query: String
+    let multiviewTitle: String?
+    let isLoading: Bool
+    let onCancelMultiview: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let multiviewTitle {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").font(.caption2.weight(.bold)).tracking(1.3).foregroundStyle(NullSportsStyle.secondary)
+                    Text(multiviewTitle).font(.callout.weight(.semibold)).lineLimit(1)
+                }
+            } else if searchActive {
+                TextField("Search channels", text: $query)
+                    .textFieldStyle(.plain).focusEffectDisabled()
+                    .font(.system(size: 22, weight: .medium))
+                    .padding(.horizontal, 14).frame(maxWidth: 520, minHeight: 40)
+                    .background(NullSportsStyle.raised).clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Text(title).font(.system(size: 24, weight: .semibold)).lineLimit(1)
+            }
+            Spacer()
+            if isLoading { ProgressView().controlSize(.small) }
+            Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
+            Menu {
+                Button("All channels") { selectedCategoryID = nil; favoritesOnly = false }
+                Button("Favorites") { selectedCategoryID = nil; favoritesOnly = true }
+                Divider()
+                ForEach(categories) { category in
+                    Button(category.categoryName) { selectedCategoryID = category.id; favoritesOnly = false }
+                }
+            } label: {
+                Label("Browse", systemImage: "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.bordered)
+            GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
+                searchActive.toggle()
+                if !searchActive { query = "" }
+            }
+            if multiviewTitle != nil { GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview) }
+        }
+        .foregroundStyle(NullSportsStyle.text)
+        .frame(height: 44)
+    }
+}
+
+private struct GuidePreviewPanel: View {
+    let item: GuideFocusItem
+    let categoryName: String
+    let quality: String?
+    let urls: [URL]
+    let now: Date
+
+    private var progress: CGFloat {
+        let duration = item.program.end.timeIntervalSince(item.program.start)
+        guard duration > 0 else { return 0 }
+        return CGFloat(min(max(now.timeIntervalSince(item.program.start) / duration, 0), 1))
+    }
+
+    var body: some View {
+        HStack(spacing: 24) {
+            GuidePreviewVideo(urls: urls)
+                .frame(width: 330, height: 174)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(NullSportsStyle.line, lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 9) {
+                    Text("‹ \(categoryName.uppercased())  ·  \(item.stream.name.uppercased())")
+                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                    if let quality { GuideTinyBadge(title: quality, color: NullSportsStyle.raised) }
+                    if item.program.isLive { GuideTinyBadge(title: "LIVE", color: NullSportsStyle.live) }
+                }
+                HStack(spacing: 10) {
+                    Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
+                        .font(.system(size: 27, weight: .semibold)).lineLimit(1)
+                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: NullSportsStyle.raised) }
+                }
+                HStack(spacing: 12) {
+                    Text(guideTimeRange(item.program)).font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(NullSportsStyle.raised)
+                            Capsule().fill(NullSportsStyle.live).frame(width: proxy.size.width * progress)
+                        }
+                    }.frame(width: 170, height: 4)
+                }
+                Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail)
+                    .font(.callout).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                Text("Press Menu to hide preview")
+                    .font(.caption2.weight(.medium)).foregroundStyle(NullSportsStyle.secondary.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .background(NullSportsStyle.background)
+    }
+}
+
+private struct GuidePreviewVideo: View {
+    @StateObject private var controller = VLCPlaybackController()
+    let urls: [URL]
+
+    var body: some View {
+        ZStack {
+            VLCVideoSurface(player: controller.player).background(Color.black)
+            if urls.isEmpty { Image(systemName: "tv.slash").font(.title2).foregroundStyle(NullSportsStyle.secondary) }
+        }
+        .onAppear { controller.start(urls: urls, muted: true) }
+        .onChange(of: urls) { _ in controller.start(urls: urls, muted: true) }
+        .onDisappear { controller.stop() }
+    }
+}
+
+private struct GuideTinyBadge: View {
+    let title: String
+    let color: Color
+    var body: some View {
+        Text(title).font(.system(size: 9, weight: .bold)).tracking(0.8)
+            .padding(.horizontal, 7).frame(height: 18)
+            .background(color).clipShape(Capsule())
+    }
+}
+
+private func guideQuality(_ stream: XtreamStream) -> String? {
+    let value = stream.name.uppercased()
+    if value.contains("4K") || value.contains("UHD") { return "UHD" }
+    if value.contains("FHD") || value.contains("1080") { return "FHD" }
+    if value.contains("HD") || value.contains("720") { return "HD" }
+    return nil
+}
+
+private func guideTimeRange(_ program: CurrentProgram) -> String {
+    "\(program.start.formatted(date: .omitted, time: .shortened)) — \(program.end.formatted(date: .omitted, time: .shortened))"
 }
 
 private struct MultiviewSession: Identifiable {
@@ -548,7 +902,7 @@ private struct GuideTimelineHeader: View {
         let anchor = guideTimelineAnchor(now)
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                Text("CHANNEL").frame(width: guideChannelWidth, alignment: .leading)
+                Text("TODAY").frame(width: guideChannelWidth, alignment: .leading)
                 ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                     Text(anchor.addingTimeInterval(Double(step) * 1800).formatted(date: .omitted, time: .shortened))
                         .frame(width: guideSlotWidth, alignment: .leading)
@@ -556,24 +910,20 @@ private struct GuideTimelineHeader: View {
             }
             .padding(.top, 24)
 
-            VStack(spacing: 2) {
-                Text("NOW")
-                    .font(.system(size: 9, weight: .bold)).tracking(1.0)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6).frame(height: 16)
-                    .background(NullSportsStyle.live).clipShape(Capsule())
-                Rectangle().fill(NullSportsStyle.live).frame(width: 2, height: 28)
-            }
-            .offset(x: guidePlayheadX(now) - 17)
+            Image(systemName: "triangle.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(NullSportsStyle.live)
+                .rotationEffect(.degrees(180))
+                .offset(x: guidePlayheadX(now) - 6, y: 42)
         }
         .font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
         .padding(.horizontal, 14).frame(height: 58)
     }
 }
 
-private let guideChannelWidth: CGFloat = 350
-private let guideSlotWidth: CGFloat = 270
-private let guideVisibleSlotCount = 4
+private let guideChannelWidth: CGFloat = 245
+private let guideSlotWidth: CGFloat = 245
+private let guideVisibleSlotCount = 6
 private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
 
 private func guideTimelineAnchor(_ date: Date) -> Date {
@@ -581,7 +931,8 @@ private func guideTimelineAnchor(_ date: Date) -> Date {
     var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
     components.minute = ((components.minute ?? 0) / 30) * 30
     components.second = 0
-    return calendar.date(from: components) ?? date
+    let floor = calendar.date(from: components) ?? date
+    return calendar.date(byAdding: .minute, value: -30, to: floor) ?? floor
 }
 
 private func guidePlayheadX(_ date: Date) -> CGFloat {
@@ -597,6 +948,7 @@ private struct GuideChannelRow: View {
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
+    let onFocusProgram: (CurrentProgram) -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream).normalizedEPG() }
 
     private var visiblePrograms: [CurrentProgram] {
@@ -610,7 +962,7 @@ private struct GuideChannelRow: View {
             HStack(spacing: 12) {
                 ChannelLogo(url: stream.streamIcon)
                 Text(stream.name)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(NullSportsStyle.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -623,12 +975,12 @@ private struct GuideChannelRow: View {
 
             ZStack(alignment: .leading) {
                 if visiblePrograms.isEmpty {
-                    GuideProgramCell(program: nil, empty: "No guide information", showsProgress: false, showsTime: true, onPlay: onPlay)
+                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {})
                         .frame(width: guideSlotWidth - 6, alignment: .leading)
                 } else {
                     ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
                         let width = guideProgramWidth(program, now: now)
-                        GuideProgramCell(program: program, empty: "", showsProgress: program.isLive, showsTime: width >= 110, onPlay: onPlay)
+                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) })
                             .frame(width: width, alignment: .leading)
                             .clipped()
                             .offset(x: guideProgramX(program, now: now))
@@ -639,13 +991,9 @@ private struct GuideChannelRow: View {
             .clipped()
         }
         .padding(.horizontal, 14)
-        .frame(width: guideGridWidth + 28, height: 72, alignment: .leading)
+        .frame(width: guideGridWidth + 28, height: 76, alignment: .leading)
         .background(NullSportsStyle.surface.opacity(0.86))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .leading) {
-            Rectangle().fill(NullSportsStyle.live.opacity(0.82)).frame(width: 2)
-                .offset(x: guidePlayheadX(now) + 14)
-        }
         .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
         .overlay {
             if multiviewPrimaryID == stream.id {
@@ -692,26 +1040,25 @@ private struct GuideProgramCell: View {
     @FocusState private var isFocused: Bool
     let program: CurrentProgram?
     let empty: String
-    let showsProgress: Bool
+    let quality: String?
+    let now: Date
     let showsTime: Bool
     let onPlay: () -> Void
+    let onFocus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
-                Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout.weight(.medium)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                    if program.isLive { GuideInlineStatus(title: "LIVE") }
+                    else if program.isNew == true { GuideInlineStatus(title: "NEW") }
+                }
                 if showsTime {
-                    HStack(spacing: 10) {
-                        Text(program.start.formatted(date: .omitted, time: .shortened))
+                    HStack(spacing: 7) {
+                        Text(guideTimeRange(program))
                             .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
-                        if showsProgress {
-                            GeometryReader { proxy in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(NullSportsStyle.raised)
-                                    Capsule().fill(NullSportsStyle.field).frame(width: proxy.size.width * progress(program))
-                                }
-                            }.frame(width: 72, height: 4)
-                        }
+                        if let quality { GuideTinyBadge(title: quality, color: NullSportsStyle.raised) }
                     }
                 }
             } else {
@@ -722,15 +1069,33 @@ private struct GuideProgramCell: View {
         .background(isFocused ? Color.white.opacity(0.18) : (program?.isLive == true ? Color.white.opacity(0.065) : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? NullSportsStyle.focusGlow.opacity(0.75) : Color.clear, lineWidth: 1.5))
+        .overlay(alignment: .bottomTrailing) {
+            if let program, program.isLive {
+                Text(guideTimeRemaining(program, now: now))
+                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7).frame(height: 18)
+                    .background(NullSportsStyle.live).clipShape(Capsule())
+                    .padding(7)
+            }
+        }
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
         .focusLift(isFocused, scale: 1.035)
+        .onChange(of: isFocused) { focused in if focused { onFocus() } }
     }
+}
 
-    private func progress(_ program: CurrentProgram) -> CGFloat {
-        let duration = program.end.timeIntervalSince(program.start)
-        guard duration > 0 else { return 0 }
-        return CGFloat(min(max(Date().timeIntervalSince(program.start) / duration, 0), 1))
+private struct GuideInlineStatus: View {
+    let title: String
+    var body: some View {
+        Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
     }
+}
+
+private func guideTimeRemaining(_ program: CurrentProgram, now: Date) -> String {
+    let minutes = max(0, Int(ceil(program.end.timeIntervalSince(now) / 60)))
+    if minutes >= 120 { return "\(minutes / 60)h \(minutes % 60)m left" }
+    return "\(minutes)m left"
 }
 
 struct AccountView: View {
@@ -895,7 +1260,8 @@ struct PlayerView: View {
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
     func start(urls: [URL], muted: Bool = false) {
-        guard let url = urls.last ?? urls.first else { return }; stop()
+        stop()
+        guard let url = urls.last ?? urls.first else { return }
         guard let media = VLCMedia(url: url) else { return }
         media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
         player.media = media; player.play(); setMuted(muted)

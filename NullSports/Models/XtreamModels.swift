@@ -54,6 +54,16 @@ struct CurrentProgram: Codable, Hashable, Sendable {
     let detail: String
     let start: Date
     let end: Date
+    let isNew: Bool?
+
+    init(channelID: String, title: String, detail: String, start: Date, end: Date, isNew: Bool? = nil) {
+        self.channelID = channelID
+        self.title = title
+        self.detail = detail
+        self.start = start
+        self.end = end
+        self.isNew = isNew
+    }
 
     var isLive: Bool {
         let now = Date()
@@ -85,7 +95,8 @@ extension Array where Element == CurrentProgram {
                     title: previous.title.isEmpty ? program.title : previous.title,
                     detail: previous.detail.isEmpty ? program.detail : previous.detail,
                     start: Swift.min(previous.start, program.start),
-                    end: Swift.max(previous.end, program.end)
+                    end: Swift.max(previous.end, program.end),
+                    isNew: previous.isNew == true || program.isNew == true
                 )
                 continue
             }
@@ -97,7 +108,8 @@ extension Array where Element == CurrentProgram {
                         title: previous.title,
                         detail: previous.detail,
                         start: previous.start,
-                        end: program.start
+                        end: program.start,
+                        isNew: previous.isNew
                     )
                 } else {
                     result.removeLast()
@@ -121,6 +133,12 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let homeLogo: String
     let awayScore: String
     let homeScore: String
+    let awayColor: String?
+    let homeColor: String?
+    let awayRecord: String?
+    let homeRecord: String?
+    let venue: String?
+    let location: String?
     let status: String
     let state: String
     let broadcast: String
