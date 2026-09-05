@@ -220,6 +220,22 @@ final class SportsLibrary: ObservableObject {
         return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
     }
 
+    func scoreTickerGames() -> [SportsGame] {
+        let today = Calendar.current.startOfDay(for: Date())
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
+        return games
+            .filter {
+                $0.start >= today && $0.start < tomorrow
+                    && ($0.isLive || $0.state == "post")
+                    && !$0.awayScore.isEmpty && !$0.homeScore.isEmpty
+            }
+            .sorted {
+                if $0.isLive != $1.isLive { return $0.isLive }
+                return $0.isLive ? $0.start < $1.start : $0.start > $1.start
+            }
+    }
+
     func refreshSchedule(showsLoading: Bool = true) {
         guard !scheduleRefreshInFlight else { return }
         scheduleRefreshInFlight = true

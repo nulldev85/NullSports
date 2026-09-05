@@ -17,7 +17,7 @@ struct LiveView: View {
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
     private var events: [SportsGame] { library.games(for: selectedLeague).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
-    private var tickerEvents: [SportsGame] { library.games(for: nil).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
+    private var tickerEvents: [SportsGame] { library.scoreTickerGames() }
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
     private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
@@ -196,7 +196,7 @@ private struct LiveSlateDashboard: View {
             }
             .frame(maxHeight: .infinity)
 
-            LiveTicker(events: tickerEvents.filter { $0.id != featured.id })
+            LiveTicker(events: tickerEvents)
                 .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -405,7 +405,7 @@ private struct LiveTicker: View {
 
     var body: some View {
         HStack(spacing: 24) {
-            Text("ELSEWHERE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
+            Text("SCORE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
             Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 28)
             GeometryReader { viewport in
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
@@ -429,9 +429,28 @@ private struct LiveTicker: View {
 
     private var tickerContent: some View {
         HStack(spacing: 38) {
-            ForEach(events) { game in
-                Text("\(game.league.shortName)   \(game.awayAbbreviation)  \(game.start.formatted(date: .omitted, time: .shortened))  \(game.homeAbbreviation)")
+            if events.isEmpty {
+                Text("NO LIVE OR FINAL SCORES")
                     .font(.callout.monospaced()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+            } else {
+                ForEach(events) { game in
+                    HStack(spacing: 12) {
+                        Text(game.league.shortName)
+                            .font(.caption2.weight(.bold)).tracking(1.5)
+                            .foregroundStyle(NullSportsStyle.secondary)
+                        Text(game.awayAbbreviation)
+                            .foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
+                        Text(game.awayScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
+                        Text("–").foregroundStyle(NullSportsStyle.secondary)
+                        Text(game.homeAbbreviation)
+                            .foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
+                        Text(game.homeScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
+                        Text(game.isLive ? game.status.uppercased() : "FINAL")
+                            .font(.caption2.weight(.bold)).tracking(1.2)
+                            .foregroundStyle(game.isLive ? NullSportsStyle.live : NullSportsStyle.secondary)
+                    }
+                    .font(.callout.monospaced()).lineLimit(1)
+                }
             }
         }
         .background(GeometryReader { proxy in
