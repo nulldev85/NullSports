@@ -9,8 +9,6 @@ struct LiveView: View {
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
     @State private var focusedGame: SportsGame?
-    @State private var inlineStream: XtreamStream?
-    @State private var inlineGameID: String?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -19,8 +17,8 @@ struct LiveView: View {
     private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { container in
+        GeometryReader { container in
+            NavigationStack {
                 Group {
                     if library.isLoading {
                         ProgressView("Loading channels…")
@@ -31,21 +29,19 @@ struct LiveView: View {
                             events: events,
                             selectedLeague: $selectedLeague,
                             focusedGame: $focusedGame,
-                            inlineStream: inlineStream,
-                            inlineGameID: inlineGameID,
-                            inlineURLs: inlineStream.map { library.playbackURLs(for: $0) } ?? [],
                             multiviewPrimaryID: multiviewPrimary?.id,
                             multiviewTitle: multiviewPrimary?.name,
                             isUpdating: library.isScheduleLoading,
                             onPlay: select,
                             onStartMultiview: startMultiview,
-                            onCancelMultiview: { multiviewPrimary = nil },
-                            onStopInline: stopInlinePlayback
+                            onCancelMultiview: { multiviewPrimary = nil }
                         )
                     }
                 }
                 .frame(width: container.size.width, height: container.size.height)
+                .clipped()
             }
+            .frame(width: container.size.width, height: container.size.height)
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -68,20 +64,21 @@ struct LiveView: View {
                     library.refreshSchedule(showsLoading: false)
                 }
             }
-            .onChange(of: selectedLeague) { _ in stopInlinePlayback() }
+#if DEBUG
+            .onAppear {
+                let tabBounds = container.frame(in: .global)
+                print("[LiveLayout] tab content bounds=\(tabBounds) dashboard=\(container.size)")
+                assert(abs(tabBounds.width - container.size.width) < 1 && abs(tabBounds.height - container.size.height) < 1)
+            }
+#endif
         }
+        .background(NullSportsStyle.background.ignoresSafeArea())
     }
 
     private func select(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
         guard let primary = multiviewPrimary else {
-            if inlineGameID == game.id {
-                stopInlinePlayback()
-                selectedStream = stream
-            } else {
-                inlineStream = stream
-                inlineGameID = game.id
-            }
+            selectedStream = stream
             return
         }
         guard primary.id != stream.id else { return }
@@ -91,13 +88,7 @@ struct LiveView: View {
 
     private func startMultiview(_ game: SportsGame) {
         guard let stream = library.stream(for: game) else { return }
-        stopInlinePlayback()
         multiviewPrimary = stream
-    }
-
-    private func stopInlinePlayback() {
-        inlineStream = nil
-        inlineGameID = nil
     }
 }
 
@@ -106,16 +97,12 @@ private struct LiveSlateDashboard: View {
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
-    let inlineStream: XtreamStream?
-    let inlineGameID: String?
-    let inlineURLs: [URL]
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
     let isUpdating: Bool
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
-    let onStopInline: () -> Void
 
     private var featured: SportsGame { focusedGame.flatMap { focused in events.first(where: { $0.id == focused.id }) } ?? events[0] }
     private var liveCount: Int { events.filter(\.isLive).count }
@@ -150,19 +137,12 @@ private struct LiveSlateDashboard: View {
             .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
 
             HStack(spacing: 0) {
-                Group {
-                    if let inlineStream {
-                        LiveInlinePlayer(stream: inlineStream, urls: inlineURLs)
-                    } else {
-                        LiveGameHero(game: featured)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LiveGameHero(game: featured)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 LiveGameSlate(
                     events: events,
                     focusedGame: $focusedGame,
                     requestedFocusID: $requestedGameFocusID,
-                    inlineGameID: inlineGameID,
                     multiviewPrimaryID: multiviewPrimaryID,
                     onPlay: onPlay,
                     onStartMultiview: onStartMultiview
@@ -175,9 +155,6 @@ private struct LiveSlateDashboard: View {
                 .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onExitCommand {
-            if inlineStream != nil { onStopInline() }
-        }
     }
 
     private func focusFirstGame() { requestedGameFocusID = events.first?.id }
@@ -203,32 +180,6 @@ private struct LiveLeagueFilterButton: View {
         }
         .buttonStyle(.plain)
         .onMoveCommand { direction in if direction == .down { onMoveDown() } }
-    }
-}
-
-private struct LiveInlinePlayer: View {
-    @StateObject private var controller = VLCPlaybackController()
-    let stream: XtreamStream
-    let urls: [URL]
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.black
-            VLCVideoSurface(player: controller.player)
-            HStack(spacing: 10) {
-                Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
-                Text("NOW PLAYING").font(.caption2.weight(.bold)).tracking(2)
-                Text(stream.name).font(.callout.weight(.semibold)).lineLimit(1)
-                Spacer()
-                Text("Select again for full screen  ·  Menu to close")
-                    .font(.caption).foregroundStyle(NullSportsStyle.secondary)
-            }
-            .padding(.horizontal, 24).frame(height: 54)
-            .background(Color.black.opacity(0.82))
-        }
-        .onAppear { controller.start(urls: urls, muted: false) }
-        .onChange(of: urls) { _ in controller.start(urls: urls, muted: false) }
-        .onDisappear { controller.stop() }
     }
 }
 
@@ -297,7 +248,6 @@ private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
     @Binding var requestedFocusID: String?
-    let inlineGameID: String?
     let multiviewPrimaryID: Int?
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
@@ -318,7 +268,6 @@ private struct LiveGameSlate: View {
                             game: game,
                             requestFocus: requestedFocusID == game.id,
                             selected: focusedGame?.id == game.id,
-                            nowPlaying: inlineGameID == game.id,
                             multiviewPrimaryID: multiviewPrimaryID,
                             onFocus: { focusedGame = game; requestedFocusID = nil },
                             onPlay: { onPlay(game) },
@@ -338,7 +287,6 @@ private struct LiveSlateRow: View {
     let game: SportsGame
     let requestFocus: Bool
     let selected: Bool
-    let nowPlaying: Bool
     let multiviewPrimaryID: Int?
     let onFocus: () -> Void
     let onPlay: () -> Void
@@ -352,11 +300,6 @@ private struct LiveSlateRow: View {
             Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
             Text(game.homeAbbreviation).foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
             Spacer()
-            if nowPlaying {
-                Text("NOW PLAYING")
-                    .font(.system(size: 10, weight: .bold)).tracking(1.2)
-                    .foregroundStyle(NullSportsStyle.live)
-            }
             Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
                 .font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
         }
@@ -364,8 +307,7 @@ private struct LiveSlateRow: View {
         .padding(.horizontal, 28).frame(height: 76)
         .background(isFocused || selected ? Color.white.opacity(0.10) : Color.clear)
         .overlay(alignment: .leading) {
-            if nowPlaying { Rectangle().fill(NullSportsStyle.live).frame(width: 3) }
-            else if multiviewPrimaryID == stream?.id { Rectangle().fill(Color.white).frame(width: 3) }
+            if multiviewPrimaryID == stream?.id { Rectangle().fill(Color.white).frame(width: 3) }
         }
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
@@ -725,6 +667,7 @@ struct GuideView: View {
                         urls: selectedStream == nil && multiviewSession == nil ? library.playbackURLs(for: previewItem.stream) : [],
                         now: guideNow
                     )
+                    .id(previewItem.stream.id)
                     .frame(height: 178)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -808,6 +751,7 @@ struct GuideView: View {
 
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
+            previewHidden = true
             selectedStream = stream
             return
         }
@@ -1427,6 +1371,7 @@ struct PlayerView: View {
         guard let url = urls.last ?? urls.first else { return }
         guard let media = VLCMedia(url: url) else { return }
         media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
+        if muted { media.addOption(":no-audio") }
         player.media = media; player.play(); setMuted(muted)
     }
     func setMuted(_ muted: Bool) { player.audio?.isMuted = muted }
