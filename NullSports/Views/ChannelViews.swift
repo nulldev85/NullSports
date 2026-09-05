@@ -13,6 +13,7 @@ struct LiveView: View {
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
     private var events: [SportsGame] { library.games(for: selectedLeague).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
+    private var tickerEvents: [SportsGame] { library.games(for: nil).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
     private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
@@ -27,6 +28,7 @@ struct LiveView: View {
                     } else {
                         LiveSlateDashboard(
                             events: events,
+                            tickerEvents: tickerEvents,
                             selectedLeague: $selectedLeague,
                             focusedGame: $focusedGame,
                             multiviewPrimaryID: multiviewPrimary?.id,
@@ -95,6 +97,7 @@ struct LiveView: View {
 private struct LiveSlateDashboard: View {
     @State private var requestedGameFocusID: String?
     let events: [SportsGame]
+    let tickerEvents: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
     let multiviewPrimaryID: Int?
@@ -151,7 +154,7 @@ private struct LiveSlateDashboard: View {
             }
             .frame(maxHeight: .infinity)
 
-            LiveTicker(events: events.filter { $0.id != featured.id })
+            LiveTicker(events: tickerEvents.filter { $0.id != featured.id })
                 .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -325,22 +328,49 @@ private struct LiveSlateRow: View {
 
 private struct LiveTicker: View {
     let events: [SportsGame]
+    @State private var contentWidth: CGFloat = 1
+    @State private var epoch = Date()
+
     var body: some View {
         HStack(spacing: 24) {
             Text("ELSEWHERE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
             Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 28)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 38) {
-                    ForEach(events.prefix(16)) { game in
-                        Text("\(game.league.shortName)   \(game.awayAbbreviation)  \(game.start.formatted(date: .omitted, time: .shortened))  \(game.homeAbbreviation)")
-                            .font(.callout.monospaced()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+            GeometryReader { viewport in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    let distance = timeline.date.timeIntervalSince(epoch) * 34
+                    let cycle = max(contentWidth + 72, viewport.size.width)
+                    HStack(spacing: 72) {
+                        tickerContent
+                        tickerContent
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(x: -CGFloat(distance.truncatingRemainder(dividingBy: cycle)))
                 }
+                .clipped()
             }
         }
         .padding(.horizontal, 42).background(Color.black)
         .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+        .onPreferenceChange(TickerWidthKey.self) { if $0 > 1 { contentWidth = $0 } }
+        .onChange(of: events.map(\.id)) { _ in epoch = Date() }
     }
+
+    private var tickerContent: some View {
+        HStack(spacing: 38) {
+            ForEach(events) { game in
+                Text("\(game.league.shortName)   \(game.awayAbbreviation)  \(game.start.formatted(date: .omitted, time: .shortened))  \(game.homeAbbreviation)")
+                    .font(.callout.monospaced()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+            }
+        }
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: TickerWidthKey.self, value: proxy.size.width)
+        })
+    }
+}
+
+private struct TickerWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 1
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private func sportsTeamColor(_ value: String?) -> Color? {
@@ -664,10 +694,8 @@ struct GuideView: View {
                         item: previewItem,
                         categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                         quality: guideQuality(previewItem.stream),
-                        urls: selectedStream == nil && multiviewSession == nil ? library.playbackURLs(for: previewItem.stream) : [],
                         now: guideNow
                     )
-                    .id(previewItem.stream.id)
                     .frame(height: 178)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -728,7 +756,9 @@ struct GuideView: View {
                     RadialGradient(colors: [Color.white.opacity(0.045), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
                 }.ignoresSafeArea()
             )
-            .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
+                PlayerView(urls: library.playbackURLs(for: stream))
+            }
             .fullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
@@ -810,7 +840,6 @@ private struct GuidePreviewPanel: View {
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
-    let urls: [URL]
     let now: Date
 
     private var progress: CGFloat {
@@ -821,7 +850,7 @@ private struct GuidePreviewPanel: View {
 
     var body: some View {
         HStack(spacing: 24) {
-            GuidePreviewVideo(urls: urls)
+            GuidePreviewArtwork(stream: item.stream)
                 .frame(width: 330, height: 174)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(NullSportsStyle.line, lineWidth: 1))
@@ -859,18 +888,25 @@ private struct GuidePreviewPanel: View {
     }
 }
 
-private struct GuidePreviewVideo: View {
-    @StateObject private var controller = VLCPlaybackController()
-    let urls: [URL]
-
+private struct GuidePreviewArtwork: View {
+    let stream: XtreamStream
     var body: some View {
         ZStack {
-            VLCVideoSurface(player: controller.player).background(Color.black)
-            if urls.isEmpty { Image(systemName: "tv.slash").font(.title2).foregroundStyle(NullSportsStyle.secondary) }
+            Color.black
+            AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit().padding(24)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tv").font(.system(size: 38, weight: .light))
+                        Text(stream.name).font(.callout.weight(.semibold)).lineLimit(2).multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(NullSportsStyle.secondary)
+                    .padding(24)
+                }
+            }
+            .transaction { $0.animation = nil }
         }
-        .onAppear { controller.start(urls: urls, muted: true) }
-        .onChange(of: urls) { _ in controller.start(urls: urls, muted: true) }
-        .onDisappear { controller.stop() }
     }
 }
 
