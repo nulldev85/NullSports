@@ -429,9 +429,9 @@ private struct LiveSlateRow: View {
                     .accessibilityLabel("Live")
             }
             LeagueLogo(league: game.league, size: 32).frame(width: 38)
-            Text(game.awayAbbreviation).foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
+            Text(game.awayAbbreviation).foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? NullSportsStyle.text)
             Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
-            Text(game.homeAbbreviation).foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
+            Text(game.homeAbbreviation).foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? NullSportsStyle.text)
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
                 Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
@@ -521,11 +521,11 @@ private struct LiveTicker: View {
                             .font(.caption2.weight(.bold)).tracking(1.5)
                             .foregroundStyle(NullSportsStyle.secondary)
                         Text(game.awayAbbreviation)
-                            .foregroundStyle(sportsTeamColor(game.awayColor) ?? NullSportsStyle.text)
+                            .foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? NullSportsStyle.text)
                         Text(game.awayScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
                         Text("–").foregroundStyle(NullSportsStyle.secondary)
                         Text(game.homeAbbreviation)
-                            .foregroundStyle(sportsTeamColor(game.homeColor) ?? NullSportsStyle.text)
+                            .foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? NullSportsStyle.text)
                         Text(game.homeScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
                         Text(game.isLive ? game.status.uppercased() : "FINAL")
                             .font(.caption2.weight(.bold)).tracking(1.2)
@@ -551,6 +551,23 @@ private func sportsTeamColor(_ value: String?) -> Color? {
     value = value.replacingOccurrences(of: "#", with: "")
     guard value.count == 6, let hex = UInt64(value, radix: 16) else { return nil }
     return Color(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255)
+}
+
+private func sportsReadableTeamColor(_ value: String?) -> Color? {
+    guard var value = nonempty(value) else { return nil }
+    value = value.replacingOccurrences(of: "#", with: "")
+    guard value.count == 6, let hex = UInt64(value, radix: 16) else { return nil }
+    var red = Double((hex >> 16) & 0xff) / 255
+    var green = Double((hex >> 8) & 0xff) / 255
+    var blue = Double(hex & 0xff) / 255
+    let luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722)
+    if luminance < 0.50 {
+        let whiteMix = (0.50 - luminance) / max(0.01, 1 - luminance)
+        red += (1 - red) * whiteMix
+        green += (1 - green) * whiteMix
+        blue += (1 - blue) * whiteMix
+    }
+    return Color(red: red, green: green, blue: blue)
 }
 
 private func nonempty(_ value: String?) -> String? {
@@ -820,7 +837,7 @@ struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @FocusState private var sidebarToggleFocused: Bool
     @State private var selectedCategoryID: String?
-    @State private var favoritesOnly = false
+    @State private var favoritesOnly = true
     @State private var searchActive = false
     @State private var query = ""
     @State private var selectedStream: XtreamStream?
