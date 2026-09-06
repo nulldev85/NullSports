@@ -38,8 +38,16 @@ final class SportsLibrary: ObservableObject {
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var streamSearchText: [Int: String] = [:]
-    private var gameStreamCache: [String: XtreamStream] = [:]
+    @Published private var gameStreamCache: [String: XtreamStream] = [:]
     private var gameMatchSignatures: [String: String] = [:]
+    private var indexGeneration = UUID()
+    private var matchGeneration = UUID()
+    private var guideListCache: (category: String?, favorites: Bool, query: String, streams: [XtreamStream])?
+    private var didRestoreSchedule = false
+    private var bootstrapInFlight = false
+    private var libraryRefreshInFlight = false
+    private var cacheWriteTask: Task<Void, Never>?
+    private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
     private var activeRefreshOperations = 0
     private var guideUpdatedAt: Date?
@@ -58,25 +66,24 @@ final class SportsLibrary: ObservableObject {
             activeProfile = profiles.first
         }
         favoriteStreamOrder = UserDefaults.standard.array(forKey: favoritesKey) as? [Int] ?? []
-        if let data = UserDefaults.standard.data(forKey: scheduleKey),
-           let cached = try? JSONDecoder().decode([String: [SportsGame]].self, from: data) {
-            gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached[$0.rawValue] ?? []) })
-            scheduleLoadedLeagues = Set(SportsLeague.allCases)
-        }
     }
 
     var hasProfile: Bool { activeProfile != nil }
     private func rebuildProfessionalStreams() async {
+        let generation = UUID()
+        indexGeneration = generation
+        let profileID = activeProfile?.id
         let currentCategories = categories
         let currentStreams = streams
         let currentPrograms = programsByChannel
         let index = await Task.detached(priority: .utility) {
             Self.makeSportsIndex(categories: currentCategories, streams: currentStreams, programs: currentPrograms)
         }.value
+        guard indexGeneration == generation, activeProfile?.id == profileID else { return }
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
         streamSearchText = index.searchText
-        rebuildGameStreamCache(force: true)
+        await rebuildGameStreamCache(force: true)
     }
 
     nonisolated private static func makeSportsIndex(
@@ -123,20 +130,37 @@ final class SportsLibrary: ObservableObject {
     }
 
     func bootstrap() async {
-        guard let profile = activeProfile else { return }
+        guard let profile = activeProfile, !bootstrapInFlight else { return }
+        bootstrapInFlight = true
         beginRefreshOperation()
-        defer { endRefreshOperation() }
+        defer { bootstrapInFlight = false; endRefreshOperation() }
+        if !didRestoreSchedule {
+            let key = scheduleKey
+            let cached = await Task.detached(priority: .utility) { () -> [String: [SportsGame]]? in
+                guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+                return try? JSONDecoder().decode([String: [SportsGame]].self, from: data)
+            }.value
+            guard activeProfile?.id == profile.id else { return }
+            didRestoreSchedule = true
+            if let cached, gamesByLeague.isEmpty {
+                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached[$0.rawValue] ?? []) })
+                scheduleLoadedLeagues = Set(SportsLeague.allCases)
+            }
+        }
+        refreshSchedule(showsLoading: false)
         if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
+            guard activeProfile?.id == profile.id else { return }
             categories = cached.categories
             streams = cached.streams
+            guideListCache = nil
             programsByChannel = cached.programsByChannel
             guideUpdatedAt = cached.guideUpdatedAt
             libraryUpdatedAt = cached.libraryUpdatedAt
             await rebuildProfessionalStreams()
         }
-        refreshSchedule()
+        guard activeProfile?.id == profile.id else { return }
         if isLibraryFresh && isGuideFresh { return }
-        await refreshLibrary(forceGuide: !isGuideFresh)
+        await refreshLibrary(forceGuide: !isGuideFresh, refreshChannels: !isLibraryFresh)
     }
 
     func reload() async {
@@ -146,43 +170,59 @@ final class SportsLibrary: ObservableObject {
         await refreshLibrary(forceGuide: true)
     }
 
-    private func refreshLibrary(forceGuide: Bool) async {
-        guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
+    private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true) async {
+        guard !libraryRefreshInFlight,
+              let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
+        libraryRefreshInFlight = true
         beginRefreshOperation()
-        defer { endRefreshOperation() }
-        isLoading = streams.isEmpty
+        defer { libraryRefreshInFlight = false; endRefreshOperation() }
+        isLoading = refreshChannels && streams.isEmpty
         errorMessage = nil
+        let client = XtreamClient(profile: profile, password: password)
+        if forceGuide { refreshGuide(client: client, profileID: profile.id) }
+        guard refreshChannels else { return }
         do {
-            let client = XtreamClient(profile: profile, password: password)
             async let loadedCategories = client.categories()
             async let loadedStreams = client.streams()
-            categories = try await loadedCategories
-            streams = try await loadedStreams
+            let (newCategories, newStreams) = try await (loadedCategories, loadedStreams)
+            guard activeProfile?.id == profile.id else { return }
+            let changed = categories != newCategories || streams != newStreams
+            if categories != newCategories { categories = newCategories }
+            if streams != newStreams {
+                guideListCache = nil
+                streams = newStreams
+            }
             libraryUpdatedAt = Date()
-            await rebuildProfessionalStreams()
+            if changed { await rebuildProfessionalStreams() }
+            guard activeProfile?.id == profile.id else { return }
             isLoading = false
             saveCache(profileID: profile.id)
-            if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         } catch {
+            guard activeProfile?.id == profile.id else { return }
             isLoading = false
             errorMessage = error.localizedDescription
         }
     }
 
     private func refreshGuide(client: XtreamClient, profileID: UUID) {
+        guard !isGuideLoading else { return }
         isGuideLoading = true
         beginRefreshOperation()
         Task { [weak self] in
             guard let self else { return }
             defer {
-                self.isGuideLoading = false
+                if self.activeProfile?.id == profileID { self.isGuideLoading = false }
                 self.endRefreshOperation()
             }
-            let programs = (try? await client.programsToday()) ?? [:]
+            // Keep the last good guide and its timestamp when a refresh fails.
+            guard let programs = try? await client.programsToday() else { return }
             guard self.activeProfile?.id == profileID else { return }
-            self.programsByChannel = programs
             self.guideUpdatedAt = Date()
-            await self.rebuildProfessionalStreams()
+            if self.programsByChannel != programs {
+                self.programsByChannel = programs
+                await self.rebuildProfessionalStreams()
+            }
+            guard self.activeProfile?.id == profileID else { return }
             self.saveCache(profileID: profileID)
         }
     }
@@ -206,7 +246,9 @@ final class SportsLibrary: ObservableObject {
             guideUpdatedAt: guideUpdatedAt,
             libraryUpdatedAt: libraryUpdatedAt
         )
-        Task.detached(priority: .utility) {
+        let previousWrite = cacheWriteTask
+        cacheWriteTask = Task.detached(priority: .utility) {
+            await previousWrite?.value
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             try? data.write(to: Self.cacheURL(profileID: profileID), options: .atomic)
         }
@@ -251,6 +293,7 @@ final class SportsLibrary: ObservableObject {
 
     func refreshSchedule(showsLoading: Bool = true) {
         guard !scheduleRefreshInFlight else { return }
+        let profileID = activeProfile?.id
         scheduleRefreshInFlight = true
         let tracksNetworkRefresh = showsLoading
         if tracksNetworkRefresh { beginRefreshOperation() }
@@ -260,8 +303,11 @@ final class SportsLibrary: ObservableObject {
             guard let self else { return }
             var tracksProcessingRefresh = false
             defer {
+                self.scheduleRefreshInFlight = false
+                if showsLoading { self.isScheduleLoading = false }
                 if tracksNetworkRefresh || tracksProcessingRefresh { self.endRefreshOperation() }
             }
+            guard self.activeProfile?.id == profileID else { return }
             if !snapshot.loadedLeagues.isEmpty {
                 var updatedGames = self.gamesByLeague
                 for league in snapshot.loadedLeagues {
@@ -274,13 +320,13 @@ final class SportsLibrary: ObservableObject {
                     }
                     self.gamesByLeague = updatedGames
                     self.persistSchedule()
-                    self.rebuildGameStreamCache()
+                    await self.rebuildGameStreamCache()
                 }
-                self.scheduleLoadedLeagues.formUnion(snapshot.loadedLeagues)
+                guard self.activeProfile?.id == profileID else { return }
+                let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
+                if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
             }
-            self.scheduleErrorMessage = snapshot.errorMessage
-            self.scheduleRefreshInFlight = false
-            if showsLoading { self.isScheduleLoading = false }
+            if self.scheduleErrorMessage != snapshot.errorMessage { self.scheduleErrorMessage = snapshot.errorMessage }
         }
     }
 
@@ -297,7 +343,9 @@ final class SportsLibrary: ObservableObject {
     private func persistSchedule() {
         let value = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
         let key = scheduleKey
-        Task.detached(priority: .utility) {
+        let previousWrite = scheduleWriteTask
+        scheduleWriteTask = Task.detached(priority: .utility) {
+            await previousWrite?.value
             if let data = try? JSONEncoder().encode(value) {
                 UserDefaults.standard.set(data, forKey: key)
             }
@@ -313,8 +361,7 @@ final class SportsLibrary: ObservableObject {
         gameStreamCache[game.id]
     }
 
-    private func matchedStream(for game: SportsGame) -> XtreamStream? {
-        let candidates = streams(for: game.league)
+    nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream], searchText: [Int: String]) -> XtreamStream? {
         let away = game.awayTeam.lowercased()
         let home = game.homeTeam.lowercased()
         let awayNickname = away.split(separator: " ").last.map(String.init) ?? away
@@ -322,7 +369,7 @@ final class SportsLibrary: ObservableObject {
         let broadcast = game.broadcast.lowercased()
         func rank(_ stream: XtreamStream) -> (namedTeamMatches: Int, score: Int) {
             let name = stream.name.lowercased()
-            let guide = streamSearchText[stream.id] ?? stream.name.lowercased()
+            let guide = searchText[stream.id] ?? name
             let awayInName = name.contains(away) || name.contains(awayNickname)
             let homeInName = name.contains(home) || name.contains(homeNickname)
             let namedMatches = (awayInName ? 1 : 0) + (homeInName ? 1 : 0)
@@ -335,30 +382,49 @@ final class SportsLibrary: ObservableObject {
                 + (name.contains(game.league.rawValue) ? 1 : 0)
             return (namedMatches, score)
         }
-        let ranked = candidates.map { ($0, rank($0)) }.sorted {
-            if $0.1.namedTeamMatches != $1.1.namedTeamMatches {
-                return $0.1.namedTeamMatches > $1.1.namedTeamMatches
+        var best: (stream: XtreamStream, namedTeamMatches: Int, score: Int)?
+        for candidate in candidates {
+            let score = rank(candidate)
+            if let current = best {
+                guard score.namedTeamMatches > current.namedTeamMatches
+                    || (score.namedTeamMatches == current.namedTeamMatches && score.score > current.score) else { continue }
             }
-            return $0.1.score > $1.1.score
+            best = (candidate, score.namedTeamMatches, score.score)
         }
         // A league-only or generic network match is not enough to identify a game.
         // Require at least one strong team match instead of opening an unrelated feed.
-        guard let best = ranked.first, best.1.score >= 5 else { return nil }
-        return best.0
+        guard let best, best.score >= 5 else { return nil }
+        return best.stream
     }
 
-    private func rebuildGameStreamCache(force: Bool = false) {
+    private func rebuildGameStreamCache(force: Bool = false) async {
+        let generation = UUID()
+        matchGeneration = generation
+        let profileID = activeProfile?.id
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
-        let activeIDs = Set(games.map(\.id))
-        gameStreamCache = gameStreamCache.filter { activeIDs.contains($0.key) }
-        gameMatchSignatures = gameMatchSignatures.filter { activeIDs.contains($0.key) }
-        for game in games {
-            let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
-            guard force || gameMatchSignatures[game.id] != signature else { continue }
-            if let stream = matchedStream(for: game) { gameStreamCache[game.id] = stream }
-            else { gameStreamCache.removeValue(forKey: game.id) }
-            gameMatchSignatures[game.id] = signature
-        }
+        let leagues = leagueStreamCache
+        let searchText = streamSearchText
+        let previousMatches = gameStreamCache
+        // Invalidate signatures immediately so an overlapping schedule update also
+        // rematches against a newly installed channel index.
+        if force { gameMatchSignatures = [:] }
+        let previousSignatures = gameMatchSignatures
+        let result = await Task.detached(priority: .utility) {
+            let activeIDs = Set(games.map(\.id))
+            var matches = previousMatches.filter { activeIDs.contains($0.key) }
+            var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
+            for game in games {
+                let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+                guard signatures[game.id] != signature else { continue }
+                if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], searchText: searchText) { matches[game.id] = stream }
+                else { matches.removeValue(forKey: game.id) }
+                signatures[game.id] = signature
+            }
+            return (matches, signatures)
+        }.value
+        guard matchGeneration == generation, activeProfile?.id == profileID else { return }
+        if gameStreamCache != result.0 { gameStreamCache = result.0 }
+        gameMatchSignatures = result.1
     }
 
     func guidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
@@ -366,6 +432,8 @@ final class SportsLibrary: ObservableObject {
     }
 
     func guideStreams(categoryID: String?, favoritesOnly: Bool, query: String) -> [XtreamStream] {
+        if let cached = guideListCache, cached.category == categoryID,
+           cached.favorites == favoritesOnly, cached.query == query { return cached.streams }
         let filtered = streams.filter { stream in
             guard stream.streamType?.lowercased() != "radio_streams",
                   stream.streamType?.lowercased() != "radio" else { return false }
@@ -373,14 +441,18 @@ final class SportsLibrary: ObservableObject {
             if let categoryID, stream.categoryID != categoryID { return false }
             return query.isEmpty || stream.name.localizedCaseInsensitiveContains(query)
         }
+        let result: [XtreamStream]
         if favoritesOnly {
             let streamsByID = Dictionary(grouping: filtered, by: \.id).compactMapValues { $0.first }
-            return favoriteStreamOrder.compactMap { streamsByID[$0] }
+            result = favoriteStreamOrder.compactMap { streamsByID[$0] }
+        } else {
+            result = filtered.sorted {
+                if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
         }
-        return filtered.sorted {
-            if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        guideListCache = (categoryID, favoritesOnly, query, result)
+        return result
     }
 
     func isFavorite(_ stream: XtreamStream) -> Bool {
@@ -411,6 +483,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func persistFavorites() {
+        guideListCache = nil
         UserDefaults.standard.set(favoriteStreamOrder, forKey: favoritesKey)
     }
 
@@ -435,6 +508,9 @@ final class SportsLibrary: ObservableObject {
         KeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
         activeProfile = profiles.first
+        indexGeneration = UUID()
+        matchGeneration = UUID()
+        guideListCache = nil
         categories = []
         streams = []
         professionalStreams = []
@@ -448,8 +524,7 @@ final class SportsLibrary: ObservableObject {
         scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false
-        activeRefreshOperations = 0
-        isRefreshingData = false
+        isLoading = false
         guideUpdatedAt = nil
         libraryUpdatedAt = nil
         try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))

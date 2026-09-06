@@ -25,7 +25,7 @@ struct LiveView: View {
         GeometryReader { container in
             NavigationStack {
                 Group {
-                    if library.isLoading {
+                    if library.isLoading && events.isEmpty {
                         ProgressView("Loading channels…")
                     } else if events.isEmpty {
                         LiveEmptySlateDashboard(
@@ -862,7 +862,7 @@ struct GuideView: View {
             return focusedGuideItem
         }
         for stream in filtered {
-            if let program = library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end }) {
+            if let program = library.guidePrograms(for: stream).first(where: { $0.start <= guideNow && guideNow < $0.end }) {
                 return GuideFocusItem(stream: stream, program: program)
             }
         }
@@ -1342,7 +1342,7 @@ private struct GuideChannelRow: View {
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
     let onFocusProgram: (CurrentProgram) -> Void
-    private var programs: [CurrentProgram] { library.guidePrograms(for: stream).normalizedEPG() }
+    private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
 
     private var visiblePrograms: [CurrentProgram] {
         let start = guideTimelineAnchor(now)
