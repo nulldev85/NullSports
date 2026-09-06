@@ -824,12 +824,14 @@ private struct TeamLogo: View {
 
 private struct ChannelLogo: View {
     let url: String?
+    var width: CGFloat = 74
+    var height: CGFloat = 54
     var body: some View {
         AsyncImage(url: URL(string: url ?? "")) { $0.resizable().scaledToFit() } placeholder: {
             Image(systemName: "tv").font(.caption).foregroundStyle(NullSportsStyle.secondary)
         }
         .transaction { $0.animation = nil }
-        .padding(4).frame(width: 74, height: 54).background(NullSportsStyle.raised)
+        .padding(4).frame(width: width, height: height).background(NullSportsStyle.raised)
     }
 }
 
@@ -905,7 +907,7 @@ struct GuideView: View {
                                 .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
                         } else {
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 5) {
+                                LazyVStack(alignment: .leading, spacing: 8) {
                                     ForEach(filtered) { stream in
                                         GuideChannelRow(
                                             stream: stream,
@@ -925,6 +927,12 @@ struct GuideView: View {
                                 }.padding(.vertical, 2)
                             }
                         }
+                    }
+
+                    if !filtered.isEmpty {
+                        GuideNowIndicator(now: guideNow)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
 
                     if sidebarVisible && !searchActive {
@@ -966,8 +974,9 @@ struct GuideView: View {
             }
             .task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(60))
                     guideNow = Date()
+                    do { try await Task.sleep(for: .seconds(5)) }
+                    catch { return }
                 }
             }
             .onExitCommand {
@@ -1302,19 +1311,38 @@ private struct GuideTimelineHeader: View {
                 }
             }
             .padding(.top, 24)
-
-            Image(systemName: "triangle.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(NullSportsStyle.live)
-                .rotationEffect(.degrees(180))
-                .offset(x: guidePlayheadX(now) - 6, y: 42)
         }
         .font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
         .padding(.horizontal, 14).frame(height: 58)
     }
 }
 
+// One overlay spans the header and scroll viewport, including gaps between rows.
+private struct GuideNowIndicator: View {
+    let now: Date
+
+    var body: some View {
+        GeometryReader { geometry in
+            let x = 14 + guidePlayheadX(now)
+            Path { path in
+                path.move(to: CGPoint(x: x, y: 54))
+                path.addLine(to: CGPoint(x: x, y: geometry.size.height))
+            }
+            .stroke(NullSportsStyle.live, lineWidth: 2)
+            Path { path in
+                path.move(to: CGPoint(x: x - 7, y: 44))
+                path.addLine(to: CGPoint(x: x + 7, y: 44))
+                path.addLine(to: CGPoint(x: x, y: 54))
+                path.closeSubpath()
+            }
+            .fill(NullSportsStyle.live)
+        }
+        .clipped()
+    }
+}
+
 private let guideChannelWidth: CGFloat = 245
+private let guideRowHeight: CGFloat = 100
 private let guideSlotWidth: CGFloat = 245
 private let guideVisibleSlotCount = 6
 private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
@@ -1353,9 +1381,9 @@ private struct GuideChannelRow: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 12) {
-                ChannelLogo(url: stream.streamIcon)
+                ChannelLogo(url: stream.streamIcon, width: 100, height: 76)
                 Text(stream.name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(NullSportsStyle.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -1363,7 +1391,11 @@ private struct GuideChannelRow: View {
                     .minimumScaleFactor(0.78)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: guideChannelWidth, alignment: .leading)
+            .padding(.horizontal, 10)
+            .frame(width: guideChannelWidth - 8, height: guideRowHeight - 8, alignment: .leading)
+            .background(NullSportsStyle.raised.opacity(0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.trailing, 8)
             .clipped()
 
             ZStack(alignment: .leading) {
@@ -1384,7 +1416,7 @@ private struct GuideChannelRow: View {
             .clipped()
         }
         .padding(.horizontal, 14)
-        .frame(width: guideGridWidth + 28, height: 76, alignment: .leading)
+        .frame(width: guideGridWidth + 28, height: guideRowHeight, alignment: .leading)
         .background(NullSportsStyle.surface.opacity(0.86))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
@@ -1439,12 +1471,17 @@ private struct GuideProgramCell: View {
     let onPlay: () -> Void
     let onFocus: () -> Void
 
+    private var isOnNow: Bool {
+        guard let program else { return false }
+        return program.start <= now && now < program.end
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 HStack(spacing: 6) {
                     Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout.weight(.medium)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
-                    if program.isLive { GuideInlineStatus(title: "LIVE") }
+                    if isOnNow { GuideInlineStatus(title: "LIVE") }
                     else if program.isNew == true { GuideInlineStatus(title: "NEW") }
                 }
                 if showsTime {
@@ -1458,12 +1495,25 @@ private struct GuideProgramCell: View {
                 Text(empty).font(.callout).foregroundStyle(NullSportsStyle.secondary)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(isFocused ? Color.white.opacity(0.18) : (program?.isLive == true ? Color.white.opacity(0.065) : Color.clear))
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: guideRowHeight - 8, alignment: .topLeading)
+        .background {
+            GeometryReader { geometry in
+                NullSportsStyle.surface
+                if let program, isOnNow {
+                    // Use the same timeline coordinates as the playhead, including
+                    // clipping of programs that began before the visible window.
+                    let elapsedWidth = guidePlayheadX(now) - guideChannelWidth - guideProgramX(program, now: now)
+                    Color.white.opacity(0.10)
+                        .frame(width: min(geometry.size.width, max(0, elapsedWidth)))
+                }
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? NullSportsStyle.focusGlow.opacity(0.75) : Color.clear, lineWidth: 1.5))
         .overlay(alignment: .bottomTrailing) {
-            if let program, program.isLive {
+            if let program, isOnNow {
                 Text(guideTimeRemaining(program, now: now))
                     .font(.system(size: 9, weight: .bold).monospacedDigit())
                     .foregroundStyle(.white)
@@ -1473,7 +1523,7 @@ private struct GuideProgramCell: View {
             }
         }
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
-        .focusLift(isFocused, scale: 1.035)
+        // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
     }
 }
