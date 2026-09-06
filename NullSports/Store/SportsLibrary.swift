@@ -292,8 +292,9 @@ final class SportsLibrary: ObservableObject {
                     && !$0.awayScore.isEmpty && !$0.homeScore.isEmpty
             }
             .sorted {
-                if $0.isLive != $1.isLive { return $0.isLive }
-                return $0.isLive ? $0.start < $1.start : $0.start > $1.start
+                // A final whistle or a score update must not reshuffle the ticker.
+                if $0.start != $1.start { return $0.start < $1.start }
+                return $0.id < $1.id
             }
     }
 

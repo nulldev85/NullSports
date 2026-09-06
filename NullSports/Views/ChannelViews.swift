@@ -24,35 +24,38 @@ struct LiveView: View {
     var body: some View {
         GeometryReader { container in
             NavigationStack {
-                Group {
-                    if library.isLoading && events.isEmpty {
-                        ProgressView("Loading channels…")
-                    } else if events.isEmpty {
-                        LiveEmptySlateDashboard(
-                            tickerEvents: tickerEvents,
-                            selectedLeague: $selectedLeague,
-                            focusedGame: $focusedGame,
-                            isLoading: library.isScheduleLoading,
-                            isAvailable: library.scheduleAvailable(for: selectedLeague),
-                            errorMessage: library.scheduleErrorMessage
-                        )
-                    } else {
-                        LiveSlateDashboard(
-                            events: events,
-                            tickerEvents: tickerEvents,
-                            selectedLeague: $selectedLeague,
-                            focusedGame: $focusedGame,
-                            previewStream: previewStream,
-                            previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
-                            multiviewPrimaryID: multiviewPrimary?.id,
-                            multiviewTitle: multiviewPrimary?.name,
-                            isUpdating: library.isScheduleLoading,
-                            onPlay: select,
-                            onStartMultiview: startMultiview,
-                            onCancelMultiview: { multiviewPrimary = nil },
-                            onStopPreview: stopPreview
-                        )
+                VStack(spacing: 0) {
+                    Group {
+                        if library.isLoading && events.isEmpty {
+                            ProgressView("Loading channels…")
+                        } else if events.isEmpty {
+                            LiveEmptySlateDashboard(
+                                selectedLeague: $selectedLeague,
+                                focusedGame: $focusedGame,
+                                isLoading: library.isScheduleLoading,
+                                isAvailable: library.scheduleAvailable(for: selectedLeague),
+                                errorMessage: library.scheduleErrorMessage
+                            )
+                        } else {
+                            LiveSlateDashboard(
+                                events: events,
+                                selectedLeague: $selectedLeague,
+                                focusedGame: $focusedGame,
+                                previewStream: previewStream,
+                                previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
+                                multiviewPrimaryID: multiviewPrimary?.id,
+                                multiviewTitle: multiviewPrimary?.name,
+                                isUpdating: library.isScheduleLoading,
+                                onPlay: select,
+                                onStartMultiview: startMultiview,
+                                onCancelMultiview: { multiviewPrimary = nil },
+                                onStopPreview: stopPreview
+                            )
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    LiveTicker(events: tickerEvents)
+                        .frame(height: 54)
                 }
                 .frame(width: container.size.width, height: container.size.height)
                 .clipped()
@@ -135,7 +138,6 @@ struct LiveView: View {
 }
 
 private struct LiveEmptySlateDashboard: View {
-    let tickerEvents: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
     let isLoading: Bool
@@ -168,8 +170,6 @@ private struct LiveEmptySlateDashboard: View {
             EmptySchedule(isLoading: isLoading, isAvailable: isAvailable, errorMessage: errorMessage)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            LiveTicker(events: tickerEvents)
-                .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -178,7 +178,6 @@ private struct LiveEmptySlateDashboard: View {
 private struct LiveSlateDashboard: View {
     @State private var requestedGameFocusID: String?
     let events: [SportsGame]
-    let tickerEvents: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
     let previewStream: XtreamStream?
@@ -245,8 +244,6 @@ private struct LiveSlateDashboard: View {
             }
             .frame(maxHeight: .infinity)
 
-            LiveTicker(events: tickerEvents)
-                .frame(height: 54)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onExitCommand {
@@ -482,68 +479,97 @@ private struct PulsingLiveDot: View {
 
 private struct LiveTicker: View {
     let events: [SportsGame]
-    @State private var contentWidth: CGFloat = 1
-    @State private var epoch = Date()
+    @State private var displayedEvents: [SportsGame] = []
+    @State private var epoch = ProcessInfo.processInfo.systemUptime
+    private let speed: Double = 42
+    private let cardWidth: CGFloat = 620
+    private let cardSpacing: CGFloat = 38
+    private let loopSpacing: CGFloat = 72
+
+    private func cycleWidth(for count: Int) -> CGFloat {
+        count == 0 ? 400 + loopSpacing : CGFloat(count) * (cardWidth + cardSpacing) - cardSpacing + loopSpacing
+    }
 
     var body: some View {
         HStack(spacing: 24) {
             Text("SCORE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
             Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 28)
             GeometryReader { viewport in
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                    let distance = timeline.date.timeIntervalSince(epoch) * 34
-                    let cycle = max(contentWidth + 72, viewport.size.width)
-                    HStack(spacing: 72) {
-                        tickerContent
-                        tickerContent
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                    let distance = max(0, ProcessInfo.processInfo.systemUptime - epoch) * speed
+                    let cycle = cycleWidth(for: displayedEvents.count)
+                    let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
+                    HStack(spacing: loopSpacing) {
+                        ForEach(0..<copies, id: \.self) { _ in tickerContent }
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    .offset(x: -CGFloat(distance.truncatingRemainder(dividingBy: cycle)))
+                    .offset(x: -CGFloat(distance.truncatingRemainder(dividingBy: Double(cycle))))
                 }
                 .clipped()
             }
         }
         .padding(.horizontal, 42).background(Color.black.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
-        .onPreferenceChange(TickerWidthKey.self) { if $0 > 1 { contentWidth = $0 } }
-        .onChange(of: events.map(\.id)) { _ in epoch = Date() }
+        .transaction { $0.animation = nil }
+        .allowsHitTesting(false)
+        .onAppear { updateScores(events) }
+        .onChange(of: events) { _, updated in updateScores(updated) }
+    }
+
+    private func updateScores(_ updated: [SportsGame]) {
+        guard updated != displayedEvents else { return }
+        if displayedEvents.map(\.id) != updated.map(\.id) {
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let oldOffset = CGFloat(max(0, uptime - epoch) * speed)
+                .truncatingRemainder(dividingBy: cycleWidth(for: displayedEvents.count))
+            let stride = cardWidth + cardSpacing
+            let oldIndex = min(Int(oldOffset / stride), max(0, displayedEvents.count - 1))
+            var newOffset: CGFloat = 0
+            if displayedEvents.indices.contains(oldIndex),
+               let newIndex = updated.firstIndex(where: { $0.id == displayedEvents[oldIndex].id }) {
+                newOffset = CGFloat(newIndex) * stride + oldOffset - CGFloat(oldIndex) * stride
+            }
+            epoch = uptime - Double(newOffset) / speed
+        }
+        // Score/status changes update in place without resetting the scroll phase.
+        displayedEvents = updated
     }
 
     private var tickerContent: some View {
-        HStack(spacing: 38) {
-            if events.isEmpty {
+        HStack(spacing: cardSpacing) {
+            if displayedEvents.isEmpty {
                 Text("NO LIVE OR FINAL SCORES")
                     .font(.callout.monospaced()).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                    .frame(width: 400, alignment: .leading)
             } else {
-                ForEach(events) { game in
+                ForEach(displayedEvents) { game in
                     HStack(spacing: 12) {
                         Text(game.league.shortName)
                             .font(.caption2.weight(.bold)).tracking(1.5)
                             .foregroundStyle(NullSportsStyle.secondary)
+                            .frame(width: 62, alignment: .leading)
                         Text(game.awayAbbreviation)
                             .foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? NullSportsStyle.text)
+                            .frame(width: 72, alignment: .leading)
                         Text(game.awayScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
+                            .frame(width: 48, alignment: .trailing)
                         Text("–").foregroundStyle(NullSportsStyle.secondary)
                         Text(game.homeAbbreviation)
                             .foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? NullSportsStyle.text)
+                            .frame(width: 72, alignment: .leading)
                         Text(game.homeScore).fontWeight(.bold).foregroundStyle(NullSportsStyle.text)
+                            .frame(width: 48, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL")
                             .font(.caption2.weight(.bold)).tracking(1.2)
                             .foregroundStyle(game.isLive ? NullSportsStyle.live : NullSportsStyle.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .font(.callout.monospaced()).lineLimit(1)
+                    .frame(width: cardWidth, alignment: .leading)
                 }
             }
         }
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: TickerWidthKey.self, value: proxy.size.width)
-        })
     }
-}
-
-private struct TickerWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 1
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private func sportsTeamColor(_ value: String?) -> Color? {
