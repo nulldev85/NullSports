@@ -577,7 +577,7 @@ private func nonempty(_ value: String?) -> String? {
 
 private func sportsSymbol(_ league: SportsLeague) -> String {
     switch league {
-    case .nfl: "football.fill"
+    case .nfl, .ncaaf: "football.fill"
     case .nba: "basketball.fill"
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
@@ -589,7 +589,8 @@ private struct LeagueLogo: View {
     let size: CGFloat
 
     private var logoURL: URL? {
-        URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
+        guard league != .ncaaf else { return nil }
+        return URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
     }
 
     var body: some View {

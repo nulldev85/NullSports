@@ -93,20 +93,26 @@ final class SportsLibrary: ObservableObject {
         let programText = programs.mapValues { listings in
             listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
         }
-        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
+        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
+        let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
         var searchText: [Int: String] = [:]
+        var collegeStreamIDs: Set<Int> = []
         let professional = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
             let type = stream.streamType?.lowercased()
             guard type != "radio_streams", type != "radio" else { return false }
             let base = "\(stream.name) \(category)".lowercased()
             guard !blocked.contains(where: { base.contains($0) }) else { return false }
+            if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
             let searchable = "\(base) \(stream.epgChannelID.flatMap { programText[$0] } ?? "")"
             searchText[stream.id] = searchable
             return SportsLeague.allCases.contains { $0.matches(searchable) }
         }
         let leagues = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
-            (league, professional.filter { league.matches(searchText[$0.id] ?? $0.name) })
+            (league, professional.filter {
+                (league == .ncaaf || !collegeStreamIDs.contains($0.id))
+                    && league.matches(searchText[$0.id] ?? $0.name)
+            })
         })
         return SportsIndex(professional: professional, leagues: leagues, searchText: searchText)
     }
@@ -144,7 +150,7 @@ final class SportsLibrary: ObservableObject {
             didRestoreSchedule = true
             if let cached, gamesByLeague.isEmpty {
                 gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached[$0.rawValue] ?? []) })
-                scheduleLoadedLeagues = Set(SportsLeague.allCases)
+                scheduleLoadedLeagues = Set(cached.keys.compactMap(SportsLeague.init(rawValue:)))
             }
         }
         refreshSchedule(showsLoading: false)
@@ -319,7 +325,7 @@ final class SportsLibrary: ObservableObject {
                         tracksProcessingRefresh = true
                     }
                     self.gamesByLeague = updatedGames
-                    self.persistSchedule()
+                    self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
                     await self.rebuildGameStreamCache()
                 }
                 guard self.activeProfile?.id == profileID else { return }
@@ -340,8 +346,8 @@ final class SportsLibrary: ObservableObject {
         if activeRefreshOperations == 0 { isRefreshingData = false }
     }
 
-    private func persistSchedule() {
-        let value = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
+    private func persistSchedule(loadedLeagues: Set<SportsLeague>) {
+        let value = Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
         let key = scheduleKey
         let previousWrite = scheduleWriteTask
         scheduleWriteTask = Task.detached(priority: .utility) {
@@ -370,6 +376,19 @@ final class SportsLibrary: ObservableObject {
         func rank(_ stream: XtreamStream) -> (namedTeamMatches: Int, score: Int) {
             let name = stream.name.lowercased()
             let guide = searchText[stream.id] ?? name
+            if game.league == .ncaaf {
+                // College mascots are shared by many schools. A nickname alone
+                // must not select an unrelated school's feed.
+                let tokens = Set(guide.components(separatedBy: CharacterSet.alphanumerics.inverted))
+                let awayAbbreviation = game.awayAbbreviation.lowercased()
+                let homeAbbreviation = game.homeAbbreviation.lowercased()
+                let awayMatches = guide.contains(away) || (awayAbbreviation.count >= 3 && tokens.contains(awayAbbreviation))
+                let homeMatches = guide.contains(home) || (homeAbbreviation.count >= 3 && tokens.contains(homeAbbreviation))
+                guard awayMatches || homeMatches else { return (0, 0) }
+                let namedMatches = (name.contains(away) ? 1 : 0) + (name.contains(home) ? 1 : 0)
+                return (namedMatches, namedMatches * 16 + (awayMatches ? 5 : 0) + (homeMatches ? 5 : 0)
+                    + (!broadcast.isEmpty && name.contains(broadcast) ? 2 : 0))
+            }
             let awayInName = name.contains(away) || name.contains(awayNickname)
             let homeInName = name.contains(home) || name.contains(homeNickname)
             let namedMatches = (awayInName ? 1 : 0) + (homeInName ? 1 : 0)

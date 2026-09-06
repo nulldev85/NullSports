@@ -183,13 +183,14 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb
+    case nfl, nba, nhl, mlb, ncaaf
 
     var id: String { rawValue }
     var shortName: String { rawValue.uppercased() }
     var fullName: String {
         switch self {
         case .nfl: "Football"
+        case .ncaaf: "College Football"
         case .nba: "Basketball"
         case .nhl: "Hockey"
         case .mlb: "Baseball"
@@ -198,6 +199,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     var color: Color {
         switch self {
         case .nfl: Color(red: 0.61, green: 0.43, blue: 0.31)
+        case .ncaaf: Color(red: 0.62, green: 0.46, blue: 0.30)
         case .nba: Color(red: 0.70, green: 0.39, blue: 0.28)
         case .nhl: Color(red: 0.45, green: 0.55, blue: 0.59)
         case .mlb: Color(red: 0.42, green: 0.49, blue: 0.66)
@@ -206,11 +208,20 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
 
     func matches(_ text: String) -> Bool {
         let value = text.lowercased()
+        if self == .ncaaf {
+            // Include shared broadcasters as candidates; game matching still
+            // requires team evidence before offering playback.
+            let words = Set(value.components(separatedBy: CharacterSet.alphanumerics.inverted))
+            return containsLeagueToken(value)
+                || ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"].contains { value.contains($0) }
+                || !words.isDisjoint(with: ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"])
+        }
         return containsLeagueToken(value) || containsAny(value, teamTerms)
     }
 
     private var teamTerms: [String] {
         switch self {
+        case .ncaaf: [] // Avoid ambiguous shared mascots such as Tigers and Bulldogs.
         case .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"]
         case .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"]
         case .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"]

@@ -53,9 +53,11 @@ struct SportsScheduleClient: Sendable {
         guard envelope.schema == 2, envelope.date == day else { throw ScheduleError.invalidSchema }
 
         var result: [SportsLeague: [SportsGame]] = [:]
+        var failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:)))
         for league in SportsLeague.allCases {
             guard let remoteGames = envelope.leagues[league.rawValue] else {
-                throw ScheduleError.missingLeague(league.rawValue.uppercased())
+                failed.insert(league)
+                continue
             }
             result[league] = remoteGames.compactMap { game in
                 guard let start = Self.parseDate(game.start) else { return nil }
@@ -72,7 +74,6 @@ struct SportsScheduleClient: Sendable {
                 )
             }.sorted { $0.start < $1.start }
         }
-        let failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:)))
         let loaded = Set(SportsLeague.allCases).subtracting(failed)
         let errorMessage = failed.isEmpty ? nil : "Temporarily unavailable: \(failed.map(\.shortName).sorted().joined(separator: ", "))."
         return Snapshot(games: result, loadedLeagues: loaded, errorMessage: errorMessage)
