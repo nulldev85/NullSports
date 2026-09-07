@@ -907,7 +907,9 @@ private struct ChannelLogo: View {
 
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
-    @FocusState private var sidebarToggleFocused: Bool
+    @FocusState private var gridFocus: GuideGridFocus?
+    @FocusState private var sidebarFocus: String?
+    @State private var returnGridFocus: GuideGridFocus?
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = true
     @State private var searchActive = false
@@ -921,7 +923,7 @@ struct GuideView: View {
     @State private var pinnedPreviewItem: GuideFocusItem?
     @State private var playbackTransitionID: UUID?
     @State private var previewHidden = false
-    @State private var sidebarVisible = true
+    @State private var sidebarVisible = false
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -975,7 +977,11 @@ struct GuideView: View {
                         if filtered.isEmpty {
                             Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
                                 .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
+                                .focusable()
+                                .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
+                                .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
                         } else {
+                            ScrollViewReader { proxy in
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: 8) {
                                     ForEach(filtered) { stream in
@@ -983,6 +989,9 @@ struct GuideView: View {
                                             stream: stream,
                                             favoritesMode: favoritesOnly && !searchActive,
                                             now: guideNow,
+                                            gridFocus: $gridFocus,
+                                            canOpenSidebar: !sidebarVisible && !searchActive,
+                                            onOpenSidebar: openSidebar,
                                             multiviewPrimaryID: multiviewPrimary?.id,
                                             onPlay: { select(stream) },
                                             onStartMultiview: { multiviewPrimary = stream },
@@ -993,11 +1002,23 @@ struct GuideView: View {
                                                 }
                                             }
                                         )
+                                        .id(stream.id)
                                     }
                                 }.padding(.vertical, 2)
                             }
+                            .onChange(of: sidebarVisible) { _, visible in
+                                guard !visible, let target = gridFocus else { return }
+                                proxy.scrollTo(target.streamID, anchor: .center)
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    guard !sidebarVisible else { return }
+                                    gridFocus = target
+                                }
+                            }
+                            }
                         }
                     }
+                    .disabled(sidebarVisible && !searchActive)
 
                     if !filtered.isEmpty {
                         GuideNowIndicator(now: guideNow)
@@ -1009,18 +1030,14 @@ struct GuideView: View {
                         GuideSidebar(
                             selectedCategoryID: $selectedCategoryID,
                             favoritesOnly: $favoritesOnly,
-                            toggleFocus: $sidebarToggleFocused,
-                            onCollapse: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = false } }
+                            focus: $sidebarFocus,
+                            onCollapse: closeSidebar
                         )
                         .frame(width: guideChannelWidth)
                         .frame(maxHeight: .infinity)
                         .background(NullSportsStyle.background)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                         .focusSection()
-                    } else if !searchActive {
-                        GuideSidebarExpandButton(toggleFocus: $sidebarToggleFocused) {
-                            withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = true }
-                        }
                     }
                 }
             }
@@ -1060,6 +1077,29 @@ struct GuideView: View {
                 }
             }
         }
+    }
+
+    private func openSidebar() {
+        guard !sidebarVisible, !searchActive else { return }
+        returnGridFocus = gridFocus
+        gridFocus = nil
+        withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = true }
+    }
+
+    private func closeSidebar() {
+        sidebarFocus = nil
+        withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = false }
+        let channels = filtered
+        let stream = returnGridFocus.flatMap { previous in channels.first { $0.id == previous.streamID } } ?? channels.first
+        guard let stream else {
+            gridFocus = GuideGridFocus(streamID: -1, programStart: nil)
+            return
+        }
+        let anchor = guideTimelineAnchor(guideNow)
+        let end = anchor.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
+        let programs = library.guidePrograms(for: stream).filter { $0.end > anchor && $0.start < end }
+        let restored = programs.first { $0.start == returnGridFocus?.programStart } ?? programs.first
+        gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
     }
 
     private func select(_ stream: XtreamStream) {
@@ -1271,7 +1311,7 @@ private struct GuideSidebar: View {
     @EnvironmentObject private var library: SportsLibrary
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
-    let toggleFocus: FocusState<Bool>.Binding
+    let focus: FocusState<String?>.Binding
     let onCollapse: () -> Void
 
     var body: some View {
@@ -1279,17 +1319,13 @@ private struct GuideSidebar: View {
             HStack(spacing: 8) {
                 Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
                 Spacer()
-                Button(action: onCollapse) {
-                    Image(systemName: "sidebar.left").font(.callout.weight(.semibold))
-                        .frame(width: 40, height: 36).background(NullSportsStyle.raised).clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .buttonStyle(.plain).focused(toggleFocus).accessibilityLabel("Hide channel sidebar")
+
             }
             .padding(.leading, 14).frame(height: 42)
-            GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly) {
+            GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly, focus: focus, focusID: "all") {
                 selectedCategoryID = nil; favoritesOnly = false
             }
-            GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly) {
+            GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly, focus: focus, focusID: "favorites") {
                 selectedCategoryID = nil; favoritesOnly = true
             }
             Text("CATEGORIES").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
@@ -1297,7 +1333,7 @@ private struct GuideSidebar: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(library.categories) { category in
-                        GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly) {
+                        GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly, focus: focus, focusID: "category-" + category.id) {
                             selectedCategoryID = category.id; favoritesOnly = false
                         }
                     }
@@ -1305,31 +1341,23 @@ private struct GuideSidebar: View {
             }
         }
         .padding(.trailing, 8)
-    }
-}
-
-private struct GuideSidebarExpandButton: View {
-    let toggleFocus: FocusState<Bool>.Binding
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "sidebar.right")
-                .font(.callout.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .background(NullSportsStyle.raised)
-                .clipShape(RoundedRectangle(cornerRadius: 11))
+        .onMoveCommand { direction in
+            if direction == .right { onCollapse() }
         }
-        .buttonStyle(.plain).focused(toggleFocus)
-        .accessibilityLabel("Show channel sidebar")
-        .padding(.top, 2)
+        .task {
+            // All channels is always mounted; do not target an offscreen lazy category.
+            focus.wrappedValue = favoritesOnly ? "favorites" : "all"
+        }
     }
 }
 
 private struct GuideSidebarButton: View {
-    @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
     let selected: Bool
+    let focus: FocusState<String?>.Binding
+    let focusID: String
+    private var isFocused: Bool { focus.wrappedValue == focusID }
     let action: () -> Void
 
     var body: some View {
@@ -1343,7 +1371,7 @@ private struct GuideSidebarButton: View {
         .background(selected ? Color.white.opacity(0.09) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .nullGlass(cornerRadius: 12)
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
         .focusLift(isFocused, scale: 1.045)
     }
 }
@@ -1431,11 +1459,36 @@ private func guidePlayheadX(_ date: Date) -> CGFloat {
     return guideChannelWidth + CGFloat(elapsed / 1800) * guideSlotWidth
 }
 
+private struct GuideGridFocus: Hashable {
+    let streamID: Int
+    let programStart: Date?
+}
+
+// Only the first reachable cell receives a directional handler. Other cells
+// remain entirely under the native tvOS focus engine's control.
+private struct GuideLeftBoundary: ViewModifier {
+    let enabled: Bool
+    let onOpen: () -> Void
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled {
+            content.onMoveCommand { direction in
+                if direction == .left { onOpen() }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 private struct GuideChannelRow: View {
     @EnvironmentObject private var library: SportsLibrary
     let stream: XtreamStream
     let favoritesMode: Bool
     let now: Date
+    let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let canOpenSidebar: Bool
+    let onOpenSidebar: () -> Void
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
@@ -1470,12 +1523,12 @@ private struct GuideChannelRow: View {
 
             ZStack(alignment: .leading) {
                 if visiblePrograms.isEmpty {
-                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {})
+                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: nil), opensSidebar: canOpenSidebar, onOpenSidebar: onOpenSidebar)
                         .frame(width: guideSlotWidth - 6, alignment: .leading)
                 } else {
-                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
+                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { index, program in
                         let width = guideProgramWidth(program, now: now)
-                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) })
+                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: program.start), opensSidebar: canOpenSidebar && index == 0, onOpenSidebar: onOpenSidebar)
                             .frame(width: width, alignment: .leading)
                             .clipped()
                             .offset(x: guideProgramX(program, now: now))
@@ -1532,7 +1585,6 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date) -> CGFloat 
 }
 
 private struct GuideProgramCell: View {
-    @FocusState private var isFocused: Bool
     let program: CurrentProgram?
     let empty: String
     let quality: String?
@@ -1540,6 +1592,11 @@ private struct GuideProgramCell: View {
     let showsTime: Bool
     let onPlay: () -> Void
     let onFocus: () -> Void
+    let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let focusID: GuideGridFocus
+    let opensSidebar: Bool
+    let onOpenSidebar: () -> Void
+    private var isFocused: Bool { gridFocus.wrappedValue == focusID }
 
     private var isOnNow: Bool {
         guard let program else { return false }
@@ -1592,9 +1649,10 @@ private struct GuideProgramCell: View {
                     .padding(7)
             }
         }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
+        .modifier(GuideLeftBoundary(enabled: opensSidebar, onOpen: onOpenSidebar))
     }
 }
 
