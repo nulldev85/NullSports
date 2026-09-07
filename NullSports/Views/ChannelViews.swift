@@ -1402,11 +1402,16 @@ private struct GuideSidebarButton: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: symbol).font(.caption).frame(width: 22)
-            Text(title).font(.callout.weight(.medium)).lineLimit(1).minimumScaleFactor(0.78)
-            Spacer()
+            Text(title)
+                .font(.system(size: 22, weight: .medium))
+                .lineLimit(nil)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
-        .padding(.horizontal, 14).frame(height: 46)
+        .padding(.horizontal, 14).padding(.vertical, 9)
+        .frame(minHeight: 46)
         .background(selected ? Color.white.opacity(0.09) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .nullGlass(cornerRadius: 12)
