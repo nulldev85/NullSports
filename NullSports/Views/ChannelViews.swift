@@ -110,7 +110,7 @@ struct LiveView: View {
             play(game, on: previewStream)
             return
         }
-        guard let stream = library.stream(for: game) else {
+        guard let stream = library.verifiedStream(for: game) else {
             manualChannelGame = game
             return
         }
@@ -143,7 +143,7 @@ struct LiveView: View {
     }
 
     private func startMultiview(_ game: SportsGame) {
-        guard let stream = library.stream(for: game) else { return }
+        guard let stream = library.verifiedStream(for: game) else { return }
         stopPreview()
         multiviewPrimary = stream
     }

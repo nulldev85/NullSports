@@ -30,7 +30,6 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var isScheduleLoading = false
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
-    @Published private(set) var isRefreshingData = false
     @Published var errorMessage: String?
 
     private let profilesKey = "NullSports.profiles"
@@ -50,7 +49,6 @@ final class SportsLibrary: ObservableObject {
     private var cacheWriteTask: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
-    private var activeRefreshOperations = 0
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
@@ -139,8 +137,7 @@ final class SportsLibrary: ObservableObject {
     func bootstrap() async {
         guard let profile = activeProfile, !bootstrapInFlight else { return }
         bootstrapInFlight = true
-        beginRefreshOperation()
-        defer { bootstrapInFlight = false; endRefreshOperation() }
+        defer { bootstrapInFlight = false }
         if !didRestoreSchedule {
             let key = scheduleKey
             let cached = await Task.detached(priority: .utility) { () -> [String: [SportsGame]]? in
@@ -171,8 +168,6 @@ final class SportsLibrary: ObservableObject {
     }
 
     func reload() async {
-        beginRefreshOperation()
-        defer { endRefreshOperation() }
         refreshSchedule()
         await refreshLibrary(forceGuide: true)
     }
@@ -181,8 +176,7 @@ final class SportsLibrary: ObservableObject {
         guard !libraryRefreshInFlight,
               let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         libraryRefreshInFlight = true
-        beginRefreshOperation()
-        defer { libraryRefreshInFlight = false; endRefreshOperation() }
+        defer { libraryRefreshInFlight = false }
         isLoading = refreshChannels && streams.isEmpty
         errorMessage = nil
         let client = XtreamClient(profile: profile, password: password)
@@ -193,39 +187,45 @@ final class SportsLibrary: ObservableObject {
             async let loadedStreams = client.streams()
             let (newCategories, newStreams) = try await (loadedCategories, loadedStreams)
             guard activeProfile?.id == profile.id else { return }
-            let changed = categories != newCategories || streams != newStreams
-            if categories != newCategories { categories = newCategories }
-            if streams != newStreams {
+            let oldCategories = categories
+            let oldStreams = streams
+            let changes = await Task.detached(priority: .utility) {
+                (oldCategories != newCategories, oldStreams != newStreams)
+            }.value
+            guard activeProfile?.id == profile.id else { return }
+            if changes.0 { categories = newCategories }
+            if changes.1 {
                 guideListCache = nil
                 streams = newStreams
             }
             libraryUpdatedAt = Date()
-            if changed { await rebuildProfessionalStreams() }
+            if changes.0 || changes.1 { await rebuildProfessionalStreams() }
             guard activeProfile?.id == profile.id else { return }
             isLoading = false
             saveCache(profileID: profile.id)
         } catch {
             guard activeProfile?.id == profile.id else { return }
             isLoading = false
-            errorMessage = error.localizedDescription
+            if streams.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
     private func refreshGuide(client: XtreamClient, profileID: UUID) {
         guard !isGuideLoading else { return }
         isGuideLoading = true
-        beginRefreshOperation()
         Task { [weak self] in
             guard let self else { return }
             defer {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
-                self.endRefreshOperation()
             }
             // Keep the last good guide and its timestamp when a refresh fails.
             guard let programs = try? await client.programsToday() else { return }
             guard self.activeProfile?.id == profileID else { return }
+            let previousPrograms = self.programsByChannel
+            let changed = await Task.detached(priority: .utility) { previousPrograms != programs }.value
+            guard self.activeProfile?.id == profileID else { return }
             self.guideUpdatedAt = Date()
-            if self.programsByChannel != programs {
+            if changed {
                 self.programsByChannel = programs
                 await self.rebuildProfessionalStreams()
             }
@@ -299,34 +299,29 @@ final class SportsLibrary: ObservableObject {
             }
     }
 
-    func refreshSchedule(showsLoading: Bool = true) {
+    func refreshSchedule(showsLoading: Bool = false) {
         guard !scheduleRefreshInFlight else { return }
         let profileID = activeProfile?.id
         scheduleRefreshInFlight = true
-        let tracksNetworkRefresh = showsLoading
-        if tracksNetworkRefresh { beginRefreshOperation() }
         if showsLoading { isScheduleLoading = true }
         Task { [weak self] in
             let snapshot = await SportsScheduleClient().gamesToday()
             guard let self else { return }
-            var tracksProcessingRefresh = false
             defer {
                 self.scheduleRefreshInFlight = false
                 if showsLoading { self.isScheduleLoading = false }
-                if tracksNetworkRefresh || tracksProcessingRefresh { self.endRefreshOperation() }
             }
             guard self.activeProfile?.id == profileID else { return }
             if !snapshot.loadedLeagues.isEmpty {
-                var updatedGames = self.gamesByLeague
-                for league in snapshot.loadedLeagues {
-                    updatedGames[league] = snapshot.games[league] ?? []
-                }
-                if updatedGames != self.gamesByLeague {
-                    if !tracksNetworkRefresh {
-                        self.beginRefreshOperation()
-                        tracksProcessingRefresh = true
-                    }
-                    self.gamesByLeague = updatedGames
+                let previousGames = self.gamesByLeague
+                let update = await Task.detached(priority: .utility) {
+                    var games = previousGames
+                    for league in snapshot.loadedLeagues { games[league] = snapshot.games[league] ?? [] }
+                    return (games, games != previousGames)
+                }.value
+                guard self.activeProfile?.id == profileID else { return }
+                if update.1 {
+                    self.gamesByLeague = update.0
                     self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
                     await self.rebuildGameStreamCache()
                 }
@@ -336,16 +331,6 @@ final class SportsLibrary: ObservableObject {
             }
             if self.scheduleErrorMessage != snapshot.errorMessage { self.scheduleErrorMessage = snapshot.errorMessage }
         }
-    }
-
-    private func beginRefreshOperation() {
-        activeRefreshOperations += 1
-        if !isRefreshingData { isRefreshingData = true }
-    }
-
-    private func endRefreshOperation() {
-        activeRefreshOperations = max(0, activeRefreshOperations - 1)
-        if activeRefreshOperations == 0 { isRefreshingData = false }
     }
 
     private func persistSchedule(loadedLeagues: Set<SportsLeague>) {
@@ -366,6 +351,11 @@ final class SportsLibrary: ObservableObject {
     }
 
     func stream(for game: SportsGame) -> XtreamStream? {
+        gameStreamCache[game.id]
+    }
+
+    // Only playback actions revalidate. Row rendering must remain a cheap lookup.
+    func verifiedStream(for game: SportsGame) -> XtreamStream? {
         guard let stream = gameStreamCache[game.id] else { return nil }
         if game.league == .ncaaf {
             // Revalidate at selection time even if a score refresh had no changes.
@@ -465,10 +455,10 @@ final class SportsLibrary: ObservableObject {
                 else { matches.removeValue(forKey: game.id) }
                 signatures[game.id] = signature
             }
-            return (matches, signatures)
+            return (matches, signatures, matches != previousMatches)
         }.value
         guard matchGeneration == generation, activeProfile?.id == profileID else { return }
-        if gameStreamCache != result.0 { gameStreamCache = result.0 }
+        if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
     }
 
