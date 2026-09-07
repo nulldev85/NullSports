@@ -238,7 +238,7 @@ private struct LiveEmptySlateDashboard: View {
 }
 
 private struct LiveSlateDashboard: View {
-    @State private var requestedGameFocusID: String?
+    @State private var gameFocusRequest: UUID?
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
@@ -260,10 +260,12 @@ private struct LiveSlateDashboard: View {
         VStack(spacing: 0) {
             HStack(spacing: 18) {
                 LiveLeagueFilterButton(title: "ALL SPORTS", league: nil, selected: selectedLeague == nil, onMoveDown: focusFirstGame) {
+                    gameFocusRequest = nil
                     selectedLeague = nil; focusedGame = nil
                 }
                 ForEach(SportsLeague.allCases) { league in
                     LiveLeagueFilterButton(title: league.shortName, league: league, selected: selectedLeague == league, onMoveDown: focusFirstGame) {
+                        gameFocusRequest = nil
                         selectedLeague = league; focusedGame = nil
                     }
                 }
@@ -297,7 +299,7 @@ private struct LiveSlateDashboard: View {
                 LiveGameSlate(
                     events: events,
                     focusedGame: $focusedGame,
-                    requestedFocusID: $requestedGameFocusID,
+                    focusRequest: $gameFocusRequest,
                     multiviewPrimaryID: multiviewPrimaryID,
                     onPlay: onPlay,
                     onStartMultiview: onStartMultiview
@@ -313,7 +315,7 @@ private struct LiveSlateDashboard: View {
         }
     }
 
-    private func focusFirstGame() { requestedGameFocusID = events.first?.id }
+    private func focusFirstGame() { gameFocusRequest = UUID() }
 }
 
 private struct LiveSelectedPreview: View {
@@ -430,7 +432,8 @@ private struct LiveHeroTeam: View {
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
-    @Binding var requestedFocusID: String?
+    @Binding var focusRequest: UUID?
+    @FocusState private var focusedRowID: String?
     let multiviewPrimaryID: Int?
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
@@ -444,19 +447,36 @@ private struct LiveGameSlate: View {
                     .font(.caption2.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
             }
             .padding(.horizontal, 28).frame(height: 72)
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(events) { game in
-                        LiveSlateRow(
-                            game: game,
-                            requestFocus: requestedFocusID == game.id,
-                            selected: focusedGame?.id == game.id,
-                            multiviewPrimaryID: multiviewPrimaryID,
-                            onFocus: { focusedGame = game; requestedFocusID = nil },
-                            onPlay: { onPlay(game) },
-                            onStartMultiview: { onStartMultiview(game) }
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(events) { game in
+                            LiveSlateRow(
+                                game: game,
+                                rowFocus: $focusedRowID,
+                                selected: focusedGame?.id == game.id,
+                                multiviewPrimaryID: multiviewPrimaryID,
+                                onFocus: { focusedGame = game; focusRequest = nil },
+                                onPlay: { onPlay(game) },
+                                onStartMultiview: { onStartMultiview(game) }
+                            )
+                            .id(game.id)
+                            .onAppear {
+                                if focusRequest != nil, game.id == events.first?.id {
+                                    focusedRowID = game.id
+                                }
+                            }
+                        }
                     }
+                }
+                .focusSection()
+                .task(id: focusRequest) {
+                    guard let request = focusRequest, let firstID = events.first?.id else { return }
+                    proxy.scrollTo(firstID, anchor: .top)
+                    await Task.yield()
+                    guard !Task.isCancelled, focusRequest == request,
+                          events.first?.id == firstID else { return }
+                    focusedRowID = firstID
                 }
             }
         }
@@ -466,9 +486,9 @@ private struct LiveGameSlate: View {
 
 private struct LiveSlateRow: View {
     @EnvironmentObject private var library: SportsLibrary
-    @FocusState private var isFocused: Bool
     let game: SportsGame
-    let requestFocus: Bool
+    let rowFocus: FocusState<String?>.Binding
+    private var isFocused: Bool { rowFocus.wrappedValue == game.id }
     let selected: Bool
     let multiviewPrimaryID: Int?
     let onFocus: () -> Void
@@ -508,10 +528,9 @@ private struct LiveSlateRow: View {
         .overlay(alignment: .leading) {
             if multiviewPrimaryID == stream?.id { Rectangle().fill(Color.white).frame(width: 3) }
         }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled()
+        .contentShape(Rectangle()).focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
         .onChange(of: isFocused) { value in if value { onFocus() } }
-        .onChange(of: requestFocus) { value in if value { isFocused = true } }
         .contextMenu {
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
