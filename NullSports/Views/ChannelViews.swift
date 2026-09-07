@@ -27,8 +27,8 @@ struct LiveView: View {
 
     var body: some View {
         GeometryReader { container in
-            NavigationStack {
-                VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                NavigationStack {
                     Group {
                         if library.isLoading && events.isEmpty {
                             ProgressView("Loading channels…")
@@ -58,16 +58,19 @@ struct LiveView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    LiveTicker(events: tickerEvents)
-                        .frame(height: 54)
-                        .background(LiveLayoutProbe(label: "Ticker", diagnostics: layoutDiagnostics))
+                    .background(LiveLayoutProbe(label: "Content", diagnostics: layoutDiagnostics))
                 }
-                .frame(width: container.size.width, height: container.size.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .background(LiveLayoutProbe(label: "Content", diagnostics: layoutDiagnostics))
+                .background(LiveLayoutProbe(label: "Navigation", diagnostics: layoutDiagnostics))
+                // The ticker belongs to the full-height Live layout, outside
+                // NavigationStack's independently inset content area.
+                LiveTicker(events: tickerEvents)
+                    .frame(height: 54)
+                    .background(LiveLayoutProbe(label: "Ticker", diagnostics: layoutDiagnostics))
             }
-            .frame(width: container.size.width, height: container.size.height)
-            .background(LiveLayoutProbe(label: "Navigation", diagnostics: layoutDiagnostics))
+            .frame(width: container.size.width, height: container.size.height, alignment: .top)
+            .background(LiveLayoutProbe(label: "Live", diagnostics: layoutDiagnostics))
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -111,10 +114,9 @@ struct LiveView: View {
             }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        .background(LiveLayoutProbe(label: "Live", diagnostics: layoutDiagnostics))
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("TV LAYOUT DIAGNOSTIC D1").bold()
+                Text("TV LAYOUT DIAGNOSTIC D2").bold()
                 ForEach(["Live", "Navigation", "Content", "Ticker"], id: \.self) { label in
                     Text(layoutDiagnostics.readings[label] ?? "\(label): measuring…")
                 }
@@ -238,7 +240,7 @@ private struct LiveLayoutProbe: UIViewRepresentable {
                     window.bounds.maxY, gap, self.safeAreaInsets.bottom, window.safeAreaInsets.bottom)
                 guard diagnostics.readings[self.label] != reading else { return }
                 diagnostics.readings[self.label] = reading
-                NSLog("[LiveLayout D1] %@", reading)
+                NSLog("[LiveLayout D2] %@", reading)
             }
         }
     }
