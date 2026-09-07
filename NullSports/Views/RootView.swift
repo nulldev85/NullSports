@@ -53,6 +53,7 @@ struct MainView: View {
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
                 .tag(2)
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .tint(NullSportsStyle.field)
     }
 }

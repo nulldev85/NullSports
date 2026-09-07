@@ -1028,7 +1028,7 @@ struct GuideView: View {
                                         )
                                         .id(stream.id)
                                     }
-                                }.padding(.vertical, 2)
+                                }.padding(.top, 2)
                             }
                             .onChange(of: sidebarVisible) { _, visible in
                                 guard !visible, let target = gridFocus else { return }
@@ -1065,7 +1065,8 @@ struct GuideView: View {
                     }
                 }
             }
-            .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 12)
+            .padding(.horizontal, 32).padding(.top, 8)
+            .ignoresSafeArea(.container, edges: .bottom)
             .background(
                 ZStack {
                     NullSportsStyle.background
