@@ -16,6 +16,12 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Check college channel matching policy
+        run: |
+          set -euo pipefail
+          swiftc NullSports/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/nullsports-matcher-checks
+          /tmp/nullsports-matcher-checks
+
       - name: Install project generator
         run: brew install xcodegen
 

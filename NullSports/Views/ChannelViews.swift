@@ -13,6 +13,7 @@ struct LiveView: View {
     @State private var previewStream: XtreamStream?
     @State private var previewGameID: String?
     @State private var playbackTransitionID: UUID?
+    @State private var manualChannelGame: SportsGame?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -68,6 +69,12 @@ struct LiveView: View {
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .sheet(item: $manualChannelGame) { game in
+                ManualGameChannelPicker(game: game) { stream in
+                    manualChannelGame = nil
+                    play(game, on: stream)
+                }
+            }
             .fullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
@@ -99,7 +106,18 @@ struct LiveView: View {
     }
 
     private func select(_ game: SportsGame) {
-        guard let stream = library.stream(for: game) else { return }
+        if previewGameID == game.id, let previewStream {
+            play(game, on: previewStream)
+            return
+        }
+        guard let stream = library.stream(for: game) else {
+            manualChannelGame = game
+            return
+        }
+        play(game, on: stream)
+    }
+
+    private func play(_ game: SportsGame, on stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
             if previewGameID == game.id {
                 let transitionID = UUID()
@@ -134,6 +152,31 @@ struct LiveView: View {
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
+    }
+}
+
+private struct ManualGameChannelPicker: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    let game: SportsGame
+    let onSelect: (XtreamStream) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("No verified channel").font(.title2)
+                Text("\(game.awayTeam) vs. \(game.homeTeam)")
+                Text("Listed network: \(game.broadcast.isEmpty ? "Unavailable" : game.broadcast). Choose a channel manually.")
+                    .foregroundStyle(.secondary)
+                TextField("Search channels", text: $query)
+                List(library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)) { stream in
+                    Button(stream.name) { onSelect(stream) }
+                }
+                Button("Cancel") { dismiss() }
+            }
+            .padding(40)
+        }
     }
 }
 

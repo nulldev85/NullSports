@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 private struct LibraryCache: Codable, Sendable {
     let categories: [XtreamCategory]
@@ -365,7 +366,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     func stream(for game: SportsGame) -> XtreamStream? {
-        gameStreamCache[game.id]
+        guard let stream = gameStreamCache[game.id] else { return nil }
+        if game.league == .ncaaf {
+            // Revalidate at selection time even if a score refresh had no changes.
+            guard programs(for: stream).contains(where: { listing in
+                CollegeChannelMatcher.verifies(broadcast: game.broadcast, channel: stream.name,
+                    title: listing.title, away: game.awayTeam, home: game.homeTeam, kickoff: game.start,
+                    programStart: listing.start, programEnd: listing.end, now: Date(), isLive: game.isLive)
+            }) else { return nil }
+        }
+        return stream
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream], searchText: [Int: String]) -> XtreamStream? {
@@ -377,19 +387,6 @@ final class SportsLibrary: ObservableObject {
         func rank(_ stream: XtreamStream) -> (namedTeamMatches: Int, score: Int) {
             let name = stream.name.lowercased()
             let guide = searchText[stream.id] ?? name
-            if game.league == .ncaaf {
-                // College mascots are shared by many schools. A nickname alone
-                // must not select an unrelated school's feed.
-                let tokens = Set(guide.components(separatedBy: CharacterSet.alphanumerics.inverted))
-                let awayAbbreviation = game.awayAbbreviation.lowercased()
-                let homeAbbreviation = game.homeAbbreviation.lowercased()
-                let awayMatches = guide.contains(away) || (awayAbbreviation.count >= 3 && tokens.contains(awayAbbreviation))
-                let homeMatches = guide.contains(home) || (homeAbbreviation.count >= 3 && tokens.contains(homeAbbreviation))
-                guard awayMatches || homeMatches else { return (0, 0) }
-                let namedMatches = (name.contains(away) ? 1 : 0) + (name.contains(home) ? 1 : 0)
-                return (namedMatches, namedMatches * 16 + (awayMatches ? 5 : 0) + (homeMatches ? 5 : 0)
-                    + (!broadcast.isEmpty && name.contains(broadcast) ? 2 : 0))
-            }
             let awayInName = name.contains(away) || name.contains(awayNickname)
             let homeInName = name.contains(home) || name.contains(homeNickname)
             let namedMatches = (awayInName ? 1 : 0) + (homeInName ? 1 : 0)
@@ -424,6 +421,8 @@ final class SportsLibrary: ObservableObject {
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
         let leagues = leagueStreamCache
         let searchText = streamSearchText
+        let programs = programsByChannel
+        let now = Date()
         let previousMatches = gameStreamCache
         // Invalidate signatures immediately so an overlapping schedule update also
         // rematches against a newly installed channel index.
@@ -434,6 +433,32 @@ final class SportsLibrary: ObservableObject {
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
             for game in games {
+                if game.league == .ncaaf {
+                    var rejected: [String] = []
+                    let verified = (leagues[.ncaaf] ?? []).filter { stream in
+                        let listings = stream.epgChannelID.flatMap { programs[$0] } ?? []
+                        let expected = CollegeChannelMatcher.networks(game.broadcast)
+                        let actual = CollegeChannelMatcher.networks(stream.name)
+                        guard !actual.isEmpty, !expected.isEmpty, actual.isSubset(of: expected) else {
+                            rejected.append("\(stream.id):network")
+                            return false
+                        }
+                        let valid = listings.contains { listing in
+                            CollegeChannelMatcher.verifies(broadcast: game.broadcast, channel: stream.name,
+                                title: listing.title, away: game.awayTeam, home: game.homeTeam, kickoff: game.start,
+                                programStart: listing.start, programEnd: listing.end, now: now, isLive: game.isLive)
+                        }
+                        if !valid { rejected.append("\(stream.id):\(listings.isEmpty ? "missing-guide" : "airtime-or-teams")") }
+                        return valid
+                    }
+                    // Duplicate qualities of one EPG channel are interchangeable; different feeds are ambiguous.
+                    let unambiguous = CollegeChannelMatcher.unambiguousChannel(verified.map { $0.epgChannelID ?? "" })
+                    let selected = unambiguous ? verified.min(by: { $0.id < $1.id }) : nil
+                    matches[game.id] = selected
+                    let diagnostic = "game=\(game.id) network=\(game.broadcast) verifiedIDs=\(verified.map(\.id)) selectedID=\(selected?.id.description ?? "none") reason=\(selected == nil ? "unverified-or-ambiguous" : "network-and-airtime-and-teams") rejected=\(rejected.joined(separator: ","))"
+                    Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
+                    continue
+                }
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 guard signatures[game.id] != signature else { continue }
                 if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], searchText: searchText) { matches[game.id] = stream }
