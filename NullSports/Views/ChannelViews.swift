@@ -1441,7 +1441,7 @@ private struct GuideNowIndicator: View {
 
 private let guideChannelWidth: CGFloat = 245
 // Reserve a footer for the TV-sized remaining-time badge below the title/time.
-private let guideRowHeight: CGFloat = 132
+private let guideRowHeight: CGFloat = 164
 private let guideSlotWidth: CGFloat = 245
 private let guideVisibleSlotCount = 6
 private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
@@ -1645,9 +1645,9 @@ private struct GuideProgramCell: View {
         .overlay(alignment: .bottomTrailing) {
             if let program, isOnNow {
                 Text(guideTimeRemaining(program, now: now))
-                    .font(.system(size: 16, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 24, weight: .bold).monospacedDigit())
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 12).frame(height: 32)
+                    .padding(.horizontal, 18).frame(height: 48)
                     .background(NullSportsStyle.live).clipShape(Capsule())
                     .padding(7)
             }
