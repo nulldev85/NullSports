@@ -543,7 +543,7 @@ private struct LiveTicker: View {
     let events: [SportsGame]
     @State private var displayedEvents: [SportsGame] = []
     @State private var epoch = ProcessInfo.processInfo.systemUptime
-    private let speed: Double = 42
+    private let speed: Double = 54
     private let cardWidth: CGFloat = 620
     private let cardSpacing: CGFloat = 38
     private let loopSpacing: CGFloat = 72
