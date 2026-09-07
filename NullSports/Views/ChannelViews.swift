@@ -16,7 +16,6 @@ struct LiveView: View {
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
-    @StateObject private var layoutDiagnostics = LiveLayoutDiagnostics()
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -58,19 +57,15 @@ struct LiveView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(LiveLayoutProbe(label: "Content", diagnostics: layoutDiagnostics))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .background(LiveLayoutProbe(label: "Navigation", diagnostics: layoutDiagnostics))
                 // The ticker belongs to the full-height Live layout, outside
                 // NavigationStack's independently inset content area.
                 LiveTicker(events: tickerEvents)
                     .frame(height: 54)
-                    .background(LiveLayoutProbe(label: "Ticker", diagnostics: layoutDiagnostics))
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
-            .background(LiveLayoutProbe(label: "Live", diagnostics: layoutDiagnostics))
             .background(
                 ZStack {
                     NullSportsStyle.background
@@ -114,20 +109,6 @@ struct LiveView: View {
             }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        .overlay(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("TV LAYOUT DIAGNOSTIC D2").bold()
-                ForEach(["Live", "Navigation", "Content", "Ticker"], id: \.self) { label in
-                    Text(layoutDiagnostics.readings[label] ?? "\(label): measuring…")
-                }
-            }
-            .font(.system(size: 20, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(16)
-            .background(Color.black.opacity(0.9))
-            .padding(24)
-            .allowsHitTesting(false)
-        }
         .background(NullSportsStyle.background.ignoresSafeArea())
     }
 
@@ -190,59 +171,6 @@ struct LiveView: View {
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
-    }
-}
-
-// Temporary Release-build diagnostics. All rectangles use the attached window's
-// coordinate space, so the ticker-to-window gap is directly comparable on a TV.
-private final class LiveLayoutDiagnostics: ObservableObject {
-    @Published var readings: [String: String] = [:]
-}
-
-private struct LiveLayoutProbe: UIViewRepresentable {
-    let label: String
-    let diagnostics: LiveLayoutDiagnostics
-
-    func makeUIView(context: Context) -> ProbeView {
-        let view = ProbeView()
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ view: ProbeView, context: Context) {
-        view.label = label
-        view.diagnostics = diagnostics
-        view.sample()
-    }
-
-    final class ProbeView: UIView {
-        var label = ""
-        weak var diagnostics: LiveLayoutDiagnostics?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            sample()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            sample()
-        }
-
-        func sample() {
-            // Read after the enclosing SwiftUI layout pass has finished.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window, let diagnostics = self.diagnostics else { return }
-                let rect = self.convert(self.bounds, to: window)
-                let gap = window.bounds.maxY - rect.maxY
-                let reading = String(format: "%@: top %.0f bottom %.0f h %.0f\n  window %.0f gap %.0f safe %.0f/%.0f",
-                    self.label, rect.minY, rect.maxY, rect.height,
-                    window.bounds.maxY, gap, self.safeAreaInsets.bottom, window.safeAreaInsets.bottom)
-                guard diagnostics.readings[self.label] != reading else { return }
-                diagnostics.readings[self.label] = reading
-                NSLog("[LiveLayout D2] %@", reading)
-            }
-        }
     }
 }
 
