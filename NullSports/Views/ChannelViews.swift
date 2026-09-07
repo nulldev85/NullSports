@@ -14,6 +14,8 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var playbackTransitionID: UUID?
     @State private var manualChannelGame: SportsGame?
+    @State private var showsChannelSyncMessage = false
+    @State private var manualSelectionStartsMultiview = false
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -72,8 +74,18 @@ struct LiveView: View {
             .sheet(item: $manualChannelGame) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     manualChannelGame = nil
-                    play(game, on: stream)
+                    if manualSelectionStartsMultiview {
+                        stopPreview()
+                        multiviewPrimary = stream
+                    } else {
+                        play(game, on: stream)
+                    }
                 }
+            }
+            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Please wait for channel syncing to finish, then select the game again.")
             }
             .fullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
@@ -111,7 +123,7 @@ struct LiveView: View {
             return
         }
         guard let stream = library.verifiedStream(for: game) else {
-            manualChannelGame = game
+            handleUnmatchedSelection(game, startsMultiview: false)
             return
         }
         play(game, on: stream)
@@ -143,9 +155,21 @@ struct LiveView: View {
     }
 
     private func startMultiview(_ game: SportsGame) {
-        guard let stream = library.verifiedStream(for: game) else { return }
+        guard let stream = library.verifiedStream(for: game) else {
+            handleUnmatchedSelection(game, startsMultiview: true)
+            return
+        }
         stopPreview()
         multiviewPrimary = stream
+    }
+
+    private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
+        if library.channelsAreSyncing {
+            showsChannelSyncMessage = true
+        } else {
+            manualSelectionStartsMultiview = startsMultiview
+            manualChannelGame = game
+        }
     }
 
     private func stopPreview() {
@@ -983,7 +1007,7 @@ struct GuideView: View {
                         } else {
                             ScrollViewReader { proxy in
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 8) {
+                                LazyVStack(alignment: .leading, spacing: 6) {
                                     ForEach(filtered) { stream in
                                         GuideChannelRow(
                                             stream: stream,
@@ -1441,7 +1465,7 @@ private struct GuideNowIndicator: View {
 
 private let guideChannelWidth: CGFloat = 245
 // Reserve a footer for the TV-sized remaining-time badge below the title/time.
-private let guideRowHeight: CGFloat = 164
+private let guideRowHeight: CGFloat = 132
 private let guideSlotWidth: CGFloat = 245
 private let guideVisibleSlotCount = 6
 private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
@@ -1505,7 +1529,7 @@ private struct GuideChannelRow: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 12) {
-                ChannelLogo(url: stream.streamIcon, width: 100, height: 76)
+                ChannelLogo(url: stream.streamIcon, width: 88, height: 66)
                 Text(stream.name)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(NullSportsStyle.text)
@@ -1645,9 +1669,9 @@ private struct GuideProgramCell: View {
         .overlay(alignment: .bottomTrailing) {
             if let program, isOnNow {
                 Text(guideTimeRemaining(program, now: now))
-                    .font(.system(size: 24, weight: .bold).monospacedDigit())
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 18).frame(height: 48)
+                    .padding(.horizontal, 16).frame(height: 44)
                     .background(NullSportsStyle.live).clipShape(Capsule())
                     .padding(7)
             }

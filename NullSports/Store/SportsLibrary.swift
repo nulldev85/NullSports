@@ -46,6 +46,7 @@ final class SportsLibrary: ObservableObject {
     private var didRestoreSchedule = false
     private var bootstrapInFlight = false
     private var libraryRefreshInFlight = false
+    private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
@@ -68,7 +69,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     var hasProfile: Bool { activeProfile != nil }
+
+    // Consulted only after a selection has no verified match. Score polling alone
+    // does not prevent manual selection, and cached verified matches remain usable.
+    var channelsAreSyncing: Bool {
+        bootstrapInFlight || libraryRefreshInFlight || isGuideLoading || channelMatchingWorkCount > 0
+    }
+
     private func rebuildProfessionalStreams() async {
+        channelMatchingWorkCount += 1
+        defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
         indexGeneration = generation
         let profileID = activeProfile?.id
@@ -405,6 +415,8 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func rebuildGameStreamCache(force: Bool = false) async {
+        channelMatchingWorkCount += 1
+        defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
         matchGeneration = generation
         let profileID = activeProfile?.id
