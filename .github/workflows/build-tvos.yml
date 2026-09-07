@@ -22,6 +22,12 @@ jobs:
           swiftc NullSports/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/nullsports-matcher-checks
           /tmp/nullsports-matcher-checks
 
+      - name: Check Guide elapsed progress
+        run: |
+          set -euo pipefail
+          swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/nullsports-guide-checks
+          /tmp/nullsports-guide-checks
+
       - name: Install project generator
         run: brew install xcodegen
 

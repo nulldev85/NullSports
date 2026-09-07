@@ -1440,7 +1440,8 @@ private struct GuideNowIndicator: View {
 }
 
 private let guideChannelWidth: CGFloat = 245
-private let guideRowHeight: CGFloat = 100
+// Reserve a footer for the TV-sized remaining-time badge below the title/time.
+private let guideRowHeight: CGFloat = 132
 private let guideSlotWidth: CGFloat = 245
 private let guideVisibleSlotCount = 6
 private let guideGridWidth: CGFloat = guideChannelWidth + (guideSlotWidth * CGFloat(guideVisibleSlotCount))
@@ -1628,12 +1629,14 @@ private struct GuideProgramCell: View {
         .background {
             GeometryReader { geometry in
                 NullSportsStyle.surface
-                if let program, isOnNow {
-                    // Use the same timeline coordinates as the playhead, including
-                    // clipping of programs that began before the visible window.
-                    let elapsedWidth = guidePlayheadX(now) - guideChannelWidth - guideProgramX(program, now: now)
+                if let program {
+                    let elapsedWidth = GuideProgress.playedWidth(
+                        start: program.start, end: program.end, now: now,
+                        visibleStart: guideTimelineAnchor(now),
+                        pointsPerSecond: Double(guideSlotWidth) / 1800,
+                        cellWidth: Double(geometry.size.width))
                     Color.white.opacity(0.10)
-                        .frame(width: min(geometry.size.width, max(0, elapsedWidth)))
+                        .frame(width: CGFloat(elapsedWidth))
                 }
             }
         }
@@ -1642,9 +1645,9 @@ private struct GuideProgramCell: View {
         .overlay(alignment: .bottomTrailing) {
             if let program, isOnNow {
                 Text(guideTimeRemaining(program, now: now))
-                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    .font(.system(size: 16, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 7).frame(height: 18)
+                    .padding(.horizontal, 12).frame(height: 32)
                     .background(NullSportsStyle.live).clipShape(Capsule())
                     .padding(7)
             }
