@@ -248,7 +248,7 @@ private struct LiveBoardLeagueButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Group {
             HStack(spacing: 12) {
                 if let league {
                     LeagueLogo(league: league, size: 26)
@@ -266,7 +266,10 @@ private struct LiveBoardLeagueButton: View {
                 if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
             }
         }
-        .buttonStyle(.plain).focused($focused).focusEffectDisabled()
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .focusable().focused($focused).focusEffectDisabled()
+        .onTapGesture(perform: action)
+        .accessibilityAddTraits(.isButton)
         .onMoveCommand { if $0 == .right { onEnterGames() } }
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -347,11 +350,6 @@ private struct LiveSlateDashboard: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
 
-    private var featured: SportsGame? {
-        focusedGame.flatMap { focused in events.first { $0.id == focused.id } }
-            ?? events.first(where: \.isLive) ?? events.first
-    }
-
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 18) {
@@ -362,23 +360,22 @@ private struct LiveSlateDashboard: View {
                         gameFocusRequest = nil
                     }, onEnterGames: { gameFocusRequest = UUID() })
                     VStack(alignment: .leading, spacing: 16) {
-                        if let featured {
-                            HStack(spacing: 22) {
-                                LiveBoardSpotlight(game: featured)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        HStack {
+                            Spacer(minLength: 0)
+                            ZStack {
+                                Color.black
                                 if let previewStream {
                                     LiveSelectedPreview(stream: previewStream, urls: previewURLs)
                                         .id(previewStream.id)
-                                        .frame(width: (min(244, max(216, geometry.size.height * 0.31)) - 40) * 16 / 9)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14))
                                 }
                             }
-                            .padding(20)
-                            .frame(height: min(244, max(216, geometry.size.height * 0.31)))
-                            .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 20))
-                            .overlay(alignment: .topLeading) {
-                                Capsule().fill(LiveBoardStyle.accent).frame(width: 52, height: 3).padding(.leading, 24)
-                            }
+                            .frame(width: screenHeight(in: geometry.size) * 16 / 9,
+                                   height: screenHeight(in: geometry.size))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .padding(4)
+                            .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 14))
+                            .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
+                            Spacer(minLength: 0)
                         }
                         HStack(spacing: 14) {
                             Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
@@ -387,7 +384,7 @@ private struct LiveSlateDashboard: View {
                                 .foregroundStyle(LiveBoardStyle.accent)
                             Spacer()
                             if multiviewTitle != nil {
-                                Button("Cancel multiview", action: onCancelMultiview).font(.system(size: 14))
+                                GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
                             } else {
                                 Text("Select to preview  ·  Hold for multiview")
                                     .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted)
@@ -407,31 +404,9 @@ private struct LiveSlateDashboard: View {
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
-}
 
-private struct LiveBoardSpotlight: View {
-    let game: SportsGame
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Text(game.league.shortName).foregroundStyle(LiveBoardStyle.accent)
-                Text(game.isLive ? game.status.uppercased() : game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())
-                    .foregroundStyle(LiveBoardStyle.muted)
-                Spacer(minLength: 0)
-                Text(game.broadcast).foregroundStyle(Color.white).lineLimit(1)
-            }
-            .font(.system(size: 12, weight: .bold)).tracking(1)
-            LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
-                record: game.awayRecord, score: game.isLive ? game.awayScore : nil, large: true)
-            LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
-                record: game.homeRecord, score: game.isLive ? game.homeScore : nil, large: true)
-            if game.venue?.isEmpty == false || game.location?.isEmpty == false {
-                Text([nonempty(game.venue), nonempty(game.location)].compactMap { $0 }.joined(separator: "  ·  "))
-                    .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func screenHeight(in size: CGSize) -> CGFloat {
+        min(380, min(max(230, size.height * 0.43), max(0, size.width - 300) * 9 / 16))
     }
 }
 
@@ -450,7 +425,7 @@ private struct LiveBoardTeam: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(size: large ? 25 : 23, weight: .semibold))
                     .foregroundStyle(Color.white).lineLimit(1).minimumScaleFactor(0.7)
-                if large, let record = nonempty(record) {
+                if let record = nonempty(record) {
                     Text(record).font(.system(size: 12).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
                 }
             }
@@ -469,15 +444,7 @@ private struct LiveSelectedPreview: View {
     let urls: [URL]
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            VLCVideoSurface(player: controller.player).background(Color.black)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("PLAYING · \(stream.name)").font(.system(size: 11, weight: .bold)).lineLimit(1)
-                Text("Select this game again for full screen").font(.system(size: 10))
-            }
-            .foregroundStyle(Color.white).padding(10).frame(maxWidth: .infinity, alignment: .leading)
-            .background(LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom))
-        }
+        VLCVideoSurface(player: controller.player).background(Color.black)
         .onAppear { controller.start(urls: urls, muted: false) }
         .onDisappear { controller.stop() }
     }
@@ -536,7 +503,7 @@ private struct LiveSlateRow: View {
     private var isPrimary: Bool { multiviewPrimaryID != nil && multiviewPrimaryID == stream?.id }
 
     var body: some View {
-        Button(action: onPlay) {
+        Group {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     LeagueLogo(league: game.league, size: 20)
@@ -546,14 +513,16 @@ private struct LiveSlateRow: View {
                         PulsingLiveDot(size: 6)
                         Text(game.status.uppercased()).lineLimit(1).minimumScaleFactor(0.7)
                     } else {
-                        Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).lineLimit(1)
+                        Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                            .font(.system(size: 17, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(Color.white.opacity(0.9)).lineLimit(1)
                     }
                 }
                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(LiveBoardStyle.muted)
                 LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
-                    record: nil, score: game.isLive ? game.awayScore : nil)
+                    record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
                 LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
-                    record: nil, score: game.isLive ? game.homeScore : nil)
+                    record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
                 HStack {
                     Text(isPrimary ? "MULTIVIEW · FIRST GAME" : (game.broadcast.isEmpty ? "Channel selection available" : game.broadcast))
                         .lineLimit(1)
@@ -572,7 +541,10 @@ private struct LiveSlateRow: View {
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }
-        .buttonStyle(.plain).focused(rowFocus, equals: game.id).focusEffectDisabled()
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
+        .onTapGesture(perform: onPlay)
+        .accessibilityAddTraits(.isButton)
         .onChange(of: isFocused) { value in if value { onFocus() } }
         .contextMenu {
             if stream != nil {
