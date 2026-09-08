@@ -83,7 +83,6 @@ struct MobileLiveView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("NULLSPORTS").font(.system(size: 11, weight: .black)).tracking(3)
-                Text("The live desk").font(.system(.title2, design: .rounded, weight: .semibold))
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 5) {
