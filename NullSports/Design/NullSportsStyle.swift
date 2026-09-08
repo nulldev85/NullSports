@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum NullSportsStyle {
-    static let lightPurple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let lightPurple = Color(red: 0xBB / 255.0, green: 0x9A / 255.0, blue: 0xDD / 255.0)
     // White is reserved for the Guide playhead and selected Live card frames.
     static let guidePlayhead = Color.white
     static let liveSelectionBorder = Color.white
@@ -15,10 +15,10 @@ enum NullSportsStyle {
     static let liveBorder = lightPurple.opacity(0.72)
     static let line = lightPurple.opacity(0.11)
     static let text = lightPurple
-    static let secondary = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
-    static let field = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
-    static let live = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
-    static let focusGlow = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let secondary = lightPurple
+    static let field = lightPurple
+    static let live = lightPurple
+    static let focusGlow = lightPurple
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
@@ -34,9 +34,9 @@ struct NullSportsButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.text)
+                .foregroundStyle(NullSportsStyle.lightPurple)
                 .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.raised,
+                .background(focused ? NullSportsStyle.focused : NullSportsStyle.raised,
                             in: RoundedRectangle(cornerRadius: 12))
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
@@ -68,15 +68,15 @@ struct PageTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(eyebrow.uppercased())
+            Text(eyebrow.uppercased()).foregroundColor(NullSportsStyle.lightPurple)
                 .font(.caption.weight(.bold))
                 .tracking(1.8)
                 .foregroundStyle(NullSportsStyle.field)
-            Text(title)
+            Text(title).foregroundColor(NullSportsStyle.lightPurple)
                 .font(.system(size: 50, weight: .semibold))
                 .foregroundStyle(NullSportsStyle.text)
             if let detail {
-                Text(detail)
+                Text(detail).foregroundColor(NullSportsStyle.lightPurple)
                     .font(.title3)
                     .foregroundStyle(NullSportsStyle.secondary)
             }
@@ -88,7 +88,7 @@ struct LeagueMark: View {
     let league: SportsLeague
 
     var body: some View {
-        Text(league.shortName)
+        Text(league.shortName).foregroundColor(NullSportsStyle.lightPurple)
             .font(.system(size: 16, weight: .bold))
             .tracking(0.6)
             .foregroundStyle(NullSportsStyle.text)

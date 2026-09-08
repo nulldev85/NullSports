@@ -11,14 +11,14 @@ struct ProfileSetupView: View {
     var body: some View {
         HStack(spacing: 80) {
             VStack(alignment: .leading, spacing: 26) {
-                Text("NULLSPORTS")
+                Text("NULLSPORTS").foregroundColor(NullSportsStyle.lightPurple)
                     .font(.caption.weight(.black))
                     .tracking(3)
                     .foregroundStyle(NullSportsStyle.field)
-                Text("Your games.\nYour provider.")
+                Text("Your games.\nYour provider.").foregroundColor(NullSportsStyle.lightPurple)
                     .font(.system(size: 58, weight: .bold, design: .rounded))
                     .foregroundStyle(NullSportsStyle.text)
-                Text("A quiet, fast home for live American sports.")
+                Text("A quiet, fast home for live American sports.").foregroundColor(NullSportsStyle.lightPurple)
                     .font(.title3)
                     .foregroundStyle(NullSportsStyle.secondary)
             }
@@ -36,7 +36,7 @@ struct ProfileSetupView: View {
                     connect()
                 } label: {
                     HStack {
-                        Text(isConnecting ? "Connecting…" : "Connect")
+                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(NullSportsStyle.lightPurple)
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
@@ -45,6 +45,7 @@ struct ProfileSetupView: View {
                 .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isConnecting)
             }
             .textFieldStyle(.plain)
+            .foregroundColor(NullSportsStyle.lightPurple)
             .focusEffectDisabled()
             .buttonStyle(NullSportsButtonStyle())
             .padding(34)

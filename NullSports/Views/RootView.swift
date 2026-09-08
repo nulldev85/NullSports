@@ -35,7 +35,7 @@ struct RootView: View {
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(library.errorMessage ?? "Unknown error")
+            Text(library.errorMessage ?? "Unknown error").foregroundColor(NullSportsStyle.lightPurple)
         }
     }
 }
