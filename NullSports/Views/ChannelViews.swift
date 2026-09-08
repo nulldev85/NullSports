@@ -789,9 +789,9 @@ private struct ScheduleSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if title == "Live now" { Circle().fill(Color(red: 0.92, green: 0.25, blue: 0.23)).frame(width: 9, height: 9) }
+                if title == "Live now" { Circle().fill(NullSportsStyle.text).frame(width: 9, height: 9) }
                 Text(title.uppercased()).font(.caption.weight(.bold)).tracking(1.5)
-                    .foregroundStyle(title == "Live now" ? Color(red: 0.95, green: 0.33, blue: 0.30) : NullSportsStyle.secondary)
+                    .foregroundStyle(title == "Live now" ? NullSportsStyle.text : NullSportsStyle.secondary)
                 Text("(\(events.count))").font(.caption).foregroundStyle(NullSportsStyle.secondary)
                 Rectangle().fill(NullSportsStyle.line).frame(height: 1)
             }
@@ -886,9 +886,9 @@ private struct GameEventCard: View {
                 .padding(.horizontal, 18).frame(height: 46)
                 .nullGlass(clear: event.isLive, cornerRadius: 0)
         }
-        .background(isFocused ? NullSportsStyle.focused : (event.isLive ? Color(red: 0.15, green: 0.065, blue: 0.065) : NullSportsStyle.surface))
+        .background(isFocused ? NullSportsStyle.focused : (event.isLive ? NullSportsStyle.selected : NullSportsStyle.surface))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? Color.red.opacity(0.42) : NullSportsStyle.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? NullSportsStyle.text.opacity(0.28) : NullSportsStyle.line, lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream?.id {
                 RoundedRectangle(cornerRadius: 14).inset(by: 2).stroke(NullSportsStyle.text.opacity(0.8), lineWidth: 3)
@@ -989,21 +989,21 @@ private struct ChannelLogo: View {
     }
 }
 
-// Dracula-inspired palette scoped to the EPG guide only; the rest of the
-// app keeps NullSportsStyle's usual dark/red look.
+// Monochrome plum palette shared by Live, Guide, and Account - a near-black
+// plum background with off-white text and a single white accent, no hues.
 private enum GuidePalette {
-    static let background = Color(red: 0x18 / 255.0, green: 0x14 / 255.0, blue: 0x1F / 255.0)
-    static let panel = Color(red: 0x12 / 255.0, green: 0x0E / 255.0, blue: 0x18 / 255.0)
-    static let surface = Color(red: 0x20 / 255.0, green: 0x1B / 255.0, blue: 0x28 / 255.0)
-    static let raised = Color(red: 0x2C / 255.0, green: 0x26 / 255.0, blue: 0x35 / 255.0)
-    static let channelTile = Color(red: 0x25 / 255.0, green: 0x1F / 255.0, blue: 0x2D / 255.0)
-    static let line = Color(red: 0xF4 / 255.0, green: 0xF2 / 255.0, blue: 0xF7 / 255.0).opacity(0.08)
-    static let text = Color(red: 0xF4 / 255.0, green: 0xF2 / 255.0, blue: 0xF7 / 255.0)
-    static let secondary = Color(red: 0x94 / 255.0, green: 0x8F / 255.0, blue: 0xA0 / 255.0)
-    static let purple = Color(red: 0xC9 / 255.0, green: 0xC4 / 255.0, blue: 0xD2 / 255.0)
-    static let pink = Color(red: 0xE0 / 255.0, green: 0x55 / 255.0, blue: 0x5A / 255.0)
-    static let green = Color(red: 0xE0 / 255.0, green: 0x55 / 255.0, blue: 0x5A / 255.0)
-    static let yellow = Color(red: 0xD8 / 255.0, green: 0xD4 / 255.0, blue: 0xDE / 255.0)
+    static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
+    static let panel = Color(red: 0x17 / 255.0, green: 0x16 / 255.0, blue: 0x1A / 255.0)
+    static let surface = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
+    static let raised = Color(red: 0x33 / 255.0, green: 0x2B / 255.0, blue: 0x3A / 255.0)
+    static let channelTile = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
+    static let line = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0).opacity(0.08)
+    static let text = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let secondary = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let purple = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let pink = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let green = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let yellow = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
 }
 
 struct GuideView: View {
