@@ -1,6 +1,14 @@
 import Foundation
 
 enum DailyCachePolicy {
+    static func hasCompleteIndex(savedLeagues: Set<String>, expectedLeagues: Set<String>) -> Bool {
+        !expectedLeagues.isEmpty && savedLeagues == expectedLeagues
+    }
+
+    static func canReuseMatch(savedSignature: String?, currentSignature: String, hasMatch: Bool) -> Bool {
+        hasMatch && savedSignature == currentSignature
+    }
+
     static func isCurrent(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
         savedAt <= now && calendar.isDate(savedAt, inSameDayAs: now)
     }

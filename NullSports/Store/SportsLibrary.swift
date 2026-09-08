@@ -47,6 +47,7 @@ final class SportsLibrary: ObservableObject {
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var streamSearchText: [Int: String] = [:]
+    private var sportsIndexReady = false
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
@@ -90,6 +91,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func rebuildProfessionalStreams() async {
+        sportsIndexReady = false
         channelMatchingWorkCount += 1
         defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
@@ -105,6 +107,7 @@ final class SportsLibrary: ObservableObject {
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
         streamSearchText = index.searchText
+        sportsIndexReady = true
         await rebuildGameStreamCache(force: true)
     }
 
@@ -197,10 +200,13 @@ final class SportsLibrary: ObservableObject {
             }
             if cached.matchCacheVersion == 1, let saved = cached.dailyMatches,
                DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
-               let index = cached.sportsIndex {
+               let index = cached.sportsIndex,
+               DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(index.leagues.keys.map(\.rawValue)),
+                   expectedLeagues: Set(SportsLeague.allCases.map(\.rawValue))) {
                 professionalStreams = index.professional
                 leagueStreamCache = index.leagues
                 streamSearchText = index.searchText
+                sportsIndexReady = true
                 if matchIdentities(now: now).keys.contains(where: { gameStreamCache[$0] == nil }) {
                     await rebuildGameStreamCache()
                 }
@@ -307,7 +313,7 @@ final class SportsLibrary: ObservableObject {
                 channels: gameStreamCache.filter { key, _ in
                     identities[key] != nil && identities[key] == matchedGameIdentities[key]
                 }),
-            sportsIndex: SportsIndex(professional: professionalStreams, leagues: leagueStreamCache, searchText: streamSearchText)
+            sportsIndex: sportsIndexReady ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache, searchText: streamSearchText) : nil
         )
         lastSavedMatchIdentities = identities
         lastSavedMatchDay = now
@@ -504,6 +510,9 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func rebuildGameStreamCache(force: Bool = false) async {
+        // A schedule response may arrive before startup/index rebuilding finishes.
+        // The completed index rebuild will match the latest schedule itself.
+        guard sportsIndexReady else { return }
         channelMatchingWorkCount += 1
         defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
@@ -555,10 +564,15 @@ final class SportsLibrary: ObservableObject {
                     continue
                 }
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
-                guard signatures[game.id] != signature else { continue }
-                if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], searchText: searchText) { matches[game.id] = stream }
-                else { matches.removeValue(forKey: game.id) }
-                signatures[game.id] = signature
+                guard !DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
+                    currentSignature: signature, hasMatch: matches[game.id] != nil) else { continue }
+                if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], searchText: searchText) {
+                    matches[game.id] = stream
+                    signatures[game.id] = signature
+                } else {
+                    matches.removeValue(forKey: game.id)
+                    signatures.removeValue(forKey: game.id)
+                }
             }
             return (matches, signatures, matches != previousMatches)
         }.value
@@ -665,6 +679,7 @@ final class SportsLibrary: ObservableObject {
         professionalStreams = []
         leagueStreamCache = [:]
         streamSearchText = [:]
+        sportsIndexReady = false
         gameStreamCache = [:]
         gameMatchSignatures = [:]
         matchedGameIdentities = [:]

@@ -38,6 +38,12 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.isCurrent(savedAt: savedAt, now: day.addingTimeInterval(48 * 3600), calendar: calendar), "Multi-day absence requires a new schedule")
         // Local midnight, not UTC midnight, controls expiry.
         precondition(DailyCachePolicy.isCurrent(savedAt: day.addingTimeInterval(16 * 3600), now: reopen, calendar: calendar), "UTC date rollover does not discard the local day's schedule")
-        print("13 daily schedule and match persistence checks passed")
+        precondition(!DailyCachePolicy.hasCompleteIndex(savedLeagues: [], expectedLeagues: Set(leagues)), "Startup's unbuilt index must not be restored as ready")
+        precondition(!DailyCachePolicy.hasCompleteIndex(savedLeagues: ["ncaaf"], expectedLeagues: Set(leagues)), "College-only index cannot suppress MLB indexing")
+        precondition(DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(leagues), expectedLeagues: Set(leagues)), "Complete index remains reusable")
+        precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: false), "A previously failed MLB lookup must retry")
+        precondition(DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: true), "Successful same-game match still opens without rematching")
+        precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "old-broadcast", currentSignature: "new-broadcast", hasMatch: true), "Broadcast change requires rematching")
+        print("19 daily schedule and match persistence checks passed")
     }
 }
