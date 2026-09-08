@@ -45,6 +45,8 @@ struct ProfileSetupView: View {
                 .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isConnecting)
             }
             .textFieldStyle(.plain)
+            .focusEffectDisabled()
+            .buttonStyle(NullSportsButtonStyle())
             .padding(34)
             .background(NullSportsStyle.surface)
             .overlay(Rectangle().stroke(NullSportsStyle.line, lineWidth: 1))
@@ -62,4 +64,3 @@ struct ProfileSetupView: View {
         }
     }
 }
-

@@ -1,6 +1,10 @@
 import SwiftUI
 
 enum NullSportsStyle {
+    static let lightPurple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    // White is reserved for the Guide playhead and selected Live card frames.
+    static let guidePlayhead = Color.white
+    static let liveSelectionBorder = Color.white
     static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
     static let surface = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
     static let raised = Color(red: 0x33 / 255.0, green: 0x2B / 255.0, blue: 0x3A / 255.0)
@@ -8,9 +12,9 @@ enum NullSportsStyle {
     static let selected = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
     static let focused = Color(red: 0x3D / 255.0, green: 0x34 / 255.0, blue: 0x44 / 255.0)
     static let liveSurface = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
-    static let liveBorder = Color.white.opacity(0.72)
-    static let line = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0).opacity(0.11)
-    static let text = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let liveBorder = lightPurple.opacity(0.72)
+    static let line = lightPurple.opacity(0.11)
+    static let text = lightPurple
     static let secondary = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
     static let field = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
     static let live = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
@@ -18,20 +22,33 @@ enum NullSportsStyle {
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
+struct NullSportsButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PurpleButtonLabel(configuration: configuration)
+    }
+
+    private struct PurpleButtonLabel: View {
+        @Environment(\.isFocused) private var focused
+        @Environment(\.isEnabled) private var enabled
+        let configuration: ButtonStyle.Configuration
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.text)
+                .padding(.horizontal, 20).padding(.vertical, 12)
+                .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.raised,
+                            in: RoundedRectangle(cornerRadius: 12))
+                .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+        }
+    }
+}
+
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
-        if #available(tvOS 26.0, *) {
-            if clear {
-                self.glassEffect(.clear, in: .rect(cornerRadius: cornerRadius))
-            } else {
-                self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-            }
-        } else {
-            self
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
-        }
+        self
+            .background(NullSportsStyle.surface.opacity(clear ? 0.72 : 0.94), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(NullSportsStyle.line, lineWidth: 1))
     }
 
     func focusLift(_ focused: Bool, scale: CGFloat = 1.035) -> some View {

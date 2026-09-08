@@ -13,6 +13,8 @@ struct RootView: View {
                 ProfileSetupView()
             }
         }
+        .foregroundStyle(NullSportsStyle.text)
+        .tint(NullSportsStyle.lightPurple)
         .background(NullSportsStyle.background.ignoresSafeArea())
         .task {
             guard library.hasProfile else { return }
