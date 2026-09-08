@@ -19,7 +19,8 @@ struct MobileGuideView: View {
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
-    private let logoWidth: CGFloat = 96
+    private let logoWidth: CGFloat = 120
+    private var cardHeight: CGFloat { rowHeight - 10 }
 
     private var channels: [XtreamStream] {
         library.guideStreams(categoryID: category, favoritesOnly: favorites, query: query)
@@ -210,25 +211,30 @@ struct MobileGuideView: View {
 
     private func channelTile(_ stream: XtreamStream) -> some View {
         Button { selectChannel(stream) } label: {
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .center) {
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit()
-                            .frame(width: logoWidth - 10, height: rowHeight - 10, alignment: .center)
+                            .frame(width: logoWidth - 8, height: cardHeight, alignment: .center)
                     } else {
                         Text(stream.name).font(.caption.bold()).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+            }
+            .frame(width: logoWidth - 8, height: cardHeight)
+            .overlay(alignment: .topLeading) {
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill").font(.caption2)
                         .padding(4).background(NullSportsStyle.background.opacity(0.85), in: Circle())
                         .padding(3)
                 }
             }
-            .frame(width: logoWidth - 10, height: rowHeight - 10)
-            .padding(5).background(NullSportsStyle.background)
+            .frame(width: logoWidth, height: rowHeight, alignment: .center)
+            .contentShape(Rectangle())
+            // The frozen column masks scrolling programs with the guide's base color.
+            .background(NullSportsStyle.background)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
@@ -277,7 +283,7 @@ struct MobileGuideView: View {
                         .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
                         .offset(x: textInset)
                     }
-                    .frame(width: width, height: rowHeight - 10)
+                    .frame(width: width, height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .contentShape(RoundedRectangle(cornerRadius: 12))
                 }

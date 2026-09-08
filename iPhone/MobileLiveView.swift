@@ -100,20 +100,27 @@ struct MobileLiveView: View {
     private var leagueTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 25) {
-                leagueTab("ALL", value: nil)
-                ForEach(SportsLeague.allCases) { leagueTab($0.shortName, value: $0) }
+                leagueTab(value: nil)
+                ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
             }.padding(.horizontal, 20)
         }
         .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
     }
 
-    private func leagueTab(_ title: String, value: SportsLeague?) -> some View {
+    private func leagueTab(value: SportsLeague?) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { league = value }
         } label: {
-            Text(title).font(.system(size: 12, weight: .bold)).tracking(1)
-                .foregroundStyle(NullSportsStyle.lightPurple.opacity(league == value ? 1 : 0.45))
-                .frame(minWidth: 32, minHeight: 44)
+            Group {
+                if let value {
+                    MobileLeagueLogo(league: value, size: 32)
+                } else {
+                    Image(systemName: "square.grid.2x2.fill").font(.system(size: 21))
+                        .foregroundStyle(NullSportsStyle.lightPurple)
+                }
+            }
+                .opacity(league == value ? 1 : 0.55)
+                .frame(minWidth: 44, minHeight: 48)
                 .overlay(alignment: .bottom) {
                     if league == value {
                         Capsule().fill(NullSportsStyle.lightPurple).frame(height: 2)
@@ -122,6 +129,7 @@ struct MobileLiveView: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(value?.shortName ?? "All sports")
         .accessibilityAddTraits(league == value ? .isSelected : [])
     }
 
@@ -164,8 +172,7 @@ private struct MobileMatchupRow: View {
             }.frame(maxWidth: .infinity)
             Rectangle().fill(NullSportsStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
-                Text(game.league.shortName).font(.system(size: 9, weight: .bold)).tracking(1.5)
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
+                MobileLeagueLogo(league: game.league, size: 25)
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -243,5 +250,16 @@ private struct MobileLiveDot: View {
         .onAppear { pulsing = !reduceMotion }
         .onDisappear { pulsing = false }
         .onChange(of: reduceMotion) { _, reduced in pulsing = !reduced }
+    }
+}
+
+private struct MobileLeagueLogo: View {
+    let league: SportsLeague
+    let size: CGFloat
+    var body: some View {
+        Image("League-\(league.rawValue)")
+            .resizable().scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityLabel(league.shortName)
     }
 }
