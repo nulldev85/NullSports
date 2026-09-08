@@ -203,9 +203,9 @@ private struct ManualGameChannelPicker: View {
 private enum LiveBoardStyle {
     static let accent = Color.white
     static let leagueFocus = Color(white: 0.82)
-    static let canvas = Color(red: 0.035, green: 0.045, blue: 0.055)
-    static let panel = Color(red: 0.075, green: 0.09, blue: 0.105)
-    static let muted = Color(red: 0.60, green: 0.66, blue: 0.69)
+    static let canvas = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
+    static let panel = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
+    static let muted = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
 }
 
 private struct LiveBoardRail: View {
@@ -303,7 +303,7 @@ private struct LiveEmptySlateDashboard: View {
                 LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
                 VStack(alignment: .leading, spacing: 22) {
                     Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
-                        .font(.system(size: 56, weight: .ultraLight)).foregroundStyle(LiveBoardStyle.accent)
+                        .font(.system(size: 56, weight: .ultraLight)).foregroundStyle(LiveBoardStyle.muted)
                     Text(isLoading ? "Setting the board." : (isAvailable ? "A moment between games." : "The schedule is unavailable."))
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                     Text(isLoading ? "Your games will appear here shortly." :
@@ -389,7 +389,7 @@ private struct LiveSlateDashboard: View {
                     Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
                         .font(.system(size: 12, weight: .bold)).tracking(2.5)
                     Text("\(events.count)").font(.system(size: 12, weight: .bold).monospacedDigit())
-                        .foregroundStyle(LiveBoardStyle.accent)
+                        .foregroundStyle(LiveBoardStyle.muted)
                     Spacer()
                     if multiviewTitle != nil {
                         GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
@@ -1000,10 +1000,11 @@ private enum GuidePalette {
     static let line = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0).opacity(0.08)
     static let text = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
     static let secondary = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
-    static let purple = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
-    static let pink = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
-    static let green = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
-    static let yellow = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let purple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let pink = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let green = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let yellow = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let progress = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
 }
 
 struct GuideView: View {
@@ -1149,7 +1150,8 @@ struct GuideView: View {
                     }
                 }
             }
-            .padding(.horizontal, 32).padding(.top, 8)
+            .padding(.horizontal, 20).padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .ignoresSafeArea(.container, edges: .bottom)
             .background(
                 ZStack {
@@ -1351,7 +1353,7 @@ private struct GuidePreviewPanel: View {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             Capsule().fill(GuidePalette.raised)
-                            Capsule().fill(GuidePalette.pink).frame(width: proxy.size.width * progress)
+                            Capsule().fill(GuidePalette.progress).frame(width: proxy.size.width * progress)
                         }
                     }.frame(width: 170, height: 4)
                 }
@@ -1569,14 +1571,14 @@ private struct GuideNowIndicator: View {
                 path.move(to: CGPoint(x: x, y: cardTop))
                 path.addLine(to: CGPoint(x: x, y: geometry.size.height))
             }
-            .stroke(GuidePalette.pink, lineWidth: 2)
+            .stroke(GuidePalette.progress, lineWidth: 2)
             Path { path in
                 path.move(to: CGPoint(x: x - 6, y: cardTop - 8))
                 path.addLine(to: CGPoint(x: x + 6, y: cardTop - 8))
                 path.addLine(to: CGPoint(x: x, y: cardTop))
                 path.closeSubpath()
             }
-            .fill(GuidePalette.pink)
+            .fill(GuidePalette.progress)
         }
         .clipped()
     }
