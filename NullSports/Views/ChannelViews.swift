@@ -101,7 +101,8 @@ struct LiveView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { return }
-                    library.refreshSchedule(showsLoading: false)
+                    // Live scores need refreshing every 30s; tomorrow's slate does not.
+                    library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                 }
             }
             .onChange(of: isActive) { _, active in

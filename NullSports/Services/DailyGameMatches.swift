@@ -9,6 +9,14 @@ enum DailyCachePolicy {
         hasMatch && savedSignature == currentSignature
     }
 
+    // Shared by every generation-tokened background rebuild (professional index,
+    // game/channel matching). A rebuild that finishes after a newer one has already
+    // started, or after the active profile has changed, must not publish its result.
+    static func shouldApplyRebuild(resultGeneration: UUID, currentGeneration: UUID,
+                                    resultProfileID: UUID?, currentProfileID: UUID?) -> Bool {
+        resultGeneration == currentGeneration && resultProfileID == currentProfileID
+    }
+
     static func isCurrent(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
         savedAt <= now && calendar.isDate(savedAt, inSameDayAs: now)
     }
