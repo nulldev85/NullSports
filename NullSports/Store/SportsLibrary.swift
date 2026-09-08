@@ -66,8 +66,10 @@ final class SportsLibrary: ObservableObject {
     private var lastSavedMatchDay: Date?
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
+    private var tomorrowScheduleUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
     private let libraryLifetime: TimeInterval = 6 * 60 * 60
+    private let tomorrowScheduleLifetime: TimeInterval = 3 * 60 * 60
 
     init() {
         if let data = UserDefaults.standard.data(forKey: profilesKey),
@@ -103,7 +105,8 @@ final class SportsLibrary: ObservableObject {
         let index = await Task.detached(priority: .utility) {
             Self.makeSportsIndex(categories: currentCategories, streams: currentStreams, programs: currentPrograms)
         }.value
-        guard indexGeneration == generation, activeProfile?.id == profileID else { return }
+        guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: indexGeneration,
+            resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
         streamSearchText = index.searchText
@@ -363,7 +366,10 @@ final class SportsLibrary: ObservableObject {
             }
     }
 
-    func refreshSchedule(showsLoading: Bool = false) {
+    // `includeTomorrow: false` is for frequent, light-weight callers (e.g. a live-score
+    // poll) that only need today's slate refreshed. Tomorrow's already-known games are
+    // preserved rather than dropped, and are still refetched on their own lifetime.
+    func refreshSchedule(showsLoading: Bool = false, includeTomorrow: Bool = true) {
         let today = Calendar.current.startOfDay(for: Date())
         if scheduleDay != today {
             scheduleDay = today
@@ -374,13 +380,17 @@ final class SportsLibrary: ObservableObject {
             matchedGameIdentities = [:]
             matchGeneration = UUID()
             scheduleErrorMessage = nil
+            tomorrowScheduleUpdatedAt = nil
         }
         guard !scheduleRefreshInFlight else { return }
         let profileID = activeProfile?.id
         scheduleRefreshInFlight = true
         if showsLoading { isScheduleLoading = true }
+        let fetchesTomorrow = includeTomorrow
+            || tomorrowScheduleUpdatedAt == nil
+            || Date().timeIntervalSince(tomorrowScheduleUpdatedAt!) >= tomorrowScheduleLifetime
         Task { [weak self] in
-            let snapshot = await SportsScheduleClient().gamesToday()
+            let snapshot = await SportsScheduleClient().gamesToday(includeTomorrow: fetchesTomorrow)
             guard let self else { return }
             defer {
                 self.scheduleRefreshInFlight = false
@@ -389,11 +399,23 @@ final class SportsLibrary: ObservableObject {
             guard self.activeProfile?.id == profileID else { return }
             // A response started yesterday cannot repopulate today's slate.
             guard Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
+            if fetchesTomorrow { self.tomorrowScheduleUpdatedAt = Date() }
             if !snapshot.loadedLeagues.isEmpty {
                 let previousGames = self.gamesByLeague
+                let tomorrowStart = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
                 let update = await Task.detached(priority: .utility) {
                     var games = previousGames
-                    for league in snapshot.loadedLeagues { games[league] = snapshot.games[league] ?? [] }
+                    for league in snapshot.loadedLeagues {
+                        let fresh = snapshot.games[league] ?? []
+                        if fetchesTomorrow {
+                            games[league] = fresh
+                        } else {
+                            // This fetch only covers today; keep the tomorrow games
+                            // already on hand instead of discarding them.
+                            let keptTomorrow = (previousGames[league] ?? []).filter { $0.start >= tomorrowStart }
+                            games[league] = (fresh + keptTomorrow).sorted { $0.start < $1.start }
+                        }
+                    }
                     return (games, games != previousGames)
                 }.value
                 guard self.activeProfile?.id == profileID,
@@ -573,10 +595,15 @@ final class SportsLibrary: ObservableObject {
                     matches.removeValue(forKey: game.id)
                     signatures.removeValue(forKey: game.id)
                 }
+                // Mirrors the college diagnostic above: a "no matching channel" report
+                // should be readable from device logs without static code review.
+                let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=professional-signature-cache"
+                Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
             return (matches, signatures, matches != previousMatches)
         }.value
-        guard matchGeneration == generation, activeProfile?.id == profileID else { return }
+        guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
+            resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
         let newIdentities = identities.filter { result.0[$0.key] != nil }
@@ -696,6 +723,7 @@ final class SportsLibrary: ObservableObject {
         isLoading = false
         guideUpdatedAt = nil
         libraryUpdatedAt = nil
+        tomorrowScheduleUpdatedAt = nil
         try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
         persistProfiles()
     }
