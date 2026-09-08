@@ -1742,17 +1742,7 @@ private struct GuideProgramCell: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? NullSportsStyle.focusGlow.opacity(0.75) : Color.clear, lineWidth: 1.5))
-        .overlay(alignment: .bottomTrailing) {
-            if let program, isOnNow {
-                Text(guideTimeRemaining(program, now: now))
-                    .font(.system(size: 18, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(NullSportsStyle.live).clipShape(Capsule())
-                    .padding(7)
-            }
-        }
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? NullSportsStyle.live.opacity(0.75) : Color.clear, lineWidth: 1.5))
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
@@ -1765,12 +1755,6 @@ private struct GuideInlineStatus: View {
     var body: some View {
         Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
     }
-}
-
-private func guideTimeRemaining(_ program: CurrentProgram, now: Date) -> String {
-    let minutes = max(0, Int(ceil(program.end.timeIntervalSince(now) / 60)))
-    if minutes >= 120 { return "\(minutes / 60)h \(minutes % 60)m left" }
-    return "\(minutes)m left"
 }
 
 struct AccountView: View {
