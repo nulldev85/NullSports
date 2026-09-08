@@ -989,6 +989,22 @@ private struct ChannelLogo: View {
     }
 }
 
+// Dracula-inspired palette scoped to the EPG guide only; the rest of the
+// app keeps NullSportsStyle's usual dark/red look.
+private enum GuidePalette {
+    static let background = Color(red: 0x28 / 255.0, green: 0x2A / 255.0, blue: 0x36 / 255.0)
+    static let panel = Color(red: 0x1F / 255.0, green: 0x20 / 255.0, blue: 0x2A / 255.0)
+    static let surface = Color(red: 0x2C / 255.0, green: 0x2E / 255.0, blue: 0x3C / 255.0)
+    static let raised = Color(red: 0x38 / 255.0, green: 0x3A / 255.0, blue: 0x4C / 255.0)
+    static let channelTile = Color(red: 49 / 255.0, green: 51 / 255.0, blue: 67 / 255.0)
+    static let line = Color(red: 0xF8 / 255.0, green: 0xF8 / 255.0, blue: 0xF2 / 255.0).opacity(0.08)
+    static let text = Color(red: 0xF8 / 255.0, green: 0xF8 / 255.0, blue: 0xF2 / 255.0)
+    static let secondary = Color(red: 0x62 / 255.0, green: 0x72 / 255.0, blue: 0xA4 / 255.0)
+    static let purple = Color(red: 0xBD / 255.0, green: 0x93 / 255.0, blue: 0xF9 / 255.0)
+    static let pink = Color(red: 0xFF / 255.0, green: 0x79 / 255.0, blue: 0xC6 / 255.0)
+    static let green = Color(red: 0x50 / 255.0, green: 0xFA / 255.0, blue: 0x7B / 255.0)
+}
+
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @FocusState private var gridFocus: GuideGridFocus?
@@ -1061,7 +1077,7 @@ struct GuideView: View {
                         GuideTimelineHeader(now: guideNow)
                         if filtered.isEmpty {
                             Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.")
-                                .font(.title3).foregroundStyle(NullSportsStyle.secondary).padding(.top, 24)
+                                .font(.title3).foregroundStyle(GuidePalette.secondary).padding(.top, 24)
                                 .focusable()
                                 .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
                                 .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
@@ -1120,7 +1136,7 @@ struct GuideView: View {
                         )
                         .frame(width: guideChannelWidth)
                         .frame(maxHeight: .infinity)
-                        .background(NullSportsStyle.background)
+                        .background(GuidePalette.panel)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                         .focusSection()
                     }
@@ -1130,8 +1146,9 @@ struct GuideView: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .background(
                 ZStack {
-                    NullSportsStyle.background
-                    RadialGradient(colors: [Color.white.opacity(0.045), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
+                    GuidePalette.background
+                    RadialGradient(colors: [GuidePalette.purple.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
+                    RadialGradient(colors: [GuidePalette.pink.opacity(0.06), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
@@ -1245,7 +1262,7 @@ private struct GuideControlBar: View {
         HStack(spacing: 12) {
             if let multiviewTitle {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").font(.caption2.weight(.bold)).tracking(1.3).foregroundStyle(NullSportsStyle.secondary)
+                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").font(.caption2.weight(.bold)).tracking(1.3).foregroundStyle(GuidePalette.secondary)
                     Text(multiviewTitle).font(.callout.weight(.semibold)).lineLimit(1)
                 }
             } else if searchActive {
@@ -1253,17 +1270,17 @@ private struct GuideControlBar: View {
                     .textFieldStyle(.plain).focusEffectDisabled()
                     .font(.system(size: 22, weight: .medium))
                     .padding(.horizontal, 14).frame(maxWidth: 520, minHeight: 40)
-                    .background(NullSportsStyle.raised).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(GuidePalette.raised).clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 Text(title).font(.system(size: 24, weight: .semibold)).lineLimit(1)
             }
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
-            Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
-            Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 22)
+            Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(GuidePalette.secondary)
+            Rectangle().fill(GuidePalette.line).frame(width: 1, height: 22)
             Label(now.formatted(date: .omitted, time: .shortened), systemImage: "clock")
                 .font(.system(size: 18, weight: .medium).monospacedDigit())
-                .foregroundStyle(NullSportsStyle.text)
+                .foregroundStyle(GuidePalette.text)
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel("Current time, \(now.formatted(date: .omitted, time: .shortened))")
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
@@ -1272,7 +1289,7 @@ private struct GuideControlBar: View {
             }
             if multiviewTitle != nil { GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview) }
         }
-        .foregroundStyle(NullSportsStyle.text)
+        .foregroundStyle(GuidePalette.text)
         .frame(height: 44)
     }
 
@@ -1303,41 +1320,41 @@ private struct GuidePreviewPanel: View {
             }
                 .frame(width: 330, height: 174)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(NullSportsStyle.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(GuidePalette.line, lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) {
                     Text("‹ \(categoryName.uppercased())  ·  \(item.stream.name.uppercased())")
-                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
-                    if let quality { GuideTinyBadge(title: quality, color: NullSportsStyle.raised) }
-                    if item.program.isLive { GuideTinyBadge(title: "LIVE", color: NullSportsStyle.live) }
+                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(GuidePalette.purple).lineLimit(1)
+                    if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
+                    if item.program.isLive { GuideTinyBadge(title: "LIVE", color: GuidePalette.pink, foreground: GuidePalette.background) }
                 }
                 HStack(spacing: 10) {
                     Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
                         .font(.system(size: 27, weight: .semibold)).lineLimit(1)
-                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: NullSportsStyle.raised) }
+                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.raised) }
                 }
                 HStack(spacing: 12) {
-                    Text(guideTimeRange(item.program)).font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
+                    Text(guideTimeRange(item.program)).font(.callout.monospacedDigit()).foregroundStyle(GuidePalette.secondary)
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(NullSportsStyle.raised)
-                            Capsule().fill(NullSportsStyle.live).frame(width: proxy.size.width * progress)
+                            Capsule().fill(GuidePalette.raised)
+                            Capsule().fill(GuidePalette.pink).frame(width: proxy.size.width * progress)
                         }
                     }.frame(width: 170, height: 4)
                 }
                 Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail)
-                    .font(.callout).foregroundStyle(NullSportsStyle.secondary).lineLimit(1)
+                    .font(.callout).foregroundStyle(GuidePalette.secondary).lineLimit(1)
                 Text("Press Menu to hide preview")
-                    .font(.caption2.weight(.medium)).foregroundStyle(NullSportsStyle.secondary.opacity(0.7))
+                    .font(.caption2.weight(.medium)).foregroundStyle(GuidePalette.secondary.opacity(0.7))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(LinearGradient(colors: [Color.white.opacity(0.035), Color.white.opacity(0.015)], startPoint: .top, endPoint: .bottom))
+        .background(LinearGradient(colors: [GuidePalette.purple.opacity(0.06), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.07), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
     }
 }
 
@@ -1357,7 +1374,7 @@ private struct GuidePreviewArtwork: View {
     let stream: XtreamStream
     var body: some View {
         ZStack {
-            Color.black
+            GuidePalette.panel
             AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFit().padding(24)
@@ -1366,7 +1383,7 @@ private struct GuidePreviewArtwork: View {
                         Image(systemName: "tv").font(.system(size: 38, weight: .light))
                         Text(stream.name).font(.callout.weight(.semibold)).lineLimit(2).multilineTextAlignment(.center)
                     }
-                    .foregroundStyle(NullSportsStyle.secondary)
+                    .foregroundStyle(GuidePalette.secondary)
                     .padding(24)
                 }
             }
@@ -1378,8 +1395,10 @@ private struct GuidePreviewArtwork: View {
 private struct GuideTinyBadge: View {
     let title: String
     let color: Color
+    var foreground: Color = GuidePalette.text
     var body: some View {
         Text(title).font(.system(size: 9, weight: .bold)).tracking(0.8)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 7).frame(height: 18)
             .background(color).clipShape(Capsule())
     }
@@ -1413,7 +1432,7 @@ private struct GuideSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+                Text("CHANNELS").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.purple)
                 Spacer()
 
             }
@@ -1424,7 +1443,7 @@ private struct GuideSidebar: View {
             GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly, focus: focus, focusID: "favorites") {
                 selectedCategoryID = nil; favoritesOnly = true
             }
-            Text("CATEGORIES").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+            Text("CATEGORIES").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.purple)
                 .lineLimit(1).padding(.leading, 14).padding(.top, 8).frame(height: 30)
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -1466,14 +1485,18 @@ private struct GuideSidebarButton: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .foregroundStyle(selected || isFocused ? NullSportsStyle.text : NullSportsStyle.secondary)
+        .foregroundStyle(selected || isFocused ? GuidePalette.text : GuidePalette.secondary)
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(minHeight: 46)
-        .background(selected ? Color.white.opacity(0.09) : Color.clear)
+        .background(isFocused ? GuidePalette.raised : (selected ? GuidePalette.text.opacity(0.075) : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isFocused ? GuidePalette.green.opacity(0.85) : Color.clear, lineWidth: 1.5))
         .nullGlass(cornerRadius: 12)
         .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
-        .focusLift(isFocused, scale: 1.045)
+        .shadow(color: isFocused ? GuidePalette.green.opacity(0.25) : .clear, radius: 14, y: 6)
+        .scaleEffect(isFocused ? 1.03 : 1)
+        .offset(y: isFocused ? -2 : 0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isFocused)
     }
 }
 
@@ -1503,15 +1526,18 @@ private struct GuideTimelineHeader: View {
         let anchor = guideTimelineAnchor(now)
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                Text("TODAY").frame(width: guideChannelWidth, alignment: .leading)
+                Text("TODAY")
+                    .foregroundStyle(GuidePalette.purple)
+                    .frame(width: guideChannelWidth, alignment: .leading)
                 ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                     Text(anchor.addingTimeInterval(Double(step) * 1800).formatted(date: .omitted, time: .shortened))
+                        .foregroundStyle(GuidePalette.secondary)
                         .frame(width: guideSlotWidth, alignment: .leading)
                 }
             }
             .padding(.top, 24)
         }
-        .font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
+        .font(.caption2.weight(.bold)).tracking(1.4)
         .padding(.horizontal, 14).frame(height: 58)
     }
 }
@@ -1530,14 +1556,14 @@ private struct GuideNowIndicator: View {
                 path.move(to: CGPoint(x: x, y: cardTop))
                 path.addLine(to: CGPoint(x: x, y: geometry.size.height))
             }
-            .stroke(NullSportsStyle.live, lineWidth: 2)
+            .stroke(GuidePalette.pink, lineWidth: 2)
             Path { path in
                 path.move(to: CGPoint(x: x - 6, y: cardTop - 8))
                 path.addLine(to: CGPoint(x: x + 6, y: cardTop - 8))
                 path.addLine(to: CGPoint(x: x, y: cardTop))
                 path.closeSubpath()
             }
-            .fill(NullSportsStyle.live)
+            .fill(GuidePalette.pink)
         }
         .clipped()
     }
@@ -1612,7 +1638,7 @@ private struct GuideChannelRow: View {
                 ChannelLogo(url: stream.streamIcon, width: 88, height: 66)
                 Text(stream.name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(NullSportsStyle.text)
+                    .foregroundStyle(GuidePalette.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .allowsTightening(true)
@@ -1621,7 +1647,7 @@ private struct GuideChannelRow: View {
             }
             .padding(.horizontal, 10)
             .frame(width: guideChannelWidth - 8, height: guideRowHeight - 8, alignment: .leading)
-            .background(NullSportsStyle.raised.opacity(0.8))
+            .background(GuidePalette.channelTile.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.trailing, 8)
             .clipped()
@@ -1645,12 +1671,12 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: guideGridWidth + 28, height: guideRowHeight, alignment: .leading)
-        .background(NullSportsStyle.surface.opacity(0.86))
+        .background(GuidePalette.surface.opacity(0.86))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(GuidePalette.line).frame(height: 1) }
         .overlay {
             if multiviewPrimaryID == stream.id {
-                RoundedRectangle(cornerRadius: 12).stroke(NullSportsStyle.focusGlow.opacity(0.9), lineWidth: 2)
+                RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.green.opacity(0.9), lineWidth: 2)
             }
         }
         .contentShape(Rectangle())
@@ -1712,19 +1738,19 @@ private struct GuideProgramCell: View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 HStack(spacing: 6) {
-                    Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout.weight(.medium)).foregroundStyle(NullSportsStyle.text).lineLimit(1)
+                    Text(program.title.isEmpty ? "Untitled" : program.title).font(.callout.weight(.medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
                     if isOnNow { GuideInlineStatus(title: "LIVE") }
                     else if program.isNew == true { GuideInlineStatus(title: "NEW") }
                 }
                 if showsTime {
                     HStack(spacing: 7) {
                         Text(guideTimeRange(program))
-                            .font(.caption.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
-                        if let quality { GuideTinyBadge(title: quality, color: NullSportsStyle.raised) }
+                            .font(.callout.monospacedDigit()).foregroundStyle(GuidePalette.secondary)
+                        if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     }
                 }
             } else {
-                Text(empty).font(.callout).foregroundStyle(NullSportsStyle.secondary)
+                Text(empty).font(.callout).foregroundStyle(GuidePalette.secondary)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 12)
@@ -1732,20 +1758,20 @@ private struct GuideProgramCell: View {
         .frame(height: guideRowHeight - 8, alignment: .topLeading)
         .background {
             GeometryReader { geometry in
-                NullSportsStyle.surface
+                isFocused ? GuidePalette.raised : GuidePalette.surface
                 if let program {
                     let elapsedWidth = GuideProgress.playedWidth(
                         start: program.start, end: program.end, now: now,
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(guideSlotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    Color.white.opacity(0.10)
+                    GuidePalette.text.opacity(0.08)
                         .frame(width: CGFloat(elapsedWidth))
                 }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? NullSportsStyle.live.opacity(0.75) : Color.clear, lineWidth: 1.5))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? GuidePalette.green.opacity(0.9) : Color.clear, lineWidth: 2))
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
@@ -1756,7 +1782,7 @@ private struct GuideProgramCell: View {
 private struct GuideInlineStatus: View {
     let title: String
     var body: some View {
-        Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(NullSportsStyle.secondary)
+        Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(GuidePalette.secondary)
     }
 }
 
