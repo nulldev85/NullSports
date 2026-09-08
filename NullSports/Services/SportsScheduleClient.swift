@@ -7,11 +7,15 @@ struct SportsScheduleClient: Sendable {
         let errorMessage: String?
     }
 
-    func gamesToday() async -> Snapshot {
+    // `includeTomorrow` lets a frequent, light-weight caller (e.g. a live-score poll)
+    // skip refetching the next day's slate, which rarely changes intraday. The
+    // caller is responsible for preserving any previously-fetched tomorrow games.
+    func gamesToday(includeTomorrow: Bool = true) async -> Snapshot {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
         let today = formatter.string(from: Date())
+        guard includeTomorrow else { return await snapshot(for: today) }
         let tomorrowDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
         let tomorrow = formatter.string(from: tomorrowDate)
 
