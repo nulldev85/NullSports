@@ -40,6 +40,7 @@ struct RootView: View {
     }
 }
 
+#if os(tvOS)
 struct MainView: View {
     @State private var selectedTab = 0
 
@@ -59,3 +60,4 @@ struct MainView: View {
         .tint(NullSportsStyle.field)
     }
 }
+#endif
