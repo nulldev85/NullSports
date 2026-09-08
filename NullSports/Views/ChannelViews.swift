@@ -61,7 +61,7 @@ struct LiveView: View {
                 // The ticker belongs to the full-height Live layout, outside
                 // NavigationStack's independently inset content area.
                 LiveTicker(events: tickerEvents)
-                    .frame(height: 54)
+                    .frame(height: 38)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
             .background(
@@ -627,7 +627,7 @@ private struct LiveTicker: View {
     }
 
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(alignment: .bottom, spacing: 24) {
             Text("SCORE").font(.caption2.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
             Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 28)
             GeometryReader { viewport in
@@ -640,11 +640,13 @@ private struct LiveTicker: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     .offset(x: -CGFloat(distance.truncatingRemainder(dividingBy: Double(cycle))))
+                    .frame(width: viewport.size.width, height: viewport.size.height, alignment: .bottomLeading)
                 }
                 .clipped()
             }
         }
-        .padding(.horizontal, 42).background(Color.black.ignoresSafeArea(edges: .bottom))
+        .padding(.horizontal, 42).padding(.bottom, 2)
+        .background(Color.black.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
