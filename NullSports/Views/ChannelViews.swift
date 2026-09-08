@@ -29,13 +29,11 @@ struct LiveView: View {
             VStack(spacing: 0) {
                 NavigationStack {
                     Group {
-                        if library.isLoading && events.isEmpty {
-                            ProgressView("Loading channels…")
-                        } else if events.isEmpty {
+                        if events.isEmpty {
                             LiveEmptySlateDashboard(
                                 selectedLeague: $selectedLeague,
                                 focusedGame: $focusedGame,
-                                isLoading: library.isScheduleLoading,
+                                isLoading: library.isLoading || library.isScheduleLoading,
                                 isAvailable: library.scheduleAvailable(for: selectedLeague),
                                 errorMessage: library.scheduleErrorMessage
                             )
@@ -202,6 +200,104 @@ private struct ManualGameChannelPicker: View {
     }
 }
 
+private enum LiveBoardStyle {
+    static let accent = Color(red: 0.83, green: 0.96, blue: 0.40)
+    static let canvas = Color(red: 0.035, green: 0.045, blue: 0.055)
+    static let panel = Color(red: 0.075, green: 0.09, blue: 0.105)
+    static let muted = Color(red: 0.60, green: 0.66, blue: 0.69)
+}
+
+private struct LiveBoardRail: View {
+    @Binding var selectedLeague: SportsLeague?
+    let onChoose: () -> Void
+    let onEnterGames: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("EXPLORE").font(.system(size: 12, weight: .bold)).tracking(3)
+                .foregroundStyle(LiveBoardStyle.muted).padding(.bottom, 8)
+            LiveBoardLeagueButton(title: "All sports", league: nil, selected: selectedLeague == nil,
+                onEnterGames: onEnterGames) { selectedLeague = nil; onChoose() }
+            ForEach(SportsLeague.allCases) { league in
+                LiveBoardLeagueButton(title: league == .ncaaf ? "College" : league.shortName,
+                    league: league, selected: selectedLeague == league, onEnterGames: onEnterGames) {
+                    selectedLeague = league
+                    onChoose()
+                }
+            }
+            Spacer(minLength: 12)
+            Image(systemName: "sportscourt").font(.system(size: 26, weight: .light))
+                .foregroundStyle(LiveBoardStyle.accent)
+            Text("EVERY GAME.\nYOUR SEAT.")
+                .font(.system(size: 11, weight: .bold)).tracking(2).lineSpacing(5)
+                .foregroundStyle(LiveBoardStyle.muted)
+        }
+        .frame(width: 156, alignment: .leading)
+        .padding(.trailing, 24)
+        .overlay(alignment: .trailing) { Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1) }
+        .focusSection()
+    }
+}
+
+private struct LiveBoardLeagueButton: View {
+    @FocusState private var focused: Bool
+    let title: String
+    let league: SportsLeague?
+    let selected: Bool
+    let onEnterGames: () -> Void
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                if let league {
+                    LeagueLogo(league: league, size: 26)
+                } else {
+                    Image(systemName: "square.grid.2x2.fill").frame(width: 26)
+                }
+                Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(focused ? LiveBoardStyle.canvas : (selected ? LiveBoardStyle.accent : Color.white))
+            .padding(.horizontal, 12).frame(height: 49)
+            .background(focused ? LiveBoardStyle.accent : (selected ? Color.white.opacity(0.07) : .clear))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(alignment: .leading) {
+                if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
+            }
+        }
+        .buttonStyle(.plain).focused($focused).focusEffectDisabled()
+        .onMoveCommand { if $0 == .right { onEnterGames() } }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+private struct LiveBoardHeading: View {
+    let count: Int
+    let isUpdating: Bool
+
+    var body: some View {
+        HStack(alignment: .center) {
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                Text("Game day").font(.system(size: 38, weight: .bold, design: .rounded)).tracking(-1.5)
+                Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                    .font(.system(size: 16, weight: .medium)).foregroundStyle(LiveBoardStyle.muted)
+            }
+            Spacer()
+            if isUpdating { ProgressView().controlSize(.small) }
+            HStack(spacing: 9) {
+                if count > 0 { PulsingLiveDot(size: 7) }
+                Text("\(count) LIVE").font(.system(size: 13, weight: .bold)).tracking(2)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(Color.white.opacity(0.06), in: Capsule())
+        }
+        .foregroundStyle(Color.white)
+        .frame(height: 68)
+    }
+}
+
 private struct LiveEmptySlateDashboard: View {
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
@@ -210,33 +306,29 @@ private struct LiveEmptySlateDashboard: View {
     let errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 18) {
-                LiveLeagueFilterButton(title: "ALL SPORTS", league: nil, selected: selectedLeague == nil, onMoveDown: {}) {
-                    selectedLeague = nil
-                    focusedGame = nil
+        VStack(spacing: 20) {
+            LiveBoardHeading(count: 0, isUpdating: isLoading)
+            HStack(spacing: 30) {
+                LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
+                VStack(alignment: .leading, spacing: 22) {
+                    Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
+                        .font(.system(size: 56, weight: .ultraLight)).foregroundStyle(LiveBoardStyle.accent)
+                    Text(isLoading ? "Setting the board." : (isAvailable ? "A moment between games." : "The schedule is unavailable."))
+                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                    Text(isLoading ? "Your games will appear here shortly." :
+                        (isAvailable ? "Explore another sport, or come back for the next matchup." :
+                            (errorMessage ?? "We’ll try again shortly. Your saved channels are still available in Guide.")))
+                        .font(.system(size: 20)).foregroundStyle(LiveBoardStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(SportsLeague.allCases) { league in
-                    LiveLeagueFilterButton(title: league.shortName, league: league, selected: selectedLeague == league, onMoveDown: {}) {
-                        selectedLeague = league
-                        focusedGame = nil
-                    }
-                }
-                Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                    .font(.system(size: 20, weight: .medium, design: .serif)).italic()
-                    .foregroundStyle(NullSportsStyle.secondary)
-                Spacer()
-                Text("0 LIVE  ·  0 SCHEDULED")
-                    .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding(44)
+                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 22))
             }
-            .padding(.horizontal, 42).frame(height: 62)
-            .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
-
-            EmptySchedule(isLoading: isLoading, isAvailable: isAvailable, errorMessage: errorMessage)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+            .frame(maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 38).padding(.bottom, 26)
+        .background(LiveBoardStyle.canvas)
     }
 }
 
@@ -255,70 +347,120 @@ private struct LiveSlateDashboard: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
 
-    private var featured: SportsGame { focusedGame.flatMap { focused in events.first(where: { $0.id == focused.id }) } ?? events[0] }
-    private var liveCount: Int { events.filter(\.isLive).count }
-    private var scheduledCount: Int { events.filter(\.isUpcoming).count }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 18) {
-                LiveLeagueFilterButton(title: "ALL SPORTS", league: nil, selected: selectedLeague == nil, onMoveDown: focusFirstGame) {
-                    gameFocusRequest = nil
-                    selectedLeague = nil; focusedGame = nil
-                }
-                ForEach(SportsLeague.allCases) { league in
-                    LiveLeagueFilterButton(title: league.shortName, league: league, selected: selectedLeague == league, onMoveDown: focusFirstGame) {
-                        gameFocusRequest = nil
-                        selectedLeague = league; focusedGame = nil
-                    }
-                }
-                Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                    .font(.system(size: 20, weight: .medium, design: .serif)).italic()
-                    .foregroundStyle(NullSportsStyle.secondary)
-                Spacer()
-                if let multiviewTitle {
-                    Text("MULTIVIEW · CHOOSE SECOND GAME · \(multiviewTitle)")
-                        .font(.caption2.weight(.bold)).tracking(1.2).lineLimit(1)
-                    GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview)
-                }
-                if isUpdating { ProgressView().controlSize(.small) }
-                PulsingLiveDot(size: 8)
-                Text("\(liveCount) LIVE  ·  \(scheduledCount) SCHEDULED")
-                    .font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
-            }
-            .padding(.horizontal, 42).frame(height: 62)
-            .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
-
-            HStack(spacing: 0) {
-                Group {
-                    if let previewStream {
-                        LiveSelectedPreview(stream: previewStream, urls: previewURLs)
-                            .id(previewStream.id)
-                    } else {
-                        LiveGameHero(game: featured)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                LiveGameSlate(
-                    events: events,
-                    focusedGame: $focusedGame,
-                    focusRequest: $gameFocusRequest,
-                    multiviewPrimaryID: multiviewPrimaryID,
-                    onPlay: onPlay,
-                    onStartMultiview: onStartMultiview
-                )
-                .frame(width: 580)
-            }
-            .frame(maxHeight: .infinity)
-
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onExitCommand {
-            if previewStream != nil { onStopPreview() }
-        }
+    private var featured: SportsGame? {
+        focusedGame.flatMap { focused in events.first { $0.id == focused.id } }
+            ?? events.first(where: \.isLive) ?? events.first
     }
 
-    private func focusFirstGame() { gameFocusRequest = UUID() }
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 18) {
+                LiveBoardHeading(count: events.filter(\.isLive).count, isUpdating: isUpdating)
+                HStack(alignment: .top, spacing: 28) {
+                    LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
+                        focusedGame = nil
+                        gameFocusRequest = nil
+                    }, onEnterGames: { gameFocusRequest = UUID() })
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let featured {
+                            HStack(spacing: 22) {
+                                LiveBoardSpotlight(game: featured)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                if let previewStream {
+                                    LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                                        .id(previewStream.id)
+                                        .frame(width: (min(244, max(216, geometry.size.height * 0.31)) - 40) * 16 / 9)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                                }
+                            }
+                            .padding(20)
+                            .frame(height: min(244, max(216, geometry.size.height * 0.31)))
+                            .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 20))
+                            .overlay(alignment: .topLeading) {
+                                Capsule().fill(LiveBoardStyle.accent).frame(width: 52, height: 3).padding(.leading, 24)
+                            }
+                        }
+                        HStack(spacing: 14) {
+                            Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
+                                .font(.system(size: 12, weight: .bold)).tracking(2.5)
+                            Text("\(events.count)").font(.system(size: 12, weight: .bold).monospacedDigit())
+                                .foregroundStyle(LiveBoardStyle.accent)
+                            Spacer()
+                            if multiviewTitle != nil {
+                                Button("Cancel multiview", action: onCancelMultiview).font(.system(size: 14))
+                            } else {
+                                Text("Select to preview  ·  Hold for multiview")
+                                    .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted)
+                            }
+                        }
+                        .foregroundStyle(Color.white)
+                        LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
+                            multiviewPrimaryID: multiviewPrimaryID, columns: geometry.size.width >= 1450 ? 3 : 2,
+                            onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .frame(maxHeight: .infinity)
+            }
+            .padding(.horizontal, 38).padding(.bottom, 22)
+        }
+        .background(LiveBoardStyle.canvas)
+        .onExitCommand { if previewStream != nil { onStopPreview() } }
+    }
+}
+
+private struct LiveBoardSpotlight: View {
+    let game: SportsGame
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text(game.league.shortName).foregroundStyle(LiveBoardStyle.accent)
+                Text(game.isLive ? game.status.uppercased() : game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute()).uppercased())
+                    .foregroundStyle(LiveBoardStyle.muted)
+                Spacer(minLength: 0)
+                Text(game.broadcast).foregroundStyle(Color.white).lineLimit(1)
+            }
+            .font(.system(size: 12, weight: .bold)).tracking(1)
+            LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
+                record: game.awayRecord, score: game.isLive ? game.awayScore : nil, large: true)
+            LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
+                record: game.homeRecord, score: game.isLive ? game.homeScore : nil, large: true)
+            if game.venue?.isEmpty == false || game.location?.isEmpty == false {
+                Text([nonempty(game.venue), nonempty(game.location)].compactMap { $0 }.joined(separator: "  ·  "))
+                    .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct LiveBoardTeam: View {
+    let name: String
+    let logo: String
+    let abbreviation: String
+    let record: String?
+    let score: String?
+    var large = false
+
+    var body: some View {
+        HStack(spacing: large ? 14 : 10) {
+            TeamLogo(url: logo, fallback: abbreviation)
+                .frame(width: large ? 44 : 34, height: large ? 44 : 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.system(size: large ? 25 : 23, weight: .semibold))
+                    .foregroundStyle(Color.white).lineLimit(1).minimumScaleFactor(0.7)
+                if large, let record = nonempty(record) {
+                    Text(record).font(.system(size: 12).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
+                }
+            }
+            Spacer(minLength: 6)
+            if let score, !score.isEmpty {
+                Text(score).font(.system(size: large ? 33 : 25, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color.white)
+            }
+        }
+    }
 }
 
 private struct LiveSelectedPreview: View {
@@ -329,106 +471,15 @@ private struct LiveSelectedPreview: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             VLCVideoSurface(player: controller.player).background(Color.black)
-            HStack(spacing: 10) {
-                Circle().fill(NullSportsStyle.live).frame(width: 8, height: 8)
-                Text("NOW PLAYING").font(.caption2.weight(.bold)).tracking(2)
-                Text(stream.name).font(.callout.weight(.semibold)).lineLimit(1)
-                Spacer()
-                Text("Select this game again for full screen")
-                    .font(.caption).foregroundStyle(NullSportsStyle.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("PLAYING · \(stream.name)").font(.system(size: 11, weight: .bold)).lineLimit(1)
+                Text("Select this game again for full screen").font(.system(size: 10))
             }
-            .padding(.horizontal, 24).frame(height: 54)
-            .background(Color.black.opacity(0.82))
+            .foregroundStyle(Color.white).padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom))
         }
         .onAppear { controller.start(urls: urls, muted: false) }
         .onDisappear { controller.stop() }
-    }
-}
-
-private struct LiveLeagueFilterButton: View {
-    @FocusState private var isFocused: Bool
-    let title: String
-    let league: SportsLeague?
-    let selected: Bool
-    let onMoveDown: () -> Void
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let league { LeagueLogo(league: league, size: 23) }
-            Text(title).font(.caption.weight(.bold)).tracking(1.4)
-        }
-        .foregroundStyle(selected || isFocused ? Color.black : Color.white)
-        .padding(.horizontal, 15).frame(height: 40)
-        .background(selected || isFocused ? Color.white : Color.white.opacity(0.09))
-        .clipShape(Capsule())
-        .contentShape(Capsule())
-        .focusable()
-        .focused($isFocused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: action)
-        .onMoveCommand { direction in if direction == .down { onMoveDown() } }
-    }
-}
-
-private struct LiveGameHero: View {
-    let game: SportsGame
-
-    var body: some View {
-        ZStack {
-            HStack(spacing: 0) {
-                sportsTeamColor(game.awayColor)?.opacity(0.28) ?? Color.clear
-                sportsTeamColor(game.homeColor)?.opacity(0.28) ?? Color.clear
-            }
-            LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.64)], startPoint: .top, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("\(game.league.fullName.uppercased())  ·  \(game.isLive ? "LIVE" : "SCHEDULED")")
-                            .font(.caption.weight(.bold)).tracking(3).foregroundStyle(NullSportsStyle.secondary)
-                        if let location = nonempty(game.location) {
-                            Text(location).font(.system(size: 23, weight: .medium, design: .serif)).italic()
-                        }
-                        if let venue = nonempty(game.venue) {
-                            Text(venue).font(.callout).foregroundStyle(NullSportsStyle.secondary)
-                        }
-                    }
-                    Spacer()
-                    Text(game.isLive ? game.status.uppercased() : game.start.formatted(date: .omitted, time: .shortened).uppercased())
-                        .font(.caption.weight(.bold).monospacedDigit()).tracking(2)
-                        .padding(.horizontal, 18).frame(height: 38)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(NullSportsStyle.secondary, lineWidth: 1))
-                }
-                Spacer()
-                HStack(alignment: .center, spacing: 34) {
-                    LiveHeroTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation, record: game.awayRecord)
-                    Text("at").font(.system(size: 22, weight: .medium, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
-                    LiveHeroTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation, record: game.homeRecord)
-                }
-                .frame(maxWidth: .infinity)
-                Spacer()
-                if !game.broadcast.isEmpty {
-                    Text(game.broadcast.uppercased()).font(.caption.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
-                }
-            }
-            .padding(38)
-        }
-        .clipped()
-    }
-}
-
-private struct LiveHeroTeam: View {
-    let name: String
-    let logo: String
-    let abbreviation: String
-    let record: String?
-    var body: some View {
-        VStack(spacing: 14) {
-            TeamLogo(url: logo, fallback: abbreviation).frame(width: 126, height: 126)
-            Text(name).font(.system(size: 34, weight: .medium, design: .serif)).lineLimit(2).multilineTextAlignment(.center)
-            if let record = nonempty(record) { Text(record).font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary) }
-        }
-        .frame(maxWidth: 330)
     }
 }
 
@@ -438,52 +489,36 @@ private struct LiveGameSlate: View {
     @Binding var focusRequest: UUID?
     @FocusState private var focusedRowID: String?
     let multiviewPrimaryID: Int?
+    let columns: Int
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Today's slate").font(.system(size: 27, weight: .medium, design: .serif))
-                Spacer()
-                Text("\(events.count) GAMES  ·  \(events.filter(\.isLive).count) LIVE")
-                    .font(.caption2.weight(.bold)).tracking(2).foregroundStyle(NullSportsStyle.secondary)
-            }
-            .padding(.horizontal, 28).frame(height: 72)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(events) { game in
-                            LiveSlateRow(
-                                game: game,
-                                rowFocus: $focusedRowID,
-                                selected: focusedGame?.id == game.id,
-                                multiviewPrimaryID: multiviewPrimaryID,
-                                onFocus: { focusedGame = game; focusRequest = nil },
-                                onPlay: { onPlay(game) },
-                                onStartMultiview: { onStartMultiview(game) }
-                            )
-                            .id(game.id)
-                            .onAppear {
-                                if focusRequest != nil, game.id == events.first?.id {
-                                    focusedRowID = game.id
-                                }
-                            }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
+                    ForEach(events) { game in
+                        LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
+                            multiviewPrimaryID: multiviewPrimaryID,
+                            onFocus: { focusedGame = game; focusRequest = nil },
+                            onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
+                        .id(game.id)
+                        .onAppear {
+                            if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
                         }
                     }
                 }
-                .focusSection()
-                .task(id: focusRequest) {
-                    guard let request = focusRequest, let firstID = events.first?.id else { return }
-                    proxy.scrollTo(firstID, anchor: .top)
-                    await Task.yield()
-                    guard !Task.isCancelled, focusRequest == request,
-                          events.first?.id == firstID else { return }
-                    focusedRowID = firstID
-                }
+                .padding(5)
+            }
+            .focusSection()
+            .task(id: focusRequest) {
+                guard let request = focusRequest, let firstID = events.first?.id else { return }
+                proxy.scrollTo(firstID, anchor: .top)
+                await Task.yield()
+                guard !Task.isCancelled, focusRequest == request, events.first?.id == firstID else { return }
+                focusedRowID = firstID
             }
         }
-        .background(NullSportsStyle.surface.opacity(0.72))
     }
 }
 
@@ -498,51 +533,57 @@ private struct LiveSlateRow: View {
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
     private var stream: XtreamStream? { library.stream(for: game) }
-    private var isTomorrow: Bool {
-        guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return false }
-        return Calendar.current.isDate(game.start, inSameDayAs: tomorrow)
-    }
+    private var isPrimary: Bool { multiviewPrimaryID != nil && multiviewPrimaryID == stream?.id }
 
     var body: some View {
-        HStack(spacing: 16) {
-            if game.isLive {
-                PulsingLiveDot(size: 9)
-                    .frame(width: 12)
-                    .accessibilityLabel("Live")
-            }
-            LeagueLogo(league: game.league, size: 32).frame(width: 38)
-            Text(game.awayAbbreviation).foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? NullSportsStyle.text)
-            Text("at").font(.system(size: 17, design: .serif)).italic().foregroundStyle(NullSportsStyle.secondary)
-            Text(game.homeAbbreviation).foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? NullSportsStyle.text)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(game.start.formatted(date: .omitted, time: .shortened).uppercased())
-                    .font(.callout.monospacedDigit()).foregroundStyle(NullSportsStyle.secondary)
-                if isTomorrow && !game.isLive {
-                    Text("Tomorrow")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(NullSportsStyle.secondary.opacity(0.72))
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    LeagueLogo(league: game.league, size: 20)
+                    Text(game.league.shortName).font(.system(size: 11, weight: .bold)).tracking(1)
+                    Spacer()
+                    if game.isLive {
+                        PulsingLiveDot(size: 6)
+                        Text(game.status.uppercased()).lineLimit(1).minimumScaleFactor(0.7)
+                    } else {
+                        Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).lineLimit(1)
+                    }
                 }
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(LiveBoardStyle.muted)
+                LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
+                    record: nil, score: game.isLive ? game.awayScore : nil)
+                LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
+                    record: nil, score: game.isLive ? game.homeScore : nil)
+                HStack {
+                    Text(isPrimary ? "MULTIVIEW · FIRST GAME" : (game.broadcast.isEmpty ? "Channel selection available" : game.broadcast))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: isFocused ? "play.fill" : "arrow.up.right")
+                }
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(isFocused ? LiveBoardStyle.accent : LiveBoardStyle.muted)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity)
+            .background(isFocused ? Color(red: 0.12, green: 0.15, blue: 0.14) : LiveBoardStyle.panel,
+                        in: RoundedRectangle(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(isFocused ? LiveBoardStyle.accent : (isPrimary ? Color.white : Color.white.opacity(selected ? 0.22 : 0.06)),
+                                  lineWidth: isFocused ? 2.5 : 1)
             }
         }
-        .font(.system(size: 24, weight: .bold, design: .serif))
-        .padding(.horizontal, 28).frame(height: 76)
-        .background(isFocused || selected ? Color.white.opacity(0.10) : Color.clear)
-        .overlay(alignment: .leading) {
-            if multiviewPrimaryID == stream?.id { Rectangle().fill(Color.white).frame(width: 3) }
-        }
-        .contentShape(Rectangle()).focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
-        .onTapGesture(perform: onPlay)
+        .buttonStyle(.plain).focused(rowFocus, equals: game.id).focusEffectDisabled()
         .onChange(of: isFocused) { value in if value { onFocus() } }
         .contextMenu {
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
-                    .disabled(multiviewPrimaryID == stream?.id)
+                    .disabled(isPrimary)
             }
         }
-        .focusLift(isFocused, scale: 1.018)
+        .accessibilityLabel("\(game.awayTeam) at \(game.homeTeam), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
     }
 }
+
 
 private struct PulsingLiveDot: View {
     let size: CGFloat
