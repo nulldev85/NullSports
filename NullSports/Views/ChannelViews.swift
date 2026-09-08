@@ -353,14 +353,14 @@ private struct LiveSlateDashboard: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 18) {
+            VStack(spacing: 4) {
                 LiveBoardHeading(count: events.filter(\.isLive).count, isUpdating: isUpdating)
                 HStack(alignment: .top, spacing: 28) {
                     LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
                         focusedGame = nil
                         gameFocusRequest = nil
                     }, onEnterGames: { gameFocusRequest = UUID() })
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Spacer(minLength: 0)
                             ZStack {
@@ -423,7 +423,11 @@ private struct LiveSlateDashboard: View {
     }
 
     private func screenHeight(in size: CGSize) -> CGFloat {
-        min(380, min(max(230, size.height * 0.43), max(0, size.width - 300) * 9 / 16))
+        // Fill the upper area while reserving room for the heading and a full
+        // matchup row. Width grows with height so the screen stays 16:9.
+        let availableHeight = max(0, size.height - 340)
+        let availableWidth = max(0, size.width - 300)
+        return min(availableHeight, availableWidth * 9 / 16)
     }
 }
 
@@ -540,8 +544,9 @@ private struct LiveSlateRow: View {
         Group {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    LeagueLogo(league: game.league, size: 20)
-                    Text(game.league.shortName).font(.system(size: 11, weight: .bold)).tracking(1)
+                    LeagueLogo(league: game.league, size: 28)
+                    Text(game.league.shortName).font(.system(size: 17, weight: .semibold)).tracking(1)
+                        .foregroundStyle(Color.white.opacity(0.9))
                     Spacer()
                     if game.isLive {
                         PulsingLiveDot(size: 6)
