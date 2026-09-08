@@ -54,7 +54,7 @@ struct MobilePlayerView: View {
 }
 
 @MainActor
-private final class MobilePlaybackController: ObservableObject {
+final class MobilePlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
     @Published var isPlaying = false
     @Published var loading = true
@@ -97,6 +97,7 @@ private final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
+            UIApplication.shared.isIdleTimerDisabled = false
             error = "This stream is unavailable. Try again or choose another channel."
             return
         }
@@ -145,7 +146,7 @@ private final class MobilePlaybackController: ObservableObject {
     }
 }
 
-private struct MobileVideoSurface: UIViewRepresentable {
+struct MobileVideoSurface: UIViewRepresentable {
     let player: VLCMediaPlayer
     func makeUIView(context: Context) -> UIView {
         let view = UIView()

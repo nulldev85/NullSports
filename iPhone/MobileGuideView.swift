@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -10,6 +11,9 @@ struct MobileGuideView: View {
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
     @State private var resetPosition = UUID()
+    @StateObject private var playback = MobilePlaybackController()
+    @State private var selectedStream: XtreamStream?
+    @State private var expanded = false
     @ScaledMetric(relativeTo: .body) private var rowHeight = 88.0
     var game: SportsGame? = nil
     let onPlay: (XtreamStream) -> Void
@@ -26,26 +30,51 @@ struct MobileGuideView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if let game {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.subheadline.bold())
-                        Text("Choose a channel · \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                }
-                if library.isLoading || library.isGuideLoading {
-                    ProgressView("Updating guide…").font(.caption).padding(8)
-                }
-                if channels.isEmpty {
-                    ContentUnavailableView("No channels", systemImage: "tv",
-                        description: Text("Try another category or search, or refresh your guide."))
-                } else {
-                    TimelineView(.periodic(from: .now, by: 30)) { clock in
-                        guide(now: clock.date)
+            GeometryReader { viewport in
+                let showsMetadata = viewport.size.height > 400
+                let metadataHeight: CGFloat = showsMetadata ? 106 : 0
+                let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight))
+                ZStack(alignment: .top) {
+                    VStack(spacing: 0) {
+                        if selectedStream != nil {
+                            Color.clear.frame(height: videoHeight + metadataHeight)
+                        }
+                        if let game {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.subheadline.bold())
+                                Text("Choose a channel · \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        }
+                        if library.isLoading || library.isGuideLoading {
+                            ProgressView("Updating guide…").font(.caption).padding(8)
+                        }
+                        if channels.isEmpty {
+                            ContentUnavailableView("No channels", systemImage: "tv",
+                                description: Text("Try another category or search, or refresh your guide."))
+                        } else {
+                            TimelineView(.periodic(from: .now, by: 30)) { clock in
+                                guide(now: clock.date)
+                            }
+                        }
+                    }
+                    .allowsHitTesting(!expanded)
+                    .accessibilityHidden(expanded)
+                    if let stream = selectedStream {
+                        TimelineView(.periodic(from: .now, by: 30)) { clock in
+                            MobileGuidePlayer(controller: playback, stream: stream,
+                                program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
+                                expanded: expanded, showsMetadata: showsMetadata,
+                                videoHeight: expanded ? viewport.size.height : videoHeight,
+                                onClose: closePlayer, onExpand: { expanded.toggle() },
+                                onRetry: { playback.start(urls: library.playbackURLs(for: stream)) })
+                                .frame(height: expanded ? viewport.size.height : videoHeight + metadataHeight, alignment: .top)
+                                .background(NullSportsStyle.background)
+                        }
                     }
                 }
             }
+            .ignoresSafeArea(expanded ? .all : [], edges: .all)
             .background(NullSportsStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Search channels")
@@ -68,10 +97,34 @@ struct MobileGuideView: View {
                     .accessibilityLabel("Guide filters")
                 }
             }
+            .toolbar(expanded ? .hidden : .visible, for: .navigationBar)
+            .toolbar(expanded ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(expanded)
+            .persistentSystemOverlays(expanded ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active && Date() >= window.end { returnToNow() }
+                if selectedStream != nil {
+                    if phase == .active { playback.resume() } else { playback.suspend() }
+                }
             }
+            .onDisappear { closePlayer() }
         }
+    }
+
+    private func selectChannel(_ stream: XtreamStream) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        // The manual game picker still returns its selection to the Live screen.
+        guard game == nil else { onPlay(stream); return }
+        guard selectedStream?.id != stream.id else { return }
+        selectedStream = stream
+        playback.start(urls: library.playbackURLs(for: stream))
+    }
+
+    private func closePlayer() {
+        guard selectedStream != nil else { return }
+        playback.stop()
+        selectedStream = nil
+        expanded = false
     }
 
     private func returnToNow() {
@@ -145,7 +198,7 @@ struct MobileGuideView: View {
     }
 
     private func channelTile(_ stream: XtreamStream) -> some View {
-        Button { onPlay(stream) } label: {
+        Button { selectChannel(stream) } label: {
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 12).fill(NullSportsStyle.raised)
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
@@ -186,7 +239,7 @@ struct MobileGuideView: View {
                 let width = max(1, window.x(segment.end) - cellX - 5)
                 let textInset = min(max(0, horizontalOffset - cellX), max(0, width - 24))
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
-                Button { onPlay(stream) } label: {
+                Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(live ? NullSportsStyle.selected : NullSportsStyle.surface)

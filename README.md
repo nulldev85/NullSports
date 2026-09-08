@@ -40,3 +40,12 @@ window. Use the toolbar filter menu for categories/favorites, and long-press a
 channel logo to add or remove a favorite. Tapping a channel or program plays that
 channel live (future listings are not recordings). The timeline includes eight
 hours starting one half-hour before the current half-hour boundary.
+
+iPhone 0.17.3 opens Guide selections in a player above the timeline, with channel
+and current-program information underneath. Tap the video to show/hide controls.
+Expand hides navigation, tabs, status bar, and system overlays and extends the
+video surface to every screen edge, in either orientation. Collapse returns to
+the guide using the same player and stream connection. Close or leaving Guide
+stops playback. The Live screen's manual channel picker retains its existing
+selection behavior. Device checks: switch channels while browsing, expand and
+collapse while playing/paused, rotate, close, switch tabs, and background/resume.
