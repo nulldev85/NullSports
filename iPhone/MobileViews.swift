@@ -162,8 +162,8 @@ private struct MobileGameCard: View {
                 if game.isLive { Label("LIVE", systemImage: "circle.fill").font(.caption.bold()) }
                 else { Text(game.start, format: .dateTime.weekday(.abbreviated).hour().minute()).font(.caption) }
             }
-            team(game.awayTeam, logo: game.awayLogo, score: game.awayScore)
-            team(game.homeTeam, logo: game.homeLogo, score: game.homeScore)
+            team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
+            team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
             HStack {
                 Text(game.isLive ? game.status : game.broadcast).font(.caption)
                 Spacer()
@@ -175,98 +175,20 @@ private struct MobileGameCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 20))
     }
 
-    private func team(_ name: String, logo: String, score: String) -> some View {
+    private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
         HStack(spacing: 12) {
             AsyncImage(url: URL(string: logo)) { image in image.resizable().scaledToFit() }
                 placeholder: { Image(systemName: "sportscourt").foregroundStyle(.secondary) }
                 .frame(width: 36, height: 36).accessibilityHidden(true)
-            Text(name).font(.headline).multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.headline).multilineTextAlignment(.leading)
+                if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
+                    Text(record).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .accessibilityLabel("Record: \(record)")
+                }
+            }
             Spacer(minLength: 6)
             if game.isLive { Text(score).font(.title2.bold()).monospacedDigit() }
-        }
-    }
-}
-
-private struct MobileGuideView: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var category: String?
-    @State private var favorites = false
-    var game: SportsGame? = nil
-    let onPlay: (XtreamStream) -> Void
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if let game {
-                    Section {
-                        Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.headline)
-                        Text("No verified channel. Choose one from your provider.")
-                        if !game.broadcast.isEmpty { Text("Listed network: \(game.broadcast)") }
-                    }.listRowBackground(NullSportsStyle.surface)
-                }
-                Section {
-                    Toggle("Favorites only", isOn: $favorites)
-                    Picker("Category", selection: $category) {
-                        Text("All channels").tag(nil as String?)
-                        ForEach(library.categories) { Text($0.categoryName).tag(Optional($0.id)) }
-                    }
-                }.listRowBackground(NullSportsStyle.surface)
-                let channels = library.guideStreams(categoryID: category, favoritesOnly: favorites, query: query)
-                if library.isLoading || library.isGuideLoading {
-                    ProgressView("Updating channels and guide…").listRowBackground(NullSportsStyle.surface)
-                }
-                if channels.isEmpty && !library.isLoading {
-                    ContentUnavailableView("No channels", systemImage: "tv",
-                        description: Text("Try another category or search, or pull down to refresh."))
-                        .listRowBackground(NullSportsStyle.surface)
-                }
-                ForEach(channels) { stream in
-                    Button { onPlay(stream) } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(stream.name).font(.headline)
-                                Spacer()
-                                if library.isFavorite(stream) { Image(systemName: "star.fill").font(.caption) }
-                                Image(systemName: "play.circle.fill")
-                            }
-                            TimelineView(.periodic(from: .now, by: 60)) { context in
-                                let programs = library.guidePrograms(for: stream)
-                                if let current = programs.first(where: { $0.start <= context.date && context.date < $0.end }) {
-                                    Text(current.title).font(.subheadline).foregroundStyle(.secondary)
-                                    Text("Until \(current.end.formatted(date: .omitted, time: .shortened))").font(.caption)
-                                } else { Text("No guide information").font(.caption).foregroundStyle(.secondary) }
-                                if let next = programs.first(where: { $0.start > context.date }) {
-                                    Text("Next: \(next.title)").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }.padding(.vertical, 6)
-                    }
-                    .listRowBackground(NullSportsStyle.surface)
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            if library.isFavorite(stream) { library.removeFavorite(stream) }
-                            else { library.addFavorite(stream) }
-                        } label: {
-                            Label(library.isFavorite(stream) ? "Unfavorite" : "Favorite", systemImage: "star")
-                        }.tint(.purple)
-                    }
-                    .contextMenu {
-                        Button(library.isFavorite(stream) ? "Remove favorite" : "Add favorite", systemImage: "star") {
-                            if library.isFavorite(stream) { library.removeFavorite(stream) }
-                            else { library.addFavorite(stream) }
-                        }
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden).background(NullSportsStyle.background)
-            .navigationTitle(game == nil ? "Guide" : "Choose a channel")
-            .searchable(text: $query, prompt: "Search channels")
-            .refreshable { await library.reload() }
-            .toolbar {
-                if game != nil { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            }
         }
     }
 }

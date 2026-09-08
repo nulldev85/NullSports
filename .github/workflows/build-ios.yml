@@ -25,6 +25,8 @@ jobs:
           /tmp/daily-checks
           swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/guide-checks
           /tmp/guide-checks
+          swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
+          /tmp/mobile-guide-checks
       - name: Generate project
         run: |
           set -euo pipefail

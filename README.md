@@ -31,3 +31,12 @@ filter leagues, choose a matched and an unmatched game, search/filter channels,
 favorite/unfavorite, play/pause/retry/close a stream, rotate during playback,
 background and resume, verify audio, and remove the provider. This first phone
 version plays one stream at a time and pauses when backgrounded.
+
+iPhone 0.17.2 adds team records to Live cards and a timeline EPG with frozen
+channel logos, a fixed time ruler, aligned program blocks, elapsed shading, and
+a current-time marker in the NullSports palette. Swipe horizontally for later
+programs and vertically for more channels. Tap Now to return to the current
+window. Use the toolbar filter menu for categories/favorites, and long-press a
+channel logo to add or remove a favorite. Tapping a channel or program plays that
+channel live (future listings are not recordings). The timeline includes eight
+hours starting one half-hour before the current half-hour boundary.
