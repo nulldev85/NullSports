@@ -26,12 +26,13 @@ enum CollegeChannelMatcher {
         let homeAbbreviation: String
         let kickoff: Date
         let isLive: Bool
+        let isDelayed: Bool
         let expectedNetworks: Set<String>
         let awayAliases: [String]
         let homeAliases: [String]
 
         init(broadcast: String, away: String, home: String, awayAbbreviation: String,
-             homeAbbreviation: String, kickoff: Date, isLive: Bool) {
+             homeAbbreviation: String, kickoff: Date, isLive: Bool, status: String = "") {
             self.broadcast = broadcast
             self.away = away
             self.home = home
@@ -39,6 +40,12 @@ enum CollegeChannelMatcher {
             self.homeAbbreviation = homeAbbreviation
             self.kickoff = kickoff
             self.isLive = isLive
+            let normalizedStatus = CollegeChannelMatcher.normalized(status)
+            isDelayed = ["delay", "delayed", "suspended", "suspension", "power outage"].contains {
+                CollegeChannelMatcher.contains(normalizedStatus, phrase: $0)
+            } && !["postponed", "canceled", "cancelled", "final"].contains {
+                CollegeChannelMatcher.contains(normalizedStatus, phrase: $0)
+            }
             expectedNetworks = CollegeChannelMatcher.networks(broadcast)
             awayAliases = CollegeChannelMatcher.teamAliases(away, abbreviation: awayAbbreviation)
             homeAliases = CollegeChannelMatcher.teamAliases(home, abbreviation: homeAbbreviation)
@@ -49,7 +56,7 @@ enum CollegeChannelMatcher {
         let expected = game.expectedNetworks
         return !slate.contains { other in
             guard other.away != game.away || other.home != game.home || other.kickoff != game.kickoff else { return false }
-            let overlaps = (game.isLive && other.isLive)
+            let overlaps = ((game.isLive || game.isDelayed) && (other.isLive || other.isDelayed))
                 || abs(other.kickoff.timeIntervalSince(game.kickoff)) < 3 * 60 * 60
             return overlaps && !other.expectedNetworks.isDisjoint(with: expected)
         }
@@ -93,13 +100,24 @@ enum CollegeChannelMatcher {
         let actual = candidate.networkIDs
         let networkMatch = actual.count == 1 && actual.isSubset(of: expected)
         if !actual.isEmpty && !expected.isEmpty && !networkMatch { return nil }
+        // Delayed games can remain pregame or live. The guide still follows its
+        // original clock; an explicit delay keeps same-day game evidence usable.
+        let delayActive = game.isDelayed && game.kickoff <= now
+            && now.timeIntervalSince(game.kickoff) < 12 * 60 * 60
+        if game.isDelayed && now.timeIntervalSince(game.kickoff) >= 12 * 60 * 60 { return nil }
         func teams(_ text: String) -> Bool {
             titleMatches(text, awayNames: game.awayAliases, homeNames: game.homeAliases)
         }
+        let point = (game.isLive || delayActive) ? now : game.kickoff
+        let current = listings.filter { $0.start <= point && point < $0.end }
+        if delayActive && current.contains(where: { listing in
+            !teams(listing.text) && ["vs", "versus", "at"].contains(where: { contains(listing.text, phrase: $0) })
+        }) { return nil }
         let relevant = listings.filter {
             $0.end > $0.start && $0.start <= game.kickoff.addingTimeInterval(1800)
                 && $0.end > game.kickoff
-                && (!game.isLive || ($0.start <= now && now < $0.end.addingTimeInterval(90 * 60)))
+                && (!(game.isLive || delayActive) || ($0.start <= now &&
+                    (now < $0.end.addingTimeInterval(90 * 60) || (delayActive && networkMatch))))
         }
         if relevant.contains(where: {
             let text = $0.text
@@ -107,19 +125,28 @@ enum CollegeChannelMatcher {
                 && teams(text)
         }) { return networkMatch ? 400 : 300 }
 
-        let point = game.isLive ? now : game.kickoff
-        let current = listings.filter { $0.start <= point && point < $0.end }
         // Generic or absent listings are common. An explicit different program
         // must not be overridden by the channel's event name or network label.
         let generic: Set<String> = ["", "college football", "ncaa football", "ncaaf", "cfb", "football", "live", "no information", "no program information", "to be announced", "tba"]
-        guard current.allSatisfy({
+        let genericGuide = current.allSatisfy({
             let detail = normalized($0.detail)
             return generic.contains(normalized($0.title)) &&
                 !["vs", "versus", "at", "replay", "highlights", "basketball"].contains(where: { contains(detail, phrase: $0) })
-        }) else { return nil }
+        })
+        // Only known interruption/studio coverage may stand in for a delayed
+        // game. Another named game still requires manual selection.
+        let delayCoverage = delayActive && current.allSatisfy {
+            let title = normalized($0.title)
+            let placeholder = ["sportscenter", "game delay", "weather delay", "rain delay", "power outage", "coverage will resume"].contains {
+                contains(title, phrase: $0)
+            }
+            return (generic.contains(title) || placeholder)
+                && !["vs", "versus", "at", "replay", "classic"].contains(where: { contains(title, phrase: $0) })
+        }
+        guard genericGuide || delayCoverage else { return nil }
 
         // A specifically named event feed can work without XMLTV metadata.
-        if teams(name) { return networkMatch ? 250 : 200 }
+        if genericGuide && teams(name) { return networkMatch ? 250 : 200 }
 
         // Only linear national sports networks are safe without team evidence.
         // Affiliates, regional feeds and multiplex services still need a matchup.

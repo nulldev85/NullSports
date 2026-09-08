@@ -13,9 +13,9 @@ enum CollegeChannelMatcherChecks {
         }
         func game(_ broadcast: String = "ESPN", away: String = "SMU Mustangs",
                   home: String = "Florida State Seminoles", awayShort: String = "SMU",
-                  homeShort: String = "FSU", offset: Double = 0, live: Bool = true) -> Matcher.Matchup {
+                  homeShort: String = "FSU", offset: Double = 0, live: Bool = true, status: String = "") -> Matcher.Matchup {
             .init(broadcast: broadcast, away: away, home: home, awayAbbreviation: awayShort,
-                  homeAbbreviation: homeShort, kickoff: kickoff.addingTimeInterval(offset), isLive: live)
+                  homeAbbreviation: homeShort, kickoff: kickoff.addingTimeInterval(offset), isLive: live, status: status)
         }
         func listing(_ title: String, detail: String = "", offset: Double = 0, duration: Double = 10800) -> Matcher.Listing {
             .init(title: title, detail: detail, start: kickoff.addingTimeInterval(offset),
@@ -98,6 +98,20 @@ enum CollegeChannelMatcherChecks {
         check(Matcher.select([confirmed, unrelated], game: rival, now: now, allowNetworkFallback: false) == 2, "Busy slate selects the other game")
         let tomorrow = game(offset: 86400, live: false)
         check(Matcher.allowsNetworkFallback(for: game(), slate: [game(), tomorrow]), "Next day does not conflict")
+        let delayed = game(status: "Delayed - power outage")
+        let longDelay = kickoff.addingTimeInterval(6 * 3600)
+        let filler = listing("SportsCenter", offset: 5 * 3600)
+        check(Matcher.score(channel: "ESPN", listings: [filler], game: delayed, now: longDelay) != nil, "Power outage allows announced ESPN despite filler guide")
+        check(Matcher.score(channel: "ESPN", listings: [filler], game: game(), now: longDelay) == nil, "Filler exception requires reported delay")
+        check(Matcher.score(channel: "ESPN", listings: [matchup, filler], game: delayed, now: longDelay) == 400, "Confirmed game remains matched through long delay")
+        check(Matcher.score(channel: "ESPN", listings: [filler], game: game(live: false, status: "Delayed"), now: longDelay) != nil, "Pregame delay uses current guide")
+        check(Matcher.score(channel: "ESPN2", listings: [filler], game: delayed, now: longDelay) == nil, "Delay cannot substitute ESPN2")
+        check(Matcher.score(channel: "ESPN", listings: [filler], game: delayed, now: longDelay, allowNetworkFallback: false) == nil, "Delay does not override conflicting broadcast schedules")
+        let otherGame = listing("Alabama vs Georgia", offset: 5 * 3600)
+        check(Matcher.score(channel: "ESPN", listings: [matchup, otherGame], game: delayed, now: longDelay) == nil, "Current different game outranks old delayed listing")
+        check(Matcher.score(channel: "ESPN", listings: [matchup], game: delayed, now: kickoff.addingTimeInterval(86400)) == nil, "Delay cannot preserve yesterday's match")
+        check(!game(status: "Postponed after delay").isDelayed, "Postponement is not an active delay")
+        check(!game(status: "Final after delay").isDelayed, "Final is not an active delay")
         print("\(checks) college channel matching checks passed")
     }
 }

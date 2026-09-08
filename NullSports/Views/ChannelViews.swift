@@ -159,7 +159,9 @@ struct LiveView: View {
     }
 
     private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
-        if library.channelsAreSyncing {
+        // College games can be chosen manually as soon as channels exist.
+        // Guide refreshes and background matching do not make them unavailable.
+        if library.channelsAreSyncing && (game.league != .ncaaf || library.streams.isEmpty) {
             showsChannelSyncMessage = true
         } else {
             manualSelectionStartsMultiview = startsMultiview

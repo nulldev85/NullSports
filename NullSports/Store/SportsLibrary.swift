@@ -382,7 +382,7 @@ final class SportsLibrary: ObservableObject {
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
         .init(broadcast: game.broadcast, away: game.awayTeam, home: game.homeTeam,
               awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
-              kickoff: game.start, isLive: game.isLive)
+              kickoff: game.start, isLive: game.isLive, status: game.status)
     }
 
     nonisolated private static func collegeListings(_ programs: [CurrentProgram]) -> [CollegeChannelMatcher.Listing] {
