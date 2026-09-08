@@ -453,7 +453,7 @@ private struct LiveBoardTeam: View {
                 Text(name).font(.system(size: large ? 25 : 23, weight: .semibold))
                     .foregroundStyle(Color.white).lineLimit(1).minimumScaleFactor(0.7)
                 if let record = nonempty(record) {
-                    Text(record).font(.system(size: 12).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
+                    Text(record).font(.system(size: 17, weight: .medium).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
                 }
             }
             Spacer(minLength: 6)
