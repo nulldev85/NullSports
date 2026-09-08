@@ -7,12 +7,21 @@ private struct LibraryCache: Codable, Sendable {
     let programsByChannel: [String: [CurrentProgram]]
     let guideUpdatedAt: Date?
     let libraryUpdatedAt: Date?
+    // Optional fields keep older installations' library caches readable.
+    let matchCacheVersion: Int?
+    let dailyMatches: DailyGameMatches<XtreamStream>?
+    let sportsIndex: SportsIndex?
 }
 
-private struct SportsIndex: Sendable {
+private struct SportsIndex: Codable, Sendable {
     let professional: [XtreamStream]
     let leagues: [SportsLeague: [XtreamStream]]
     let searchText: [Int: String]
+}
+
+private struct ScheduleCache: Codable, Sendable {
+    let savedAt: Date
+    let games: [String: [SportsGame]]
 }
 
 @MainActor
@@ -40,16 +49,20 @@ final class SportsLibrary: ObservableObject {
     private var streamSearchText: [Int: String] = [:]
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     private var gameMatchSignatures: [String: String] = [:]
+    private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
     private var matchGeneration = UUID()
     private var guideListCache: (category: String?, favorites: Bool, query: String, streams: [XtreamStream])?
     private var didRestoreSchedule = false
+    private var scheduleDay: Date?
     private var bootstrapInFlight = false
     private var libraryRefreshInFlight = false
     private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
+    private var lastSavedMatchIdentities: [String: [String]] = [:]
+    private var lastSavedMatchDay: Date?
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
@@ -150,18 +163,19 @@ final class SportsLibrary: ObservableObject {
         defer { bootstrapInFlight = false }
         if !didRestoreSchedule {
             let key = scheduleKey
-            let cached = await Task.detached(priority: .utility) { () -> [String: [SportsGame]]? in
+            let cached = await Task.detached(priority: .utility) { () -> ScheduleCache? in
                 guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-                return try? JSONDecoder().decode([String: [SportsGame]].self, from: data)
+                // Undated legacy snapshots need a fresh fetch, not a guessed date.
+                return try? JSONDecoder().decode(ScheduleCache.self, from: data)
             }.value
             guard activeProfile?.id == profile.id else { return }
             didRestoreSchedule = true
-            if let cached, gamesByLeague.isEmpty {
-                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached[$0.rawValue] ?? []) })
-                scheduleLoadedLeagues = Set(cached.keys.compactMap(SportsLeague.init(rawValue:)))
+            if let cached, DailyCachePolicy.isCurrent(savedAt: cached.savedAt, now: Date()), gamesByLeague.isEmpty {
+                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached.games[$0.rawValue] ?? []) })
+                scheduleLoadedLeagues = Set(cached.games.keys.compactMap(SportsLeague.init(rawValue:)))
+                scheduleDay = Calendar.current.startOfDay(for: Date())
             }
         }
-        refreshSchedule(showsLoading: false)
         if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
             guard activeProfile?.id == profile.id else { return }
             categories = cached.categories
@@ -170,9 +184,33 @@ final class SportsLibrary: ObservableObject {
             programsByChannel = cached.programsByChannel
             guideUpdatedAt = cached.guideUpdatedAt
             libraryUpdatedAt = cached.libraryUpdatedAt
-            await rebuildProfessionalStreams()
+            let now = Date()
+            if cached.matchCacheVersion == 1, let saved = cached.dailyMatches {
+                gameStreamCache = saved.restore(identities: matchIdentities(now: now), available: streams, now: now)
+                matchedGameIdentities = saved.identities.filter { gameStreamCache[$0.key] != nil }
+                lastSavedMatchIdentities = saved.identities
+                lastSavedMatchDay = saved.savedAt
+                // Preserve the existing professional matching policy's signatures.
+                for game in gamesByLeague.values.flatMap({ $0 }) where game.league != .ncaaf && gameStreamCache[game.id] != nil {
+                    gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+                }
+            }
+            if cached.matchCacheVersion == 1, let saved = cached.dailyMatches,
+               DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
+               let index = cached.sportsIndex {
+                professionalStreams = index.professional
+                leagueStreamCache = index.leagues
+                streamSearchText = index.searchText
+                if matchIdentities(now: now).keys.contains(where: { gameStreamCache[$0] == nil }) {
+                    await rebuildGameStreamCache()
+                }
+            } else {
+                await rebuildProfessionalStreams()
+            }
         }
         guard activeProfile?.id == profile.id else { return }
+        // Publish saved matches before any network refresh can start rematching.
+        refreshSchedule(showsLoading: false)
         if isLibraryFresh && isGuideFresh { return }
         await refreshLibrary(forceGuide: !isGuideFresh, refreshChannels: !isLibraryFresh)
     }
@@ -256,13 +294,23 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func saveCache(profileID: UUID) {
+        let now = Date()
+        let identities = matchIdentities(now: now)
         let snapshot = LibraryCache(
             categories: categories,
             streams: streams,
             programsByChannel: programsByChannel,
             guideUpdatedAt: guideUpdatedAt,
-            libraryUpdatedAt: libraryUpdatedAt
+            libraryUpdatedAt: libraryUpdatedAt,
+            matchCacheVersion: 1,
+            dailyMatches: DailyGameMatches(savedAt: now, identities: matchedGameIdentities,
+                channels: gameStreamCache.filter { key, _ in
+                    identities[key] != nil && identities[key] == matchedGameIdentities[key]
+                }),
+            sportsIndex: SportsIndex(professional: professionalStreams, leagues: leagueStreamCache, searchText: streamSearchText)
         )
+        lastSavedMatchIdentities = identities
+        lastSavedMatchDay = now
         let previousWrite = cacheWriteTask
         cacheWriteTask = Task.detached(priority: .utility) {
             await previousWrite?.value
@@ -310,6 +358,17 @@ final class SportsLibrary: ObservableObject {
     }
 
     func refreshSchedule(showsLoading: Bool = false) {
+        let today = Calendar.current.startOfDay(for: Date())
+        if scheduleDay != today {
+            scheduleDay = today
+            gamesByLeague = [:]
+            scheduleLoadedLeagues = []
+            gameStreamCache = [:]
+            gameMatchSignatures = [:]
+            matchedGameIdentities = [:]
+            matchGeneration = UUID()
+            scheduleErrorMessage = nil
+        }
         guard !scheduleRefreshInFlight else { return }
         let profileID = activeProfile?.id
         scheduleRefreshInFlight = true
@@ -322,6 +381,8 @@ final class SportsLibrary: ObservableObject {
                 if showsLoading { self.isScheduleLoading = false }
             }
             guard self.activeProfile?.id == profileID else { return }
+            // A response started yesterday cannot repopulate today's slate.
+            guard Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
             if !snapshot.loadedLeagues.isEmpty {
                 let previousGames = self.gamesByLeague
                 let update = await Task.detached(priority: .utility) {
@@ -329,7 +390,8 @@ final class SportsLibrary: ObservableObject {
                     for league in snapshot.loadedLeagues { games[league] = snapshot.games[league] ?? [] }
                     return (games, games != previousGames)
                 }.value
-                guard self.activeProfile?.id == profileID else { return }
+                guard self.activeProfile?.id == profileID,
+                      Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
                 if update.1 {
                     self.gamesByLeague = update.0
                     self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
@@ -344,7 +406,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func persistSchedule(loadedLeagues: Set<SportsLeague>) {
-        let value = Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) })
+        let value = ScheduleCache(savedAt: Date(), games: Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) }))
         let key = scheduleKey
         let previousWrite = scheduleWriteTask
         scheduleWriteTask = Task.detached(priority: .utility) {
@@ -364,9 +426,25 @@ final class SportsLibrary: ObservableObject {
         gameStreamCache[game.id]
     }
 
+    private func matchIdentities(now: Date) -> [String: [String]] {
+        let day = Calendar.current.startOfDay(for: now)
+        return gamesByLeague.values.flatMap { $0 }.reduce(into: [:]) { result, game in
+            guard game.isLive || game.isUpcoming,
+                  game.start >= day || (game.isLive && now.timeIntervalSince(game.start) < 12 * 60 * 60) else { return }
+            result[game.id] = Self.matchIdentity(game)
+        }
+    }
+
+    nonisolated private static func matchIdentity(_ game: SportsGame) -> [String] {
+        [game.league.rawValue, game.awayTeam, game.homeTeam,
+         game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
+         String(game.start.timeIntervalSince1970)]
+    }
+
     // Only playback actions revalidate. Row rendering must remain a cheap lookup.
     func verifiedStream(for game: SportsGame) -> XtreamStream? {
-        guard let stream = gameStreamCache[game.id] else { return nil }
+        guard let stream = gameStreamCache[game.id],
+              matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
         if game.league == .ncaaf {
             // Revalidate at selection time even if a score refresh had no changes.
             let matchup = Self.collegeMatchup(game)
@@ -440,6 +518,7 @@ final class SportsLibrary: ObservableObject {
         let currentStreams = streams
         let currentCategories = categories
         let now = Date()
+        let identities = matchIdentities(now: now)
         let previousMatches = gameStreamCache
         // Invalidate signatures immediately so an overlapping schedule update also
         // rematches against a newly installed channel index.
@@ -486,6 +565,15 @@ final class SportsLibrary: ObservableObject {
         guard matchGeneration == generation, activeProfile?.id == profileID else { return }
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
+        let newIdentities = identities.filter { result.0[$0.key] != nil }
+        let identityChanged = newIdentities != matchedGameIdentities
+        matchedGameIdentities = newIdentities
+        // Save changed matching results without rewriting the full guide on
+        // every score/clock update. Writes remain serialized and atomic.
+        if let profileID, force || result.2 || identityChanged || matchIdentities(now: now) != lastSavedMatchIdentities
+            || lastSavedMatchDay.map({ !Calendar.current.isDate($0, inSameDayAs: now) }) != false {
+            saveCache(profileID: profileID)
+        }
     }
 
     func guidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
@@ -579,9 +667,14 @@ final class SportsLibrary: ObservableObject {
         streamSearchText = [:]
         gameStreamCache = [:]
         gameMatchSignatures = [:]
+        matchedGameIdentities = [:]
+        lastSavedMatchIdentities = [:]
+        lastSavedMatchDay = nil
         programsByChannel = [:]
         gamesByLeague = [:]
         scheduleLoadedLeagues = []
+        scheduleDay = nil
+        didRestoreSchedule = false
         scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false

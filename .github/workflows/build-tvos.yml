@@ -28,6 +28,12 @@ jobs:
           swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/nullsports-guide-checks
           /tmp/nullsports-guide-checks
 
+      - name: Check daily schedule and match persistence
+        run: |
+          set -euo pipefail
+          swiftc NullSports/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/nullsports-daily-cache-checks
+          /tmp/nullsports-daily-cache-checks
+
       - name: Install project generator
         run: brew install xcodegen
 
