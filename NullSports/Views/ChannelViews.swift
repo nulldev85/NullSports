@@ -367,13 +367,29 @@ private struct LiveSlateDashboard: View {
                                 if let previewStream {
                                     LiveSelectedPreview(stream: previewStream, urls: previewURLs)
                                         .id(previewStream.id)
+                                } else {
+                                    LinearGradient(colors: [Color.white.opacity(0.025), .clear, .black],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                                 }
                             }
                             .frame(width: screenHeight(in: geometry.size) * 16 / 9,
                                    height: screenHeight(in: geometry.size))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .padding(4)
-                            .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 14))
+                            .background(
+                                LinearGradient(colors: [Color(white: 0.23), Color(white: 0.08)],
+                                    startPoint: .top, endPoint: .bottom),
+                                in: RoundedRectangle(cornerRadius: 14))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                            }
+                            .overlay(alignment: .bottomTrailing) {
+                                if previewStream == nil {
+                                    LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
+                                }
+                            }
+                            .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
                             .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
                             Spacer(minLength: 0)
                         }
@@ -407,6 +423,23 @@ private struct LiveSlateDashboard: View {
 
     private func screenHeight(in size: CGSize) -> CGFloat {
         min(380, min(max(230, size.height * 0.43), max(0, size.width - 300) * 9 / 16))
+    }
+}
+
+private struct LiveTVStandbyLight: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var glowing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color(red: 0.95, green: 0.16, blue: 0.12))
+            .frame(width: 4, height: 4)
+            .opacity(reduceMotion || glowing ? 0.85 : 0.3)
+            .shadow(color: .red.opacity(reduceMotion || glowing ? 0.35 : 0.1), radius: 3)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 2).repeatForever(autoreverses: true), value: glowing)
+            .onAppear { glowing = true }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
