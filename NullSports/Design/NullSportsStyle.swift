@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum NullSportsStyle {
-    static let lightPurple = Color(red: 0xBB / 255.0, green: 0x9A / 255.0, blue: 0xDD / 255.0)
+    static let lightPurple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
     // White is reserved for the Guide playhead and selected Live card frames.
     static let guidePlayhead = Color.white
     static let liveSelectionBorder = Color.white
