@@ -45,7 +45,7 @@ struct MobilePlayerView: View {
         }
         .background(.black).foregroundStyle(NullSportsStyle.lightPurple)
         .onAppear { controller.start(urls: urls) }
-        .onDisappear { controller.stop() }
+        .onDisappear { controller.shutdown() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.suspend() }
             else { controller.resume() }
@@ -66,6 +66,7 @@ final class MobilePlaybackController: ObservableObject {
     private var shouldResume = false
     private weak var videoView: MobileVideoHost?
     private var waitingForVideo = false
+    private var missingVideoSince: Date?
 
     func attachVideo(_ view: MobileVideoHost) {
         videoView = view
@@ -112,7 +113,17 @@ final class MobilePlaybackController: ObservableObject {
                 self.startWhenVideoIsReady()
                 guard !self.waitingForVideo else { continue }
                 self.isPlaying = self.player.isPlaying
-                if self.player.isPlaying { self.loading = false }
+                if self.player.isPlaying && self.player.hasVideoOut {
+                    self.loading = false
+                    self.missingVideoSince = nil
+                } else if self.player.isPlaying {
+                    self.loading = true
+                    if self.missingVideoSince == nil { self.missingVideoSince = Date() }
+                }
+                if let since = self.missingVideoSince, Date().timeIntervalSince(since) > 15 {
+                    self.openNext()
+                    continue
+                }
                 if self.error == nil && (self.player.state == .error || (self.loading && Date().timeIntervalSince(self.started) > 30)) {
                     self.openNext()
                 }
@@ -123,6 +134,7 @@ final class MobilePlaybackController: ObservableObject {
     private func openNext() {
         player.stop()
         waitingForVideo = false
+        missingVideoSince = nil
         isPlaying = false
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
@@ -158,6 +170,7 @@ final class MobilePlaybackController: ObservableObject {
         guard suspended else { return }
         suspended = false
         started = Date()
+        missingVideoSince = nil
         if waitingForVideo { startWhenVideoIsReady() }
         else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
         shouldResume = false
@@ -167,6 +180,7 @@ final class MobilePlaybackController: ObservableObject {
         monitor?.cancel()
         monitor = nil
         waitingForVideo = false
+        missingVideoSince = nil
         player.stop()
         player.media = nil
         suspended = false
@@ -174,6 +188,15 @@ final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         UIApplication.shared.isIdleTimerDisabled = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    func shutdown() {
+        stop()
+        // Cancel queued layout attachments from the retired view before another
+        // tab/session can start. Old dismantle callbacks only own their old player.
+        videoView?.controller = nil
+        player.drawable = nil
+        videoView = nil
     }
 }
 

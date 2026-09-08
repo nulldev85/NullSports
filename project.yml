@@ -49,8 +49,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
-        MARKETING_VERSION: "0.17.7"
-        CURRENT_PROJECT_VERSION: "66"
+        PRODUCT_MODULE_NAME: NullSportsiOS
+        MARKETING_VERSION: "0.17.8"
+        CURRENT_PROJECT_VERSION: "67"
         PRODUCT_NAME: NullSports
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
@@ -62,4 +63,16 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
-      testTargets: []
+      testTargets:
+        - NullSportsiOSTests
+  NullSportsiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - Tests/iOS
+    dependencies:
+      - target: NullSportsiOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

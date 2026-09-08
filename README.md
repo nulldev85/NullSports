@@ -63,3 +63,12 @@ league tabs, On Air and dated upcoming sections, thin dividers, aligned scores,
 team records, and a narrow status/network column. The full matchup row remains
 tappable, including manual channel selection for unmatched games. Check narrow
 iPhones, long team names, larger accessibility text, and partial schedule data.
+
+iPhone 0.17.8 creates a fresh VLC session for each Guide channel selection and
+explicitly tears it down when leaving Guide. Queued callbacks from retired hosts
+are disconnected, and audio without video output triggers fallback instead of
+being treated as successful playback. Simulator tests cover surface ownership
+and tab-return teardown; actual video decoding still needs a provider/device
+smoke test. Guide logos now use the full program-row height without a tile
+background (wide logos preserve their aspect ratio). The time triangle and
+vertical playhead are removed; elapsed program shading remains.

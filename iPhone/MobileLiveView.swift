@@ -168,8 +168,12 @@ private struct MobileMatchupRow: View {
                 Text(game.league.shortName).font(.system(size: 9, weight: .bold)).tracking(1.5)
                     .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
                 if game.isLive {
-                    Text(game.status.isEmpty ? "Live now" : game.status)
-                        .font(.caption.weight(.semibold)).lineLimit(2)
+                    HStack(alignment: .center, spacing: 5) {
+                        MobileLiveDot()
+                        Text(game.status.isEmpty ? "Live now" : game.status)
+                            .font(.caption.weight(.semibold)).lineLimit(2)
+                    }.accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Live. \(game.status)")
                 } else {
                     Text(game.start, format: .dateTime.hour().minute())
                         .font(.caption.weight(.semibold)).monospacedDigit()
@@ -219,5 +223,26 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(configuration.isPressed ? NullSportsStyle.raised : .clear)
+    }
+}
+
+private struct MobileLiveDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+    private let red = Color(red: 0.98, green: 0.28, blue: 0.34)
+
+    var body: some View {
+        ZStack {
+            Circle().fill(red.opacity(0.4))
+                .scaleEffect(pulsing && !reduceMotion ? 1.8 : 1)
+                .opacity(pulsing && !reduceMotion ? 0 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 1.6).repeatForever(autoreverses: false), value: pulsing)
+            Circle().fill(red).frame(width: 5, height: 5)
+        }
+        .frame(width: 8, height: 8)
+        .accessibilityHidden(true)
+        .onAppear { pulsing = !reduceMotion }
+        .onDisappear { pulsing = false }
+        .onChange(of: reduceMotion) { _, reduced in pulsing = !reduced }
     }
 }

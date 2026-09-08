@@ -11,11 +11,12 @@ struct MobileGuideView: View {
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
     @State private var resetPosition = UUID()
-    @StateObject private var playback = MobilePlaybackController()
+    @State private var playback = MobilePlaybackController()
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
     @ScaledMetric(relativeTo: .body) private var rowHeight = 88.0
     var game: SportsGame? = nil
+    var isActive = true
     let onPlay: (XtreamStream) -> Void
     private let logoWidth: CGFloat = 96
 
@@ -71,6 +72,7 @@ struct MobileGuideView: View {
                                 .frame(height: expanded ? viewport.size.height : videoHeight + metadataHeight, alignment: .top)
                                 .background(NullSportsStyle.background)
                         }
+                        .id(ObjectIdentifier(playback))
                     }
                 }
             }
@@ -108,6 +110,9 @@ struct MobileGuideView: View {
                 }
             }
             .onDisappear { closePlayer() }
+            .onChange(of: isActive) { _, active in
+                if !active { closePlayer() }
+            }
         }
     }
 
@@ -116,13 +121,17 @@ struct MobileGuideView: View {
         // The manual game picker still returns its selection to the Live screen.
         guard game == nil else { onPlay(stream); return }
         guard selectedStream?.id != stream.id else { return }
+        // A new selection gets a new VLC session and surface. A stopped renderer
+        // from an earlier tab visit must never become the next channel's output.
+        playback.shutdown()
+        playback = MobilePlaybackController()
         selectedStream = stream
         playback.start(urls: library.playbackURLs(for: stream))
     }
 
     private func closePlayer() {
         guard selectedStream != nil else { return }
-        playback.stop()
+        playback.shutdown()
         selectedStream = nil
         expanded = false
     }
@@ -140,7 +149,7 @@ struct MobileGuideView: View {
             // Counter-offset logo tiles keep the channel column frozen horizontally.
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    ruler(now: now)
+                    ruler()
                     ScrollView(.vertical) {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
@@ -171,7 +180,7 @@ struct MobileGuideView: View {
         }
     }
 
-    private func ruler(now: Date) -> some View {
+    private func ruler() -> some View {
         HStack(spacing: 0) {
             Text(Calendar.current.isDateInToday(window.start) ? "Today" : window.start.formatted(.dateTime.weekday(.abbreviated)))
                 .font(.caption.bold()).frame(width: logoWidth, height: 40)
@@ -184,13 +193,6 @@ struct MobileGuideView: View {
                         .padding(.leading, 7).frame(width: 110, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
-                if now >= window.start && now < window.end {
-                    Image(systemName: "triangle.fill").font(.system(size: 10))
-                        .rotationEffect(.degrees(180))
-                        .foregroundStyle(NullSportsStyle.guidePlayhead)
-                        .offset(x: window.x(now) - 5, y: 28)
-                        .accessibilityLabel("Current time")
-                }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
         }
         .background(NullSportsStyle.background)
@@ -200,11 +202,10 @@ struct MobileGuideView: View {
     private func channelTile(_ stream: XtreamStream) -> some View {
         Button { selectChannel(stream) } label: {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 12).fill(NullSportsStyle.raised)
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
-                        image.resizable().scaledToFit().padding(10)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                        image.resizable().scaledToFit()
+                            .frame(width: logoWidth - 10, height: rowHeight - 10, alignment: .center)
                     } else {
                         Text(stream.name).font(.caption.bold()).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
@@ -274,11 +275,6 @@ struct MobileGuideView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")
                 .offset(x: cellX)
-            }
-            if now >= window.start && now < window.end {
-                Rectangle().fill(NullSportsStyle.guidePlayhead.opacity(0.5))
-                    .frame(width: 1, height: rowHeight).offset(x: window.x(now))
-                    .allowsHitTesting(false).accessibilityHidden(true)
             }
         }.frame(width: window.width, height: rowHeight, alignment: .leading)
     }

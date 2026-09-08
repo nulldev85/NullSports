@@ -10,7 +10,7 @@ struct MainView: View {
         TabView(selection: $tab) {
             MobileLiveView { playing = $0 }
                 .tabItem { Label("Live", systemImage: "play.rectangle.fill") }.tag(0)
-            MobileGuideView { playing = $0 }
+            MobileGuideView(isActive: tab == 1) { playing = $0 }
                 .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }.tag(1)
             MobileAccountView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }.tag(2)

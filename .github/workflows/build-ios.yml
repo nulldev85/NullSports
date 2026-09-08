@@ -32,6 +32,13 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           xcodegen generate
+      - name: Check playback lifecycle in iPhone simulator
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "iPhone" in v["name"]))')
+          xcodebuild test -project NullSports.xcodeproj -scheme NullSportsiOS \
+            -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+            -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
