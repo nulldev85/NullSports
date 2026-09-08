@@ -227,11 +227,6 @@ private struct LiveBoardRail: View {
                 }
             }
             Spacer(minLength: 12)
-            Image(systemName: "sportscourt").font(.system(size: 26, weight: .light))
-                .foregroundStyle(LiveBoardStyle.accent)
-            Text("EVERY GAME.\nYOUR SEAT.")
-                .font(.system(size: 11, weight: .bold)).tracking(2).lineSpacing(5)
-                .foregroundStyle(LiveBoardStyle.muted)
         }
         .frame(width: 156, alignment: .leading)
         .padding(.trailing, 24)
@@ -284,7 +279,6 @@ private struct LiveBoardHeading: View {
     var body: some View {
         HStack(alignment: .center) {
             HStack(alignment: .firstTextBaseline, spacing: 18) {
-                Text("Game day").font(.system(size: 38, weight: .bold, design: .rounded)).tracking(-1.5)
                 Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
                     .font(.system(size: 16, weight: .medium)).foregroundStyle(LiveBoardStyle.muted)
             }
@@ -298,7 +292,7 @@ private struct LiveBoardHeading: View {
             .background(Color.white.opacity(0.06), in: Capsule())
         }
         .foregroundStyle(Color.white)
-        .frame(height: 68)
+        .frame(height: 44)
     }
 }
 
@@ -356,65 +350,67 @@ private struct LiveSlateDashboard: View {
             VStack(spacing: 4) {
                 LiveBoardHeading(count: events.filter(\.isLive).count, isUpdating: isUpdating)
                 HStack(alignment: .top, spacing: 28) {
-                    LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
-                        focusedGame = nil
-                        gameFocusRequest = nil
-                    }, onEnterGames: { gameFocusRequest = UUID() })
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Spacer(minLength: 0)
-                            ZStack {
-                                Color.black
-                                if let previewStream {
-                                    LiveSelectedPreview(stream: previewStream, urls: previewURLs)
-                                        .id(previewStream.id)
-                                } else {
-                                    LinearGradient(colors: [Color.white.opacity(0.025), .clear, .black],
-                                        startPoint: .topLeading, endPoint: .bottomTrailing)
-                                }
-                            }
-                            .frame(width: screenHeight(in: geometry.size) * 16 / 9,
-                                   height: screenHeight(in: geometry.size))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .padding(4)
-                            .background(
-                                LinearGradient(colors: [Color(white: 0.23), Color(white: 0.08)],
-                                    startPoint: .top, endPoint: .bottom),
-                                in: RoundedRectangle(cornerRadius: 14))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                            }
-                            .overlay(alignment: .bottomTrailing) {
-                                if previewStream == nil {
-                                    LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
-                                }
-                            }
-                            .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
-                            .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
-                            Spacer(minLength: 0)
-                        }
-                        HStack(spacing: 14) {
-                            Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
-                                .font(.system(size: 12, weight: .bold)).tracking(2.5)
-                            Text("\(events.count)").font(.system(size: 12, weight: .bold).monospacedDigit())
-                                .foregroundStyle(LiveBoardStyle.accent)
-                            Spacer()
-                            if multiviewTitle != nil {
-                                GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
-                            } else {
-                                Text("Select to preview  ·  Hold for multiview")
-                                    .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted)
-                            }
-                        }
-                        .foregroundStyle(Color.white)
-                        LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
-                            multiviewPrimaryID: multiviewPrimaryID, columns: geometry.size.width >= 1450 ? 3 : 2,
-                            onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    ScrollView(.vertical) {
+                        LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
+                            focusedGame = nil
+                            gameFocusRequest = nil
+                        }, onEnterGames: { gameFocusRequest = UUID() })
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(width: 180)
+                    HStack {
+                        Spacer(minLength: 0)
+                        ZStack {
+                            Color.black
+                            if let previewStream {
+                                LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                                    .id(previewStream.id)
+                            } else {
+                                LinearGradient(colors: [Color.white.opacity(0.025), .clear, .black],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                            }
+                        }
+                        .frame(width: screenHeight(in: geometry.size) * 16 / 9,
+                               height: screenHeight(in: geometry.size))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(4)
+                        .background(
+                            LinearGradient(colors: [Color(white: 0.23), Color(white: 0.08)],
+                                startPoint: .top, endPoint: .bottom),
+                            in: RoundedRectangle(cornerRadius: 14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if previewStream == nil {
+                                LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
+                            }
+                        }
+                        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+                        .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
+                        Spacer(minLength: 0)
+                    }
                 }
-                .frame(maxHeight: .infinity)
+                .frame(height: screenHeight(in: geometry.size) + 8)
+                HStack(spacing: 14) {
+                    Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
+                        .font(.system(size: 12, weight: .bold)).tracking(2.5)
+                    Text("\(events.count)").font(.system(size: 12, weight: .bold).monospacedDigit())
+                        .foregroundStyle(LiveBoardStyle.accent)
+                    Spacer()
+                    if multiviewTitle != nil {
+                        GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                    } else {
+                        Text("Select to preview  ·  Hold for multiview")
+                            .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted)
+                    }
+                }
+                .foregroundStyle(Color.white)
+                .padding(.top, 12).padding(.bottom, 8)
+                LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
+                    multiviewPrimaryID: multiviewPrimaryID, columns: 4,
+                    onPlay: onPlay, onStartMultiview: onStartMultiview)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .padding(.horizontal, 38).padding(.bottom, 22)
         }
