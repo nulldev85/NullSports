@@ -49,8 +49,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
-        MARKETING_VERSION: "0.17.6"
-        CURRENT_PROJECT_VERSION: "65"
+        MARKETING_VERSION: "0.17.7"
+        CURRENT_PROJECT_VERSION: "66"
         PRODUCT_NAME: NullSports
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES

@@ -204,6 +204,7 @@ struct MobileGuideView: View {
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit().padding(10)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     } else {
                         Text(stream.name).font(.caption.bold()).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
