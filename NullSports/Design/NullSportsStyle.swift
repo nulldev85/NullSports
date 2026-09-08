@@ -1,20 +1,20 @@
 import SwiftUI
 
 enum NullSportsStyle {
-    static let background = Color(red: 0.012, green: 0.014, blue: 0.018)
-    static let surface = Color(red: 0.050, green: 0.054, blue: 0.062)
-    static let raised = Color(red: 0.078, green: 0.083, blue: 0.094)
-    static let sidebarRow = Color(red: 0.048, green: 0.051, blue: 0.057)
-    static let selected = Color(red: 0.145, green: 0.151, blue: 0.162)
-    static let focused = Color(red: 0.225, green: 0.232, blue: 0.244)
-    static let liveSurface = Color(red: 0.105, green: 0.108, blue: 0.116)
+    static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
+    static let surface = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
+    static let raised = Color(red: 0x33 / 255.0, green: 0x2B / 255.0, blue: 0x3A / 255.0)
+    static let sidebarRow = Color(red: 0x25 / 255.0, green: 0x1F / 255.0, blue: 0x2A / 255.0)
+    static let selected = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
+    static let focused = Color(red: 0x3D / 255.0, green: 0x34 / 255.0, blue: 0x44 / 255.0)
+    static let liveSurface = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
     static let liveBorder = Color.white.opacity(0.72)
-    static let line = Color.white.opacity(0.11)
-    static let text = Color(red: 0.94, green: 0.94, blue: 0.92)
-    static let secondary = Color(red: 0.62, green: 0.63, blue: 0.64)
-    static let field = Color(red: 0.84, green: 0.94, blue: 0.96)
-    static let live = Color(red: 0.93, green: 0.22, blue: 0.20)
-    static let focusGlow = Color(red: 0.68, green: 0.92, blue: 0.97)
+    static let line = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0).opacity(0.11)
+    static let text = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let secondary = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static let field = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let live = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
+    static let focusGlow = Color(red: 0xF9 / 255.0, green: 0xF8 / 255.0, blue: 0xFB / 255.0)
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
