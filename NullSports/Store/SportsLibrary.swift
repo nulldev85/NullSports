@@ -369,13 +369,24 @@ final class SportsLibrary: ObservableObject {
         guard let stream = gameStreamCache[game.id] else { return nil }
         if game.league == .ncaaf {
             // Revalidate at selection time even if a score refresh had no changes.
-            guard programs(for: stream).contains(where: { listing in
-                CollegeChannelMatcher.verifies(broadcast: game.broadcast, channel: stream.name,
-                    title: listing.title, away: game.awayTeam, home: game.homeTeam, kickoff: game.start,
-                    programStart: listing.start, programEnd: listing.end, now: Date(), isLive: game.isLive)
-            }) else { return nil }
+            let matchup = Self.collegeMatchup(game)
+            let slate = (gamesByLeague[.ncaaf] ?? []).filter { $0.isLive || $0.isUpcoming }.map(Self.collegeMatchup)
+            guard CollegeChannelMatcher.score(channel: stream.name,
+                listings: Self.collegeListings(programs(for: stream)),
+                game: matchup, now: Date(),
+                allowNetworkFallback: CollegeChannelMatcher.allowsNetworkFallback(for: matchup, slate: slate)) != nil else { return nil }
         }
         return stream
+    }
+
+    nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
+        .init(broadcast: game.broadcast, away: game.awayTeam, home: game.homeTeam,
+              awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
+              kickoff: game.start, isLive: game.isLive)
+    }
+
+    nonisolated private static func collegeListings(_ programs: [CurrentProgram]) -> [CollegeChannelMatcher.Listing] {
+        programs.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream], searchText: [Int: String]) -> XtreamStream? {
@@ -424,6 +435,10 @@ final class SportsLibrary: ObservableObject {
         let leagues = leagueStreamCache
         let searchText = streamSearchText
         let programs = programsByChannel
+        // College event channels may have neither a league token nor a network
+        // name. Let the college policy inspect them without changing other indexes.
+        let currentStreams = streams
+        let currentCategories = categories
         let now = Date()
         let previousMatches = gameStreamCache
         // Invalidate signatures immediately so an overlapping schedule update also
@@ -431,33 +446,32 @@ final class SportsLibrary: ObservableObject {
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
         let result = await Task.detached(priority: .utility) {
+            let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
+            let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
+            let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
+                let category = categoryNames[stream.categoryID ?? ""] ?? ""
+                return !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "")
+                    && !["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) })
+            }
+            // Normalize each guide channel once, including duplicate stream qualities.
+            var collegePrograms: [String: [CollegeChannelMatcher.Listing]] = [:]
+            let collegeCandidates = collegeStreams.map { stream in
+                let key = stream.epgChannelID ?? ""
+                if collegePrograms[key] == nil { collegePrograms[key] = Self.collegeListings(programs[key] ?? []) }
+                return CollegeChannelMatcher.Candidate(id: stream.id, name: stream.name, listings: collegePrograms[key] ?? [])
+            }
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
             for game in games {
                 if game.league == .ncaaf {
-                    var rejected: [String] = []
-                    let verified = (leagues[.ncaaf] ?? []).filter { stream in
-                        let listings = stream.epgChannelID.flatMap { programs[$0] } ?? []
-                        let expected = CollegeChannelMatcher.networks(game.broadcast)
-                        let actual = CollegeChannelMatcher.networks(stream.name)
-                        guard !actual.isEmpty, !expected.isEmpty, actual.isSubset(of: expected) else {
-                            rejected.append("\(stream.id):network")
-                            return false
-                        }
-                        let valid = listings.contains { listing in
-                            CollegeChannelMatcher.verifies(broadcast: game.broadcast, channel: stream.name,
-                                title: listing.title, away: game.awayTeam, home: game.homeTeam, kickoff: game.start,
-                                programStart: listing.start, programEnd: listing.end, now: now, isLive: game.isLive)
-                        }
-                        if !valid { rejected.append("\(stream.id):\(listings.isEmpty ? "missing-guide" : "airtime-or-teams")") }
-                        return valid
-                    }
-                    // Duplicate qualities of one EPG channel are interchangeable; different feeds are ambiguous.
-                    let unambiguous = CollegeChannelMatcher.unambiguousChannel(verified.map { $0.epgChannelID ?? "" })
-                    let selected = unambiguous ? verified.min(by: { $0.id < $1.id }) : nil
+                    guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
+                    let matchup = Self.collegeMatchup(game)
+                    let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
+                        allowNetworkFallback: CollegeChannelMatcher.allowsNetworkFallback(for: matchup, slate: collegeSlate))
+                    let selected = selectedID.flatMap { id in collegeStreams.first { $0.id == id } }
                     matches[game.id] = selected
-                    let diagnostic = "game=\(game.id) network=\(game.broadcast) verifiedIDs=\(verified.map(\.id)) selectedID=\(selected?.id.description ?? "none") reason=\(selected == nil ? "unverified-or-ambiguous" : "network-and-airtime-and-teams") rejected=\(rejected.joined(separator: ","))"
+                    let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(selected?.id.description ?? "none") policy=college-ranked-evidence"
                     Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
                     continue
                 }
