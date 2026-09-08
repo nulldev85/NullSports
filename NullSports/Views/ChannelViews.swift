@@ -1052,7 +1052,7 @@ struct GuideView: View {
                         previewURLs: previewPlaybackStream?.id == previewItem.stream.id ? library.playbackURLs(for: previewItem.stream) : nil,
                         now: guideNow
                     )
-                    .frame(height: 178)
+                    .frame(height: 204)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
@@ -1334,7 +1334,10 @@ private struct GuidePreviewPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 12)
-        .background(NullSportsStyle.background)
+        .padding(.vertical, 12)
+        .background(LinearGradient(colors: [Color.white.opacity(0.035), Color.white.opacity(0.015)], startPoint: .top, endPoint: .bottom))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.07), lineWidth: 1))
     }
 }
 
