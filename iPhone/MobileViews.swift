@@ -129,6 +129,7 @@ private struct MobileAccountView: View {
         NavigationStack {
             Form {
                 Section("Connected provider") {
+                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     if let profile = library.activeProfile {
                         LabeledContent("Profile", value: profile.name)
                         LabeledContent("Username", value: profile.username)

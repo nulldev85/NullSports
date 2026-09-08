@@ -162,11 +162,16 @@ struct MobileGuideView: View {
                                 }.frame(height: rowHeight)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
+                    .contentMargins(.top, 0, for: .scrollContent)
                     .frame(height: max(0, viewport.size.height - 40))
+                    .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
                 }
-                .frame(width: logoWidth + window.width)
+                .frame(width: logoWidth + window.width, height: viewport.size.height, alignment: .topLeading)
+                .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
                     GeometryReader { position in
                         Color.clear.preference(key: GuideHorizontalPosition.self,
@@ -174,6 +179,8 @@ struct MobileGuideView: View {
                     }
                 }
             }
+            .contentMargins(.top, 0, for: .scrollContent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .coordinateSpace(name: "guideHorizontal")
             .onPreferenceChange(GuideHorizontalPosition.self) { value in
                 horizontalOffset = max(0, -value)
@@ -285,4 +292,30 @@ struct MobileGuideView: View {
 private struct GuideHorizontalPosition: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Navigation already positions this guide within the safe area. Its two nested
+/// scrollers must not add that navigation inset again above the first channel.
+struct MobileGuideScrollConfiguration: UIViewRepresentable {
+    let horizontal: Bool
+    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
+    func updateUIView(_ view: UIView, context: Context) {
+        DispatchQueue.main.async { [weak view] in
+            var ancestor = view?.superview
+            while let candidate = ancestor {
+                if let scroll = candidate as? UIScrollView {
+                    Self.configure(scroll, horizontal: horizontal)
+                    break
+                }
+                ancestor = candidate.superview
+            }
+        }
+    }
+    static func configure(_ scroll: UIScrollView, horizontal: Bool) {
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.isDirectionalLockEnabled = true
+        // Elastic horizontal overscroll would move the ruler beneath frozen logos.
+        // Keep vertical elasticity for natural scrolling and pull-to-refresh.
+        if horizontal { scroll.bounces = false }
+    }
 }

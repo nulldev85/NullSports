@@ -81,3 +81,10 @@ screen player to close; short drags spring back and Reduce Motion suppresses
 the transform animation. The app icon is now a white NS monogram on black.
 Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
 fullscreen in both orientations, player close buttons, and Reduce Motion.
+
+iPhone 0.17.10 corrects the simulator test host path to the actual NullSports.app
+executable. It also anchors the EPG content at the top, prevents the nested guide
+scrollers from adding duplicate navigation insets, and disables horizontal
+rubber-banding while preserving vertical pull-to-refresh. Account displays the
+installed version/build so an older IPA can be distinguished from a new build.
+The EPG remains progress-fill-only, with no triangle or vertical time marker.
