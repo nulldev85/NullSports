@@ -17,7 +17,7 @@ struct MobileGuidePlayer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
-                MobileVideoSurface(player: controller.player)
+                MobileVideoSurface(controller: controller)
                     .contentShape(Rectangle())
                     .onTapGesture { controlsVisible.toggle() }
                     .accessibilityLabel("Video. Tap to show playback controls")

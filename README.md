@@ -49,3 +49,11 @@ the guide using the same player and stream connection. Close or leaving Guide
 stops playback. The Live screen's manual channel picker retains its existing
 selection behavior. Device checks: switch channels while browsing, expand and
 collapse while playing/paused, rotate, close, switch tabs, and background/resume.
+
+iPhone 0.17.4 fixes a video-surface startup race introduced with inline playback:
+media now waits for the video host to be mounted and sized before starting VLC.
+The same host stays attached and resizes its renderer during fullscreen changes.
+Both Guide and Live players use this lifecycle. Verify actual moving video and
+audio on first selection, channel switches, close/reopen, rotate, fullscreen
+expand/collapse, and background/resume on an iPhone before considering the
+audio-only regression resolved.

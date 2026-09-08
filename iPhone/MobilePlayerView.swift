@@ -11,7 +11,7 @@ struct MobilePlayerView: View {
 
     var body: some View {
         ZStack {
-            MobileVideoSurface(player: controller.player).ignoresSafeArea()
+            MobileVideoSurface(controller: controller).ignoresSafeArea()
             if let error = controller.error {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
@@ -64,6 +64,32 @@ final class MobilePlaybackController: ObservableObject {
     private var started = Date()
     private var suspended = false
     private var shouldResume = false
+    private weak var videoView: MobileVideoHost?
+    private var waitingForVideo = false
+
+    func attachVideo(_ view: MobileVideoHost) {
+        videoView = view
+        if (player.drawable as? UIView) !== view { player.drawable = view }
+        startWhenVideoIsReady()
+    }
+
+    func detachVideo(_ view: MobileVideoHost) {
+        guard videoView === view else { return }
+        stop()
+        player.drawable = nil
+        videoView = nil
+    }
+
+    private func startWhenVideoIsReady() {
+        guard waitingForVideo, !suspended, let view = videoView,
+              view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
+        // Never call play before VLC has a mounted, nonzero drawable.
+        player.drawable = view
+        waitingForVideo = false
+        started = Date()
+        player.play()
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
 
     func start(urls: [URL]) {
         stop()
@@ -83,6 +109,8 @@ final class MobilePlaybackController: ObservableObject {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
                 guard let self else { return }
                 guard !self.suspended else { continue }
+                self.startWhenVideoIsReady()
+                guard !self.waitingForVideo else { continue }
                 self.isPlaying = self.player.isPlaying
                 if self.player.isPlaying { self.loading = false }
                 if self.error == nil && (self.player.state == .error || (self.loading && Date().timeIntervalSince(self.started) > 30)) {
@@ -94,6 +122,7 @@ final class MobilePlaybackController: ObservableObject {
 
     private func openNext() {
         player.stop()
+        waitingForVideo = false
         isPlaying = false
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
@@ -107,8 +136,8 @@ final class MobilePlaybackController: ObservableObject {
         player.media = media
         started = Date()
         loading = true
-        player.play()
-        UIApplication.shared.isIdleTimerDisabled = true
+        waitingForVideo = true
+        startWhenVideoIsReady()
     }
 
     func toggle() {
@@ -129,13 +158,15 @@ final class MobilePlaybackController: ObservableObject {
         guard suspended else { return }
         suspended = false
         started = Date()
-        if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
+        if waitingForVideo { startWhenVideoIsReady() }
+        else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
         shouldResume = false
     }
 
     func stop() {
         monitor?.cancel()
         monitor = nil
+        waitingForVideo = false
         player.stop()
         player.media = nil
         suspended = false
@@ -147,14 +178,59 @@ final class MobilePlaybackController: ObservableObject {
 }
 
 struct MobileVideoSurface: UIViewRepresentable {
-    let player: VLCMediaPlayer
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .black
-        player.drawable = view
+    let controller: MobilePlaybackController
+    func makeUIView(context: Context) -> MobileVideoHost {
+        let view = MobileVideoHost()
+        view.controller = controller
         return view
     }
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if player.drawable == nil { player.drawable = uiView }
+    func updateUIView(_ uiView: MobileVideoHost, context: Context) {
+        uiView.controller = controller
+        uiView.scheduleAttachment()
+    }
+    static func dismantleUIView(_ uiView: MobileVideoHost, coordinator: ()) {
+        uiView.controller?.detachVideo(uiView)
+        uiView.controller = nil
+    }
+}
+
+final class MobileVideoHost: UIView {
+    weak var controller: MobilePlaybackController?
+    private var attachmentScheduled = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        clipsToBounds = true
+        autoresizesSubviews = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        scheduleAttachment()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // VLC installs its renderer as a child of this host. Keep it fitted when
+        // expanding, collapsing, or rotating without replacing the drawable.
+        for renderer in subviews {
+            renderer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            if renderer.frame != bounds { renderer.frame = bounds }
+        }
+        scheduleAttachment()
+    }
+
+    func scheduleAttachment() {
+        guard !attachmentScheduled else { return }
+        attachmentScheduled = true
+        // Defer until after UIKit/SwiftUI's layout transaction has completed.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.attachmentScheduled = false
+            guard self.window != nil, self.bounds.width > 0, self.bounds.height > 0 else { return }
+            self.controller?.attachVideo(self)
+        }
     }
 }
