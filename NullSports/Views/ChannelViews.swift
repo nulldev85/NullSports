@@ -201,7 +201,8 @@ private struct ManualGameChannelPicker: View {
 }
 
 private enum LiveBoardStyle {
-    static let accent = Color(red: 0.83, green: 0.96, blue: 0.40)
+    static let accent = Color.white
+    static let leagueFocus = Color(white: 0.82)
     static let canvas = Color(red: 0.035, green: 0.045, blue: 0.055)
     static let panel = Color(red: 0.075, green: 0.09, blue: 0.105)
     static let muted = Color(red: 0.60, green: 0.66, blue: 0.69)
@@ -260,7 +261,7 @@ private struct LiveBoardLeagueButton: View {
             }
             .foregroundStyle(focused ? LiveBoardStyle.canvas : (selected ? LiveBoardStyle.accent : Color.white))
             .padding(.horizontal, 12).frame(height: 49)
-            .background(focused ? LiveBoardStyle.accent : (selected ? Color.white.opacity(0.07) : .clear))
+            .background(focused ? LiveBoardStyle.leagueFocus : (selected ? Color.white.opacity(0.07) : .clear))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(alignment: .leading) {
                 if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
@@ -566,7 +567,7 @@ private struct LiveSlateRow: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity)
-            .background(isFocused ? Color(red: 0.12, green: 0.15, blue: 0.14) : LiveBoardStyle.panel,
+            .background(isFocused ? Color(white: 0.14) : LiveBoardStyle.panel,
                         in: RoundedRectangle(cornerRadius: 16))
             .overlay {
                 RoundedRectangle(cornerRadius: 16)
