@@ -1003,6 +1003,7 @@ private enum GuidePalette {
     static let purple = Color(red: 0xBD / 255.0, green: 0x93 / 255.0, blue: 0xF9 / 255.0)
     static let pink = Color(red: 0xFF / 255.0, green: 0x79 / 255.0, blue: 0xC6 / 255.0)
     static let green = Color(red: 0x50 / 255.0, green: 0xFA / 255.0, blue: 0x7B / 255.0)
+    static let yellow = Color(red: 0xF1 / 255.0, green: 0xFA / 255.0, blue: 0x8C / 255.0)
 }
 
 struct GuideView: View {
@@ -1137,6 +1138,12 @@ struct GuideView: View {
                         .frame(width: guideChannelWidth)
                         .frame(maxHeight: .infinity)
                         .background(GuidePalette.panel)
+                        .overlay(alignment: .trailing) {
+                            Rectangle()
+                                .fill(LinearGradient(colors: [GuidePalette.text.opacity(0.14), GuidePalette.text.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                                .frame(width: 1)
+                        }
+                        .shadow(color: Color.black.opacity(0.45), radius: 28, x: 10)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                         .focusSection()
                     }
@@ -1320,6 +1327,11 @@ private struct GuidePreviewPanel: View {
             }
                 .frame(width: 330, height: 174)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [GuidePalette.text.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 46)
+                        .allowsHitTesting(false)
+                }
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(GuidePalette.line, lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 8) {
@@ -1332,7 +1344,7 @@ private struct GuidePreviewPanel: View {
                 HStack(spacing: 10) {
                     Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
                         .font(.system(size: 27, weight: .semibold)).lineLimit(1)
-                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.raised) }
+                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.yellow, foreground: GuidePalette.background) }
                 }
                 HStack(spacing: 12) {
                     Text(guideTimeRange(item.program)).font(.callout.monospacedDigit()).foregroundStyle(GuidePalette.secondary)
@@ -1355,6 +1367,7 @@ private struct GuidePreviewPanel: View {
         .background(LinearGradient(colors: [GuidePalette.purple.opacity(0.06), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.35), radius: 24, y: 12)
     }
 }
 
@@ -1493,7 +1506,7 @@ private struct GuideSidebarButton: View {
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isFocused ? GuidePalette.green.opacity(0.85) : Color.clear, lineWidth: 1.5))
         .nullGlass(cornerRadius: 12)
         .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
-        .shadow(color: isFocused ? GuidePalette.green.opacity(0.25) : .clear, radius: 14, y: 6)
+        .shadow(color: isFocused ? GuidePalette.green.opacity(0.32) : .clear, radius: 18, y: 8)
         .scaleEffect(isFocused ? 1.03 : 1)
         .offset(y: isFocused ? -2 : 0)
         .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isFocused)
@@ -1679,6 +1692,7 @@ private struct GuideChannelRow: View {
                 RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.green.opacity(0.9), lineWidth: 2)
             }
         }
+        .shadow(color: Color.black.opacity(0.22), radius: 10, y: 5)
         .contentShape(Rectangle())
         .contextMenu {
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
@@ -1758,7 +1772,9 @@ private struct GuideProgramCell: View {
         .frame(height: guideRowHeight - 8, alignment: .topLeading)
         .background {
             GeometryReader { geometry in
-                isFocused ? GuidePalette.raised : GuidePalette.surface
+                LinearGradient(
+                    colors: isFocused ? [GuidePalette.raised, GuidePalette.raised.opacity(0.82)] : [GuidePalette.surface, GuidePalette.surface.opacity(0.82)],
+                    startPoint: .top, endPoint: .bottom)
                 if let program {
                     let elapsedWidth = GuideProgress.playedWidth(
                         start: program.start, end: program.end, now: now,
@@ -1781,8 +1797,9 @@ private struct GuideProgramCell: View {
 
 private struct GuideInlineStatus: View {
     let title: String
+    private var accent: Color { title == "LIVE" ? GuidePalette.pink : GuidePalette.yellow }
     var body: some View {
-        Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(GuidePalette.secondary)
+        Text(title).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(accent)
     }
 }
 
