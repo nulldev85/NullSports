@@ -57,3 +57,9 @@ Both Guide and Live players use this lifecycle. Verify actual moving video and
 audio on first selection, channel switches, close/reopen, rotate, fullscreen
 expand/collapse, and background/resume on an iPhone before considering the
 audio-only regression resolved.
+
+iPhone 0.17.5 replaces the Live cards with a compact scoreboard: underlined
+league tabs, On Air and dated upcoming sections, thin dividers, aligned scores,
+team records, and a narrow status/network column. The full matchup row remains
+tappable, including manual channel selection for unmatched games. Check narrow
+iPhones, long team names, larger accessibility text, and partial schedule data.
