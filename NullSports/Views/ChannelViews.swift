@@ -273,7 +273,6 @@ private struct LiveBoardLeagueButton: View {
 }
 
 private struct LiveBoardHeading: View {
-    let count: Int
     let isUpdating: Bool
 
     var body: some View {
@@ -284,15 +283,9 @@ private struct LiveBoardHeading: View {
             }
             Spacer()
             if isUpdating { ProgressView().controlSize(.small) }
-            HStack(spacing: 9) {
-                if count > 0 { PulsingLiveDot(size: 7) }
-                Text("\(count) LIVE").font(.system(size: 13, weight: .bold)).tracking(2)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(Color.white.opacity(0.06), in: Capsule())
         }
         .foregroundStyle(Color.white)
-        .frame(height: 44)
+        .frame(height: 28)
     }
 }
 
@@ -305,7 +298,7 @@ private struct LiveEmptySlateDashboard: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            LiveBoardHeading(count: 0, isUpdating: isLoading)
+            LiveBoardHeading(isUpdating: isLoading)
             HStack(spacing: 30) {
                 LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
                 VStack(alignment: .leading, spacing: 22) {
@@ -348,7 +341,7 @@ private struct LiveSlateDashboard: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 4) {
-                LiveBoardHeading(count: events.filter(\.isLive).count, isUpdating: isUpdating)
+                LiveBoardHeading(isUpdating: isUpdating)
                 HStack(alignment: .top, spacing: 28) {
                     ScrollView(.vertical) {
                         LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
@@ -406,13 +399,13 @@ private struct LiveSlateDashboard: View {
                     }
                 }
                 .foregroundStyle(Color.white)
-                .padding(.top, 12).padding(.bottom, 8)
+                .padding(.top, 4).padding(.bottom, 8)
                 LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
                     multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                     onPlay: onPlay, onStartMultiview: onStartMultiview)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 38).padding(.bottom, 22)
+            .padding(.horizontal, 38).padding(.bottom, 10)
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
@@ -421,7 +414,7 @@ private struct LiveSlateDashboard: View {
     private func screenHeight(in size: CGSize) -> CGFloat {
         // Fill the upper area while reserving room for the heading and a full
         // matchup row. Width grows with height so the screen stays 16:9.
-        let availableHeight = max(0, size.height - 340)
+        let availableHeight = max(0, size.height - 300)
         let availableWidth = max(0, size.width - 300)
         return min(availableHeight, availableWidth * 9 / 16)
     }
@@ -1047,6 +1040,7 @@ struct GuideView: View {
                     query: $query,
                     multiviewTitle: multiviewPrimary?.name,
                     isLoading: library.isGuideLoading,
+                    now: guideNow,
                     onCancelMultiview: { multiviewPrimary = nil }
                 )
 
@@ -1244,6 +1238,7 @@ private struct GuideControlBar: View {
     @Binding var query: String
     let multiviewTitle: String?
     let isLoading: Bool
+    let now: Date
     let onCancelMultiview: () -> Void
 
     var body: some View {
@@ -1265,6 +1260,12 @@ private struct GuideControlBar: View {
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
             Text("\(channelCount) CHANNELS").font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(NullSportsStyle.secondary)
+            Rectangle().fill(NullSportsStyle.line).frame(width: 1, height: 22)
+            Label(now.formatted(date: .omitted, time: .shortened), systemImage: "clock")
+                .font(.system(size: 18, weight: .medium).monospacedDigit())
+                .foregroundStyle(NullSportsStyle.text)
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Current time, \(now.formatted(date: .omitted, time: .shortened))")
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                 searchActive.toggle()
                 if !searchActive { query = "" }
@@ -1519,15 +1520,18 @@ private struct GuideNowIndicator: View {
     var body: some View {
         GeometryReader { geometry in
             let x = 14 + guidePlayheadX(now)
+            // Header (58), row gap (7), scroll inset (2), centered cell inset (4).
+            // Keep the arrow below the time labels, with its tip at the card edge.
+            let cardTop: CGFloat = 71
             Path { path in
-                path.move(to: CGPoint(x: x, y: 54))
+                path.move(to: CGPoint(x: x, y: cardTop))
                 path.addLine(to: CGPoint(x: x, y: geometry.size.height))
             }
             .stroke(NullSportsStyle.live, lineWidth: 2)
             Path { path in
-                path.move(to: CGPoint(x: x - 7, y: 44))
-                path.addLine(to: CGPoint(x: x + 7, y: 44))
-                path.addLine(to: CGPoint(x: x, y: 54))
+                path.move(to: CGPoint(x: x - 6, y: cardTop - 8))
+                path.addLine(to: CGPoint(x: x + 6, y: cardTop - 8))
+                path.addLine(to: CGPoint(x: x, y: cardTop))
                 path.closeSubpath()
             }
             .fill(NullSportsStyle.live)
@@ -1742,9 +1746,9 @@ private struct GuideProgramCell: View {
         .overlay(alignment: .bottomTrailing) {
             if let program, isOnNow {
                 Text(guideTimeRemaining(program, now: now))
-                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .font(.system(size: 18, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 16).frame(height: 44)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(NullSportsStyle.live).clipShape(Capsule())
                     .padding(7)
             }
