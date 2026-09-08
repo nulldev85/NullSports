@@ -44,6 +44,10 @@ struct MobilePlayerView: View {
             }
         }
         .background(.black).foregroundStyle(NullSportsStyle.lightPurple)
+        .modifier(MobileDismissGesture(enabled: true) { dismiss() })
+        .ignoresSafeArea()
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
         .onAppear { controller.start(urls: urls) }
         .onDisappear { controller.shutdown() }
         .onChange(of: scenePhase) { _, phase in

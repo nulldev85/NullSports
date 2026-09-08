@@ -72,3 +72,12 @@ and tab-return teardown; actual video decoding still needs a provider/device
 smoke test. Guide logos now use the full program-row height without a tile
 background (wide logos preserve their aspect ratio). The time triangle and
 vertical playhead are removed; elapsed program shading remains.
+
+iPhone 0.17.9 adds interactive horizontal paging between Live, Guide, and Account.
+The bottom tabs remain tappable and also accept swipes. Timeline/league-strip
+scrolling keeps priority; use the header or bottom tabs to change pages from the
+EPG. Paging is disabled during fullscreen playback. Swipe down in either full-
+screen player to close; short drags spring back and Reduce Motion suppresses
+the transform animation. The app icon is now a white NS monogram on black.
+Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
+fullscreen in both orientations, player close buttons, and Reduce Motion.

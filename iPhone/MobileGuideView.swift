@@ -17,6 +17,7 @@ struct MobileGuideView: View {
     @ScaledMetric(relativeTo: .body) private var rowHeight = 88.0
     var game: SportsGame? = nil
     var isActive = true
+    var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
     private let logoWidth: CGFloat = 96
 
@@ -73,6 +74,7 @@ struct MobileGuideView: View {
                                 .background(NullSportsStyle.background)
                         }
                         .id(ObjectIdentifier(playback))
+                        .modifier(MobileDismissGesture(enabled: expanded, onDismiss: closePlayer))
                     }
                 }
             }
@@ -109,7 +111,7 @@ struct MobileGuideView: View {
                     if phase == .active { playback.resume() } else { playback.suspend() }
                 }
             }
-            .onDisappear { closePlayer() }
+            .onChange(of: expanded) { _, value in onFullscreenChange(value) }
             .onChange(of: isActive) { _, active in
                 if !active { closePlayer() }
             }

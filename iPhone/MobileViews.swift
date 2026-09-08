@@ -3,18 +3,37 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
     @State private var playing: XtreamStream?
+    @State private var guideFullscreen = false
 
     var body: some View {
-        TabView(selection: $tab) {
-            MobileLiveView { playing = $0 }
-                .tabItem { Label("Live", systemImage: "play.rectangle.fill") }.tag(0)
-            MobileGuideView(isActive: tab == 1) { playing = $0 }
-                .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }.tag(1)
-            MobileAccountView()
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }.tag(2)
+        MobilePagingView(selection: $tab, pages: [
+            page(MobileLiveView { playing = $0 }),
+            page(MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }),
+            page(MobileAccountView())
+        ], allowsPaging: !guideFullscreen && playing == nil, reduceMotion: reduceMotion)
+        .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !guideFullscreen {
+                HStack(spacing: 0) {
+                    tabButton("Live", symbol: "play.rectangle.fill", index: 0)
+                    tabButton("Guide", symbol: "list.bullet.rectangle", index: 1)
+                    tabButton("Account", symbol: "person.crop.circle", index: 2)
+                }
+                .padding(.top, 7).padding(.bottom, 4)
+                .background(NullSportsStyle.surface)
+                .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+                .simultaneousGesture(DragGesture(minimumDistance: 25).onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                    tab = min(2, max(0, tab + (value.translation.width < 0 ? 1 : -1)))
+                })
+            }
         }
+        .background(NullSportsStyle.background)
+        .statusBarHidden(guideFullscreen)
+        .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
             MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream))
         }
@@ -25,6 +44,26 @@ struct MainView: View {
                 library.refreshSchedule(showsLoading: false, includeTomorrow: false)
             }
         }
+    }
+
+    private func page<Content: View>(_ content: Content) -> AnyView {
+        AnyView(content.environmentObject(library)
+            .environment(\.scenePhase, scenePhase)
+            .foregroundStyle(NullSportsStyle.lightPurple)
+            .tint(NullSportsStyle.lightPurple).preferredColorScheme(.dark))
+    }
+
+    private func tabButton(_ title: String, symbol: String, index: Int) -> some View {
+        Button { tab = index } label: {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 20))
+                Text(title).font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(NullSportsStyle.lightPurple.opacity(tab == index ? 1 : 0.45))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityAddTraits(tab == index ? .isSelected : [])
     }
 }
 
