@@ -44,6 +44,14 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: false), "A previously failed MLB lookup must retry")
         precondition(DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: true), "Successful same-game match still opens without rematching")
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "old-broadcast", currentSignature: "new-broadcast", hasMatch: true), "Broadcast change requires rematching")
-        print("19 daily schedule and match persistence checks passed")
+        let genA = UUID()
+        let genB = UUID()
+        let profileA = UUID()
+        let profileB = UUID()
+        precondition(DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileA), "A rebuild whose generation is still current is applied")
+        precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
+        precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
+        precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
+        print("23 daily schedule and match persistence checks passed")
     }
 }
