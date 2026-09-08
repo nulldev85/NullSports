@@ -399,7 +399,13 @@ final class SportsLibrary: ObservableObject {
             guard self.activeProfile?.id == profileID else { return }
             // A response started yesterday cannot repopulate today's slate.
             guard Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
-            if fetchesTomorrow { self.tomorrowScheduleUpdatedAt = Date() }
+            // Failed or partial fetches must remain eligible for the next poll.
+            // A successful empty slate still has all leagues marked as loaded.
+            if fetchesTomorrow {
+                let succeeded = snapshot.errorMessage == nil
+                    && snapshot.loadedLeagues == Set(SportsLeague.allCases)
+                self.tomorrowScheduleUpdatedAt = succeeded ? Date() : nil
+            }
             if !snapshot.loadedLeagues.isEmpty {
                 let previousGames = self.gamesByLeague
                 let tomorrowStart = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
