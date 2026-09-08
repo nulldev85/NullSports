@@ -992,18 +992,18 @@ private struct ChannelLogo: View {
 // Dracula-inspired palette scoped to the EPG guide only; the rest of the
 // app keeps NullSportsStyle's usual dark/red look.
 private enum GuidePalette {
-    static let background = Color(red: 0x28 / 255.0, green: 0x2A / 255.0, blue: 0x36 / 255.0)
-    static let panel = Color(red: 0x1F / 255.0, green: 0x20 / 255.0, blue: 0x2A / 255.0)
-    static let surface = Color(red: 0x2C / 255.0, green: 0x2E / 255.0, blue: 0x3C / 255.0)
-    static let raised = Color(red: 0x38 / 255.0, green: 0x3A / 255.0, blue: 0x4C / 255.0)
-    static let channelTile = Color(red: 49 / 255.0, green: 51 / 255.0, blue: 67 / 255.0)
-    static let line = Color(red: 0xF8 / 255.0, green: 0xF8 / 255.0, blue: 0xF2 / 255.0).opacity(0.08)
-    static let text = Color(red: 0xF8 / 255.0, green: 0xF8 / 255.0, blue: 0xF2 / 255.0)
-    static let secondary = Color(red: 0x62 / 255.0, green: 0x72 / 255.0, blue: 0xA4 / 255.0)
-    static let purple = Color(red: 0xBD / 255.0, green: 0x93 / 255.0, blue: 0xF9 / 255.0)
-    static let pink = Color(red: 0xFF / 255.0, green: 0x79 / 255.0, blue: 0xC6 / 255.0)
-    static let green = Color(red: 0x50 / 255.0, green: 0xFA / 255.0, blue: 0x7B / 255.0)
-    static let yellow = Color(red: 0xF1 / 255.0, green: 0xFA / 255.0, blue: 0x8C / 255.0)
+    static let background = Color(red: 0x18 / 255.0, green: 0x14 / 255.0, blue: 0x1F / 255.0)
+    static let panel = Color(red: 0x12 / 255.0, green: 0x0E / 255.0, blue: 0x18 / 255.0)
+    static let surface = Color(red: 0x20 / 255.0, green: 0x1B / 255.0, blue: 0x28 / 255.0)
+    static let raised = Color(red: 0x2C / 255.0, green: 0x26 / 255.0, blue: 0x35 / 255.0)
+    static let channelTile = Color(red: 0x25 / 255.0, green: 0x1F / 255.0, blue: 0x2D / 255.0)
+    static let line = Color(red: 0xF4 / 255.0, green: 0xF2 / 255.0, blue: 0xF7 / 255.0).opacity(0.08)
+    static let text = Color(red: 0xF4 / 255.0, green: 0xF2 / 255.0, blue: 0xF7 / 255.0)
+    static let secondary = Color(red: 0x94 / 255.0, green: 0x8F / 255.0, blue: 0xA0 / 255.0)
+    static let purple = Color(red: 0xC9 / 255.0, green: 0xC4 / 255.0, blue: 0xD2 / 255.0)
+    static let pink = Color(red: 0xE0 / 255.0, green: 0x55 / 255.0, blue: 0x5A / 255.0)
+    static let green = Color(red: 0xE0 / 255.0, green: 0x55 / 255.0, blue: 0x5A / 255.0)
+    static let yellow = Color(red: 0xD8 / 255.0, green: 0xD4 / 255.0, blue: 0xDE / 255.0)
 }
 
 struct GuideView: View {
