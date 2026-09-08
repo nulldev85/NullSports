@@ -5,6 +5,7 @@ struct MobileLiveView: View {
     @State private var league: SportsLeague?
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
+    @State private var upcomingGame: SportsGame?
     @Namespace private var selection
     let onPlay: (XtreamStream) -> Void
 
@@ -57,6 +58,16 @@ struct MobileLiveView: View {
             }
             .background(NullSportsStyle.background)
             .toolbar(.hidden, for: .navigationBar)
+            .alert("Game has not started yet", isPresented: Binding(
+                get: { upcomingGame != nil },
+                set: { if !$0 { upcomingGame = nil } }
+            )) {
+                Button("OK", role: .cancel) { upcomingGame = nil }
+            } message: {
+                if let game = upcomingGame {
+                    Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
+                }
+            }
             .sheet(item: $choosingChannel, onDismiss: {
                 if let stream = pendingStream { pendingStream = nil; onPlay(stream) }
             }) { game in
@@ -129,12 +140,16 @@ struct MobileLiveView: View {
 
     private func matchup(_ game: SportsGame) -> some View {
         Button {
+            guard !game.isUpcoming else {
+                upcomingGame = game
+                return
+            }
             if let stream = library.verifiedStream(for: game) { onPlay(stream) }
             else { choosingChannel = game }
         } label: { MobileMatchupRow(game: game) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Watch game or choose a channel")
+        .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
     }
 }
 
