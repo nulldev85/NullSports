@@ -54,6 +54,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var guideValidatedThisSession = false
     @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
+    @Published private var matchEvidenceScores: [String: Int] = [:]
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
@@ -409,6 +410,7 @@ final class SportsLibrary: ObservableObject {
             scheduleLoadedLeagues = []
             scheduleValidatedLeagues = []
             gameStreamCache = [:]
+            matchEvidenceScores = [:]
             gameMatchSignatures = [:]
             matchedGameIdentities = [:]
             matchGeneration = UUID()
@@ -492,6 +494,20 @@ final class SportsLibrary: ObservableObject {
 
     func stream(for game: SportsGame) -> XtreamStream? {
         automaticMatchingReady && scheduleValidatedLeagues.contains(game.league) ? gameStreamCache[game.id] : nil
+    }
+
+    // Which rule authorized a match, for the diagnostics screen. A wrong game
+    // should be able to name the evidence behind it without a device log.
+    enum MatchEvidence: String {
+        case guideListing = "Guide listing named both teams"
+        case channelName = "Channel name named both teams"
+        case networkOnly = "Network only, no game evidence"
+    }
+
+    func matchEvidence(for game: SportsGame) -> MatchEvidence? {
+        guard let score = matchEvidenceScores[game.id] else { return nil }
+        if score >= 300 { return .guideListing }
+        return score >= 200 ? .channelName : .networkOnly
     }
 
     private func matchIdentities(now: Date) -> [String: [String]] {
@@ -604,6 +620,7 @@ final class SportsLibrary: ObservableObject {
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
+            var evidenceByGame: [String: Int] = [:]
             for game in games {
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
@@ -619,6 +636,7 @@ final class SportsLibrary: ObservableObject {
                             listings: collegePrograms[$0.epgChannelID ?? ""] ?? [],
                             game: matchup, now: now, allowNetworkFallback: false)
                     }
+                    evidenceByGame[game.id] = evidence
                     let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(selected?.id.description ?? "none") evidence=\(evidence?.description ?? "none") policy=college-ranked-evidence"
                     Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
                     continue
@@ -643,18 +661,20 @@ final class SportsLibrary: ObservableObject {
                         signatures.removeValue(forKey: game.id)
                     }
                 }
+                evidenceByGame[game.id] = evidence
                 // Mirrors the college diagnostic above: a "no matching channel" report,
                 // and the evidence tier behind a wrong one, should be readable from
                 // device logs without static code review.
                 let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") evidence=\(evidence?.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=\(reused == nil ? "professional-fresh" : "professional-reused")"
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
-            return (matches, signatures, matches != previousMatches)
+            return (matches, signatures, matches != previousMatches, evidenceByGame)
         }.value
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
+        matchEvidenceScores = result.3
         let newIdentities = identities.filter { result.0[$0.key] != nil }
         let identityChanged = newIdentities != matchedGameIdentities
         matchedGameIdentities = newIdentities
@@ -828,6 +848,7 @@ final class SportsLibrary: ObservableObject {
         streamSearchText = [:]
         sportsIndexReady = false
         gameStreamCache = [:]
+        matchEvidenceScores = [:]
         channelsValidatedThisSession = false
         guideValidatedThisSession = false
         scheduleValidatedLeagues = []
