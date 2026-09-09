@@ -2,11 +2,15 @@ import SwiftUI
 
 struct MobileLiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.scenePhase) private var scenePhase
     @State private var league: SportsLeague?
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var upcomingGame: SportsGame?
+    @State private var previewStream: XtreamStream?
+    @State private var playback = MobilePlaybackController()
     @Namespace private var selection
+    var isActive = true
     let onPlay: (XtreamStream) -> Void
 
     private var games: [SportsGame] { library.games(for: league) }
@@ -20,6 +24,25 @@ struct MobileLiveView: View {
             VStack(spacing: 0) {
                 masthead
                 leagueTabs
+                if let stream = previewStream {
+                    TimelineView(.periodic(from: .now, by: 30)) { clock in
+                        MobileGuidePlayer(
+                            controller: playback,
+                            stream: stream,
+                            program: library.guidePrograms(for: stream).first {
+                                $0.start <= clock.date && clock.date < $0.end
+                            },
+                            expanded: false,
+                            showsMetadata: true,
+                            videoHeight: UIScreen.main.bounds.width * 9 / 16,
+                            onClose: closePreview,
+                            onExpand: { onPlay(stream) },
+                            onRetry: { playback.start(urls: library.playbackURLs(for: stream)) }
+                        )
+                        .id(ObjectIdentifier(playback))
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                         if library.isScheduleLoading || library.isLoading {
@@ -69,12 +92,22 @@ struct MobileLiveView: View {
                 }
             }
             .sheet(item: $choosingChannel, onDismiss: {
-                if let stream = pendingStream { pendingStream = nil; onPlay(stream) }
+                if let stream = pendingStream {
+                    pendingStream = nil
+                    showPreview(stream)
+                }
             }) { game in
                 MobileGuideView(game: game) { stream in
                     pendingStream = stream
                     choosingChannel = nil
                 }
+            }
+            .onChange(of: isActive) { _, active in
+                if active { playback.resume() } else { closePreview() }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard previewStream != nil else { return }
+                if phase == .active { playback.resume() } else { playback.suspend() }
             }
         }
     }
@@ -151,12 +184,24 @@ struct MobileLiveView: View {
                 upcomingGame = game
                 return
             }
-            if let stream = library.verifiedStream(for: game) { onPlay(stream) }
+            if let stream = library.verifiedStream(for: game) { showPreview(stream) }
             else { choosingChannel = game }
         } label: { MobileMatchupRow(game: game) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
+    }
+
+    private func showPreview(_ stream: XtreamStream) {
+        playback.shutdown()
+        playback = MobilePlaybackController()
+        previewStream = stream
+        playback.start(urls: library.playbackURLs(for: stream))
+    }
+
+    private func closePreview() {
+        playback.shutdown()
+        previewStream = nil
     }
 }
 
@@ -204,16 +249,21 @@ private struct MobileMatchupRow: View {
 
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
         HStack(spacing: 9) {
-            AsyncImage(url: URL(string: logo)) { image in image.resizable().scaledToFit() }
-                placeholder: { Image(systemName: "sportscourt").font(.caption).opacity(0.4) }
-                .frame(width: 25, height: 25).accessibilityHidden(true)
-                .background {
-                    if game.league == .mlb && (name.localizedCaseInsensitiveContains("Padres")
-                        || name.localizedCaseInsensitiveContains("San Diego")) {
-                        Circle().fill(Color(red: 0.97, green: 0.94, blue: 0.86))
-                            .frame(width: 31, height: 31)
+            ZStack {
+                Circle().fill(Color.white.opacity(0.94))
+                AsyncImage(url: URL(string: logo)) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFit().padding(2)
+                    } else {
+                        Text(String(name.prefix(3)).uppercased())
+                            .font(.system(size: 7, weight: .black)).foregroundStyle(.black.opacity(0.65))
                     }
                 }
+                .transaction { $0.animation = nil }
+            }
+            .frame(width: 28, height: 28)
+            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.subheadline.weight(.semibold))
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)

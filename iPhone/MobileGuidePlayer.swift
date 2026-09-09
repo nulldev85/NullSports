@@ -54,14 +54,16 @@ struct MobileGuidePlayer: View {
                         }
                         Spacer()
                     }
-                    .padding(.horizontal, expanded ? 36 : 8)
-                    .padding(.vertical, expanded ? 28 : 8)
+                    .padding(.horizontal, expanded ? 24 : 10)
+                    .padding(.vertical, expanded ? 20 : 10)
                     .transition(.opacity)
                     // A ZStack-centered sibling, not nested in the VStack above, so
                     // it lands dead-center on screen, matching every other player.
                     if !controller.loading && controller.error == nil {
                         control(controller.isPlaying ? "pause.fill" : "play.fill",
-                                label: controller.isPlaying ? "Pause" : "Play", size: 56) { controller.toggle() }
+                                label: controller.isPlaying ? "Pause" : "Play", size: expanded ? 48 : 42) {
+                            controller.toggle()
+                        }
                             .transition(.opacity)
                     }
                 }
@@ -146,13 +148,14 @@ struct MobileGuidePlayer: View {
         }
     }
 
-    private func control(_ symbol: String, label: String, size: CGFloat = 44,
+    private func control(_ symbol: String, label: String, size: CGFloat = 36,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size == 56 ? 24 : 18, weight: .bold))
+            Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.6), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .background(.black.opacity(0.48), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Circle())
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 

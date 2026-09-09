@@ -9,7 +9,7 @@ struct MainView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            MobileLiveView { playing = $0 }
+            MobileLiveView(isActive: tab == 0) { playing = $0 }
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
                 .id(library.activeProfile?.id)
