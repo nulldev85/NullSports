@@ -39,8 +39,12 @@ struct MobileGuidePlayer: View {
                 }
                 if controlsVisible {
                     VStack {
-                        HStack {
+                        HStack(spacing: 10) {
                             control("xmark", label: "Close player", action: onClose)
+                            if controller.error == nil && !controller.loading {
+                                statusBadge
+                                if let quality = controller.streamQualityLabel { qualityBadge(quality) }
+                            }
                             Spacer()
                             control(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                                     label: expanded ? "Return to guide" : "Expand player") {
@@ -49,25 +53,12 @@ struct MobileGuidePlayer: View {
                             }
                         }
                         Spacer()
-                        HStack(spacing: 7) {
-                            Button { controller.goLive() } label: {
-                                Label(controller.isPlaying ? "LIVE" : "PAUSED", systemImage: "circle.fill")
-                                    .font(.caption2.bold()).padding(7)
-                                    .background(.black.opacity(0.65), in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
-                            if let quality = controller.streamQualityLabel {
-                                Text(quality).font(.caption2.weight(.semibold)).padding(7)
-                                    .background(.black.opacity(0.65), in: Capsule())
-                            }
-                            Spacer()
-                        }
-                        .opacity(controller.loading || controller.error != nil ? 0 : 1)
                     }
                     .padding(.horizontal, expanded ? 36 : 8)
                     .padding(.vertical, expanded ? 28 : 8)
                     .transition(.opacity)
+                    // A ZStack-centered sibling, not nested in the VStack above, so
+                    // it lands dead-center on screen, matching every other player.
                     if !controller.loading && controller.error == nil {
                         control(controller.isPlaying ? "pause.fill" : "play.fill",
                                 label: controller.isPlaying ? "Pause" : "Play", size: 56) { controller.toggle() }
@@ -133,7 +124,32 @@ struct MobileGuidePlayer: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size == 56 ? 24 : 18, weight: .bold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.65), in: Circle())
+                .background(.black.opacity(0.6), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
         }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+
+    // Doubles as a jump-back-to-live action: reopens the stream fresh, so a
+    // viewer who paused for a few seconds (or hit a stall) can snap back to
+    // the live edge instead of waiting or guessing why nothing's happening.
+    private var statusBadge: some View {
+        Button { controller.goLive() } label: {
+            HStack(spacing: 6) {
+                if controller.isPlaying { MobileLiveDot() }
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
+    }
+
+    private func qualityBadge(_ text: String) -> some View {
+        Text(text).font(.caption2.weight(.semibold))
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
     }
 }

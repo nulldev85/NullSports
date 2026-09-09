@@ -232,7 +232,9 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
     }
 }
 
-private struct MobileLiveDot: View {
+/// Small pulsing red dot used to mark something as live. Shared across the
+/// schedule list and the player controls (MobilePlayerView/MobileGuidePlayer).
+struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
     private let red = Color(red: 0.98, green: 0.28, blue: 0.34)

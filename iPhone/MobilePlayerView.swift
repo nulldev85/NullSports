@@ -36,34 +36,31 @@ struct MobilePlayerView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
             if controlsVisible {
-                VStack {
-                    HStack {
-                        Button { dismiss() } label: {
-                            Image(systemName: "xmark").frame(width: 44, height: 44)
-                        }.accessibilityLabel("Close player")
-                        Text(name).font(.headline).lineLimit(2)
-                        Spacer()
-                    }.padding(8).background(.black.opacity(0.65))
-                    if controller.error == nil && !controller.loading {
-                        HStack(spacing: 8) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        control("xmark", label: "Close player") { dismiss() }
+                        Text(name).font(.headline).lineLimit(1)
+                        Spacer(minLength: 8)
+                        if controller.error == nil && !controller.loading {
                             statusBadge
                             if let quality = controller.streamQualityLabel { qualityBadge(quality) }
-                            Spacer()
-                        }.padding(.horizontal, 8).padding(.top, 6)
-                    }
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Button { controller.toggle() } label: {
-                            Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.title2).frame(width: 56, height: 56)
                         }
-                        .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
-                        .disabled(controller.error != nil || controller.loading)
-                        Spacer()
-                    }.background(.black.opacity(0.65))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 22)
+                    .background(LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom))
+                    Spacer()
                 }
                 .transition(.opacity)
+                // A ZStack-centered sibling, not nested in the VStack above, so it
+                // lands dead-center on screen — the same spot every other player
+                // in the app puts its play/pause control.
+                if !controller.loading && controller.error == nil {
+                    control(controller.isPlaying ? "pause.fill" : "play.fill",
+                            label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
+                        .transition(.opacity)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -112,10 +109,13 @@ struct MobilePlayerView: View {
     // the live edge instead of waiting or guessing why nothing's happening.
     private var statusBadge: some View {
         Button { controller.goLive() } label: {
-            Label(controller.isPlaying ? "LIVE" : "PAUSED", systemImage: "circle.fill")
-                .font(.caption2.bold())
-                .padding(.horizontal, 9).padding(.vertical, 6)
-                .background(.black.opacity(0.65), in: Capsule())
+            HStack(spacing: 6) {
+                if controller.isPlaying { MobileLiveDot() }
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -123,8 +123,19 @@ struct MobilePlayerView: View {
 
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.caption2.weight(.semibold))
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .background(.black.opacity(0.65), in: Capsule())
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+    }
+
+    private func control(_ symbol: String, label: String, size: CGFloat = 44,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
+                .frame(width: size, height: size)
+                .background(.black.opacity(0.6), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }
 
@@ -146,6 +157,8 @@ final class MobilePlaybackController: ObservableObject {
     private var waitingForVideo = false
     private var missingVideoSince: Date?
     private var waitingSince: Date?
+    private var lastPlaybackTimeMs: Int32?
+    private var timeUnchangedSince: Date?
 
     /// "1080p", "720p", etc., derived from the source video track. Nil until
     /// VLC reports track info, which only happens once a video is decoding.
@@ -228,6 +241,23 @@ final class MobilePlaybackController: ObservableObject {
                     self.loading = false
                     self.missingVideoSince = nil
                     self.refreshStats()
+                    // Some provider drops don't close the connection or raise a VLC
+                    // error — the feed just goes quiet and the last frame freezes
+                    // while isPlaying/hasVideoOut both still read true. Watch the
+                    // actual playback clock: if it hasn't moved in 10s, treat it as
+                    // dead and reconnect, instead of leaving a frozen picture up
+                    // until the viewer notices and force-quits back to reload it.
+                    let currentMs = self.player.time?.intValue ?? 0
+                    if let last = self.lastPlaybackTimeMs, last == currentMs {
+                        if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
+                        if Date().timeIntervalSince(self.timeUnchangedSince!) > 10 {
+                            self.goLive()
+                            continue
+                        }
+                    } else {
+                        self.timeUnchangedSince = nil
+                    }
+                    self.lastPlaybackTimeMs = currentMs
                 } else if self.player.isPlaying {
                     self.loading = true
                     if self.missingVideoSince == nil { self.missingVideoSince = Date() }
@@ -248,6 +278,8 @@ final class MobilePlaybackController: ObservableObject {
         waitingForVideo = false
         missingVideoSince = nil
         waitingSince = nil
+        lastPlaybackTimeMs = nil
+        timeUnchangedSince = nil
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
@@ -257,8 +289,10 @@ final class MobilePlaybackController: ObservableObject {
             error = "This stream is unavailable. Try again or choose another channel."
             return
         }
-        media.addOption(":network-caching=3000")
-        media.addOption(":live-caching=3000")
+        // Matches tvOS's buffer size — 3s was too tight for some providers and
+        // read as a stall/drop after several minutes on a slightly slower link.
+        media.addOption(":network-caching=5000")
+        media.addOption(":live-caching=5000")
         media.addOption(":http-reconnect=true")
         player.media = media
         started = Date()
@@ -315,6 +349,8 @@ final class MobilePlaybackController: ObservableObject {
         waitingForVideo = false
         missingVideoSince = nil
         waitingSince = nil
+        lastPlaybackTimeMs = nil
+        timeUnchangedSince = nil
         player.stop()
         player.media = nil
         suspended = false
