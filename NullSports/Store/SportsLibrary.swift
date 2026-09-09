@@ -54,6 +54,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var guideValidatedThisSession = false
     @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
+    @Published private var matchEvidenceScores: [String: Int] = [:]
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
@@ -409,6 +410,7 @@ final class SportsLibrary: ObservableObject {
             scheduleLoadedLeagues = []
             scheduleValidatedLeagues = []
             gameStreamCache = [:]
+            matchEvidenceScores = [:]
             gameMatchSignatures = [:]
             matchedGameIdentities = [:]
             matchGeneration = UUID()
@@ -494,6 +496,20 @@ final class SportsLibrary: ObservableObject {
         automaticMatchingReady && scheduleValidatedLeagues.contains(game.league) ? gameStreamCache[game.id] : nil
     }
 
+    // Which rule authorized a match, for the diagnostics screen. A wrong game
+    // should be able to name the evidence behind it without a device log.
+    enum MatchEvidence: String {
+        case guideListing = "Guide listing named both teams"
+        case channelName = "Channel name named both teams"
+        case networkOnly = "Network only, no game evidence"
+    }
+
+    func matchEvidence(for game: SportsGame) -> MatchEvidence? {
+        guard let score = matchEvidenceScores[game.id] else { return nil }
+        if score >= 300 { return .guideListing }
+        return score >= 200 ? .channelName : .networkOnly
+    }
+
     private func matchIdentities(now: Date) -> [String: [String]] {
         let day = Calendar.current.startOfDay(for: now)
         return gamesByLeague.values.flatMap { $0 }.reduce(into: [:]) { result, game in
@@ -516,12 +532,13 @@ final class SportsLibrary: ObservableObject {
               matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
         if game.league == .ncaaf {
             // Revalidate at selection time even if a score refresh had no changes.
-            let matchup = Self.collegeMatchup(game)
-            let slate = (gamesByLeague[.ncaaf] ?? []).filter { $0.isLive || $0.isUpcoming }.map(Self.collegeMatchup)
+            // The network a game is scheduled on is not evidence that a channel is
+            // carrying it, so it cannot authorize playback on its own; a game left
+            // unmatched opens the channel picker instead of playing a guess.
             guard CollegeChannelMatcher.score(channel: stream.name,
                 listings: Self.collegeListings(programs(for: stream)),
-                game: matchup, now: Date(),
-                allowNetworkFallback: CollegeChannelMatcher.allowsNetworkFallback(for: matchup, slate: slate)) != nil else { return nil }
+                game: Self.collegeMatchup(game), now: Date(),
+                allowNetworkFallback: false) != nil else { return nil }
         } else {
             guard Self.professionalScore(stream, game: game, listings: programs(for: stream), now: Date()) != nil else { return nil }
         }
@@ -603,43 +620,61 @@ final class SportsLibrary: ObservableObject {
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
+            var evidenceByGame: [String: Int] = [:]
             for game in games {
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
                     let matchup = Self.collegeMatchup(game)
                     let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
-                        allowNetworkFallback: CollegeChannelMatcher.allowsNetworkFallback(for: matchup, slate: collegeSlate))
+                        allowNetworkFallback: false)
                     let selected = selectedID.flatMap { id in collegeStreams.first { $0.id == id } }
                     matches[game.id] = selected
-                    let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(selected?.id.description ?? "none") policy=college-ranked-evidence"
+                    // The evidence tier that authorized the match: a wrong game names
+                    // the rule that approved it without reading the matcher's source.
+                    let evidence = selected.flatMap {
+                        CollegeChannelMatcher.score(channel: $0.name,
+                            listings: collegePrograms[$0.epgChannelID ?? ""] ?? [],
+                            game: matchup, now: now, allowNetworkFallback: false)
+                    }
+                    evidenceByGame[game.id] = evidence
+                    let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(selected?.id.description ?? "none") evidence=\(evidence?.description ?? "none") policy=college-ranked-evidence"
                     Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
                     continue
                 }
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
-                if DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
-                    currentSignature: signature, hasMatch: matches[game.id] != nil),
-                   let cached = matches[game.id],
-                   Self.professionalScore(cached, game: game, listings: programs[cached.epgChannelID ?? ""] ?? [], now: now) != nil {
-                    continue
+                let reused: (stream: XtreamStream, evidence: Int)? = DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
+                    currentSignature: signature, hasMatch: matches[game.id] != nil)
+                    ? matches[game.id].flatMap { cached in
+                        Self.professionalScore(cached, game: game,
+                            listings: programs[cached.epgChannelID ?? ""] ?? [], now: now).map { (cached, $0) }
+                    }
+                    : nil
+                var evidence = reused?.evidence
+                if reused == nil {
+                    if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], programs: programs, now: now) {
+                        matches[game.id] = stream
+                        signatures[game.id] = signature
+                        evidence = Self.professionalScore(stream, game: game,
+                            listings: programs[stream.epgChannelID ?? ""] ?? [], now: now)
+                    } else {
+                        matches.removeValue(forKey: game.id)
+                        signatures.removeValue(forKey: game.id)
+                    }
                 }
-                if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], programs: programs, now: now) {
-                    matches[game.id] = stream
-                    signatures[game.id] = signature
-                } else {
-                    matches.removeValue(forKey: game.id)
-                    signatures.removeValue(forKey: game.id)
-                }
-                // Mirrors the college diagnostic above: a "no matching channel" report
-                // should be readable from device logs without static code review.
-                let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=professional-signature-cache"
+                evidenceByGame[game.id] = evidence
+                // Mirrors the college diagnostic above: a "no matching channel" report,
+                // and the evidence tier behind a wrong one, should be readable from
+                // device logs without static code review.
+                let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") evidence=\(evidence?.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=\(reused == nil ? "professional-fresh" : "professional-reused")"
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
-            return (matches, signatures, matches != previousMatches)
+            return (matches, signatures, matches != previousMatches, evidenceByGame)
         }.value
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
+        matchEvidenceScores = result.3
         let newIdentities = identities.filter { result.0[$0.key] != nil }
         let identityChanged = newIdentities != matchedGameIdentities
         matchedGameIdentities = newIdentities
@@ -813,6 +848,7 @@ final class SportsLibrary: ObservableObject {
         streamSearchText = [:]
         sportsIndexReady = false
         gameStreamCache = [:]
+        matchEvidenceScores = [:]
         channelsValidatedThisSession = false
         guideValidatedThisSession = false
         scheduleValidatedLeagues = []

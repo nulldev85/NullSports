@@ -166,6 +166,7 @@ private struct MobileAccountView: View {
                 Section("Current library") {
                     LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     LabeledContent("Channels", value: "\(library.streams.count)")
+                    NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
                     Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
@@ -232,5 +233,57 @@ private struct MobileAccountView: View {
                 Button("Cancel", role: .cancel) { removingMediaProfile = nil }
             }
         }
+    }
+}
+
+/// Why each game matched the channel it did. A game that opens the wrong feed
+/// should be able to name the rule that chose it, without a device log.
+private struct MatchDiagnosticsView: View {
+    @EnvironmentObject private var library: SportsLibrary
+
+    private var games: [SportsGame] {
+        library.games(for: nil).filter { $0.isLive || $0.isUpcoming }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                if library.channelsAreSyncing {
+                    ProgressView("Matching\u{2026}")
+                } else if games.isEmpty {
+                    Text("No live or upcoming games to match.").foregroundStyle(.secondary)
+                }
+                ForEach(games) { game in
+                    row(game)
+                }
+            } footer: {
+                Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
+            }.listRowBackground(NullSportsStyle.surface)
+        }
+        .scrollContentBackground(.hidden)
+        .background(NullSportsStyle.background)
+        .navigationTitle("Channel matching")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func row(_ game: SportsGame) -> some View {
+        let stream = library.stream(for: game)
+        let evidence = library.matchEvidence(for: game)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("\(game.awayTeam) at \(game.homeTeam)").font(.subheadline.weight(.semibold))
+            Text("\(game.league.shortName) \u{00B7} \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
+                .font(.caption).foregroundStyle(.secondary)
+            if let stream {
+                Text(stream.name).font(.caption.weight(.medium))
+                Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
+                    .font(.caption2)
+                    .foregroundStyle(evidence == .guideListing ? Color.secondary : NullSportsStyle.warning)
+            } else {
+                Text("No match \u{2014} opens the channel picker")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
