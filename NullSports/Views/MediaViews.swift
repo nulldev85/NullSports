@@ -252,6 +252,7 @@ struct InitialSourceSetupView: View {
                     Label("Add Media Server", systemImage: "play.square.stack")
                 }
             }
+            .buttonStyle(NullSportsButtonStyle())
             #else
             VStack(spacing: 14) {
                 Button { addingIPTV = true } label: {
@@ -263,8 +264,8 @@ struct InitialSourceSetupView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            #endif
             .buttonStyle(NullSportsButtonStyle())
+            #endif
         }
         .padding(setupPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
