@@ -1187,7 +1187,7 @@ struct GuideView: View {
                         secondaryURLs: library.playbackURLs(for: session.secondary)
                     )
                 }
-                .sheet(isPresented: $reorderingFavorites) {
+                .fullScreenCover(isPresented: $reorderingFavorites) {
                     TVFavoritesOrderView()
                 }
                 .task {
@@ -1773,45 +1773,70 @@ private struct TVFavoritesOrderView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("REORDER FAVORITES")
-                        .font(.system(size: 34, weight: .bold))
-                    Text(instruction)
-                        .font(.callout)
-                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.7))
-                }
-                Spacer()
-                Button("Done") { dismiss() }
-                    .buttonStyle(.bordered)
-            }
+        ZStack {
+            NullSportsStyle.background.ignoresSafeArea()
+            RadialGradient(colors: [NullSportsStyle.lightPurple.opacity(0.11), .clear],
+                center: .topLeading, startRadius: 0, endRadius: 940).ignoresSafeArea()
+            RadialGradient(colors: [NullSportsStyle.lightPurple.opacity(0.055), .clear],
+                center: .bottomTrailing, startRadius: 0, endRadius: 820).ignoresSafeArea()
 
-            if favorites.isEmpty {
-                ContentUnavailableView("No favorites", systemImage: "star",
-                    description: Text("Add channels to Favorites from the Guide."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(Array(favorites.enumerated()), id: \.element.id) { index, stream in
-                                favoriteRow(stream, position: index + 1)
-                                    .id(stream.id)
+            VStack(alignment: .leading, spacing: 28) {
+                HStack(alignment: .center, spacing: 32) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("YOUR CHANNELS")
+                            .font(.caption.weight(.bold)).tracking(3)
+                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                        Text("Arrange Favorites")
+                            .font(.system(size: 46, weight: .semibold, design: .rounded))
+                        Text(instruction)
+                            .font(.title3)
+                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.72))
+                            .contentTransition(.opacity)
+                    }
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Label("\(favorites.count) FAVORITES", systemImage: "star.fill")
+                            .font(.caption.weight(.bold)).tracking(1.2)
+                            .padding(.horizontal, 16).frame(height: 46)
+                            .nullGlass(clear: true, cornerRadius: 23)
+                        TVReorderDoneButton { dismiss() }
+                    }
+                }
+
+                Group {
+                    if favorites.isEmpty {
+                        ContentUnavailableView("No favorites", systemImage: "star",
+                            description: Text("Add channels to Favorites from the Guide."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(Array(favorites.enumerated()), id: \.element.id) { index, stream in
+                                        favoriteRow(stream, position: index + 1)
+                                            .id(stream.id)
+                                    }
+                                }
+                                .padding(.horizontal, 28).padding(.vertical, 26)
+                            }
+                            .scrollClipDisabled()
+                            .onChange(of: focusedStreamID) { _, streamID in
+                                guard let streamID else { return }
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                    proxy.scrollTo(streamID, anchor: .center)
+                                }
                             }
                         }
-                        .padding(12)
-                    }
-                    .onChange(of: focusedStreamID) { _, streamID in
-                        guard let streamID else { return }
-                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(streamID, anchor: .center) }
                     }
                 }
+                .background(GuidePalette.panel.opacity(0.82), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(NullSportsStyle.lightPurple.opacity(0.1), lineWidth: 1))
+                .shadow(color: .black.opacity(0.38), radius: 36, y: 18)
             }
+            .padding(.horizontal, 86).padding(.vertical, 58)
         }
-        .padding(48)
         .foregroundStyle(NullSportsStyle.lightPurple)
-        .background(NullSportsStyle.background.ignoresSafeArea())
         .task {
             if focusedStreamID == nil { focusedStreamID = favorites.first?.id }
         }
@@ -1823,44 +1848,83 @@ private struct TVFavoritesOrderView: View {
 
     private var instruction: String {
         if let pickedStreamID, let stream = favorites.first(where: { $0.id == pickedStreamID }) {
-            return "Moving \(stream.name) — choose any destination and press Select to drop."
+            return "Moving \(stream.name)  ·  Choose any destination and press Select to place it."
         }
-        return "Press Select to pick up a channel, move anywhere in the list, then press Select to drop."
+        return "Select a channel, move anywhere in the list, then Select again to place it."
     }
 
     private func favoriteRow(_ stream: XtreamStream, position: Int) -> some View {
         let isPicked = pickedStreamID == stream.id
         let isFocused = focusedStreamID == stream.id
-        return HStack(spacing: 18) {
-            Text("\(position)").font(.headline.monospacedDigit())
-                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
-                .frame(width: 44, alignment: .trailing)
-            ChannelLogo(url: stream.streamIcon, width: 82, height: 54)
-            Text(stream.name).font(.title3.weight(.semibold)).lineLimit(1)
+        return HStack(spacing: 22) {
+            ZStack {
+                Circle().fill(isPicked ? NullSportsStyle.lightPurple : NullSportsStyle.lightPurple.opacity(0.08))
+                Text("\(position)").font(.callout.weight(.bold).monospacedDigit())
+                    .foregroundStyle(isPicked ? GuidePalette.background : NullSportsStyle.lightPurple.opacity(0.64))
+            }
+            .frame(width: 44, height: 44)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(NullSportsStyle.raised.opacity(0.82))
+                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFit().colorMultiply(NullSportsStyle.lightPurple).padding(10)
+                    } else {
+                        Image(systemName: "tv").foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
+                    }
+                }
+                .transaction { $0.animation = nil }
+            }
+            .frame(width: 100, height: 60)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(stream.name).font(.title3.weight(.semibold)).lineLimit(1)
+                Text(isPicked ? "Ready to move" : "Favorite channel")
+                    .font(.caption).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
+            }
             Spacer()
             if isPicked {
-                Label("MOVING", systemImage: "arrow.up.arrow.down")
-                    .font(.caption.bold()).tracking(1)
+                Label("PICKED UP", systemImage: "hand.draw.fill")
+                    .font(.caption.bold()).tracking(1.2)
+                    .padding(.horizontal, 14).frame(height: 36)
+                    .background(NullSportsStyle.lightPurple, in: Capsule())
+                    .foregroundStyle(GuidePalette.background)
             } else if pickedStreamID != nil && isFocused {
-                Label("DROP HERE", systemImage: "arrow.down.to.line")
-                    .font(.caption.bold()).tracking(1)
+                Label("PLACE HERE", systemImage: "arrow.down.to.line")
+                    .font(.caption.bold()).tracking(1.2)
+                    .padding(.horizontal, 14).frame(height: 36)
+                    .background(NullSportsStyle.lightPurple.opacity(0.12), in: Capsule())
             }
         }
-        .padding(.horizontal, 20)
-        .frame(height: 72)
-        .background(isPicked ? NullSportsStyle.lightPurple.opacity(0.16) : GuidePalette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(
-            isPicked ? NullSportsStyle.lightPurple : (isFocused ? NullSportsStyle.lightPurple.opacity(0.55) : .clear),
+        .padding(.horizontal, 24)
+        .frame(height: 88)
+        .background(
+            LinearGradient(colors: isPicked
+                ? [NullSportsStyle.focused, NullSportsStyle.lightPurple.opacity(0.13)]
+                : [isFocused ? NullSportsStyle.focused : GuidePalette.surface, GuidePalette.surface],
+                startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(
+            isPicked ? NullSportsStyle.lightPurple.opacity(0.92) : (isFocused ? NullSportsStyle.lightPurple.opacity(0.42) : NullSportsStyle.line),
             lineWidth: isPicked ? 2 : 1
         ))
+        .overlay(alignment: .leading) {
+            if pickedStreamID != nil && isFocused && !isPicked {
+                Capsule().fill(NullSportsStyle.lightPurple).frame(width: 5, height: 48).offset(x: -2)
+            }
+        }
         .contentShape(Rectangle())
         .focusable()
         .focused($focusedStreamID, equals: stream.id)
         .focusEffectDisabled()
         .onTapGesture { select(stream) }
-        .scaleEffect(isFocused ? 1.015 : 1)
-        .animation(.easeOut(duration: 0.12), value: isFocused)
+        .scaleEffect(isPicked ? 1.025 : (isFocused ? 1.012 : 1))
+        .offset(y: isPicked ? -3 : 0)
+        .shadow(color: isPicked ? NullSportsStyle.lightPurple.opacity(0.2) : (isFocused ? .black.opacity(0.28) : .clear),
+            radius: isPicked ? 24 : 14, y: 8)
+        .zIndex(isPicked ? 2 : (isFocused ? 1 : 0))
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isFocused)
+        .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isPicked)
     }
 
     private func select(_ stream: XtreamStream) {
@@ -1881,6 +1945,24 @@ private struct TVFavoritesOrderView: View {
             toOffset: destination > source ? destination + 1 : destination)
         self.pickedStreamID = nil
         focusedStreamID = pickedStreamID
+    }
+}
+
+private struct TVReorderDoneButton: View {
+    @FocusState private var focused: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Label("Done", systemImage: "checkmark")
+            .font(.callout.weight(.semibold))
+            .padding(.horizontal, 20).frame(height: 46)
+            .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.lightPurple.opacity(0.09), in: Capsule())
+            .foregroundStyle(focused ? GuidePalette.background : NullSportsStyle.lightPurple)
+            .overlay(Capsule().stroke(NullSportsStyle.lightPurple.opacity(focused ? 0 : 0.16), lineWidth: 1))
+            .contentShape(Capsule())
+            .focusable().focused($focused).focusEffectDisabled()
+            .onTapGesture(perform: action)
+            .focusLift(focused, scale: 1.06)
     }
 }
 
