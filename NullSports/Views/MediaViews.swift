@@ -6,6 +6,7 @@ struct MediaServersView: View {
 
     var body: some View {
         NavigationStack {
+            Group {
             #if os(tvOS)
             TVMediaServersHome(addingServer: $addingServer)
             #else
@@ -32,6 +33,7 @@ struct MediaServersView: View {
                 }
             }
             #endif
+            }
             .sheet(isPresented: $addingServer) {
                 MediaServerSetupView()
                     .environmentObject(media)
