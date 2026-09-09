@@ -108,6 +108,7 @@ final class MobilePlaybackController: ObservableObject {
     private weak var videoView: MobileVideoHost?
     private var waitingForVideo = false
     private var missingVideoSince: Date?
+    private var waitingSince: Date?
 
     func attachVideo(_ view: MobileVideoHost) {
         videoView = view
@@ -128,6 +129,7 @@ final class MobilePlaybackController: ObservableObject {
         // Never call play before VLC has a mounted, nonzero drawable.
         player.drawable = view
         waitingForVideo = false
+        waitingSince = nil
         started = Date()
         player.play()
         UIApplication.shared.isIdleTimerDisabled = true
@@ -152,7 +154,18 @@ final class MobilePlaybackController: ObservableObject {
                 guard let self else { return }
                 guard !self.suspended else { continue }
                 self.startWhenVideoIsReady()
-                guard !self.waitingForVideo else { continue }
+                if self.waitingForVideo {
+                    // The video surface never got a real window/size to attach to
+                    // (e.g. a layout hiccup). Without this, playback silently
+                    // never starts: no audio, no video, no error, forever.
+                    if let since = self.waitingSince, Date().timeIntervalSince(since) > 8 {
+                        self.waitingForVideo = false
+                        self.loading = false
+                        self.error = "The video couldn't start. Try again."
+                        UIApplication.shared.isIdleTimerDisabled = false
+                    }
+                    continue
+                }
                 self.isPlaying = self.player.isPlaying
                 if self.player.isPlaying && self.player.hasVideoOut {
                     self.loading = false
@@ -176,6 +189,7 @@ final class MobilePlaybackController: ObservableObject {
         player.stop()
         waitingForVideo = false
         missingVideoSince = nil
+        waitingSince = nil
         isPlaying = false
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
@@ -190,6 +204,7 @@ final class MobilePlaybackController: ObservableObject {
         started = Date()
         loading = true
         waitingForVideo = true
+        waitingSince = Date()
         startWhenVideoIsReady()
     }
 
@@ -212,8 +227,10 @@ final class MobilePlaybackController: ObservableObject {
         suspended = false
         started = Date()
         missingVideoSince = nil
-        if waitingForVideo { startWhenVideoIsReady() }
-        else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
+        if waitingForVideo {
+            waitingSince = Date() // Give it a fresh 8s window instead of counting time spent backgrounded.
+            startWhenVideoIsReady()
+        } else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
         shouldResume = false
     }
 
@@ -222,6 +239,7 @@ final class MobilePlaybackController: ObservableObject {
         monitor = nil
         waitingForVideo = false
         missingVideoSince = nil
+        waitingSince = nil
         player.stop()
         player.media = nil
         suspended = false
