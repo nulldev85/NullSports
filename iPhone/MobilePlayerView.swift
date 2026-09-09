@@ -247,7 +247,9 @@ final class MobilePlaybackController: ObservableObject {
                     // actual playback clock: if it hasn't moved in 10s, treat it as
                     // dead and reconnect, instead of leaving a frozen picture up
                     // until the viewer notices and force-quits back to reload it.
-                    let currentMs = self.player.time?.intValue ?? 0
+                    // VLCKit 4.0.0-a22's `player.time` is a non-optional VLCTime
+                    // (not `VLCTime?` as some older docs describe), so no `?` here.
+                    let currentMs = self.player.time.intValue
                     if let last = self.lastPlaybackTimeMs, last == currentMs {
                         if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
                         if Date().timeIntervalSince(self.timeUnchangedSince!) > 10 {
