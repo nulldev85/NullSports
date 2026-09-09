@@ -5,7 +5,7 @@ import Foundation
 struct MobileGuideWindow {
     let start: Date
     let end: Date
-    static let pointsPerSecond = 110.0 / 1800.0
+    static let pointsPerSecond = 96.0 / 1800.0
 
     init(now: Date) {
         start = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 1800) * 1800 - 1800)

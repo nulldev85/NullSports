@@ -14,13 +14,13 @@ struct MobileGuideView: View {
     @State private var playback = MobilePlaybackController()
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
-    @ScaledMetric(relativeTo: .body) private var rowHeight = 88.0
+    @ScaledMetric(relativeTo: .caption) private var rowHeight = 68.0
     var game: SportsGame? = nil
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
-    private let logoWidth: CGFloat = 120
-    private var cardHeight: CGFloat { rowHeight - 10 }
+    private let logoWidth: CGFloat = 80
+    private var cardHeight: CGFloat { rowHeight - 6 }
 
     private var channels: [XtreamStream] {
         library.guideStreams(categoryID: category, favoritesOnly: favorites, query: query)
@@ -199,8 +199,8 @@ struct MobileGuideView: View {
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
-                        .font(.caption.bold()).monospacedDigit()
-                        .padding(.leading, 7).frame(width: 110, height: 32, alignment: .leading)
+                        .font(.caption2.weight(.semibold)).monospacedDigit()
+                        .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
@@ -215,9 +215,9 @@ struct MobileGuideView: View {
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit()
-                            .frame(width: logoWidth - 8, height: cardHeight, alignment: .center)
+                            .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
                     } else {
-                        Text(stream.name).font(.caption.bold()).lineLimit(3)
+                        Text(stream.name).font(.caption2.weight(.semibold)).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -258,25 +258,32 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(live ? NullSportsStyle.selected : NullSportsStyle.surface)
                         if program != nil {
-                            Rectangle().fill(NullSportsStyle.lightPurple.opacity(0.13))
+                            Rectangle().fill(NullSportsStyle.lightPurple.opacity(0.08))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 5) {
-                                Text(stream.name).lineLimit(1)
-                                Spacer(minLength: 0)
-                                if let program {
-                                    Text(program.start, format: .dateTime.hour().minute()).lineLimit(1)
-                                }
-                            }.font(.caption2.bold()).foregroundStyle(.secondary)
-                            Text(program?.title ?? "No guide information")
-                                .font(.subheadline.bold()).lineLimit(2)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(program?.title ?? "No listing")
+                                .font(.caption.weight(program == nil ? .regular : .semibold)).lineLimit(2)
+                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(program == nil ? 0.5 : 1))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            if live || program?.isNew == true {
-                                Text(live ? "LIVE" : "NEW").font(.system(size: 9, weight: .bold)).tracking(2)
+                            if let program {
+                                HStack(spacing: 5) {
+                                    if live {
+                                        Circle().fill(NullSportsStyle.lightPurple)
+                                            .frame(width: 4, height: 4)
+                                            .accessibilityHidden(true)
+                                        Text("LIVE")
+                                    } else {
+                                        Text(program.start, format: .dateTime.hour().minute())
+                                    }
+                                    if program.isNew == true { Text("NEW") }
+                                }
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                .lineLimit(1)
                             }
                         }
                         .padding(.horizontal, 8)
@@ -284,8 +291,12 @@ struct MobileGuideView: View {
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(NullSportsStyle.lightPurple.opacity(live ? 0.15 : 0.04), lineWidth: 0.5)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")

@@ -29,8 +29,8 @@ struct MobileGuideWindowChecks {
         for pair in zip(mixed, mixed.dropFirst()) {
             check(pair.0.end == pair.1.start, "All segments must meet without overlaps or unfilled gaps")
         }
-        check(window.ticks.count == 16 && window.x(date(1800)) == 110, "Half-hour labels align with the program scale")
-        check(window.width == 1760, "Eight hours use a stable horizontal extent")
+        check(window.ticks.count == 16 && window.x(date(1800)) == 96, "Half-hour labels align with the program scale")
+        check(window.width == 1536, "Eight hours use a stable horizontal extent")
         let midnight = MobileGuideWindow(now: Date(timeIntervalSince1970: 0))
         check(midnight.start < Date(timeIntervalSince1970: 0), "Viewport crosses midnight without losing prior programs")
         print("Mobile guide timeline checks passed")
