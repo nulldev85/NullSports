@@ -12,6 +12,7 @@ struct LiveView: View {
     @State private var focusedGame: SportsGame?
     @State private var previewStream: XtreamStream?
     @State private var previewGameID: String?
+    @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
@@ -78,7 +79,7 @@ struct LiveView: View {
                         stopPreview()
                         multiviewPrimary = stream
                     } else {
-                        play(game, on: stream)
+                        play(game, on: stream, manuallySelected: true)
                     }
                 }
             }
@@ -112,10 +113,12 @@ struct LiveView: View {
     }
 
     private func select(_ game: SportsGame) {
-        if previewGameID == game.id, let previewStream {
+        if previewGameID == game.id, let previewStream,
+           previewWasManuallySelected || library.verifiedStream(for: game)?.id == previewStream.id {
             play(game, on: previewStream)
             return
         }
+        stopPreview()
         guard let stream = library.verifiedStream(for: game) else {
             handleUnmatchedSelection(game, startsMultiview: false)
             return
@@ -123,7 +126,7 @@ struct LiveView: View {
         play(game, on: stream)
     }
 
-    private func play(_ game: SportsGame, on stream: XtreamStream) {
+    private func play(_ game: SportsGame, on stream: XtreamStream, manuallySelected: Bool = false) {
         guard let primary = multiviewPrimary else {
             if previewGameID == game.id {
                 let transitionID = UUID()
@@ -140,6 +143,7 @@ struct LiveView: View {
                 playbackTransitionID = nil
                 previewStream = stream
                 previewGameID = game.id
+                previewWasManuallySelected = manuallySelected
             }
             return
         }
@@ -158,9 +162,8 @@ struct LiveView: View {
     }
 
     private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
-        // Games can be chosen manually as soon as channels exist.
-        // Guide refreshes and background matching do not make them unavailable.
-        if library.channelsAreSyncing && library.streams.isEmpty {
+        // Explain the initial refresh instead of opening a cached event slot.
+        if library.channelsAreSyncing && !library.automaticMatchingReady {
             showsChannelSyncMessage = true
         } else {
             manualSelectionStartsMultiview = startsMultiview
@@ -172,6 +175,7 @@ struct LiveView: View {
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
+        previewWasManuallySelected = false
     }
 }
 
@@ -475,7 +479,7 @@ private struct LiveSelectedPreview: View {
     let urls: [URL]
 
     var body: some View {
-        VLCVideoSurface(player: controller.player).background(Color.black)
+        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
         .onAppear { controller.start(urls: urls, muted: false) }
         .onDisappear { controller.stop() }
     }
@@ -1392,7 +1396,7 @@ private struct GuidePreviewVideo: View {
     let urls: [URL]
 
     var body: some View {
-        VLCVideoSurface(player: controller.player)
+        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear { controller.start(urls: urls, muted: false) }
             .onDisappear { controller.stop() }
@@ -1941,7 +1945,7 @@ private struct MultiviewPane: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            VLCVideoSurface(player: controller.player).background(Color.black)
+            VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
             if urls.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle").font(.title2)
@@ -1988,7 +1992,7 @@ struct PlayerView: View {
     @StateObject private var controller = VLCPlaybackController()
     var body: some View {
         ZStack(alignment: .topLeading) {
-            VLCVideoSurface(player: controller.player).background(Color.black).ignoresSafeArea()
+            VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black).ignoresSafeArea()
             if urls.isEmpty { Text("This stream is unavailable").foregroundColor(NullSportsStyle.lightPurple).font(.title2).foregroundStyle(NullSportsStyle.lightPurple).padding(60) }
         }
         .background(Color.black).focusable()
@@ -2000,18 +2004,113 @@ struct PlayerView: View {
 
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
+    @Published private(set) var reconnecting = false
+    @Published private(set) var error: String?
+    private var monitor: Task<Void, Never>?
+    private var urls: [URL] = []
+    private var urlIndex = 0
+    private var muted = false
+    private var pausedByUser = false
+    private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+    private var retries = LivePlaybackRetry()
+    private var retryAt: TimeInterval?
+
     func start(urls: [URL], muted: Bool = false) {
         stop()
-        guard let url = urls.last ?? urls.first else { return }
-        // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0.
-        let media = VLCMedia(url: url)
-        media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
-        if muted { media.addOption(":no-audio") }
-        player.media = media; player.play(); setMuted(muted)
+        self.urls = Array(urls.reversed())
+        self.muted = muted
+        retries.reset()
+        urlIndex = 0
+        error = nil
+        guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
+        openCurrent()
+        monitor = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                guard let self else { return }
+                self.checkPlayback()
+            }
+        }
     }
-    func setMuted(_ muted: Bool) { player.audio?.isMuted = muted }
-    func togglePlayback() { player.isPlaying ? player.pause() : player.play() }
-    func stop() { player.stop(); player.media = nil }
+
+    private func openCurrent() {
+        player.stop()
+        let media = VLCMedia(url: urls[urlIndex])
+        media.addOption(":network-caching=5000")
+        media.addOption(":live-caching=5000")
+        media.addOption(":http-reconnect=true")
+        player.media = media
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+        retryAt = nil
+        setMuted(muted)
+        player.play()
+        setMuted(muted)
+    }
+
+    private func checkPlayback() {
+        guard !pausedByUser, error == nil, !urls.isEmpty else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard UIApplication.shared.applicationState == .active else {
+            health = LivePlaybackHealth(now: now)
+            return
+        }
+        if let retryAt {
+            if now >= retryAt { openCurrent() }
+            return
+        }
+        let failed = player.state == .error || player.state == .ended || player.state == .stopped
+        player.audio?.isMuted = muted
+        let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
+            time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
+        if health.isStable(now: now) { retries.reset() }
+        if player.isPlaying && player.hasVideoOut { reconnecting = false }
+        guard recover else { return }
+        player.stop()
+        guard let delay = retries.nextDelay() else {
+            error = "The stream disconnected. Select Retry to reconnect."
+            reconnecting = false
+            return
+        }
+        // Retry the current transport once, then try the channel's alternatives.
+        if retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
+        reconnecting = true
+        retryAt = now + delay
+    }
+
+    func setMuted(_ muted: Bool) { self.muted = muted; player.audio?.isMuted = muted }
+    func retry() { start(urls: Array(urls.reversed()), muted: muted) }
+    func togglePlayback() {
+        pausedByUser.toggle()
+        if pausedByUser { player.pause() }
+        else {
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            if retryAt == nil { player.play() }
+        }
+    }
+    func stop() {
+        monitor?.cancel()
+        monitor = nil
+        retryAt = nil
+        urls = []
+        pausedByUser = false
+        reconnecting = false
+        player.stop()
+        player.media = nil
+    }
+}
+private struct TVPlaybackStatus: View {
+    @ObservedObject var controller: VLCPlaybackController
+    var body: some View {
+        if let error = controller.error {
+            VStack(spacing: 16) {
+                Text(error).multilineTextAlignment(.center)
+                Button("Retry", action: controller.retry)
+            }
+            .padding(24).background(Color.black.opacity(0.8))
+        } else if controller.reconnecting {
+            ProgressView("Reconnecting…").padding(24).background(Color.black.opacity(0.8))
+        }
+    }
 }
 
 private struct VLCVideoSurface: UIViewRepresentable {

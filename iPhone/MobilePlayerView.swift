@@ -155,10 +155,12 @@ final class MobilePlaybackController: ObservableObject {
     private var shouldResume = false
     private weak var videoView: MobileVideoHost?
     private var waitingForVideo = false
-    private var missingVideoSince: Date?
     private var waitingSince: Date?
-    private var lastPlaybackTimeMs: Int32?
-    private var timeUnchangedSince: Date?
+    private var currentURL: URL?
+    private var pausedByUser = false
+    private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+    private var retries = LivePlaybackRetry()
+    private var retryAt: TimeInterval?
 
     /// "1080p", "720p", etc., derived from the source video track. Nil until
     /// VLC reports track info, which only happens once a video is decoding.
@@ -193,13 +195,14 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func startWhenVideoIsReady() {
-        guard waitingForVideo, !suspended, let view = videoView,
+        guard waitingForVideo, !suspended, !pausedByUser, let view = videoView,
               view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
         // Never call play before VLC has a mounted, nonzero drawable.
         player.drawable = view
         waitingForVideo = false
         waitingSince = nil
         started = Date()
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
         player.play()
         UIApplication.shared.isIdleTimerDisabled = true
     }
@@ -208,6 +211,7 @@ final class MobilePlaybackController: ObservableObject {
         stop()
         error = nil
         originalURLs = urls
+        retries.reset()
         candidates = Array(urls.reversed()) // Prefer transport streams, as on Apple TV.
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -222,7 +226,14 @@ final class MobilePlaybackController: ObservableObject {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
                 guard let self else { return }
-                guard !self.suspended else { continue }
+                guard !self.suspended, !self.pausedByUser else { continue }
+                if let retryAt = self.retryAt {
+                    if ProcessInfo.processInfo.systemUptime >= retryAt {
+                        self.retryAt = nil
+                        self.openNext()
+                    }
+                    continue
+                }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {
                     // The video surface never got a real window/size to attach to
@@ -236,41 +247,16 @@ final class MobilePlaybackController: ObservableObject {
                     }
                     continue
                 }
+                guard self.error == nil else { continue }
                 self.isPlaying = self.player.isPlaying
-                if self.player.isPlaying && self.player.hasVideoOut {
-                    self.loading = false
-                    self.missingVideoSince = nil
-                    self.refreshStats()
-                    // Some provider drops don't close the connection or raise a VLC
-                    // error — the feed just goes quiet and the last frame freezes
-                    // while isPlaying/hasVideoOut both still read true. Watch the
-                    // actual playback clock: if it hasn't moved in 10s, treat it as
-                    // dead and reconnect, instead of leaving a frozen picture up
-                    // until the viewer notices and force-quits back to reload it.
-                    // VLCKit 4.0.0-a22's `player.time` is a non-optional VLCTime
-                    // (not `VLCTime?` as some older docs describe), so no `?` here.
-                    let currentMs = self.player.time.intValue
-                    if let last = self.lastPlaybackTimeMs, last == currentMs {
-                        if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
-                        if Date().timeIntervalSince(self.timeUnchangedSince!) > 10 {
-                            self.goLive()
-                            continue
-                        }
-                    } else {
-                        self.timeUnchangedSince = nil
-                    }
-                    self.lastPlaybackTimeMs = currentMs
-                } else if self.player.isPlaying {
-                    self.loading = true
-                    if self.missingVideoSince == nil { self.missingVideoSince = Date() }
-                }
-                if let since = self.missingVideoSince, Date().timeIntervalSince(since) > 15 {
-                    self.openNext()
-                    continue
-                }
-                if self.error == nil && (self.player.state == .error || (self.loading && Date().timeIntervalSince(self.started) > 30)) {
-                    self.openNext()
-                }
+                self.loading = !self.player.isPlaying || !self.player.hasVideoOut
+                if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
+                let now = ProcessInfo.processInfo.systemUptime
+                let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
+                    time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
+                    failed: self.player.state == .error || self.player.state == .ended || self.player.state == .stopped)
+                if self.health.isStable(now: now) { self.retries.reset() }
+                if recover { self.scheduleRecovery(now: now) }
             }
         }
     }
@@ -278,10 +264,7 @@ final class MobilePlaybackController: ObservableObject {
     private func openNext() {
         player.stop()
         waitingForVideo = false
-        missingVideoSince = nil
         waitingSince = nil
-        lastPlaybackTimeMs = nil
-        timeUnchangedSince = nil
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
@@ -294,7 +277,9 @@ final class MobilePlaybackController: ObservableObject {
         // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0
         // (the 4.0 alpha we moved off of made it failable), so no optional
         // binding here.
-        let media = VLCMedia(url: candidates.removeFirst())
+        let url = candidates.removeFirst()
+        currentURL = url
+        let media = VLCMedia(url: url)
         // Matches tvOS's buffer size — 3s was too tight for some providers and
         // read as a stall/drop after several minutes on a slightly slower link.
         media.addOption(":network-caching=5000")
@@ -309,7 +294,13 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     func toggle() {
-        if player.isPlaying { player.pause() } else { player.play() }
+        pausedByUser.toggle()
+        if pausedByUser { player.pause() }
+        else {
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            if waitingForVideo { startWhenVideoIsReady() }
+            else if retryAt == nil { player.play() }
+        }
         isPlaying = player.isPlaying
         UIApplication.shared.isIdleTimerDisabled = isPlaying
     }
@@ -322,6 +313,23 @@ final class MobilePlaybackController: ObservableObject {
         start(urls: originalURLs)
     }
 
+    private func scheduleRecovery(now: TimeInterval) {
+        player.stop()
+        isPlaying = false
+        guard let delay = retries.nextDelay(), !originalURLs.isEmpty else {
+            loading = false
+            error = "The stream disconnected. Tap Retry to reconnect."
+            UIApplication.shared.isIdleTimerDisabled = false
+            return
+        }
+        let ordered = Array(originalURLs.reversed())
+        let index = currentURL.flatMap { ordered.firstIndex(of: $0) } ?? 0
+        let next = retries.attempts == 1 ? index : (index + 1) % ordered.count
+        candidates = [ordered[next]]
+        loading = true
+        retryAt = now + delay
+    }
+
     private func refreshStats() {
         let size = player.videoSize
         guard size.width > 0, size.height > 0 else { return }
@@ -331,7 +339,7 @@ final class MobilePlaybackController: ObservableObject {
 
     func suspend() {
         guard !suspended else { return }
-        shouldResume = player.isPlaying || loading
+        shouldResume = !pausedByUser && (player.isPlaying || loading)
         suspended = true
         player.pause()
         UIApplication.shared.isIdleTimerDisabled = false
@@ -341,22 +349,21 @@ final class MobilePlaybackController: ObservableObject {
         guard suspended else { return }
         suspended = false
         started = Date()
-        missingVideoSince = nil
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
         if waitingForVideo {
             waitingSince = Date() // Give it a fresh 8s window instead of counting time spent backgrounded.
             startWhenVideoIsReady()
-        } else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
+        } else if shouldResume && retryAt == nil { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
         shouldResume = false
     }
 
     func stop() {
         monitor?.cancel()
         monitor = nil
+        retryAt = nil
+        pausedByUser = false
         waitingForVideo = false
-        missingVideoSince = nil
         waitingSince = nil
-        lastPlaybackTimeMs = nil
-        timeUnchangedSince = nil
         player.stop()
         player.media = nil
         suspended = false

@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.17.1"
-    CURRENT_PROJECT_VERSION: "60"
+    MARKETING_VERSION: "0.17.2"
+    CURRENT_PROJECT_VERSION: "61"
 packages:
   # VLCKit's official Swift Package is only published on the 4.0 alpha line
   # (still at a22, undocumented in places, and the source of two build
@@ -54,8 +54,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
         PRODUCT_MODULE_NAME: NullSportsiOS
-        MARKETING_VERSION: "0.17.10"
-        CURRENT_PROJECT_VERSION: "69"
+        MARKETING_VERSION: "0.17.11"
+        CURRENT_PROJECT_VERSION: "70"
         PRODUCT_NAME: NullSports
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES

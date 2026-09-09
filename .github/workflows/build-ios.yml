@@ -27,6 +27,14 @@ jobs:
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
+      - name: Check live playback recovery and professional matchup evidence
+        run: |
+          set -euo pipefail
+          swiftc NullSports/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/nullsports-playback-health-checks
+          /tmp/nullsports-playback-health-checks
+          swiftc NullSports/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/nullsports-professional-match-checks
+          /tmp/nullsports-professional-match-checks
+
       - name: Generate project
         run: |
           set -euo pipefail
