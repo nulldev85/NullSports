@@ -277,7 +277,7 @@ private struct MatchDiagnosticsView: View {
                 Text(stream.name).font(.caption.weight(.medium))
                 Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
                     .font(.caption2)
-                    .foregroundStyle(evidence == .guideListing ? Color.secondary : NullSportsStyle.warning)
+                    .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : NullSportsStyle.warning)
             } else {
                 Text("No match \u{2014} opens the channel picker")
                     .font(.caption2).foregroundStyle(.secondary)

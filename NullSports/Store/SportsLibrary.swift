@@ -499,15 +499,19 @@ final class SportsLibrary: ObservableObject {
     // Which rule authorized a match, for the diagnostics screen. A wrong game
     // should be able to name the evidence behind it without a device log.
     enum MatchEvidence: String {
+        case dedicatedFeed = "Channel is named for this game"
         case guideListing = "Guide listing named both teams"
-        case channelName = "Channel name named both teams"
         case networkOnly = "Network only, no game evidence"
     }
 
+    // The two matchers score on different scales, so the league decides how a
+    // score reads: college ranks guide evidence highest, while the professional
+    // policy ranks a channel named for the game above a national channel's guide.
     func matchEvidence(for game: SportsGame) -> MatchEvidence? {
         guard let score = matchEvidenceScores[game.id] else { return nil }
+        guard game.league == .ncaaf else { return score >= 400 ? .dedicatedFeed : .guideListing }
         if score >= 300 { return .guideListing }
-        return score >= 200 ? .channelName : .networkOnly
+        return score >= 200 ? .dedicatedFeed : .networkOnly
     }
 
     private func matchIdentities(now: Date) -> [String: [String]] {
