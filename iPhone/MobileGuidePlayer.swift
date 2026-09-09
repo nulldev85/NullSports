@@ -69,17 +69,44 @@ struct MobileGuidePlayer: View {
             .animation(.easeInOut(duration: 0.2), value: controlsVisible)
             .frame(height: videoHeight).background(.black).clipped()
             if !expanded && showsMetadata {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(stream.name).font(.headline).lineLimit(1)
-                    HStack(spacing: 8) {
-                        Image(systemName: "dot.radiowaves.left.and.right")
+                HStack(alignment: .top, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(NullSportsStyle.lightPurple.opacity(0.7))
+                        .frame(width: 3, height: 72)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text("NOW SHOWING")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(1.5)
+                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                            if program?.isNew == true {
+                                Text("NEW")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(NullSportsStyle.raised, in: RoundedRectangle(cornerRadius: 4))
+                            }
+                            Spacer(minLength: 4)
+                            if let program {
+                                Text("\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption2)
+                                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                    .lineLimit(1)
+                            }
+                        }
                         Text(program?.title ?? "Live channel · No guide information")
-                            .font(.caption.weight(.semibold)).lineLimit(2)
-                        Spacer(minLength: 0)
+                            .font(.headline)
+                            .lineLimit(2)
+                            .accessibilityAddTraits(.isHeader)
+                        Text(stream.name)
+                            .font(.caption)
+                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.7))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(NullSportsStyle.raised, in: RoundedRectangle(cornerRadius: 16))
-                }.padding(.horizontal, 12).padding(.vertical, 10)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .accessibilityElement(children: .combine)
             }
         }
         .foregroundStyle(NullSportsStyle.lightPurple)
