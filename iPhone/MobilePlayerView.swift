@@ -129,7 +129,6 @@ final class MobilePlaybackController: ObservableObject {
     @Published var error: String?
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
-    @Published private(set) var frameRate: Double?
     private var monitor: Task<Void, Never>?
     private var candidates: [URL] = []
     private var originalURLs: [URL] = []
@@ -155,12 +154,10 @@ final class MobilePlaybackController: ObservableObject {
         }
     }
 
-    /// Combined "1080p · 30fps" badge text, or just the quality if fps isn't known yet.
-    var streamQualityLabel: String? {
-        guard let quality = qualityLabel else { return nil }
-        guard let frameRate, frameRate > 1 else { return quality }
-        return "\(quality) · \(Int(frameRate.rounded()))fps"
-    }
+    // VLCKit's per-track dictionary API (frame rate, codec) varies across
+    // versions and isn't worth pinning to for a badge — videoSize alone
+    // covers what was actually asked for ("quality of channel").
+    var streamQualityLabel: String? { qualityLabel }
 
     func attachVideo(_ view: MobileVideoHost) {
         videoView = view
@@ -247,7 +244,6 @@ final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
-        frameRate = nil
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
@@ -280,19 +276,10 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func refreshStats() {
-        guard let tracks = player.media?.tracksInformation as? [[String: Any]],
-              let videoTrack = tracks.first(where: { ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeVideo })
-        else { return }
-        if let width = (videoTrack[VLCMediaTracksInformationVideoWidth] as? NSNumber)?.intValue,
-           let height = (videoTrack[VLCMediaTracksInformationVideoHeight] as? NSNumber)?.intValue,
-           width > 0, height > 0 {
-            videoWidth = width
-            videoHeight = height
-        }
-        if let numerator = (videoTrack[VLCMediaTracksInformationFrameRate] as? NSNumber)?.doubleValue, numerator > 0 {
-            let denominator = (videoTrack[VLCMediaTracksInformationFrameRateDenominator] as? NSNumber)?.doubleValue ?? 1
-            frameRate = denominator > 0 ? numerator / denominator : numerator
-        }
+        let size = player.videoSize
+        guard size.width > 0, size.height > 0 else { return }
+        videoWidth = Int(size.width)
+        videoHeight = Int(size.height)
     }
 
     func suspend() {
