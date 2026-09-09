@@ -18,7 +18,7 @@ struct MediaServersView: View {
                     } actions: {
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
-                } else if media.catalogs.isEmpty && media.isLoading {
+                } else if media.roots.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
                 } else {
                     MediaCatalogsScreen(catalogs: media.catalogs)
@@ -38,7 +38,7 @@ struct MediaServersView: View {
                     .preferredColorScheme(.dark)
             }
             .task {
-                if media.activeProfile != nil && media.catalogs.isEmpty { await media.reload() }
+                if media.activeProfile != nil && media.roots.isEmpty { await media.reload() }
             }
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
@@ -87,14 +87,14 @@ private struct TVMediaServersHome: View {
 
             if media.activeProfile == nil {
                 TVMediaEmptyState { addingServer = true }
-            } else if media.catalogs.isEmpty && media.isLoading {
+            } else if media.roots.isEmpty && media.isLoading {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
                     Text("Loading your libraries…").font(.headline)
                 }
                 .foregroundStyle(NullSportsStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if media.catalogs.isEmpty {
+            } else if media.roots.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
                     Text("No libraries found").font(.title2.weight(.semibold))
@@ -176,18 +176,32 @@ private struct MediaCatalogsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass").opacity(0.58)
-                TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
-                if searching { ProgressView().controlSize(.small) }
-                if !query.isEmpty {
-                    Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain)
+            HStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").opacity(0.58)
+                    TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
+                    if searching { ProgressView().controlSize(.small) }
+                    if !query.isEmpty {
+                        Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
+                .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.line, lineWidth: 1))
+                Menu {
+                    if media.availableShelves.isEmpty {
+                        Button("All available shelves are visible") { }.disabled(true)
+                    } else {
+                        ForEach(media.availableShelves) { root in
+                            Button(root.name, systemImage: "plus") { Task { await media.addShelf(root) } }
+                        }
+                    }
+                } label: {
+                    Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 16, weight: .semibold)).padding(.horizontal, 10).frame(height: searchHeight)
                 }
             }
-            .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
-            .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.line, lineWidth: 1))
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
 
             if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -202,13 +216,19 @@ private struct MediaCatalogsScreen: View {
                     MediaGridScreen(title: "Search Results", items: results)
                 }
             } else {
-                ScrollView {
+                if catalogs.isEmpty {
+                    ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                } else { ScrollView {
                     LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                         ForEach(catalogs) { catalog in
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(catalog.title).font(sectionTitleFont)
                                     Spacer()
+                                    Button { media.removeShelf(catalog) } label: {
+                                        Image(systemName: "minus.circle").accessibilityLabel("Remove \(catalog.title) shelf")
+                                    }.buttonStyle(.plain)
                                     NavigationLink(value: catalog.root) {
                                         Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
                                     }.buttonStyle(.plain)
@@ -234,7 +254,7 @@ private struct MediaCatalogsScreen: View {
                         }
                     }
                     .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
-                }
+                } }
             }
         }
         .foregroundStyle(NullSportsStyle.lightPurple)
