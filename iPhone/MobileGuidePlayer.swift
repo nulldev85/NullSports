@@ -1,0 +1,155 @@
+import SwiftUI
+
+/// Both compact and expanded layouts keep this same VLC surface and controller.
+/// Resizing must not open a second provider connection or restart the stream.
+struct MobileGuidePlayer: View {
+    @ObservedObject var controller: MobilePlaybackController
+    let stream: XtreamStream
+    let program: CurrentProgram?
+    let expanded: Bool
+    let showsMetadata: Bool
+    let videoHeight: CGFloat
+    let onClose: () -> Void
+    let onExpand: () -> Void
+    let onRetry: () -> Void
+    @State private var controlsVisible = true
+    @State private var hideControlsTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                MobileVideoSurface(controller: controller)
+                // A transparent tap-catching layer, separate from the embedded VLC
+                // view itself. VLCKit inserts its own rendering subview into that
+                // UIKit view, and a plain SwiftUI gesture attached directly to a
+                // UIViewRepresentable doesn't reliably win against touch handling
+                // that library owns — this overlay guarantees ours does.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { toggleControls() })
+                    .accessibilityLabel("Video. Tap to show playback controls")
+                if let error = controller.error {
+                    VStack(spacing: 8) {
+                        Text(error).font(.caption).multilineTextAlignment(.center)
+                        Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
+                            .buttonStyle(.borderedProminent)
+                    }.padding(.horizontal, 52)
+                } else if controller.loading {
+                    ProgressView("Opening stream…").font(.caption)
+                }
+                if controlsVisible {
+                    VStack {
+                        HStack(spacing: 10) {
+                            control("xmark", label: "Close player", action: onClose)
+                            if controller.error == nil && !controller.loading {
+                                statusBadge
+                                if let quality = controller.streamQualityLabel { qualityBadge(quality) }
+                            }
+                            Spacer()
+                            control(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                    label: expanded ? "Return to guide" : "Expand player") {
+                                showControls()
+                                onExpand()
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, expanded ? 36 : 8)
+                    .padding(.vertical, expanded ? 28 : 8)
+                    .transition(.opacity)
+                    // A ZStack-centered sibling, not nested in the VStack above, so
+                    // it lands dead-center on screen, matching every other player.
+                    if !controller.loading && controller.error == nil {
+                        control(controller.isPlaying ? "pause.fill" : "play.fill",
+                                label: controller.isPlaying ? "Pause" : "Play", size: 56) { controller.toggle() }
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: controlsVisible)
+            .frame(height: videoHeight).background(.black).clipped()
+            if !expanded && showsMetadata {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(stream.name).font(.headline).lineLimit(1)
+                    HStack(spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                        Text(program?.title ?? "Live channel · No guide information")
+                            .font(.caption.weight(.semibold)).lineLimit(2)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(NullSportsStyle.raised, in: RoundedRectangle(cornerRadius: 16))
+                }.padding(.horizontal, 12).padding(.vertical, 10)
+            }
+        }
+        .foregroundStyle(NullSportsStyle.lightPurple)
+        .background(NullSportsStyle.background)
+        .onChange(of: stream.id) { _, _ in showControls() }
+        .onChange(of: controller.isPlaying) { _, playing in
+            if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
+        }
+        .onDisappear { hideControlsTask?.cancel() }
+    }
+
+    // Tapping the video is the only way to dismiss controls manually; while
+    // actively playing they also fade on their own after a few seconds, same
+    // as any other video player. Paused/loading/error states stay visible
+    // since there's no motion to signal that the video is still alive.
+    private func toggleControls() {
+        if controlsVisible {
+            hideControlsTask?.cancel()
+            controlsVisible = false
+        } else {
+            showControls()
+        }
+    }
+
+    private func showControls() {
+        controlsVisible = true
+        scheduleAutoHide()
+    }
+
+    private func scheduleAutoHide() {
+        hideControlsTask?.cancel()
+        guard controller.isPlaying else { return }
+        hideControlsTask = Task {
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            guard !Task.isCancelled else { return }
+            controlsVisible = false
+        }
+    }
+
+    private func control(_ symbol: String, label: String, size: CGFloat = 44,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size == 56 ? 24 : 18, weight: .bold))
+                .frame(width: size, height: size)
+                .background(.black.opacity(0.6), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+
+    // Doubles as a jump-back-to-live action: reopens the stream fresh, so a
+    // viewer who paused for a few seconds (or hit a stall) can snap back to
+    // the live edge instead of waiting or guessing why nothing's happening.
+    private var statusBadge: some View {
+        Button { controller.goLive() } label: {
+            HStack(spacing: 6) {
+                if controller.isPlaying { MobileLiveDot() }
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
+    }
+
+    private func qualityBadge(_ text: String) -> some View {
+        Text(text).font(.caption2.weight(.semibold))
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(.black.opacity(0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+    }
+}
