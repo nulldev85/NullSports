@@ -112,6 +112,14 @@ enum CollegeChannelMatcherChecks {
         check(Matcher.score(channel: "ESPN", listings: [matchup], game: delayed, now: kickoff.addingTimeInterval(86400)) == nil, "Delay cannot preserve yesterday's match")
         check(!game(status: "Postponed after delay").isDelayed, "Postponement is not an active delay")
         check(!game(status: "Final after delay").isDelayed, "Final is not an active delay")
+        // Playback runs the matcher with the fallback off: the network a game is
+        // scheduled on is not evidence that channel is carrying it. These are the
+        // cases that used to authorize a channel on the schedule's word alone.
+        check(score("US: ESPN HD", fallback: false) == nil, "Reported network alone cannot authorize playback")
+        check(score("ESPN", [listing("College Football")], fallback: false) == nil, "Generic guide alone cannot authorize playback")
+        check(score("ESPN", [listing("No program information")], fallback: false) == nil, "Guide placeholder alone cannot authorize playback")
+        check(score("ESPN", [listing("SMU vs Florida State", offset: 86400)], fallback: false) == nil, "Tomorrow's guide alone cannot authorize playback")
+        check(score("SMU vs Florida State", fallback: false) != nil, "A named event feed still matches without the fallback")
         print("\(checks) college channel matching checks passed")
     }
 }
