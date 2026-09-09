@@ -5,6 +5,7 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var profiles: [MediaServerProfile] = []
     @Published private(set) var activeProfile: MediaServerProfile?
     @Published private(set) var roots: [MediaItem] = []
+    @Published private(set) var catalogs: [MediaCatalog] = []
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -12,6 +13,7 @@ final class MediaLibrary: ObservableObject {
     private let profilesKey = "NullSports.mediaServers"
     private let activeKey = "NullSports.activeMediaServer"
     private let deviceKey = "NullSports.mediaDeviceID"
+    private var loadID = UUID()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -26,11 +28,17 @@ final class MediaLibrary: ObservableObject {
     var hasProfile: Bool { activeProfile != nil }
 
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
+        let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanUsername.isEmpty, !password.isEmpty else {
+            errorMessage = "Enter your media server username and password."
+            return false
+        }
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
         do {
             let client = try JellyfinClient(serverURL: serverURL, deviceID: deviceID)
-            let authentication = try await client.authenticate(username: username, password: password)
+            let authentication = try await client.authenticate(username: cleanUsername, password: password)
             let profile = MediaServerProfile(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My Media" : name,
                 serverURL: client.serverURL.absoluteString,
@@ -50,31 +58,61 @@ final class MediaLibrary: ObservableObject {
     }
 
     func select(_ profile: MediaServerProfile) async {
+        loadID = UUID()
         activeProfile = profile
         roots = []
+        catalogs = []
         persist()
         await reload()
     }
 
     func remove(_ profile: MediaServerProfile) {
+        loadID = UUID()
         MediaKeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
             roots = []
+            catalogs = []
         }
+        isLoading = false
         persist()
         if activeProfile != nil { Task { await reload() } }
     }
 
     func reload() async {
-        guard let profile = activeProfile else { roots = []; return }
+        guard let profile = activeProfile else { roots = []; catalogs = []; isLoading = false; return }
+        let requestID = UUID()
+        loadID = requestID
         isLoading = true
-        defer { isLoading = false }
+        errorMessage = nil
         do {
-            roots = try await client(for: profile).views(userID: profile.userID)
+            let source = try client(for: profile)
+            let loaded = try await source.views(userID: profile.userID)
+            let loadedCatalogs = await withTaskGroup(of: MediaCatalog.self) { group in
+                for root in loaded {
+                    group.addTask {
+                        let items = (try? await source.items(userID: profile.userID, parentID: root.id)) ?? []
+                        return MediaCatalog(root: root, items: items)
+                    }
+                }
+                var result: [MediaCatalog] = []
+                for await catalog in group { result.append(catalog) }
+                return result.sorted { left, right in
+                    let leftIndex = loaded.firstIndex { $0.id == left.id } ?? .max
+                    let rightIndex = loaded.firstIndex { $0.id == right.id } ?? .max
+                    return leftIndex < rightIndex
+                }
+            }
+            guard loadID == requestID, activeProfile?.id == profile.id else { return }
+            roots = loaded
+            catalogs = loadedCatalogs
             errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard loadID == requestID, activeProfile?.id == profile.id else { return }
+            errorMessage = error.localizedDescription
+        }
+        if loadID == requestID { isLoading = false }
     }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {

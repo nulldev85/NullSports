@@ -71,7 +71,13 @@ struct LiveView: View {
                     RadialGradient(colors: [NullSportsStyle.lightPurple.opacity(0.055), .clear], center: .topTrailing, startRadius: 20, endRadius: 720)
                 }.ignoresSafeArea()
             )
-            .fullScreenCover(item: $selectedStream) { stream in PlayerView(urls: library.playbackURLs(for: stream)) }
+            .fullScreenCover(item: $selectedStream) { stream in
+                PlayerView(
+                    urls: library.playbackURLs(for: stream),
+                    title: stream.name,
+                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+                )
+            }
             .sheet(item: $manualChannelGame) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     manualChannelGame = nil
@@ -1182,7 +1188,11 @@ struct GuideView: View {
                     }.ignoresSafeArea()
                 )
                 .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
-                    PlayerView(urls: library.playbackURLs(for: stream))
+                    PlayerView(
+                        urls: library.playbackURLs(for: stream),
+                        title: stream.name,
+                        program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+                    )
                 }
                 .fullScreenCover(item: $multiviewSession) { session in
                     MultiviewView(
@@ -2257,16 +2267,185 @@ private struct MultiviewPane: View {
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     let urls: [URL]
+    var title: String = "Live TV"
+    var program: CurrentProgram?
+    var isLive = true
     @StateObject private var controller = VLCPlaybackController()
+    @State private var controlsVisible = true
+    @State private var hideControlsTask: Task<Void, Never>?
+    @FocusState private var focusedControl: TVPlayerControl?
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black).ignoresSafeArea()
-            if urls.isEmpty { Text("This stream is unavailable").foregroundColor(NullSportsStyle.lightPurple).font(.title2).foregroundStyle(NullSportsStyle.lightPurple).padding(60) }
+        ZStack {
+            VLCVideoSurface(player: controller.player)
+                .overlay { TVPlaybackStatus(controller: controller) }
+                .background(Color.black).ignoresSafeArea()
+            if controlsVisible && controller.error == nil {
+                TVPlayerChrome(title: title, program: program, isLive: isLive, controller: controller,
+                    focusedControl: $focusedControl, onInteraction: keepControlsVisible)
+                    .transition(.opacity)
+            }
+            if urls.isEmpty {
+                Text("This stream is unavailable").font(.title2)
+                    .foregroundStyle(NullSportsStyle.lightPurple).padding(60)
+            }
         }
-        .background(Color.black).focusable()
-        .onPlayPauseCommand { controller.togglePlayback() }
+        .background(Color.black).contentShape(Rectangle())
+        .onTapGesture { revealControls() }
+        .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
+        .onMoveCommand { _ in revealControls() }
         .onExitCommand { controller.stop(); dismiss() }
-        .onAppear { controller.start(urls: urls) }.onDisappear { controller.stop() }
+        .onAppear { controller.start(urls: urls); revealControls(focus: true) }
+        .onDisappear { hideControlsTask?.cancel(); controller.stop() }
+        .onChange(of: controller.isPlaying) { _, playing in
+            if playing { scheduleAutoHide() }
+            else { hideControlsTask?.cancel(); controlsVisible = true }
+        }
+        .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+    }
+
+    private func revealControls(focus: Bool = false) {
+        controlsVisible = true
+        if focus {
+            Task { @MainActor in await Task.yield(); focusedControl = .playPause }
+        }
+        scheduleAutoHide()
+    }
+
+    private func keepControlsVisible() { controlsVisible = true; scheduleAutoHide() }
+
+    private func scheduleAutoHide() {
+        hideControlsTask?.cancel()
+        guard controller.isPlaying else { return }
+        hideControlsTask = Task {
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard !Task.isCancelled else { return }
+            controlsVisible = false
+        }
+    }
+}
+
+private enum TVPlayerControl: Hashable { case playPause, goLive, mute, quality }
+
+private struct TVPlayerChrome: View {
+    let title: String
+    let program: CurrentProgram?
+    let isLive: Bool
+    @ObservedObject var controller: VLCPlaybackController
+    let focusedControl: FocusState<TVPlayerControl?>.Binding
+    let onInteraction: () -> Void
+
+    private var nowPlayingTitle: String {
+        guard let program, !program.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return title }
+        return program.title
+    }
+    private var subtitle: String? {
+        guard let program else { return title == nowPlayingTitle ? nil : title }
+        let time = "\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))"
+        return title == nowPlayingTitle ? time : "\(title)  ·  \(time)"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.black.opacity(0.72), .black.opacity(0.18), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 230)
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 9) {
+                            Circle().fill(NullSportsStyle.lightPurple).frame(width: 8, height: 8)
+                            Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
+                                .font(.system(size: 15, weight: .bold)).tracking(1.5)
+                        }
+                        Text(nowPlayingTitle).font(.system(size: 36, weight: .semibold, design: .rounded)).lineLimit(1)
+                        if let subtitle { Text(subtitle).font(.system(size: 19, weight: .medium)).opacity(0.78).lineLimit(1) }
+                        if let detail = program?.detail, !detail.isEmpty {
+                            Text(detail).font(.system(size: 16)).opacity(0.62).lineLimit(1)
+                        }
+                    }
+                    .foregroundStyle(NullSportsStyle.lightPurple)
+                    .padding(.horizontal, 72).padding(.top, 48)
+                }
+            Spacer()
+            LinearGradient(colors: [.clear, .black.opacity(0.34), .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 270)
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 14) {
+                        TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
+                            symbol: controller.isPlaying ? "pause.fill" : "play.fill", prominent: true,
+                            focus: focusedControl, id: .playPause) { controller.togglePlayback(); onInteraction() }
+                        TVPlayerButton(title: isLive ? (controller.isAtLiveEdge ? "Live" : "Go Live") : "Restart",
+                            symbol: isLive ? "dot.radiowaves.left.and.right" : "backward.end.fill",
+                            badge: isLive && controller.isAtLiveEdge, focus: focusedControl, id: .goLive) {
+                                controller.goLive(); onInteraction()
+                            }
+                        TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
+                            symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                            focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                        Menu {
+                            Button("Auto · \(controller.qualityLabel)", systemImage: "checkmark") { }
+                                .disabled(true)
+                            Button(isLive ? "Refresh stream" : "Restart playback", systemImage: "arrow.clockwise") {
+                                controller.goLive(); onInteraction()
+                            }
+                        } label: {
+                            TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)", focused: focusedControl.wrappedValue == .quality)
+                        }
+                        .buttonStyle(.plain).focused(focusedControl, equals: .quality)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 72).padding(.bottom, 52)
+                }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct TVPlayerButton: View {
+    let title: String
+    let symbol: String
+    var prominent = false
+    var badge = false
+    let focus: FocusState<TVPlayerControl?>.Binding
+    let id: TVPlayerControl
+    let action: () -> Void
+
+    var body: some View {
+        let selected = focus.wrappedValue == id
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if badge { Circle().fill(NullSportsStyle.lightPurple).frame(width: 7, height: 7) }
+                Image(systemName: symbol).font(.system(size: 18, weight: .bold)).frame(width: 22)
+                Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
+            }
+            .foregroundStyle(prominent && selected ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+            .padding(.horizontal, 18).frame(height: 52)
+            .background(selected ? NullSportsStyle.lightPurple : (prominent ? NullSportsStyle.focused : NullSportsStyle.surface.opacity(0.88)),
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.lightPurple.opacity(selected ? 0 : 0.16), lineWidth: 1))
+            .shadow(color: selected ? NullSportsStyle.lightPurple.opacity(0.24) : .black.opacity(0.18), radius: selected ? 18 : 8, y: 7)
+            .scaleEffect(selected ? 1.06 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
+        }
+        .buttonStyle(.plain).focused(focus, equals: id).accessibilityLabel(title)
+    }
+}
+
+private struct TVPlayerMenuLabel: View {
+    let title: String
+    let focused: Bool
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "gearshape.fill").font(.system(size: 17, weight: .bold))
+            Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
+        }
+        .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+        .padding(.horizontal, 18).frame(height: 52)
+        .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface.opacity(0.88),
+            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.lightPurple.opacity(focused ? 0 : 0.16), lineWidth: 1))
+        .scaleEffect(focused ? 1.06 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
 }
 
@@ -2274,6 +2453,9 @@ struct PlayerView: View {
     let player = VLCMediaPlayer()
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
+    @Published private(set) var isPlaying = false
+    @Published private(set) var isMuted = false
+    @Published private(set) var videoHeight = 0
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
     private var urlIndex = 0
@@ -2282,6 +2464,19 @@ struct PlayerView: View {
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
+
+    var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
+    var qualityLabel: String {
+        switch videoHeight {
+        case 2160...: "4K"
+        case 1440...: "1440p"
+        case 1080...: "1080p"
+        case 720...: "720p"
+        case 480...: "480p"
+        case 1...: "\(videoHeight)p"
+        default: "Auto"
+        }
+    }
 
     func start(urls: [URL], muted: Bool = false) {
         stop()
@@ -2331,7 +2526,12 @@ struct PlayerView: View {
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
             time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
         if health.isStable(now: now) { retries.reset() }
-        if player.isPlaying && player.hasVideoOut { reconnecting = false }
+        isPlaying = player.isPlaying
+        if player.isPlaying && player.hasVideoOut {
+            reconnecting = false
+            let height = Int(player.videoSize.height)
+            if height > 0 { videoHeight = height }
+        }
         guard recover else { return }
         player.stop()
         guard let delay = retries.nextDelay() else {
@@ -2345,8 +2545,17 @@ struct PlayerView: View {
         retryAt = now + delay
     }
 
-    func setMuted(_ muted: Bool) { self.muted = muted; player.audio?.isMuted = muted }
+    func setMuted(_ muted: Bool) {
+        self.muted = muted
+        isMuted = muted
+        player.audio?.isMuted = muted
+    }
+    func toggleMute() { setMuted(!muted) }
     func retry() { start(urls: Array(urls.reversed()), muted: muted) }
+    func goLive() {
+        guard !urls.isEmpty else { return }
+        start(urls: Array(urls.reversed()), muted: muted)
+    }
     func togglePlayback() {
         pausedByUser.toggle()
         if pausedByUser { player.pause() }
@@ -2354,6 +2563,7 @@ struct PlayerView: View {
             health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
             if retryAt == nil { player.play() }
         }
+        isPlaying = player.isPlaying
     }
     func stop() {
         monitor?.cancel()
@@ -2362,6 +2572,8 @@ struct PlayerView: View {
         urls = []
         pausedByUser = false
         reconnecting = false
+        isPlaying = false
+        videoHeight = 0
         player.stop()
         player.media = nil
     }

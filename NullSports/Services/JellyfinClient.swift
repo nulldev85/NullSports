@@ -37,6 +37,7 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,ChildCount"),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
             URLQueryItem(name: "EnableImageTypes", value: "Primary"),
+            URLQueryItem(name: "Limit", value: "40"),
             URLQueryItem(name: "SortBy", value: "SortName"),
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]

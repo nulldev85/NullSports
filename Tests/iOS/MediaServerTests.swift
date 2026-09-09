@@ -30,6 +30,24 @@ final class MediaServerTests: XCTestCase {
             .queryItems?.first(where: { $0.name == "static" })?.value, "true")
     }
 
+    func testBuildsCatalogShelfFromServerLibrary() throws {
+        let client = try JellyfinClient(
+            serverURL: "https://media.example.test",
+            accessToken: "token",
+            deviceID: "device-1"
+        )
+
+        let catalog = MediaCatalog(
+            root: MediaItem(id: "movies", name: "Movies", type: "CollectionFolder",
+                overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: 1),
+            items: [MediaItem(id: "movie", name: "Movie", type: "Movie",
+                overview: nil, productionYear: 2026, primaryImageAspectRatio: 0.667, childCount: nil)]
+        )
+        XCTAssertEqual(catalog.title, "Movies")
+        XCTAssertEqual(catalog.items.first?.name, "Movie")
+        XCTAssertNotNil(client.playbackURL(itemID: "movie"))
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)
