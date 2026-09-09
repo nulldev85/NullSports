@@ -120,6 +120,11 @@ final class MediaLibrary: ObservableObject {
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
     }
 
+    func search(_ query: String) async throws -> [MediaItem] {
+        guard let profile = activeProfile else { return [] }
+        return try await client(for: profile).search(userID: profile.userID, query: query)
+    }
+
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)

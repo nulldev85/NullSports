@@ -167,50 +167,94 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 #endif
 
 private struct MediaCatalogsScreen: View {
+    @EnvironmentObject private var media: MediaLibrary
     let catalogs: [MediaCatalog]
+    @State private var query = ""
+    @State private var results: [MediaItem] = []
+    @State private var searching = false
+    @State private var searchError: String?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                ForEach(catalogs) { catalog in
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(catalog.title).font(sectionTitleFont)
-                            Spacer()
-                            NavigationLink(value: catalog.root) {
-                                Label("See All", systemImage: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if catalog.items.isEmpty {
-                            Text("No titles in this catalog.")
-                                .font(.callout).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58))
-                                .frame(height: 64)
-                        } else {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(alignment: .top, spacing: itemSpacing) {
-                                    ForEach(catalog.items) { item in
-                                        Group {
-                                            if item.isFolder {
-                                                NavigationLink(value: item) { MediaItemCard(item: item) }.buttonStyle(.plain)
-                                            } else {
-                                                MediaPlayableCard(item: item)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass").opacity(0.58)
+                TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
+                if searching { ProgressView().controlSize(.small) }
+                if !query.isEmpty {
+                    Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                }
+            }
+            .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
+            .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.line, lineWidth: 1))
+            .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
+
+            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if searching && results.isEmpty {
+                    ProgressView("Searching connected addons…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let searchError {
+                    ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
+                } else if results.isEmpty {
+                    ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                        description: Text("No connected catalog or metadata addon returned a match."))
+                } else {
+                    MediaGridScreen(title: "Search Results", items: results)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                        ForEach(catalogs) { catalog in
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(catalog.title).font(sectionTitleFont)
+                                    Spacer()
+                                    NavigationLink(value: catalog.root) {
+                                        Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
+                                    }.buttonStyle(.plain)
+                                }
+                                if catalog.items.isEmpty {
+                                    Text("No titles in this catalog.").font(.callout)
+                                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                                } else {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        LazyHStack(alignment: .top, spacing: itemSpacing) {
+                                            ForEach(catalog.items) { item in
+                                                Group {
+                                                    if item.isFolder {
+                                                        NavigationLink(value: item) { MediaItemCard(item: item) }.buttonStyle(.plain)
+                                                    } else { MediaPlayableCard(item: item) }
+                                                }.frame(width: cardWidth)
                                             }
                                         }
-                                        .frame(width: cardWidth)
+                                        .padding(.vertical, 8)
                                     }
                                 }
-                                .padding(.vertical, 8)
                             }
                         }
                     }
+                    .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
                 }
             }
-            .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
         }
         .foregroundStyle(NullSportsStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        .task(id: query) {
+            let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { results = []; searching = false; searchError = nil; return }
+            searching = true
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            guard !Task.isCancelled else { return }
+            do {
+                let found = try await media.search(value)
+                guard !Task.isCancelled else { return }
+                results = found; searchError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                results = []; searchError = error.localizedDescription
+            }
+            searching = false
+        }
     }
 
     private var horizontalPadding: CGFloat {
@@ -246,6 +290,20 @@ private struct MediaCatalogsScreen: View {
         .system(size: 24, weight: .semibold, design: .rounded)
         #else
         .title3.weight(.bold)
+        #endif
+    }
+    private var searchFont: Font {
+        #if os(tvOS)
+        .system(size: 19, weight: .medium)
+        #else
+        .body
+        #endif
+    }
+    private var searchHeight: CGFloat {
+        #if os(tvOS)
+        54
+        #else
+        46
         #endif
     }
 }

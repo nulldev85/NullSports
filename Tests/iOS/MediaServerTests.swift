@@ -48,6 +48,15 @@ final class MediaServerTests: XCTestCase {
         XCTAssertNotNil(client.playbackURL(itemID: "movie"))
     }
 
+    func testSearchResultDecodesAddonMoviesAndSeries() throws {
+        let data = Data(#"{"Items":[{"Id":"addon-movie","Name":"Addon Movie","Type":"Movie","Overview":"Metadata provider result"},{"Id":"addon-series","Name":"Addon Series","Type":"Series","ChildCount":3}]}"#.utf8)
+        let response = try JSONDecoder().decode(JellyfinItemsResponse.self, from: data)
+
+        XCTAssertTrue(response.items[0].isPlayable)
+        XCTAssertTrue(response.items[1].isFolder)
+        XCTAssertEqual(response.items[0].overview, "Metadata provider result")
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)
