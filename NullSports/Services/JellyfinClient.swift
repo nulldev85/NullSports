@@ -37,11 +37,30 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,ChildCount"),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
             URLQueryItem(name: "EnableImageTypes", value: "Primary"),
+            URLQueryItem(name: "Limit", value: "40"),
             URLQueryItem(name: "SortBy", value: "SortName"),
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
         let response: JellyfinItemsResponse = try await send(
             try request(path: "users/\(userID)/items", query: query))
+        return response.items
+    }
+
+    func search(userID: String, query: String) async throws -> [MediaItem] {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return [] }
+        let parameters = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "SearchTerm", value: value),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series,Episode,Video"),
+            URLQueryItem(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,ChildCount"),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary"),
+            URLQueryItem(name: "Limit", value: "60")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: parameters))
         return response.items
     }
 

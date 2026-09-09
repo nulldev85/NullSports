@@ -7,6 +7,10 @@ struct MediaServersView: View {
     var body: some View {
         NavigationStack {
             Group {
+            #if os(tvOS)
+            TVMediaServersHome(addingServer: $addingServer)
+            #else
+            Group {
                 if media.activeProfile == nil {
                     ContentUnavailableView {
                         Label("Connect a Media Server", systemImage: "play.square.stack")
@@ -18,7 +22,7 @@ struct MediaServersView: View {
                 } else if media.roots.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
                 } else {
-                    MediaGridScreen(title: media.activeProfile?.name ?? "Media Servers", items: media.roots)
+                    MediaCatalogsScreen(catalogs: media.catalogs)
                 }
             }
             .background(NullSportsStyle.background.ignoresSafeArea())
@@ -27,6 +31,8 @@ struct MediaServersView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Server", systemImage: "plus") { addingServer = true }
                 }
+            }
+            #endif
             }
             .sheet(isPresented: $addingServer) {
                 MediaServerSetupView()
@@ -46,12 +52,290 @@ struct MediaServersView: View {
     }
 }
 
+#if os(tvOS)
+private struct TVMediaServersHome: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Binding var addingServer: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("MEDIA SERVERS")
+                        .font(.system(size: 13, weight: .bold)).tracking(2.2)
+                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    Text(media.activeProfile?.name ?? "Your library")
+                        .font(.system(size: 34, weight: .semibold, design: .rounded))
+                        .foregroundStyle(NullSportsStyle.lightPurple)
+                }
+                Spacer()
+                if let profile = media.activeProfile {
+                    Label(profile.username, systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.72))
+                        .padding(.horizontal, 14).frame(height: 38)
+                        .background(NullSportsStyle.surface, in: Capsule())
+                }
+                Button { Task { await media.reload() } } label: {
+                    Image(systemName: "arrow.clockwise").frame(width: 42, height: 42)
+                }
+                .buttonStyle(TVMediaHeaderButtonStyle()).disabled(media.isLoading || media.activeProfile == nil)
+                Button { addingServer = true } label: {
+                    Label("Add Server", systemImage: "plus").padding(.horizontal, 4).frame(height: 42)
+                }
+                .buttonStyle(TVMediaHeaderButtonStyle())
+            }
+            .padding(.horizontal, 54).padding(.top, 18)
+
+            if media.activeProfile == nil {
+                TVMediaEmptyState { addingServer = true }
+            } else if media.roots.isEmpty && media.isLoading {
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large)
+                    Text("Loading your libraries…").font(.headline)
+                }
+                .foregroundStyle(NullSportsStyle.lightPurple)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if media.roots.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
+                    Text("No libraries found").font(.title2.weight(.semibold))
+                    Text("Refresh the server, or confirm this account can access a library.")
+                        .font(.callout).opacity(0.68)
+                }
+                .foregroundStyle(NullSportsStyle.lightPurple)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                MediaCatalogsScreen(catalogs: media.catalogs)
+            }
+        }
+        .background(
+            ZStack {
+                NullSportsStyle.background
+                RadialGradient(colors: [NullSportsStyle.lightPurple.opacity(0.055), .clear],
+                    center: .topTrailing, startRadius: 30, endRadius: 760)
+            }.ignoresSafeArea()
+        )
+    }
+}
+
+private struct TVMediaEmptyState: View {
+    let add: () -> Void
+    var body: some View {
+        HStack(spacing: 34) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(NullSportsStyle.surface)
+                Image(systemName: "play.square.stack.fill")
+                    .font(.system(size: 72, weight: .light)).foregroundStyle(NullSportsStyle.lightPurple)
+            }
+            .frame(width: 210, height: 150)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Bring your media to the big screen.")
+                    .font(.system(size: 32, weight: .semibold, design: .rounded))
+                Text("Connect Jellyfin or Nullfin to browse libraries, addon catalogs, and streams.")
+                    .font(.system(size: 18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
+                Button("Connect a Server", systemImage: "plus", action: add)
+                    .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled().padding(.top, 6)
+            }
+            .foregroundStyle(NullSportsStyle.lightPurple)
+        }
+        .padding(42)
+        .background(NullSportsStyle.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(NullSportsStyle.line, lineWidth: 1))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 90).padding(.bottom, 80)
+    }
+}
+
+private struct TVMediaHeaderButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HeaderLabel(configuration: configuration)
+    }
+    private struct HeaderLabel: View {
+        @Environment(\.isFocused) private var focused
+        let configuration: ButtonStyle.Configuration
+        var body: some View {
+            configuration.label
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+                .padding(.horizontal, 14).frame(minHeight: 42)
+                .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .scaleEffect(focused ? 1.055 : 1)
+                .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
+        }
+    }
+}
+#endif
+
+private struct MediaCatalogsScreen: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let catalogs: [MediaCatalog]
+    @State private var query = ""
+    @State private var results: [MediaItem] = []
+    @State private var searching = false
+    @State private var searchError: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").opacity(0.58)
+                    TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
+                    if searching { ProgressView().controlSize(.small) }
+                    if !query.isEmpty {
+                        Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
+                .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.line, lineWidth: 1))
+                Menu {
+                    if media.availableShelves.isEmpty {
+                        Button("All available shelves are visible") { }.disabled(true)
+                    } else {
+                        ForEach(media.availableShelves) { root in
+                            Button(root.name, systemImage: "plus") { Task { await media.addShelf(root) } }
+                        }
+                    }
+                } label: {
+                    Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 16, weight: .semibold)).padding(.horizontal, 10).frame(height: searchHeight)
+                }
+            }
+            .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
+
+            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if searching && results.isEmpty {
+                    ProgressView("Searching connected addons…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let searchError {
+                    ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
+                } else if results.isEmpty {
+                    ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                        description: Text("No connected catalog or metadata addon returned a match."))
+                } else {
+                    MediaGridScreen(title: "Search Results", items: results)
+                }
+            } else {
+                if catalogs.isEmpty {
+                    ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                } else { ScrollView {
+                    LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                        ForEach(catalogs) { catalog in
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(catalog.title).font(sectionTitleFont)
+                                    Spacer()
+                                    Button { media.removeShelf(catalog) } label: {
+                                        Image(systemName: "minus.circle").accessibilityLabel("Remove \(catalog.title) shelf")
+                                    }.buttonStyle(.plain)
+                                    NavigationLink(value: catalog.root) {
+                                        Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
+                                    }.buttonStyle(.plain)
+                                }
+                                if catalog.items.isEmpty {
+                                    Text("No titles in this catalog.").font(.callout)
+                                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                                } else {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        LazyHStack(alignment: .top, spacing: itemSpacing) {
+                                            ForEach(catalog.items) { item in
+                                                Group {
+                                                    if item.isFolder {
+                                                        NavigationLink(value: item) { MediaItemCard(item: item) }.buttonStyle(.plain)
+                                                    } else { MediaPlayableCard(item: item) }
+                                                }.frame(width: cardWidth)
+                                            }
+                                        }
+                                        .padding(.vertical, 8)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
+                } }
+            }
+        }
+        .foregroundStyle(NullSportsStyle.lightPurple)
+        .navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        .task(id: query) {
+            let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { results = []; searching = false; searchError = nil; return }
+            searching = true
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            guard !Task.isCancelled else { return }
+            do {
+                let found = try await media.search(value)
+                guard !Task.isCancelled else { return }
+                results = found; searchError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                results = []; searchError = error.localizedDescription
+            }
+            searching = false
+        }
+    }
+
+    private var horizontalPadding: CGFloat {
+        #if os(tvOS)
+        54
+        #else
+        16
+        #endif
+    }
+    private var catalogSpacing: CGFloat {
+        #if os(tvOS)
+        32
+        #else
+        26
+        #endif
+    }
+    private var itemSpacing: CGFloat {
+        #if os(tvOS)
+        22
+        #else
+        14
+        #endif
+    }
+    private var cardWidth: CGFloat {
+        #if os(tvOS)
+        230
+        #else
+        150
+        #endif
+    }
+    private var sectionTitleFont: Font {
+        #if os(tvOS)
+        .system(size: 24, weight: .semibold, design: .rounded)
+        #else
+        .title3.weight(.bold)
+        #endif
+    }
+    private var searchFont: Font {
+        #if os(tvOS)
+        .system(size: 19, weight: .medium)
+        #else
+        .body
+        #endif
+    }
+    private var searchHeight: CGFloat {
+        #if os(tvOS)
+        54
+        #else
+        46
+        #endif
+    }
+}
+
 private struct MediaGridScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let title: String
     let items: [MediaItem]
 
-    var body: some View {
+    private var grid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: gridSpacing) {
                 ForEach(items) { item in
@@ -65,10 +349,16 @@ private struct MediaGridScreen: View {
             }
             .padding(.horizontal, horizontalPadding).padding(.vertical, 28)
         }
-        .navigationTitle(title)
-        .navigationDestination(for: MediaItem.self) { folder in
-            MediaFolderScreen(folder: folder)
-        }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        #if os(tvOS)
+        grid.navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        #else
+        grid.navigationTitle(title)
+            .navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        #endif
     }
 
     private var columns: [GridItem] {
@@ -136,7 +426,7 @@ private struct MediaPlayableCard: View {
             .fullScreenCover(isPresented: $playing) {
                 if let url = media.playbackURL(for: item) {
                     #if os(tvOS)
-                    PlayerView(urls: [url])
+                    PlayerView(urls: [url], title: item.name, isLive: false)
                     #else
                     MobilePlayerView(name: item.name, urls: [url])
                     #endif
@@ -220,7 +510,10 @@ struct MediaServerSetupView: View {
                                 username: username, password: password) { dismiss() }
                         }
                     }
-                    .disabled(media.isLoading || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(media.isLoading
+                        || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || password.isEmpty)
                 } footer: {
                     Text("Supports Jellyfin and Nullfin. Nullfin libraries include catalogs and streams from the addons configured on your server. Access tokens are stored securely in this device’s Keychain.")
                 }

@@ -42,6 +42,13 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+struct MediaCatalog: Identifiable, Hashable, Sendable {
+    let root: MediaItem
+    let items: [MediaItem]
+    var id: String { root.id }
+    var title: String { root.name }
+}
+
 struct JellyfinItemsResponse: Codable, Sendable {
     let items: [MediaItem]
 
