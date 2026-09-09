@@ -982,9 +982,22 @@ private struct TeamLogo: View {
     let url: String
     let fallback: String
     var body: some View {
-        AsyncImage(url: URL(string: url)) { image in image.resizable().scaledToFit().colorMultiply(NullSportsStyle.lightPurple) } placeholder: {
-            Text(fallback).foregroundColor(NullSportsStyle.lightPurple).font(.caption2.weight(.bold)).foregroundStyle(NullSportsStyle.secondary)
-        }.transaction { $0.animation = nil }
+        ZStack {
+            Circle().fill(Color.white.opacity(0.96))
+            AsyncImage(url: URL(string: url)) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit().padding(4)
+                } else {
+                    Text(fallback)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.black.opacity(0.68))
+                        .minimumScaleFactor(0.65)
+                }
+            }
+            .transaction { $0.animation = nil }
+        }
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.75))
     }
 }
 
@@ -1720,35 +1733,37 @@ private struct GuideChannelRow: View {
     }
 }
 
-/// Mirrors the iPhone Guide's artwork-first channel column. Logos keep their
-/// original colors and use nearly the full row height instead of sitting in a
-/// small framed tile beside duplicate channel text.
+/// Artwork stays prominent, while the full channel name remains visible below
+/// it so regional, quality, and alternate feeds are never ambiguous.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
+            VStack(spacing: 3) {
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit()
                             .frame(width: max(1, proxy.size.width - 22),
-                                   height: max(1, proxy.size.height - 14))
+                                   height: max(1, proxy.size.height - 45))
                     } else {
-                        VStack(spacing: 7) {
-                            Image(systemName: "tv")
-                                .font(.system(size: 24, weight: .light))
-                            Text(stream.name)
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                        }
-                        .foregroundStyle(GuidePalette.secondary)
-                        .padding(.horizontal, 12)
+                        Image(systemName: "tv")
+                            .font(.system(size: 24, weight: .light))
+                            .foregroundStyle(GuidePalette.secondary)
+                            .frame(width: max(1, proxy.size.width - 22),
+                                   height: max(1, proxy.size.height - 45))
                     }
                 }
                 .transaction { $0.animation = nil }
+                Text(stream.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.4)
+                    .allowsTightening(true)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: proxy.size.width - 14, minHeight: 32, maxHeight: 36)
+                    .foregroundStyle(GuidePalette.text)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topLeading) {
@@ -2072,6 +2087,8 @@ private struct GuideInlineStatus: View {
 
 struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var media: MediaLibrary
+    @State private var addingMediaServer = false
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 30) {
@@ -2087,12 +2104,35 @@ struct AccountView: View {
                     Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
                         .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled()
                 }
+                DetailPanel(title: "MEDIA SERVERS") {
+                    if media.profiles.isEmpty {
+                        AccountRow(label: "Status", value: "Not connected")
+                    } else {
+                        ForEach(media.profiles) { profile in
+                            HStack(spacing: 20) {
+                                Button {
+                                    Task { await media.select(profile) }
+                                } label: {
+                                    AccountRow(label: profile.name,
+                                        value: media.activeProfile?.id == profile.id ? "Active" : "Select")
+                                }
+                                .buttonStyle(.plain)
+                                Button("Remove", role: .destructive) { media.remove(profile) }
+                            }
+                        }
+                    }
+                }
+                Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
+                    .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled()
                 DetailPanel(title: "ABOUT") {
                     AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
                 }
                 Spacer()
             }
             .padding(.horizontal, 120).padding(.vertical, 48).background(NullSportsStyle.background)
+            .sheet(isPresented: $addingMediaServer) {
+                MediaServerSetupView().environmentObject(media)
+            }
         }
     }
 }

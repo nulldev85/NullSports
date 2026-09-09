@@ -4,6 +4,7 @@ import UIKit
 @main
 struct NullSportsApp: App {
     @StateObject private var library = SportsLibrary()
+    @StateObject private var media = MediaLibrary()
 
     init() {
         #if os(tvOS)
@@ -28,6 +29,7 @@ struct NullSportsApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(library)
+                .environmentObject(media)
                 .preferredColorScheme(.dark)
         }
     }

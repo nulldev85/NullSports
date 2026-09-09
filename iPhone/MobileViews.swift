@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var playing: XtreamStream?
@@ -14,8 +15,10 @@ struct MainView: View {
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
+            MediaServersView()
+                .tabItem { Label("Media Servers", systemImage: "play.square.stack") }.tag(2)
             MobileAccountView()
-                .tabItem { Label("Account", image: tab == 2 ? "Tab-Account-Selected" : "Tab-Account") }.tag(2)
+                .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         .tint(NullSportsStyle.lightPurple)
         .preferredColorScheme(.dark)
@@ -115,8 +118,11 @@ struct ProfileSetupView: View {
 
 private struct MobileAccountView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var media: MediaLibrary
     @State private var addingProvider = false
+    @State private var addingMediaServer = false
     @State private var removingProfile: XtreamProfile?
+    @State private var removingMediaProfile: MediaServerProfile?
 
     var body: some View {
         NavigationStack {
@@ -165,12 +171,45 @@ private struct MobileAccountView: View {
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
                 }.listRowBackground(NullSportsStyle.surface)
+                Section {
+                    ForEach(media.profiles) { profile in
+                        HStack {
+                            Button {
+                                Task { await media.select(profile) }
+                            } label: {
+                                HStack {
+                                    Image(systemName: media.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
+                                    VStack(alignment: .leading) {
+                                        Text(profile.name).fontWeight(.semibold)
+                                        Text(profile.serverURL).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Spacer()
+                                }
+                            }.buttonStyle(.plain)
+                            Button(role: .destructive) { removingMediaProfile = profile } label: {
+                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                    Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
+                    if media.isLoading { ProgressView("Connecting…") }
+                } header: {
+                    Text("Media Servers")
+                } footer: {
+                    Text("Jellyfin and Nullfin servers. Nullfin libraries include the addon catalogs configured on your server.")
+                }.listRowBackground(NullSportsStyle.surface)
             }
             .scrollContentBackground(.hidden).background(NullSportsStyle.background)
             .navigationTitle("Account")
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)
                     .environmentObject(library)
+                    .tint(NullSportsStyle.lightPurple)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $addingMediaServer) {
+                MediaServerSetupView()
+                    .environmentObject(media)
                     .tint(NullSportsStyle.lightPurple)
                     .preferredColorScheme(.dark)
             }
@@ -182,6 +221,15 @@ private struct MobileAccountView: View {
                     removingProfile = nil
                 }
                 Button("Cancel", role: .cancel) { removingProfile = nil }
+            }
+            .confirmationDialog("Remove \(removingMediaProfile?.name ?? "media server")?",
+                isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } }),
+                titleVisibility: .visible) {
+                Button("Remove media server", role: .destructive) {
+                    if let profile = removingMediaProfile { media.remove(profile) }
+                    removingMediaProfile = nil
+                }
+                Button("Cancel", role: .cancel) { removingMediaProfile = nil }
             }
         }
     }

@@ -3,14 +3,15 @@ import Foundation
 
 struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
-            if library.hasProfile {
+            if library.hasProfile || media.hasProfile {
                 MainView()
             } else {
-                ProfileSetupView()
+                InitialSourceSetupView()
             }
         }
         .foregroundStyle(NullSportsStyle.text)
@@ -52,9 +53,12 @@ struct MainView: View {
             GuideView()
                 .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }
                 .tag(1)
+            MediaServersView()
+                .tabItem { Label("Media Servers", systemImage: "play.square.stack") }
+                .tag(2)
             AccountView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
-                .tag(2)
+                .tag(3)
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(NullSportsStyle.field)
