@@ -10,12 +10,12 @@ struct MainView: View {
     var body: some View {
         TabView(selection: $tab) {
             MobileLiveView { playing = $0 }
-                .tabItem { Label("Live", systemImage: "play.rectangle.fill") }.tag(0)
+                .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
                 .id(library.activeProfile?.id)
-                .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }.tag(1)
+                .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MobileAccountView()
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }.tag(2)
+                .tabItem { Label("Account", image: tab == 2 ? "Tab-Account-Selected" : "Tab-Account") }.tag(2)
         }
         .tint(NullSportsStyle.lightPurple)
         .preferredColorScheme(.dark)
