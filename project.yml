@@ -9,9 +9,13 @@ settings:
     MARKETING_VERSION: "0.17.1"
     CURRENT_PROJECT_VERSION: "60"
 packages:
-  VLCKit:
-    url: https://code.videolan.org/videolan/VLCKit.git
-    exactVersion: 4.0.0-a22
+  # VLCKit's official Swift Package is only published on the 4.0 alpha line
+  # (still at a22, undocumented in places, and the source of two build
+  # breaks tonight). This community package instead bundles VLCKit's actual
+  # stable 3.6.0 release as a prebuilt xcframework for SPM.
+  VLCKitSPM:
+    url: https://github.com/tylerjonesio/vlckit-spm
+    exactVersion: 3.6.0
 targets:
   NullSports:
     type: application
@@ -19,7 +23,7 @@ targets:
     sources:
       - NullSports
     dependencies:
-      - package: VLCKit
+      - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
@@ -45,7 +49,7 @@ targets:
       - NullSports/Views/RootView.swift
       - iPhone
     dependencies:
-      - package: VLCKit
+      - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS

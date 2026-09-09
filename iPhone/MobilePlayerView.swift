@@ -1,6 +1,6 @@
 import SwiftUI
 import AVFoundation
-import VLCKit
+import VLCKitSPM
 
 struct MobilePlayerView: View {
     @Environment(\.dismiss) private var dismiss

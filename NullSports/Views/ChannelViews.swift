@@ -1,6 +1,6 @@
 import SwiftUI
 import UIKit
-import VLCKit
+import VLCKitSPM
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
