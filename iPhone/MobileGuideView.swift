@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UIKit
 
 struct MobileGuideView: View {
@@ -45,18 +45,18 @@ struct MobileGuideView: View {
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.subheadline.bold())
-                                Text("Choose a channel · \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
+                                Text("Choose a channel Â· \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
                         if library.isLoading || library.isGuideLoading {
-                            ProgressView("Updating guide…").font(.caption).padding(8)
+                            ProgressView("Updating guideâ€¦").font(.caption).padding(8)
                         }
                         if channels.isEmpty {
                             ContentUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
                         } else {
-                            TimelineView(.periodic(from: .now, by: 30)) { clock in
+                            TimelineView(.periodic(from: .now, by: 5)) { clock in
                                 guide(now: clock.date)
                             }
                         }
@@ -64,7 +64,7 @@ struct MobileGuideView: View {
                     .allowsHitTesting(!expanded)
                     .accessibilityHidden(expanded)
                     if let stream = selectedStream {
-                        TimelineView(.periodic(from: .now, by: 30)) { clock in
+                        TimelineView(.periodic(from: .now, by: 5)) { clock in
                             MobileGuidePlayer(controller: playback, stream: stream,
                                 program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
                                 expanded: expanded, showsMetadata: showsMetadata,
