@@ -43,13 +43,21 @@ struct MobileGuidePlayer: View {
                             }
                         }
                         Spacer()
-                        HStack {
-                            Label(controller.isPlaying ? "LIVE" : "PAUSED", systemImage: "circle.fill")
-                                .font(.caption2.bold()).padding(7)
-                                .background(.black.opacity(0.65), in: Capsule())
-                                .opacity(controller.loading || controller.error != nil ? 0 : 1)
+                        HStack(spacing: 7) {
+                            Button { controller.goLive() } label: {
+                                Label(controller.isPlaying ? "LIVE" : "PAUSED", systemImage: "circle.fill")
+                                    .font(.caption2.bold()).padding(7)
+                                    .background(.black.opacity(0.65), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
+                            if let quality = controller.streamQualityLabel {
+                                Text(quality).font(.caption2.weight(.semibold)).padding(7)
+                                    .background(.black.opacity(0.65), in: Capsule())
+                            }
                             Spacer()
                         }
+                        .opacity(controller.loading || controller.error != nil ? 0 : 1)
                     }
                     .padding(.horizontal, expanded ? 36 : 8)
                     .padding(.vertical, expanded ? 28 : 8)

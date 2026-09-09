@@ -37,6 +37,13 @@ struct MobilePlayerView: View {
                         Text(name).font(.headline).lineLimit(2)
                         Spacer()
                     }.padding(8).background(.black.opacity(0.65))
+                    if controller.error == nil && !controller.loading {
+                        HStack(spacing: 8) {
+                            statusBadge
+                            if let quality = controller.streamQualityLabel { qualityBadge(quality) }
+                            Spacer()
+                        }.padding(.horizontal, 8).padding(.top, 6)
+                    }
                     Spacer()
                     HStack {
                         Spacer()
@@ -92,6 +99,26 @@ struct MobilePlayerView: View {
             controlsVisible = false
         }
     }
+
+    // Doubles as a jump-back-to-live action: reopens the stream fresh, so a
+    // viewer who paused for a few seconds (or hit a stall) can snap back to
+    // the live edge instead of waiting or guessing why nothing's happening.
+    private var statusBadge: some View {
+        Button { controller.goLive() } label: {
+            Label(controller.isPlaying ? "LIVE" : "PAUSED", systemImage: "circle.fill")
+                .font(.caption2.bold())
+                .padding(.horizontal, 9).padding(.vertical, 6)
+                .background(.black.opacity(0.65), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
+    }
+
+    private func qualityBadge(_ text: String) -> some View {
+        Text(text).font(.caption2.weight(.semibold))
+            .padding(.horizontal, 9).padding(.vertical, 6)
+            .background(.black.opacity(0.65), in: Capsule())
+    }
 }
 
 @MainActor
@@ -100,8 +127,12 @@ final class MobilePlaybackController: ObservableObject {
     @Published var isPlaying = false
     @Published var loading = true
     @Published var error: String?
+    @Published private(set) var videoWidth: Int?
+    @Published private(set) var videoHeight: Int?
+    @Published private(set) var frameRate: Double?
     private var monitor: Task<Void, Never>?
     private var candidates: [URL] = []
+    private var originalURLs: [URL] = []
     private var started = Date()
     private var suspended = false
     private var shouldResume = false
@@ -109,6 +140,27 @@ final class MobilePlaybackController: ObservableObject {
     private var waitingForVideo = false
     private var missingVideoSince: Date?
     private var waitingSince: Date?
+
+    /// "1080p", "720p", etc., derived from the source video track. Nil until
+    /// VLC reports track info, which only happens once a video is decoding.
+    var qualityLabel: String? {
+        guard let height = videoHeight, height > 0 else { return nil }
+        switch height {
+        case 2160...: return "4K"
+        case 1440...: return "1440p"
+        case 1080...: return "1080p"
+        case 720...: return "720p"
+        case 480...: return "480p"
+        default: return "\(height)p"
+        }
+    }
+
+    /// Combined "1080p · 30fps" badge text, or just the quality if fps isn't known yet.
+    var streamQualityLabel: String? {
+        guard let quality = qualityLabel else { return nil }
+        guard let frameRate, frameRate > 1 else { return quality }
+        return "\(quality) · \(Int(frameRate.rounded()))fps"
+    }
 
     func attachVideo(_ view: MobileVideoHost) {
         videoView = view
@@ -138,6 +190,7 @@ final class MobilePlaybackController: ObservableObject {
     func start(urls: [URL]) {
         stop()
         error = nil
+        originalURLs = urls
         candidates = Array(urls.reversed()) // Prefer transport streams, as on Apple TV.
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -170,6 +223,7 @@ final class MobilePlaybackController: ObservableObject {
                 if self.player.isPlaying && self.player.hasVideoOut {
                     self.loading = false
                     self.missingVideoSince = nil
+                    self.refreshStats()
                 } else if self.player.isPlaying {
                     self.loading = true
                     if self.missingVideoSince == nil { self.missingVideoSince = Date() }
@@ -191,6 +245,9 @@ final class MobilePlaybackController: ObservableObject {
         missingVideoSince = nil
         waitingSince = nil
         isPlaying = false
+        videoWidth = nil
+        videoHeight = nil
+        frameRate = nil
         guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
@@ -212,6 +269,30 @@ final class MobilePlaybackController: ObservableObject {
         if player.isPlaying { player.pause() } else { player.play() }
         isPlaying = player.isPlaying
         UIApplication.shared.isIdleTimerDisabled = isPlaying
+    }
+
+    /// Reopens the same channel from scratch. VLC has no reliable "seek to live
+    /// edge" for these streams, so the robust way to snap back to live after a
+    /// pause (or a stall) is a fresh connection rather than trying to seek.
+    func goLive() {
+        guard !originalURLs.isEmpty else { return }
+        start(urls: originalURLs)
+    }
+
+    private func refreshStats() {
+        guard let tracks = player.media?.tracksInformation as? [[String: Any]],
+              let videoTrack = tracks.first(where: { ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeVideo })
+        else { return }
+        if let width = (videoTrack[VLCMediaTracksInformationVideoWidth] as? NSNumber)?.intValue,
+           let height = (videoTrack[VLCMediaTracksInformationVideoHeight] as? NSNumber)?.intValue,
+           width > 0, height > 0 {
+            videoWidth = width
+            videoHeight = height
+        }
+        if let numerator = (videoTrack[VLCMediaTracksInformationFrameRate] as? NSNumber)?.doubleValue, numerator > 0 {
+            let denominator = (videoTrack[VLCMediaTracksInformationFrameRateDenominator] as? NSNumber)?.doubleValue ?? 1
+            frameRate = denominator > 0 ? numerator / denominator : numerator
+        }
     }
 
     func suspend() {
