@@ -19,8 +19,14 @@ struct MobileGuidePlayer: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 MobileVideoSurface(controller: controller)
+                // A transparent tap-catching layer, separate from the embedded VLC
+                // view itself. VLCKit inserts its own rendering subview into that
+                // UIKit view, and a plain SwiftUI gesture attached directly to a
+                // UIViewRepresentable doesn't reliably win against touch handling
+                // that library owns — this overlay guarantees ours does.
+                Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { toggleControls() }
+                    .highPriorityGesture(TapGesture().onEnded { toggleControls() })
                     .accessibilityLabel("Video. Tap to show playback controls")
                 if let error = controller.error {
                     VStack(spacing: 8) {
