@@ -6,6 +6,8 @@ struct MobileGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var query = ""
+    @State private var showsSearch = false
+    @FocusState private var searchFocused: Bool
     @State private var category: String?
     @State private var favorites = false
     @State private var window = MobileGuideWindow(now: .now)
@@ -88,7 +90,36 @@ struct MobileGuideView: View {
             .ignoresSafeArea(expanded ? .all : [], edges: .all)
             .background(NullSportsStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Search channels")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsSearch && !expanded {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        TextField("Search channels", text: $query)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.search)
+                            .focused($searchFocused)
+                            .onSubmit { searchFocused = false }
+                            .task { searchFocused = true }
+                        if !query.isEmpty {
+                            Button {
+                                query = ""
+                                searchFocused = true
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(.leading, 14).padding(.trailing, 4)
+                    .frame(minHeight: 44)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(NullSportsStyle.background)
+                }
+            }
             .toolbar {
                 if game != nil {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -106,6 +137,14 @@ struct MobileGuideView: View {
                         }.disabled(library.channelsAreSyncing)
                     } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
                     .accessibilityLabel("Guide filters")
+                    Button {
+                        if showsSearch { closeSearch() }
+                        else { showsSearch = true }
+                    } label: {
+                        Image(systemName: showsSearch ? "xmark" : "magnifyingglass")
+                    }
+                    .accessibilityLabel(showsSearch ? "Close search" : "Search channels")
+                    .accessibilityValue(showsSearch ? "Expanded" : "Collapsed")
                 }
             }
             .toolbar(expanded ? .hidden : .visible, for: .navigationBar)
@@ -118,9 +157,12 @@ struct MobileGuideView: View {
                     if phase == .active { playback.resume() } else { playback.suspend() }
                 }
             }
-            .onChange(of: expanded) { _, value in onFullscreenChange(value) }
+            .onChange(of: expanded) { _, value in
+                if value { searchFocused = false }
+                onFullscreenChange(value)
+            }
             .onChange(of: isActive) { _, active in
-                if !active { closePlayer() }
+                if !active { searchFocused = false; closePlayer() }
                 else { returnToNow() }
             }
             .onAppear { returnToNow() }
@@ -128,6 +170,7 @@ struct MobileGuideView: View {
     }
 
     private func selectChannel(_ stream: XtreamStream) {
+        searchFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // The manual game picker still returns its selection to the Live screen.
         guard game == nil else { onPlay(stream); return }
@@ -145,6 +188,12 @@ struct MobileGuideView: View {
         playback.shutdown()
         selectedStream = nil
         expanded = false
+    }
+
+    private func closeSearch() {
+        searchFocused = false
+        showsSearch = false
+        query = ""
     }
 
     private func returnToNow() {

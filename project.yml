@@ -54,8 +54,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
         PRODUCT_MODULE_NAME: NullSportsiOS
-        MARKETING_VERSION: "0.17.15"
-        CURRENT_PROJECT_VERSION: "74"
+        MARKETING_VERSION: "0.17.16"
+        CURRENT_PROJECT_VERSION: "75"
         PRODUCT_NAME: NullSports
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
