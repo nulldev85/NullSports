@@ -706,6 +706,22 @@ final class SportsLibrary: ObservableObject {
         persistFavorites()
     }
 
+    /// Applies a drag reorder made against `listed`, the favorites currently on screen.
+    /// Follows SwiftUI's `onMove` contract: `destination` indexes `listed` as it stood
+    /// before the dragged rows lifted out of it.
+    func moveFavorites(_ listed: [XtreamStream], fromOffsets source: IndexSet, toOffset destination: Int) {
+        var reordered = listed.map(\.id)
+        let lifted = source.map { reordered[$0] }
+        let insertion = destination - source.count(in: 0..<destination)
+        for index in source.sorted(by: >) { reordered.remove(at: index) }
+        reordered.insert(contentsOf: lifted, at: insertion)
+        // Favorites the provider no longer carries are absent from `listed`, so they hold their slots.
+        let listedIDs = Set(reordered)
+        var next = reordered.makeIterator()
+        favoriteStreamOrder = favoriteStreamOrder.map { listedIDs.contains($0) ? (next.next() ?? $0) : $0 }
+        persistFavorites()
+    }
+
     private func persistFavorites() {
         guideListCache = nil
         guard let profile = activeProfile else { return }

@@ -16,6 +16,7 @@ struct MobileGuideView: View {
     @State private var playback = MobilePlaybackController()
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
+    @State private var reorderingFavorites = false
     @ScaledMetric(relativeTo: .caption) private var rowHeight = 68.0
     var game: SportsGame? = nil
     var isActive = true
@@ -166,6 +167,12 @@ struct MobileGuideView: View {
                 else { returnToNow() }
             }
             .onAppear { returnToNow() }
+            .sheet(isPresented: $reorderingFavorites) {
+                FavoritesOrderView()
+                    .environmentObject(library)
+                    .tint(NullSportsStyle.lightPurple)
+                    .preferredColorScheme(.dark)
+            }
         }
     }
 
@@ -300,9 +307,19 @@ struct MobileGuideView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
         .contextMenu {
-            Button(library.isFavorite(stream) ? "Remove favorite" : "Add favorite", systemImage: "star") {
-                if library.isFavorite(stream) { library.removeFavorite(stream) }
-                else { library.addFavorite(stream) }
+            if library.isFavorite(stream) {
+                if favorites {
+                    Button("Move up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
+                        .disabled(!library.canMoveFavorite(stream, offset: -1))
+                    Button("Move down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
+                        .disabled(!library.canMoveFavorite(stream, offset: 1))
+                }
+                Button("Reorder favorites", systemImage: "arrow.up.arrow.down") { reorderingFavorites = true }
+                Button("Remove favorite", systemImage: "star.slash", role: .destructive) {
+                    library.removeFavorite(stream)
+                }
+            } else {
+                Button("Add favorite", systemImage: "star") { library.addFavorite(stream) }
             }
         }
     }
@@ -370,6 +387,53 @@ struct MobileGuideView: View {
 private struct GuideHorizontalPosition: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Favorites order drives the guide's channel order, so this list edits it directly:
+/// drag a row to move a channel, swipe or tap the minus to drop it.
+private struct FavoritesOrderView: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let listed = library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+        NavigationStack {
+            Group {
+                if listed.isEmpty {
+                    ContentUnavailableView("No favorites", systemImage: "star",
+                        description: Text("Touch and hold a channel in the guide to add it."))
+                } else {
+                    List {
+                        ForEach(listed) { stream in
+                            HStack(spacing: 12) {
+                                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { image in
+                                    image.resizable().scaledToFit()
+                                } placeholder: {
+                                    Image(systemName: "tv").foregroundStyle(.secondary)
+                                }
+                                .frame(width: 44, height: 30)
+                                Text(stream.name).lineLimit(1)
+                            }
+                            .listRowBackground(NullSportsStyle.surface)
+                        }
+                        .onMove { source, destination in
+                            library.moveFavorites(listed, fromOffsets: source, toOffset: destination)
+                        }
+                        .onDelete { offsets in
+                            for stream in offsets.map({ listed[$0] }) { library.removeFavorite(stream) }
+                        }
+                    }
+                    .environment(\.editMode, .constant(.active))
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(NullSportsStyle.background)
+            .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
 }
 
 /// Navigation already positions this guide within the safe area. Its two nested
