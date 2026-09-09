@@ -1,14 +1,13 @@
 import Foundation
 
-/// A stable eight-hour viewport. Refresh its origin only on opening or tapping Now,
-/// so score/clock updates never move the timeline beneath a user's finger.
+/// An eight-hour viewport starting at the current half-hour.
 struct MobileGuideWindow {
     let start: Date
     let end: Date
     static let pointsPerSecond = 96.0 / 1800.0
 
     init(now: Date) {
-        start = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 1800) * 1800 - 1800)
+        start = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 1800) * 1800)
         end = start.addingTimeInterval(8 * 3600)
     }
 

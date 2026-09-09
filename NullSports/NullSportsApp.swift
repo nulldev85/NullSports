@@ -6,6 +6,7 @@ struct NullSportsApp: App {
     @StateObject private var library = SportsLibrary()
 
     init() {
+        #if os(tvOS)
         let purple = UIColor(NullSportsStyle.lightPurple)
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -20,6 +21,7 @@ struct NullSportsApp: App {
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
         UITabBar.appearance().unselectedItemTintColor = purple
+        #endif
     }
 
     var body: some Scene {

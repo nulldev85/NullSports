@@ -207,6 +207,13 @@ private struct MobileMatchupRow: View {
             AsyncImage(url: URL(string: logo)) { image in image.resizable().scaledToFit() }
                 placeholder: { Image(systemName: "sportscourt").font(.caption).opacity(0.4) }
                 .frame(width: 25, height: 25).accessibilityHidden(true)
+                .background {
+                    if game.league == .mlb && (name.localizedCaseInsensitiveContains("Padres")
+                        || name.localizedCaseInsensitiveContains("San Diego")) {
+                        Circle().fill(Color(red: 0.97, green: 0.94, blue: 0.86))
+                            .frame(width: 31, height: 31)
+                    }
+                }
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.subheadline.weight(.semibold))
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)

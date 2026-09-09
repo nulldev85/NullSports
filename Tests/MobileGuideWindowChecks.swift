@@ -32,7 +32,10 @@ struct MobileGuideWindowChecks {
         check(window.ticks.count == 16 && window.x(date(1800)) == 96, "Half-hour labels align with the program scale")
         check(window.width == 1536, "Eight hours use a stable horizontal extent")
         let midnight = MobileGuideWindow(now: Date(timeIntervalSince1970: 0))
-        check(midnight.start < Date(timeIntervalSince1970: 0), "Viewport crosses midnight without losing prior programs")
+        check(midnight.start == Date(timeIntervalSince1970: 0), "Guide opens on the current half-hour at midnight")
+        check(window.start <= now && now < window.start.addingTimeInterval(1800), "Current programs are always in the first visible half-hour")
+        let nextWindow = MobileGuideWindow(now: origin.addingTimeInterval(1800))
+        check(nextWindow.start == origin.addingTimeInterval(1800), "Following live advances at each half-hour boundary")
         print("Mobile guide timeline checks passed")
     }
 }

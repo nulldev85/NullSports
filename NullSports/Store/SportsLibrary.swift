@@ -26,6 +26,8 @@ private struct ScheduleCache: Codable, Sendable {
 
 @MainActor
 final class SportsLibrary: ObservableObject {
+    @Published private(set) var isSwitchingProfile = false
+    private let profileDefaults: UserDefaults
     @Published private(set) var profiles: [XtreamProfile] = []
     @Published var activeProfile: XtreamProfile?
     @Published private(set) var categories: [XtreamCategory] = []
@@ -74,17 +76,28 @@ final class SportsLibrary: ObservableObject {
     private let libraryLifetime: TimeInterval = 6 * 60 * 60
     private let tomorrowScheduleLifetime: TimeInterval = 3 * 60 * 60
 
-    init() {
-        if let data = UserDefaults.standard.data(forKey: profilesKey),
+    init(profileDefaults: UserDefaults = .standard) {
+        self.profileDefaults = profileDefaults
+        if let data = profileDefaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder().decode([XtreamProfile].self, from: data) {
             profiles = decoded
         }
-        if let id = UserDefaults.standard.string(forKey: activeKey).flatMap(UUID.init(uuidString:)) {
+        if let id = profileDefaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:)) {
             activeProfile = profiles.first { $0.id == id }
         } else {
             activeProfile = profiles.first
         }
-        favoriteStreamOrder = UserDefaults.standard.array(forKey: favoritesKey) as? [Int] ?? []
+        if activeProfile == nil { activeProfile = profiles.first }
+        // Claim legacy favorites once for the previously active provider.
+        if let profile = activeProfile {
+            let key = favoritesKey + "." + profile.id.uuidString
+            if profileDefaults.object(forKey: key) == nil,
+               let legacy = profileDefaults.array(forKey: favoritesKey) as? [Int] {
+                profileDefaults.set(legacy, forKey: key)
+            }
+            profileDefaults.removeObject(forKey: favoritesKey)
+        }
+        restoreFavorites()
     }
 
     var hasProfile: Bool { activeProfile != nil }
@@ -162,9 +175,11 @@ final class SportsLibrary: ObservableObject {
             guard envelope.userInfo?.auth == 1 else { throw XtreamClient.XtreamError.unauthorized }
             try KeychainStore.save(password: password, profileID: profile.id)
             profiles.append(profile)
-            activeProfile = profile
+            // Additional providers are saved without interrupting the current one.
+            let isFirstProfile = activeProfile == nil
+            if isFirstProfile { activeProfile = profile; restoreFavorites() }
             persistProfiles()
-            await reload()
+            if isFirstProfile { await reload() }
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -236,6 +251,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     func reload() async {
+        guard !isSwitchingProfile else { return }
         refreshSchedule()
         await refreshLibrary(forceGuide: true)
     }
@@ -385,6 +401,7 @@ final class SportsLibrary: ObservableObject {
     // poll) that only need today's slate refreshed. Tomorrow's already-known games are
     // preserved rather than dropped, and are still refetched on their own lifetime.
     func refreshSchedule(showsLoading: Bool = false, includeTomorrow: Bool = true) {
+        guard !isSwitchingProfile else { return }
         let today = Calendar.current.startOfDay(for: Date())
         if scheduleDay != today {
             scheduleDay = today
@@ -691,7 +708,8 @@ final class SportsLibrary: ObservableObject {
 
     private func persistFavorites() {
         guideListCache = nil
-        UserDefaults.standard.set(favoriteStreamOrder, forKey: favoritesKey)
+        guard let profile = activeProfile else { return }
+        profileDefaults.set(favoriteStreamOrder, forKey: favoritesKey + "." + profile.id.uuidString)
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
@@ -710,11 +728,65 @@ final class SportsLibrary: ObservableObject {
         return blocked.contains { value.contains($0) }
     }
 
+    private func restoreFavorites() {
+        favoriteStreamOrder = activeProfile.flatMap {
+            profileDefaults.array(forKey: favoritesKey + "." + $0.id.uuidString) as? [Int]
+        } ?? []
+    }
+
+    // Let existing operations retire before replacing provider state. Their
+    // cleanup must never reset loading flags belonging to the next provider.
+    private func waitForProviderWork() async -> Bool {
+        while bootstrapInFlight || libraryRefreshInFlight || isGuideLoading
+            || scheduleRefreshInFlight || channelMatchingWorkCount > 0 {
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return false }
+        }
+        return !Task.isCancelled
+    }
+
+    func selectProfile(_ profile: XtreamProfile) async {
+        guard !isSwitchingProfile, profiles.contains(where: { $0.id == profile.id }),
+              activeProfile?.id != profile.id else { return }
+        isSwitchingProfile = true
+        guard await waitForProviderWork() else { isSwitchingProfile = false; return }
+        persistFavorites()
+        resetProviderState()
+        activeProfile = profile
+        restoreFavorites()
+        persistProfiles()
+        isSwitchingProfile = false
+        await bootstrap()
+    }
+
     func removeActiveProfile() {
         guard let profile = activeProfile else { return }
+        Task { await removeProfile(profile) }
+    }
+
+    func removeProfile(_ profile: XtreamProfile) async {
+        guard !isSwitchingProfile, profiles.contains(where: { $0.id == profile.id }) else { return }
+        isSwitchingProfile = true
+        guard await waitForProviderWork() else { isSwitchingProfile = false; return }
+        let removingActive = activeProfile?.id == profile.id
         KeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
-        activeProfile = profiles.first
+        profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)
+        if removingActive {
+            resetProviderState()
+            activeProfile = profiles.first
+            restoreFavorites()
+        }
+        // Finish an already queued cache write before deleting this cache.
+        await cacheWriteTask?.value
+        try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
+        persistProfiles()
+        isSwitchingProfile = false
+        if removingActive, activeProfile != nil { await bootstrap() }
+    }
+
+    private func resetProviderState() {
+        errorMessage = nil
         indexGeneration = UUID()
         matchGeneration = UUID()
         guideListCache = nil
@@ -744,14 +816,12 @@ final class SportsLibrary: ObservableObject {
         guideUpdatedAt = nil
         libraryUpdatedAt = nil
         tomorrowScheduleUpdatedAt = nil
-        try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
-        persistProfiles()
     }
 
     private func persistProfiles() {
         if let data = try? JSONEncoder().encode(profiles) {
-            UserDefaults.standard.set(data, forKey: profilesKey)
+            profileDefaults.set(data, forKey: profilesKey)
         }
-        UserDefaults.standard.set(activeProfile?.id.uuidString, forKey: activeKey)
+        profileDefaults.set(activeProfile?.id.uuidString, forKey: activeKey)
     }
 }

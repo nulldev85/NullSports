@@ -3,31 +3,27 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var guideFullscreen = false
 
     var body: some View {
-        MobilePagingView(selection: $tab, pages: [
-            page(MobileLiveView { playing = $0 }),
-            page(MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }),
-            page(MobileAccountView())
-        ], allowsPaging: false, reduceMotion: reduceMotion)
-        .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !guideFullscreen {
-                HStack(spacing: 0) {
-                    tabButton("Live", symbol: "play.rectangle.fill", index: 0)
-                    tabButton("Guide", symbol: "list.bullet.rectangle", index: 1)
-                    tabButton("Account", symbol: "person.crop.circle", index: 2)
-                }
-                .padding(.top, 7).padding(.bottom, 4)
-                .background(NullSportsStyle.surface)
-                .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
-            }
+        TabView(selection: $tab) {
+            MobileLiveView { playing = $0 }
+                .tabItem { Label("Live", systemImage: "play.rectangle.fill") }.tag(0)
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
+                .id(library.activeProfile?.id)
+                .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }.tag(1)
+            MobileAccountView()
+                .tabItem { Label("Account", systemImage: "person.crop.circle") }.tag(2)
         }
-        .background(NullSportsStyle.background)
+        .tint(NullSportsStyle.lightPurple)
+        .preferredColorScheme(.dark)
+        .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
+        .onChange(of: library.activeProfile?.id) { _, _ in
+            playing = nil
+            guideFullscreen = false
+        }
         .statusBarHidden(guideFullscreen)
         .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
@@ -42,34 +38,18 @@ struct MainView: View {
         }
     }
 
-    private func page<Content: View>(_ content: Content) -> AnyView {
-        AnyView(content.environmentObject(library)
-            .environment(\.scenePhase, scenePhase)
-            .foregroundStyle(NullSportsStyle.lightPurple)
-            .tint(NullSportsStyle.lightPurple).preferredColorScheme(.dark))
-    }
-
-    private func tabButton(_ title: String, symbol: String, index: Int) -> some View {
-        Button { tab = index } label: {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 20))
-                Text(title).font(.caption2.weight(.semibold))
-            }
-            .foregroundStyle(NullSportsStyle.lightPurple.opacity(tab == index ? 1 : 0.45))
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .accessibilityAddTraits(tab == index ? .isSelected : [])
-    }
 }
 
 struct ProfileSetupView: View {
+    @Environment(\.dismiss) private var dismiss
+    var addingProvider = false
     @EnvironmentObject private var library: SportsLibrary
     @State private var name = ""
     @State private var server = ""
     @State private var username = ""
     @State private var password = ""
     @State private var connecting = false
+    @State private var connectionError: String?
 
     var body: some View {
         NavigationStack {
@@ -92,23 +72,39 @@ struct ProfileSetupView: View {
                 Section {
                     Button {
                         connecting = true
+                        connectionError = nil
                         Task {
-                            _ = await library.addProfile(name: name,
+                            let added = await library.addProfile(name: name,
                                 serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
                                 username: username, password: password)
                             connecting = false
+                            if !added { connectionError = library.errorMessage }
+                            if added && addingProvider { dismiss() }
                         }
                     } label: {
                         HStack {
-                            Text(connecting ? "Connecting…" : "Connect")
+                            Text(connecting ? "Connectingâ€¦" : "Connect")
                             Spacer()
                             if connecting { ProgressView() } else { Image(systemName: "arrow.right") }
                         }
                     }.disabled(connecting || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || username.isEmpty || password.isEmpty)
                 } footer: {
-                    Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhone’s Keychain.")
+                    Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhoneâ€™s Keychain.")
                 }.listRowBackground(NullSportsStyle.raised)
+                if let connectionError {
+                    Section { Text(connectionError).foregroundStyle(.red) }
+                        .listRowBackground(NullSportsStyle.surface)
+                }
             }
+            .navigationTitle(addingProvider ? "Add provider" : "")
+            .toolbar {
+                if addingProvider {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }.disabled(connecting)
+                    }
+                }
+            }
+            .interactiveDismissDisabled(connecting)
             .disabled(connecting)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .scrollContentBackground(.hidden)
@@ -119,32 +115,73 @@ struct ProfileSetupView: View {
 
 private struct MobileAccountView: View {
     @EnvironmentObject private var library: SportsLibrary
-    @State private var confirmingRemoval = false
+    @State private var addingProvider = false
+    @State private var removingProfile: XtreamProfile?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Connected provider") {
-                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
-                    if let profile = library.activeProfile {
-                        LabeledContent("Profile", value: profile.name)
-                        LabeledContent("Username", value: profile.username)
+                Section {
+                    ForEach(library.profiles) { profile in
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await library.selectProfile(profile) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: library.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(profile.name).font(.body.weight(.semibold))
+                                        Text(profile.username).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if library.activeProfile?.id == profile.id {
+                                        Text("Active").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(profile.name), \(library.activeProfile?.id == profile.id ? "active provider" : "switch provider")")
+                            Button(role: .destructive) { removingProfile = profile } label: {
+                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Remove \(profile.name)")
+                        }
+                        .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
                     }
+                    Button("Add provider", systemImage: "plus.circle") { addingProvider = true }
+                        .disabled(library.isSwitchingProfile)
+                    if library.isSwitchingProfile { ProgressView("Switching provider…") }
+                } header: {
+                    Text("Providers")
+                } footer: {
+                    Text("Select a provider to use its channels and guide. Each provider keeps its own favorites.")
+                }.listRowBackground(NullSportsStyle.surface)
+                Section("Current library") {
+                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     LabeledContent("Channels", value: "\(library.streams.count)")
                     Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
                         Task { await library.reload() }
-                    }.disabled(library.channelsAreSyncing)
+                    }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
-                }.listRowBackground(NullSportsStyle.surface)
-                Section {
-                    Button("Remove provider", role: .destructive) { confirmingRemoval = true }
                 }.listRowBackground(NullSportsStyle.surface)
             }
             .scrollContentBackground(.hidden).background(NullSportsStyle.background)
             .navigationTitle("Account")
-            .confirmationDialog("Remove this provider and its saved password?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
-                Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
-                Button("Cancel", role: .cancel) {}
+            .sheet(isPresented: $addingProvider) {
+                ProfileSetupView(addingProvider: true)
+                    .environmentObject(library)
+                    .tint(NullSportsStyle.lightPurple)
+                    .preferredColorScheme(.dark)
+            }
+            .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",
+                isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } }),
+                titleVisibility: .visible) {
+                Button("Remove provider", role: .destructive) {
+                    if let profile = removingProfile { Task { await library.removeProfile(profile) } }
+                    removingProfile = nil
+                }
+                Button("Cancel", role: .cancel) { removingProfile = nil }
             }
         }
     }

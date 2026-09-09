@@ -58,6 +58,12 @@ struct MobileGuideView: View {
                         } else {
                             TimelineView(.periodic(from: .now, by: 5)) { clock in
                                 guide(now: clock.date)
+                                    .onChange(of: clock.date) { _, now in
+                                        // Keep live in view while preserving deliberate future browsing.
+                                        if horizontalOffset < 1 && now >= window.start.addingTimeInterval(1800) {
+                                            window = MobileGuideWindow(now: now)
+                                        }
+                                    }
                             }
                         }
                     }
@@ -107,7 +113,7 @@ struct MobileGuideView: View {
             .statusBarHidden(expanded)
             .persistentSystemOverlays(expanded ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active && Date() >= window.end { returnToNow() }
+                if phase == .active { returnToNow() }
                 if selectedStream != nil {
                     if phase == .active { playback.resume() } else { playback.suspend() }
                 }
@@ -115,7 +121,9 @@ struct MobileGuideView: View {
             .onChange(of: expanded) { _, value in onFullscreenChange(value) }
             .onChange(of: isActive) { _, active in
                 if !active { closePlayer() }
+                else { returnToNow() }
             }
+            .onAppear { returnToNow() }
         }
     }
 
@@ -152,7 +160,7 @@ struct MobileGuideView: View {
             // Counter-offset logo tiles keep the channel column frozen horizontally.
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    ruler()
+                    ruler(now: now)
                     ScrollView(.vertical) {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
@@ -190,10 +198,14 @@ struct MobileGuideView: View {
         }
     }
 
-    private func ruler() -> some View {
+    private func ruler(now: Date) -> some View {
         HStack(spacing: 0) {
-            Text(Calendar.current.isDateInToday(window.start) ? "Today" : window.start.formatted(.dateTime.weekday(.abbreviated)))
-                .font(.caption.bold()).frame(width: logoWidth, height: 40)
+            VStack(spacing: 2) {
+                Text("NOW").font(.system(size: 8, weight: .bold)).tracking(1)
+                Text(now, format: .dateTime.hour().minute())
+                    .font(.caption2.weight(.semibold)).monospacedDigit()
+            }
+                .frame(width: logoWidth, height: 40)
                 .background(NullSportsStyle.background)
                 .offset(x: horizontalOffset).zIndex(2)
             ZStack(alignment: .topLeading) {
