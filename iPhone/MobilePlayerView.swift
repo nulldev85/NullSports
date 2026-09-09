@@ -6,12 +6,18 @@ struct MobilePlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller = MobilePlaybackController()
+    @State private var controlsVisible = true
+    @State private var hideControlsTask: Task<Void, Never>?
     let name: String
     let urls: [URL]
 
     var body: some View {
         ZStack {
-            MobileVideoSurface(controller: controller).ignoresSafeArea()
+            MobileVideoSurface(controller: controller)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { toggleControls() }
+                .accessibilityLabel("Video. Tap to show playback controls")
             if let error = controller.error {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
@@ -22,37 +28,68 @@ struct MobilePlayerView: View {
                 ProgressView("Opening stream…").padding(24)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
-            VStack {
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark").frame(width: 44, height: 44)
-                    }.accessibilityLabel("Close player")
-                    Text(name).font(.headline).lineLimit(2)
+            if controlsVisible {
+                VStack {
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark").frame(width: 44, height: 44)
+                        }.accessibilityLabel("Close player")
+                        Text(name).font(.headline).lineLimit(2)
+                        Spacer()
+                    }.padding(8).background(.black.opacity(0.65))
                     Spacer()
-                }.padding(8).background(.black.opacity(0.65))
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button { controller.toggle() } label: {
-                        Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title2).frame(width: 56, height: 56)
-                    }
-                    .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
-                    .disabled(controller.error != nil || controller.loading)
-                    Spacer()
-                }.background(.black.opacity(0.65))
+                    HStack {
+                        Spacer()
+                        Button { controller.toggle() } label: {
+                            Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title2).frame(width: 56, height: 56)
+                        }
+                        .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+                        .disabled(controller.error != nil || controller.loading)
+                        Spacer()
+                    }.background(.black.opacity(0.65))
+                }
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: controlsVisible)
         .background(.black).foregroundStyle(NullSportsStyle.lightPurple)
         .modifier(MobileDismissGesture(enabled: true) { dismiss() })
         .ignoresSafeArea()
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { controller.start(urls: urls) }
-        .onDisappear { controller.shutdown() }
+        .onDisappear { controller.shutdown(); hideControlsTask?.cancel() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.suspend() }
             else { controller.resume() }
+        }
+        .onChange(of: controller.isPlaying) { _, playing in
+            if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
+        }
+    }
+
+    private func toggleControls() {
+        if controlsVisible {
+            hideControlsTask?.cancel()
+            controlsVisible = false
+        } else {
+            showControls()
+        }
+    }
+
+    private func showControls() {
+        controlsVisible = true
+        scheduleAutoHide()
+    }
+
+    private func scheduleAutoHide() {
+        hideControlsTask?.cancel()
+        guard controller.isPlaying else { return }
+        hideControlsTask = Task {
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            guard !Task.isCancelled else { return }
+            controlsVisible = false
         }
     }
 }

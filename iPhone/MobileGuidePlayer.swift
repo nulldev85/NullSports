@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// Both compact and expanded layouts keep this same VLC surface and controller.
 /// Resizing must not open a second provider connection or restart the stream.
