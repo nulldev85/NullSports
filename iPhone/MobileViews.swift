@@ -13,7 +13,7 @@ struct MainView: View {
             page(MobileLiveView { playing = $0 }),
             page(MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }),
             page(MobileAccountView())
-        ], allowsPaging: !guideFullscreen && playing == nil, reduceMotion: reduceMotion)
+        ], allowsPaging: false, reduceMotion: reduceMotion)
         .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !guideFullscreen {
@@ -25,10 +25,6 @@ struct MainView: View {
                 .padding(.top, 7).padding(.bottom, 4)
                 .background(NullSportsStyle.surface)
                 .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
-                .simultaneousGesture(DragGesture(minimumDistance: 25).onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
-                    tab = min(2, max(0, tab + (value.translation.width < 0 ? 1 : -1)))
-                })
             }
         }
         .background(NullSportsStyle.background)
