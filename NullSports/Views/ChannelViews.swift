@@ -1038,6 +1038,7 @@ struct GuideView: View {
     @State private var playbackTransitionID: UUID?
     @State private var previewHidden = false
     @State private var sidebarVisible = false
+    @State private var reorderingFavorites = false
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -1112,6 +1113,7 @@ struct GuideView: View {
                                                 multiviewPrimaryID: multiviewPrimary?.id,
                                                 onPlay: { select(stream) },
                                                 onStartMultiview: { multiviewPrimary = stream },
+                                                onReorderFavorites: { reorderingFavorites = true },
                                                 onFocusProgram: { program in
                                                     withAnimation(.easeOut(duration: 0.18)) {
                                                         focusedGuideItem = GuideFocusItem(stream: stream, program: program)
@@ -1184,6 +1186,9 @@ struct GuideView: View {
                         primaryURLs: library.playbackURLs(for: session.primary),
                         secondaryURLs: library.playbackURLs(for: session.secondary)
                     )
+                }
+                .sheet(isPresented: $reorderingFavorites) {
+                    TVFavoritesOrderView()
                 }
                 .task {
                     while !Task.isCancelled {
@@ -1674,6 +1679,7 @@ private struct GuideChannelRow: View {
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
+    let onReorderFavorites: () -> Void
     let onFocusProgram: (CurrentProgram) -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
 
@@ -1738,17 +1744,143 @@ private struct GuideChannelRow: View {
             }
             .disabled(multiviewPrimaryID == stream.id)
             if favoritesMode {
+                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
                 Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
                     .disabled(!library.canMoveFavorite(stream, offset: -1))
                 Button("Move Down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
                     .disabled(!library.canMoveFavorite(stream, offset: 1))
                 Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
             } else if library.isFavorite(stream) {
+                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
                 Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
             } else {
                 Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
             }
         }
+    }
+}
+
+/// Remote-friendly freeform ordering: select a channel to pick it up, focus any
+/// destination, then select again to drop it at that position.
+private struct TVFavoritesOrderView: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var pickedStreamID: Int?
+    @FocusState private var focusedStreamID: Int?
+
+    private var favorites: [XtreamStream] {
+        library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("REORDER FAVORITES")
+                        .font(.system(size: 34, weight: .bold))
+                    Text(instruction)
+                        .font(.callout)
+                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.7))
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.bordered)
+            }
+
+            if favorites.isEmpty {
+                ContentUnavailableView("No favorites", systemImage: "star",
+                    description: Text("Add channels to Favorites from the Guide."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(Array(favorites.enumerated()), id: \.element.id) { index, stream in
+                                favoriteRow(stream, position: index + 1)
+                                    .id(stream.id)
+                            }
+                        }
+                        .padding(12)
+                    }
+                    .onChange(of: focusedStreamID) { _, streamID in
+                        guard let streamID else { return }
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(streamID, anchor: .center) }
+                    }
+                }
+            }
+        }
+        .padding(48)
+        .foregroundStyle(NullSportsStyle.lightPurple)
+        .background(NullSportsStyle.background.ignoresSafeArea())
+        .task {
+            if focusedStreamID == nil { focusedStreamID = favorites.first?.id }
+        }
+        .onExitCommand {
+            if pickedStreamID != nil { pickedStreamID = nil }
+            else { dismiss() }
+        }
+    }
+
+    private var instruction: String {
+        if let pickedStreamID, let stream = favorites.first(where: { $0.id == pickedStreamID }) {
+            return "Moving \(stream.name) — choose any destination and press Select to drop."
+        }
+        return "Press Select to pick up a channel, move anywhere in the list, then press Select to drop."
+    }
+
+    private func favoriteRow(_ stream: XtreamStream, position: Int) -> some View {
+        let isPicked = pickedStreamID == stream.id
+        let isFocused = focusedStreamID == stream.id
+        return HStack(spacing: 18) {
+            Text("\(position)").font(.headline.monospacedDigit())
+                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+                .frame(width: 44, alignment: .trailing)
+            ChannelLogo(url: stream.streamIcon, width: 82, height: 54)
+            Text(stream.name).font(.title3.weight(.semibold)).lineLimit(1)
+            Spacer()
+            if isPicked {
+                Label("MOVING", systemImage: "arrow.up.arrow.down")
+                    .font(.caption.bold()).tracking(1)
+            } else if pickedStreamID != nil && isFocused {
+                Label("DROP HERE", systemImage: "arrow.down.to.line")
+                    .font(.caption.bold()).tracking(1)
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 72)
+        .background(isPicked ? NullSportsStyle.lightPurple.opacity(0.16) : GuidePalette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(
+            isPicked ? NullSportsStyle.lightPurple : (isFocused ? NullSportsStyle.lightPurple.opacity(0.55) : .clear),
+            lineWidth: isPicked ? 2 : 1
+        ))
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($focusedStreamID, equals: stream.id)
+        .focusEffectDisabled()
+        .onTapGesture { select(stream) }
+        .scaleEffect(isFocused ? 1.015 : 1)
+        .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+
+    private func select(_ stream: XtreamStream) {
+        guard let pickedStreamID else {
+            self.pickedStreamID = stream.id
+            return
+        }
+        guard pickedStreamID != stream.id else {
+            self.pickedStreamID = nil
+            return
+        }
+        guard let source = favorites.firstIndex(where: { $0.id == pickedStreamID }),
+              let destination = favorites.firstIndex(where: { $0.id == stream.id }) else {
+            self.pickedStreamID = nil
+            return
+        }
+        library.moveFavorites(favorites, fromOffsets: IndexSet(integer: source),
+            toOffset: destination > source ? destination + 1 : destination)
+        self.pickedStreamID = nil
+        focusedStreamID = pickedStreamID
     }
 }
 
