@@ -285,12 +285,16 @@ final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
-        guard !candidates.isEmpty, let media = VLCMedia(url: candidates.removeFirst()) else {
+        guard !candidates.isEmpty else {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
             error = "This stream is unavailable. Try again or choose another channel."
             return
         }
+        // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0
+        // (the 4.0 alpha we moved off of made it failable), so no optional
+        // binding here.
+        let media = VLCMedia(url: candidates.removeFirst())
         // Matches tvOS's buffer size — 3s was too tight for some providers and
         // read as a stall/drop after several minutes on a slightly slower link.
         media.addOption(":network-caching=5000")

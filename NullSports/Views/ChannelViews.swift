@@ -2003,7 +2003,8 @@ struct PlayerView: View {
     func start(urls: [URL], muted: Bool = false) {
         stop()
         guard let url = urls.last ?? urls.first else { return }
-        guard let media = VLCMedia(url: url) else { return }
+        // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0.
+        let media = VLCMedia(url: url)
         media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
         if muted { media.addOption(":no-audio") }
         player.media = media; player.play(); setMuted(muted)
