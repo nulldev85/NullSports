@@ -1691,20 +1691,9 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 12) {
-                ChannelLogo(url: stream.streamIcon, width: 88, height: 66)
-                Text(stream.name).foregroundColor(NullSportsStyle.lightPurple)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(GuidePalette.text)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 10)
-            .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8, alignment: .leading)
-            .background(GuidePalette.channelTile.opacity(0.9))
+            GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
+            .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
+            .background(GuidePalette.channelTile.opacity(0.72))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.trailing, 8)
             .clipped()
@@ -1757,6 +1746,51 @@ private struct GuideChannelRow: View {
                 Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
             }
         }
+    }
+}
+
+/// Mirrors the iPhone Guide's artwork-first channel column. Logos keep their
+/// original colors and use nearly the full row height instead of sitting in a
+/// small framed tile beside duplicate channel text.
+private struct GuideChannelArtwork: View {
+    let stream: XtreamStream
+    let isFavorite: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFit()
+                            .frame(width: max(1, proxy.size.width - 22),
+                                   height: max(1, proxy.size.height - 14))
+                    } else {
+                        VStack(spacing: 7) {
+                            Image(systemName: "tv")
+                                .font(.system(size: 24, weight: .light))
+                            Text(stream.name)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        }
+                        .foregroundStyle(GuidePalette.secondary)
+                        .padding(.horizontal, 12)
+                    }
+                }
+                .transaction { $0.animation = nil }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topLeading) {
+                if isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(7)
+                        .background(GuidePalette.background.opacity(0.88), in: Circle())
+                        .padding(6)
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
