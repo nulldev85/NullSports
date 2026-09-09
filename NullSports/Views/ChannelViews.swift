@@ -1001,8 +1001,7 @@ private struct ChannelLogo: View {
     }
 }
 
-// Plum surfaces and light-purple content shared across the app.
-// Only the timeline playhead uses white in the Guide.
+// Plum surfaces and light-purple content shared across the Guide.
 private enum GuidePalette {
     static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
     static let panel = Color(red: 0x17 / 255.0, green: 0x16 / 255.0, blue: 0x1A / 255.0)
@@ -1016,7 +1015,6 @@ private enum GuidePalette {
     static let pink = NullSportsStyle.lightPurple
     static let green = NullSportsStyle.lightPurple
     static let yellow = NullSportsStyle.lightPurple
-    static let progress = NullSportsStyle.guidePlayhead
 }
 
 struct GuideView: View {
@@ -1101,7 +1099,7 @@ struct GuideView: View {
                             } else {
                                 ScrollViewReader { proxy in
                                 ScrollView {
-                                    LazyVStack(alignment: .leading, spacing: 6) {
+                                    LazyVStack(alignment: .leading, spacing: 8) {
                                         ForEach(filtered) { stream in
                                             GuideChannelRow(
                                                 stream: stream,
@@ -1138,12 +1136,6 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
-
-                        if !filtered.isEmpty {
-                            GuideNowIndicator(now: guideNow)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -1578,34 +1570,14 @@ private struct GuideTimelineHeader: View {
         }
         .font(.caption2.weight(.bold)).tracking(1.4)
         .padding(.horizontal, 14).frame(height: 58)
-    }
-}
-
-// One overlay spans the header and scroll viewport, including gaps between rows.
-private struct GuideNowIndicator: View {
-    @Environment(\.guideLayout) private var layout
-    let now: Date
-
-    var body: some View {
-        GeometryReader { geometry in
-            let x = 14 + guidePlayheadX(now, layout: layout)
-            // Header (58), row gap (7), scroll inset (2), centered cell inset (4).
-            // Keep the arrow below the time labels, with its tip at the card edge.
-            let cardTop: CGFloat = 71
-            Path { path in
-                path.move(to: CGPoint(x: x, y: cardTop))
-                path.addLine(to: CGPoint(x: x, y: geometry.size.height))
-            }
-            .stroke(GuidePalette.progress, lineWidth: 2)
-            Path { path in
-                path.move(to: CGPoint(x: x - 6, y: cardTop - 8))
-                path.addLine(to: CGPoint(x: x + 6, y: cardTop - 8))
-                path.addLine(to: CGPoint(x: x, y: cardTop))
-                path.closeSubpath()
-            }
-            .fill(GuidePalette.progress)
+        .background(
+            LinearGradient(colors: [GuidePalette.panel.opacity(0.72), GuidePalette.surface.opacity(0.38)],
+                startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(GuidePalette.line).frame(height: 1).padding(.horizontal, 14)
         }
-        .clipped()
     }
 }
 
@@ -1638,11 +1610,6 @@ private func guideTimelineAnchor(_ date: Date) -> Date {
     components.second = 0
     let floor = calendar.date(from: components) ?? date
     return calendar.date(byAdding: .minute, value: -30, to: floor) ?? floor
-}
-
-private func guidePlayheadX(_ date: Date, layout: GuideLayout) -> CGFloat {
-    let elapsed = date.timeIntervalSince(guideTimelineAnchor(date))
-    return layout.channelWidth + CGFloat(elapsed / 1800) * layout.slotWidth
 }
 
 private struct GuideGridFocus: Hashable {
@@ -1693,7 +1660,10 @@ private struct GuideChannelRow: View {
         HStack(spacing: 0) {
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(GuidePalette.channelTile.opacity(0.72))
+            .background(
+                LinearGradient(colors: [GuidePalette.channelTile.opacity(0.9), GuidePalette.panel.opacity(0.72)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.trailing, 8)
             .clipped()
@@ -1717,15 +1687,16 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
-        .background(GuidePalette.surface.opacity(0.86))
+        .background(GuidePalette.surface.opacity(0.88))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .bottom) { Rectangle().fill(GuidePalette.line).frame(height: 1) }
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(GuidePalette.line.opacity(0.72), lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream.id {
                 RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.green.opacity(0.9), lineWidth: 2)
             }
         }
-        .shadow(color: Color.black.opacity(0.22), radius: 10, y: 5)
+        .shadow(color: Color.black.opacity(0.18), radius: 12, y: 6)
         .contentShape(Rectangle())
         .contextMenu {
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
@@ -2074,7 +2045,11 @@ private struct GuideProgramCell: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? GuidePalette.green.opacity(0.9) : Color.clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(
+            isFocused ? GuidePalette.green.opacity(0.9) : GuidePalette.line.opacity(0.55),
+            lineWidth: isFocused ? 2 : 0.5
+        ))
+        .shadow(color: isFocused ? GuidePalette.green.opacity(0.14) : .clear, radius: 12, y: 5)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
@@ -2086,7 +2061,12 @@ private struct GuideInlineStatus: View {
     let title: String
     private var accent: Color { title == "LIVE" ? GuidePalette.pink : GuidePalette.yellow }
     var body: some View {
-        Text(title).foregroundColor(NullSportsStyle.lightPurple).font(.system(size: 8, weight: .bold)).tracking(1.5).foregroundStyle(accent)
+        Text(title).foregroundColor(NullSportsStyle.lightPurple)
+            .font(.system(size: 8, weight: .bold)).tracking(1.4)
+            .foregroundStyle(accent)
+            .padding(.horizontal, 6).frame(height: 17)
+            .background(accent.opacity(0.08), in: Capsule())
+            .overlay(Capsule().stroke(accent.opacity(0.18), lineWidth: 0.5))
     }
 }
 
