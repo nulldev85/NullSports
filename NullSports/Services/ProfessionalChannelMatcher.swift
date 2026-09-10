@@ -42,25 +42,33 @@ enum ProfessionalChannelMatcher {
         func blocked(_ text: String) -> Bool {
             ["replay", "classic", "highlights", "radio", "audio", "preview"].contains { contains(text, $0) }
         }
+        // Whip-around channels cut between games by design, so a guide entry
+        // naming one game never describes what they are carrying minute to minute.
+        func whipAround(_ text: String) -> Bool {
+            ["red zone", "redzone", "strike zone", "big inning", "whip around", "mix"].contains { contains(text, $0) }
+        }
         let name = normalized(channel)
-        guard !blocked(name), !away.isEmpty, !home.isEmpty else { return nil }
+        guard !blocked(name), !whipAround(name), !away.isEmpty, !home.isEmpty else { return nil }
         let point = game.isLive ? now : game.start
         let current = listings.filter { $0.start <= point && point < $0.end }
         // Inspect each program independently: two unrelated listings cannot
         // combine into evidence for the requested matchup.
-        if current.contains(where: { listing in
+        let listingConfirms = current.contains { listing in
             let text = normalized(listing.title + " " + listing.detail)
             return listing.start <= game.start.addingTimeInterval(1800)
                 && listing.end > game.start && !blocked(text) && matchup(text)
-        }) { return 300 }
-
+        }
         // A named event feed is usable without guide data, but never overrides
         // a current listing identifying different coverage.
         let generic: Set<String> = ["", "live", "tba", "to be announced", "no information", "no guide information",
             "no program information", "baseball", "mlb baseball", "basketball", "nba basketball",
             "football", "nfl football", "hockey", "nhl hockey"]
-        guard current.allSatisfy({ generic.contains(normalized($0.title)) && normalized($0.detail).isEmpty }),
-              matchup(name) else { return nil }
-        return 200
+        let guideSilent = current.allSatisfy { generic.contains(normalized($0.title)) && normalized($0.detail).isEmpty }
+
+        // A channel named for this matchup exists to carry this one game, so it
+        // outranks a national channel whose guide merely schedules it: the
+        // national feed can cut away to another game without the guide changing.
+        if matchup(name) && (listingConfirms || guideSilent) { return 400 }
+        return listingConfirms ? 300 : nil
     }
 }

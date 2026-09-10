@@ -45,8 +45,11 @@ struct MobileLiveView: View {
                 }
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        if library.isScheduleLoading || library.isLoading {
-                            ProgressView("Updating…").font(.caption).padding(12)
+                        // Channel matching keeps running after the schedule and
+                        // library finish, and every game reads as unmatched until
+                        // it lands. Say so instead of showing a settled empty row.
+                        if library.isScheduleLoading || library.isLoading || library.channelsAreSyncing {
+                            RefreshingStreamsBanner()
                         }
                         if let error = library.scheduleErrorMessage {
                             Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
@@ -320,5 +323,27 @@ private struct MobileLeagueLogo: View {
             .resizable().scaledToFit()
             .frame(width: size, height: size)
             .accessibilityLabel(league.shortName)
+    }
+}
+
+/// Shown while channels, guide or matching are still in flight. Matching is what
+/// decides a game's channel, so it stays up until that settles — otherwise a game
+/// with no channel yet is indistinguishable from one with no channel at all.
+private struct RefreshingStreamsBanner: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(NullSportsStyle.live).frame(width: 6, height: 6)
+            Text("REFRESHING STREAMS").font(.system(size: 10, weight: .bold)).tracking(1.6)
+        }
+        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.75))
+        .opacity(reduceMotion || !dimmed ? 1 : 0.32)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
+        .onAppear { dimmed = true }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .accessibilityLabel("Refreshing streams")
     }
 }

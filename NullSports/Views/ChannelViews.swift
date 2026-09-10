@@ -47,7 +47,6 @@ struct LiveView: View {
                                 previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                                 multiviewPrimaryID: multiviewPrimary?.id,
                                 multiviewTitle: multiviewPrimary?.name,
-                                isUpdating: library.isScheduleLoading,
                                 onPlay: select,
                                 onStartMultiview: startMultiview,
                                 onCancelMultiview: { multiviewPrimary = nil },
@@ -287,7 +286,14 @@ private struct LiveBoardLeagueButton: View {
 }
 
 private struct LiveBoardHeading: View {
-    let isUpdating: Bool
+    @EnvironmentObject private var library: SportsLibrary
+
+    // Matching keeps running after the schedule and library finish, and every
+    // game reads as unmatched until it lands. Cover that window too, so it is
+    // not mistaken for a settled answer of "no channel".
+    private var isPreparingStreams: Bool {
+        library.isScheduleLoading || library.isLoading || library.channelsAreSyncing
+    }
 
     var body: some View {
         HStack(alignment: .center) {
@@ -296,10 +302,29 @@ private struct LiveBoardHeading: View {
                     .font(.system(size: 16, weight: .medium)).foregroundStyle(LiveBoardStyle.muted)
             }
             Spacer()
-            if isUpdating { ProgressView().controlSize(.small) }
+            if isPreparingStreams { RefreshingStreamsLabel() }
         }
         .foregroundStyle(NullSportsStyle.lightPurple)
         .frame(height: 28)
+    }
+}
+
+/// Matches are unavailable while channels, guide or matching are in flight, so
+/// the board says so rather than showing every game as having no channel.
+private struct RefreshingStreamsLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(NullSportsStyle.live).frame(width: 7, height: 7)
+            Text("REFRESHING STREAMS").font(.system(size: 13, weight: .bold)).tracking(2)
+        }
+        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.75))
+        .opacity(reduceMotion || !dimmed ? 1 : 0.32)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
+        .onAppear { dimmed = true }
+        .accessibilityLabel("Refreshing streams")
     }
 }
 
@@ -312,7 +337,7 @@ private struct LiveEmptySlateDashboard: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            LiveBoardHeading(isUpdating: isLoading)
+            LiveBoardHeading()
             HStack(spacing: 30) {
                 LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
                 VStack(alignment: .leading, spacing: 22) {
@@ -346,7 +371,6 @@ private struct LiveSlateDashboard: View {
     let previewURLs: [URL]
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
-    let isUpdating: Bool
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
@@ -355,7 +379,7 @@ private struct LiveSlateDashboard: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 4) {
-                LiveBoardHeading(isUpdating: isUpdating)
+                LiveBoardHeading()
                 HStack(alignment: .top, spacing: 28) {
                     ScrollView(.vertical) {
                         LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
@@ -2134,6 +2158,8 @@ struct AccountView: View {
                 }
                 Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
                     .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled()
+                NavigationLink("Channel matching") { MatchDiagnosticsView() }
+                    .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled()
                 DetailPanel(title: "ABOUT") {
                     AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
                 }
@@ -2144,6 +2170,75 @@ struct AccountView: View {
                 MediaServerSetupView().environmentObject(media)
             }
         }
+    }
+}
+
+/// Why each game matched the channel it did. A game that opens the wrong feed
+/// should be able to name the rule that chose it, without a device log.
+private struct MatchDiagnosticsView: View {
+    @EnvironmentObject private var library: SportsLibrary
+
+    private var games: [SportsGame] {
+        library.games(for: nil).filter { $0.isLive || $0.isUpcoming }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .firstTextBaseline, spacing: 24) {
+                ScreenHeading(title: "Channel matching", detail: "The rule that chose each game's channel")
+                Spacer()
+                if library.channelsAreSyncing { RefreshingStreamsLabel() }
+            }
+            if games.isEmpty {
+                Text("No live or upcoming games to match.").foregroundColor(NullSportsStyle.lightPurple)
+                    .font(.title3).foregroundStyle(NullSportsStyle.secondary)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(games) { MatchDiagnosticsRow(game: $0) }
+                }.padding(.vertical, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 120).padding(.vertical, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(NullSportsStyle.background)
+    }
+}
+
+private struct MatchDiagnosticsRow: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @FocusState private var focused: Bool
+    let game: SportsGame
+
+    private var stream: XtreamStream? { library.stream(for: game) }
+    private var evidence: SportsLibrary.MatchEvidence? { library.matchEvidence(for: game) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(game.awayTeam) at \(game.homeTeam)").foregroundColor(NullSportsStyle.lightPurple)
+                .font(.system(size: 24, weight: .semibold))
+            Text("\(game.league.shortName)  ·  \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
+                .foregroundColor(NullSportsStyle.lightPurple)
+                .font(.system(size: 16)).foregroundStyle(NullSportsStyle.secondary)
+            if let stream {
+                Text(stream.name).foregroundColor(NullSportsStyle.lightPurple)
+                    .font(.system(size: 17, weight: .medium)).lineLimit(1)
+                Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
+                    .foregroundColor(evidence == .dedicatedFeed ? NullSportsStyle.lightPurple : NullSportsStyle.warning)
+                    .font(.system(size: 15))
+            } else {
+                Text("No match — opens the channel picker").foregroundColor(NullSportsStyle.lightPurple)
+                    .font(.system(size: 15)).foregroundStyle(NullSportsStyle.secondary)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(focused ? NullSportsStyle.focused : NullSportsStyle.surface,
+                    in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .focusable().focused($focused).focusEffectDisabled()
+        .accessibilityElement(children: .combine)
     }
 }
 
