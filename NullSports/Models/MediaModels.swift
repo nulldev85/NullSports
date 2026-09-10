@@ -142,4 +142,12 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         guard let size, size > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
+
+    // Servers report bits per second. Mbps is how a release is usually described,
+    // and one decimal separates neighbouring encodes without adding noise.
+    var formattedBitrate: String? {
+        guard let bitrate, bitrate > 0 else { return nil }
+        let mbps = Double(bitrate) / 1_000_000
+        return mbps >= 10 ? "\(Int(mbps.rounded())) Mbps" : String(format: "%.1f Mbps", mbps)
+    }
 }
