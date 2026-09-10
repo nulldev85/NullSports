@@ -235,10 +235,16 @@ private struct MediaCatalogsScreen: View {
                                         Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
                                     }.buttonStyle(.plain)
                                 }
+                                .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
                                     Text("No titles in this catalog.").font(.callout)
                                         .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                                        .padding(.horizontal, horizontalPadding)
                                 } else {
+                                    // The shelf spans the full width and insets its
+                                    // content instead, so a card scrolls away at the
+                                    // screen edge rather than being clipped by the
+                                    // margin with the first one cut in half at rest.
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         LazyHStack(alignment: .top, spacing: itemSpacing) {
                                             ForEach(catalog.items) { item in
@@ -251,11 +257,12 @@ private struct MediaCatalogsScreen: View {
                                         }
                                         .padding(.vertical, 8)
                                     }
+                                    .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
+                    .padding(.bottom, 44)
                 } }
             }
         }
@@ -513,33 +520,35 @@ private struct MediaSourceRow: View {
     let rank: Int
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Text("#\(rank)")
                 .font(.system(.subheadline, design: .rounded, weight: .bold)).monospacedDigit()
                 .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.65) : NullSportsStyle.lightPurple.opacity(0.48))
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(source.releaseName).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
-                HStack(spacing: 8) {
-                    Text(source.provider).font(.caption.weight(.semibold))
+                .fixedSize()
+            VStack(alignment: .leading, spacing: 7) {
+                // A release name is the whole row's width to spend. The score used
+                // to take a column of its own beside it, which left neither enough.
+                Text(source.releaseName)
+                    .font(.subheadline.weight(.semibold)).lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Each chip keeps its own width so none of them can break mid-word.
+                // The provider is last and truncates, so the numbers stay readable.
+                HStack(spacing: 6) {
+                    if let score = source.score { sourceBadge(score >= 0 ? "+\(score)" : "\(score)") }
                     if let quality = source.quality { sourceBadge(quality) }
                     if let size = source.formattedSize { sourceBadge(size) }
-                    if let container = source.container?.split(separator: ",").first { sourceBadge(String(container).uppercased()) }
+                    if let bitrate = source.formattedBitrate { sourceBadge(bitrate) }
+                    if let container = Self.shortContainer(source.container) { sourceBadge(container) }
+                    Text(source.provider)
+                        .font(.caption2.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
                 }
-                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.72) : NullSportsStyle.lightPurple.opacity(0.58))
+                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.72) : NullSportsStyle.lightPurple.opacity(0.62))
             }
-            Spacer(minLength: 10)
-            if let score = source.score {
-                VStack(spacing: 1) {
-                    Text(score >= 0 ? "+\(score)" : "\(score)")
-                        .font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit()
-                    Text("SCORE").font(.system(size: 9, weight: .bold)).tracking(1.2)
-                }
-                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
-            }
-            Image(systemName: "play.fill").font(.headline)
+            Image(systemName: "play.circle.fill").font(.title3).fixedSize()
         }
-        .padding(.horizontal, 16).padding(.vertical, 13)
+        .padding(.horizontal, 14).padding(.vertical, 12)
         .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(NullSportsStyle.line, lineWidth: focused ? 0 : 1))
@@ -549,8 +558,22 @@ private struct MediaSourceRow: View {
     }
 
     private func sourceBadge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.bold)).padding(.horizontal, 7).padding(.vertical, 3)
+        Text(text).font(.caption2.weight(.bold)).lineLimit(1).fixedSize()
+            .padding(.horizontal, 7).padding(.vertical, 3)
             .background((focused ? NullSportsStyle.background : NullSportsStyle.lightPurple).opacity(0.1), in: Capsule())
+    }
+
+    // Servers name containers in full, and "MATROSKA" costs a chip the width of
+    // the numbers beside it for no more meaning than "MKV".
+    private static func shortContainer(_ raw: String?) -> String? {
+        guard let first = raw?.split(separator: ",").first else { return nil }
+        let value = first.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !value.isEmpty else { return nil }
+        switch value {
+        case "matroska": return "MKV"
+        case "quicktime", "mpeg-4": return "MP4"
+        default: return value.uppercased()
+        }
     }
 }
 
@@ -569,7 +592,10 @@ private struct MediaItemCard: View {
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                 }
             }
-            .aspectRatio(item.primaryImageAspectRatio ?? 2 / 3, contentMode: .fit)
+            // Servers report a per-item ratio, so honouring it gave a shelf a mix
+            // of tall posters and short backdrops. One poster shape for every card
+            // keeps a row on a single baseline; the art fills and crops to it.
+            .aspectRatio(2 / 3, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
