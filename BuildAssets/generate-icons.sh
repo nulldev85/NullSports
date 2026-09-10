@@ -5,7 +5,13 @@ assets='Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
 source='BuildAssets/LineupMark.png'
 background=$(mktemp -t lineup-icon)
 trap 'rm -f "$background"' EXIT
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY+Dk4vwPAAFYARw5ahBmAAAAAElFTkSuQmCC' | base64 --decode > "$background"
+# A 1x1 pixel of the app's ground colour, scaled up to become each stack's
+# backing layer. The committed layers already look like this; regenerating
+# from a new mark should not quietly swap the backing to transparent.
+# A 1x1 pixel of the app's ground colour, scaled up to become each stack's
+# backing layer. The committed layers already look like this; regenerating
+# from a new mark should not quietly swap the backing to transparent.
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQklUHAADLAGe8FETtAAAAAElFTkSuQmCC' | base64 --decode > "$background"
 
 make_icon() {
   local stack="$1" height="$2" width="$3" suffix="$4"
