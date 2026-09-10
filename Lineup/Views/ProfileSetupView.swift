@@ -47,7 +47,7 @@ struct ProfileSetupView: View {
             .textFieldStyle(.plain)
             .foregroundColor(LineupStyle.lightPurple)
             .focusEffectDisabled()
-            .buttonStyle(LineupButtonStyle())
+            .lineupButtonStyle()
             .padding(34)
             .background(LineupStyle.surface)
             .overlay(Rectangle().stroke(LineupStyle.line, lineWidth: 1))

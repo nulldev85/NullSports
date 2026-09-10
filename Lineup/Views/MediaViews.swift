@@ -79,11 +79,11 @@ private struct TVMediaServersHome: View {
                 Button { Task { await media.reload() } } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 42, height: 42)
                 }
-                .buttonStyle(TVMediaHeaderButtonStyle()).disabled(media.isLoading || media.activeProfile == nil)
+                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled().disabled(media.isLoading || media.activeProfile == nil)
                 Button { addingServer = true } label: {
                     Label("Add Server", systemImage: "plus").padding(.horizontal, 4).frame(height: 42)
                 }
-                .buttonStyle(TVMediaHeaderButtonStyle())
+                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
             }
             .padding(.horizontal, 54).padding(.top, 18)
 
@@ -135,7 +135,7 @@ private struct TVMediaEmptyState: View {
                 Text("Connect Jellyfin or Nullfin to browse libraries, addon catalogs, and streams.")
                     .font(.system(size: 18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 Button("Connect a Server", systemImage: "plus", action: add)
-                    .buttonStyle(LineupButtonStyle()).focusEffectDisabled().padding(.top, 6)
+                    .lineupButtonStyle().padding(.top, 6)
             }
             .foregroundStyle(LineupStyle.lightPurple)
         }
@@ -1377,7 +1377,7 @@ struct InitialSourceSetupView: View {
                     Label("Add Media Server", systemImage: "play.square.stack")
                 }
             }
-            .buttonStyle(LineupButtonStyle())
+            .lineupButtonStyle()
             #else
             VStack(spacing: 14) {
                 Button { addingIPTV = true } label: {
@@ -1389,7 +1389,7 @@ struct InitialSourceSetupView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(LineupButtonStyle())
+            .lineupButtonStyle()
             #endif
         }
         .padding(setupPadding)

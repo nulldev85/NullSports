@@ -207,7 +207,7 @@ private struct ManualGameChannelPicker: View {
             }
             .padding(40)
             .foregroundStyle(LineupStyle.text)
-            .buttonStyle(LineupButtonStyle())
+            .lineupButtonStyle()
             .focusEffectDisabled()
         }
     }
@@ -2136,7 +2136,7 @@ struct AccountView: View {
                         AccountRow(label: "Username", value: profile.username)
                     }
                     Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
-                        .buttonStyle(LineupButtonStyle()).focusEffectDisabled()
+                        .lineupButtonStyle()
                 }
                 DetailPanel(title: "MEDIA SERVERS") {
                     if media.profiles.isEmpty {
@@ -2157,9 +2157,9 @@ struct AccountView: View {
                     }
                 }
                 Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
-                    .buttonStyle(LineupButtonStyle()).focusEffectDisabled()
+                    .lineupButtonStyle()
                 NavigationLink("Channel matching") { MatchDiagnosticsView() }
-                    .buttonStyle(LineupButtonStyle()).focusEffectDisabled()
+                    .lineupButtonStyle()
                 DetailPanel(title: "ABOUT") {
                     AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
                 }
@@ -2696,7 +2696,9 @@ private struct TVPlaybackStatus: View {
         if let error = controller.error {
             VStack(spacing: 16) {
                 Text(error).multilineTextAlignment(.center)
-                Button("Retry", action: controller.retry)
+                // Over video this is the one thing focusable, so it carries the
+                // app's own focus rather than a plate laid over the picture.
+                Button("Retry", action: controller.retry).lineupButtonStyle()
             }
             .padding(24).background(Color.black.opacity(0.8))
         } else if controller.reconnecting {
