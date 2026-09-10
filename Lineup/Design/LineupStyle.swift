@@ -21,6 +21,19 @@ enum LineupStyle {
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
+extension View {
+    /// The app's button style, with tvOS's own focus effect switched off.
+    ///
+    /// `LineupButtonStyle` already draws focus -- a filled background and a
+    /// lift. tvOS adds its plate on top of that, sized to the whole button, so
+    /// a focused button carried two highlights and the outer one was enormous.
+    /// Applying the style is what asks for that plate, so the two travel
+    /// together here and a new button cannot pick up one without the other.
+    func lineupButtonStyle() -> some View {
+        buttonStyle(LineupButtonStyle()).focusEffectDisabled()
+    }
+}
+
 struct LineupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         PurpleButtonLabel(configuration: configuration)
