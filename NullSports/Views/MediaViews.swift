@@ -235,10 +235,16 @@ private struct MediaCatalogsScreen: View {
                                         Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
                                     }.buttonStyle(.plain)
                                 }
+                                .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
                                     Text("No titles in this catalog.").font(.callout)
                                         .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                                        .padding(.horizontal, horizontalPadding)
                                 } else {
+                                    // The shelf spans the full width and insets its
+                                    // content instead, so a card scrolls away at the
+                                    // screen edge rather than being clipped by the
+                                    // margin with the first one cut in half at rest.
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         LazyHStack(alignment: .top, spacing: itemSpacing) {
                                             ForEach(catalog.items) { item in
@@ -251,11 +257,12 @@ private struct MediaCatalogsScreen: View {
                                         }
                                         .padding(.vertical, 8)
                                     }
+                                    .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, horizontalPadding).padding(.bottom, 44)
+                    .padding(.bottom, 44)
                 } }
             }
         }
@@ -569,7 +576,10 @@ private struct MediaItemCard: View {
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                 }
             }
-            .aspectRatio(item.primaryImageAspectRatio ?? 2 / 3, contentMode: .fit)
+            // Servers report a per-item ratio, so honouring it gave a shelf a mix
+            // of tall posters and short backdrops. One poster shape for every card
+            // keeps a row on a single baseline; the art fills and crops to it.
+            .aspectRatio(2 / 3, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
