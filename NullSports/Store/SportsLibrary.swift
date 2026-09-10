@@ -521,6 +521,19 @@ final class SportsLibrary: ObservableObject {
     // The two matchers score on different scales, so the league decides how a
     // score reads: college ranks guide evidence highest, while the professional
     // policy ranks a channel named for the game above a national channel's guide.
+    enum MatchRejection: String {
+        case scheduleChanged = "Matched, but the schedule moved since — a tap opens the picker"
+        case noLongerShowing = "Matched, but the channel no longer shows this game — a tap opens the picker"
+    }
+
+    // Playback asks verifiedStream, which revalidates; the rows ask stream(for:),
+    // which does not. A diagnostics row reporting the cheap answer could promise a
+    // channel that a tap then refuses, so it reports the disagreement instead.
+    func playbackRejection(for game: SportsGame) -> MatchRejection? {
+        guard stream(for: game) != nil, verifiedStream(for: game) == nil else { return nil }
+        return matchedGameIdentities[game.id] == Self.matchIdentity(game) ? .noLongerShowing : .scheduleChanged
+    }
+
     func matchEvidence(for game: SportsGame) -> MatchEvidence? {
         guard let score = matchEvidenceScores[game.id] else { return nil }
         guard game.league == .ncaaf else { return score >= 400 ? .dedicatedFeed : .guideListing }

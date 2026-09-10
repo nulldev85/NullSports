@@ -275,9 +275,13 @@ private struct MatchDiagnosticsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             if let stream {
                 Text(stream.name).font(.caption.weight(.medium))
-                Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
-                    .font(.caption2)
-                    .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : NullSportsStyle.warning)
+                if let rejection = library.playbackRejection(for: game) {
+                    Text(rejection.rawValue).font(.caption2).foregroundStyle(NullSportsStyle.live)
+                } else {
+                    Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
+                        .font(.caption2)
+                        .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : NullSportsStyle.warning)
+                }
             } else {
                 Text("No match \u{2014} opens the channel picker")
                     .font(.caption2).foregroundStyle(.secondary)
