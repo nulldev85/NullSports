@@ -34,6 +34,8 @@ jobs:
           /tmp/lineup-playback-health-checks
           swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
           /tmp/lineup-professional-match-checks
+          swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
+          /tmp/lineup-provider-refresh-checks
 
       - name: Generate project
         run: |
