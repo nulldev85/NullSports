@@ -228,6 +228,26 @@ final class MediaServerTests: XCTestCase {
         XCTAssertNil(try runtime(minutes: 0))
     }
 
+    // The scores a Nullfin server keeps per metrics addon. Each addon normalises
+    // to 0-100 before storing, so a score reads whole rather than out of ten.
+    func testDecodesPerSourceScoresAndNamesTheirSources() throws {
+        let data = Data(#"""
+        {"Metrics":[
+          {"Source":"tmdb","Value":80.4,"Date":"2026-09-09"},
+          {"Source":"rottentomatoes","Value":94.0,"Date":"2026-09-09"},
+          {"Source":"trakt","Value":77.6,"Date":"2026-09-09"},
+          {"Source":"someaddon","Value":50,"Date":"2026-09-09"}
+        ]}
+        """#.utf8)
+
+        let metrics = try JSONDecoder().decode(MediaMetricsResponse.self, from: data).metrics
+
+        XCTAssertEqual(metrics.map(\.displayName),
+            ["TMDB", "Rotten Tomatoes", "Trakt", "Someaddon"])
+        XCTAssertEqual(metrics.map(\.formattedValue), ["80", "94", "78", "50"])
+        XCTAssertEqual(metrics.first?.id, "tmdb")
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)

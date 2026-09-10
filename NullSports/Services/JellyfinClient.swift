@@ -70,6 +70,14 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    // A Nullfin extension. Jellyfin has no such route and answers 404, which is
+    // why the caller treats any failure as "this server has no extra scores".
+    func itemMetrics(itemID: String) async throws -> [MediaMetric] {
+        let response: MediaMetricsResponse = try await send(
+            try request(path: "remux/metrics/\(itemID)"))
+        return response.metrics
+    }
+
     func setFavorite(userID: String, itemID: String, isFavorite: Bool) async throws {
         try await sendIgnoringBody(
             try request(path: "users/\(userID)/favoriteitems/\(itemID)",

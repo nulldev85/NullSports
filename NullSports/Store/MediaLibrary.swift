@@ -142,6 +142,13 @@ final class MediaLibrary: ObservableObject {
             .nextUp(userID: profile.userID, seriesID: series.id).first
     }
 
+    /// Per-source scores, when the server keeps them. A Jellyfin server does
+    /// not, so a failure here means "show what the item itself carries".
+    func metrics(for item: MediaItem) async -> [MediaMetric] {
+        guard let profile = activeProfile else { return [] }
+        return (try? await client(for: profile).itemMetrics(itemID: item.id)) ?? []
+    }
+
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
         guard let profile = activeProfile else { return }
         do {

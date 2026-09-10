@@ -473,6 +473,7 @@ private struct MediaShowScreen: View {
     @State private var selectedSeason: MediaItem?
     @State private var episodes: [MediaItem] = []
     @State private var nextUp: MediaItem?
+    @State private var metrics: [MediaMetric] = []
     @State private var favorite = false
     @State private var expandedOverview = false
     @State private var loading = true
@@ -625,10 +626,18 @@ private struct MediaShowScreen: View {
 
     // Only what the server actually reports. An empty row beats an invented one.
     //
-    // The community score is worth naming: on a Nullfin server it is filled from
-    // the metadata addon's own IMDb rating, and an unlabelled star said nothing
-    // about where the number came from.
+    // A Nullfin server keeps a score per metrics addon, and naming the source
+    // beside each one is the whole point of showing them. Where it has none --
+    // any Jellyfin server, or an item no addon has scored -- the item's own two
+    // ratings stand in, and the community score is named too: Nullfin fills it
+    // from the metadata addon's IMDb rating, and an unlabelled star said
+    // nothing about where the number came from.
     private var ratingValues: [Rating] {
+        guard metrics.isEmpty else {
+            return metrics.map {
+                Rating(id: $0.source, source: $0.displayName, value: $0.formattedValue)
+            }
+        }
         var values: [Rating] = []
         if let community = show.communityRating, community > 0 {
             values.append(Rating(id: "community", source: "IMDb",
@@ -644,7 +653,9 @@ private struct MediaShowScreen: View {
     @ViewBuilder
     private var ratings: some View {
         if !ratingValues.isEmpty {
-            HStack(spacing: 16) {
+            // Six sources do not fit across a phone, so they wrap rather than
+            // squeeze, the same way the stream badges do.
+            BadgeFlow(spacing: 16) {
                 ForEach(ratingValues) { rating in
                     HStack(spacing: 6) {
                         Text(rating.source)
@@ -653,6 +664,7 @@ private struct MediaShowScreen: View {
                         Text(rating.value)
                             .font(.subheadline.weight(.semibold)).monospacedDigit()
                     }
+                    .fixedSize()
                 }
             }
             .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.82))
@@ -714,6 +726,7 @@ private struct MediaShowScreen: View {
         let loaded = try? await media.details(of: series)
         detail = loaded ?? series
         favorite = (loaded ?? series).isFavorite
+        metrics = await media.metrics(for: series)
         do {
             let children = try await media.numberedChildren(of: series)
             let seasonList = children.filter { $0.type == "Season" }

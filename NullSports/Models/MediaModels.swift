@@ -161,6 +161,47 @@ struct MediaUserData: Codable, Hashable, Sendable {
     }
 }
 
+/// A score from one metrics addon, as `GET /remux/metrics/{id}` returns it.
+/// Only a Nullfin server has that route; a Jellyfin server answers 404 and the
+/// row simply does not appear.
+struct MediaMetric: Decodable, Identifiable, Hashable, Sendable {
+    let source: String
+    let value: Double
+    let date: String
+
+    var id: String { source }
+
+    // Sources are stored lowercase and keyed by addon name.
+    var displayName: String {
+        switch source.lowercased() {
+        case "imdb": return "IMDb"
+        case "tmdb": return "TMDB"
+        case "tvdb": return "TVDB"
+        case "trakt": return "Trakt"
+        case "metacritic": return "Metacritic"
+        case "rottentomatoes", "rotten_tomatoes": return "Rotten Tomatoes"
+        case "popcorn": return "Popcorn"
+        case "letterboxd": return "Letterboxd"
+        default: return source.capitalized
+        }
+    }
+
+    // Every addon normalises to 0-100 before storing, so a score reads whole.
+    var formattedValue: String { "\(Int(value.rounded()))" }
+
+    enum CodingKeys: String, CodingKey {
+        case source = "Source"
+        case value = "Value"
+        case date = "Date"
+    }
+}
+
+struct MediaMetricsResponse: Decodable, Sendable {
+    let metrics: [MediaMetric]
+
+    enum CodingKeys: String, CodingKey { case metrics = "Metrics" }
+}
+
 struct MediaCatalog: Identifiable, Hashable, Sendable {
     let root: MediaItem
     let items: [MediaItem]
