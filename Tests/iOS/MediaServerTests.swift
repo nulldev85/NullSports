@@ -248,6 +248,28 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(metrics.first?.id, "tmdb")
     }
 
+    // A Jellyfin-compatible server may have no password on the account, and some
+    // ship that way until an operator sets one. Only the user name is ours to
+    // require; whether the credentials are good enough is the server's call.
+    @MainActor
+    func testAddingAServerNeedsAUserNameButNotAPassword() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "lineup-media-\(UUID().uuidString)"))
+        let library = MediaLibrary(defaults: defaults)
+
+        let missingName = await library.addServer(name: "Server",
+            serverURL: "http://127.0.0.1:1", username: "   ", password: "secret")
+        XCTAssertFalse(missingName)
+        XCTAssertEqual(library.errorMessage, "Enter your media server user name.")
+
+        // Port 1 refuses at once, so this reaches the network layer and fails
+        // there rather than being turned away locally -- which is the point.
+        let blankPassword = await library.addServer(name: "Server",
+            serverURL: "http://127.0.0.1:1", username: "viewer", password: "")
+        XCTAssertFalse(blankPassword)
+        XCTAssertNotEqual(library.errorMessage, "Enter your media server user name.",
+            "A blank password must be handed to the server, not refused here")
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)
