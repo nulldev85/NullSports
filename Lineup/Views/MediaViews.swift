@@ -175,6 +175,8 @@ private struct MediaCatalogsScreen: View {
     @State private var results: [MediaItem] = []
     @State private var searching = false
     @State private var searchError: String?
+    @FocusState private var searchFocused: Bool
+    @FocusState private var addShelfFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -189,8 +191,9 @@ private struct MediaCatalogsScreen: View {
                     }
                 }
                 .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 13).stroke(LineupStyle.line, lineWidth: 1))
+                .modifier(MediaChromeSurface(focused: searchFocused, outline: true, radius: 13))
+                .focused($searchFocused)
+                .focusEffectDisabled()
                 Menu {
                     if media.availableShelves.isEmpty {
                         Button("All available shelves are visible") { }.disabled(true)
@@ -201,8 +204,12 @@ private struct MediaCatalogsScreen: View {
                     }
                 } label: {
                     Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 16, weight: .semibold)).padding(.horizontal, 10).frame(height: searchHeight)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(.horizontal, 16).frame(height: searchHeight)
+                        .modifier(MediaChromeSurface(focused: addShelfFocused, radius: 13))
                 }
+                .focused($addShelfFocused)
+                .focusEffectDisabled()
             }
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
 
@@ -229,11 +236,17 @@ private struct MediaCatalogsScreen: View {
                                     Text(catalog.title).font(sectionTitleFont)
                                     Spacer()
                                     Button { media.removeShelf(catalog) } label: {
-                                        Image(systemName: "minus.circle").accessibilityLabel("Remove \(catalog.title) shelf")
-                                    }.buttonStyle(.plain)
+                                        MediaChromeLabel {
+                                            Image(systemName: "minus.circle")
+                                                .accessibilityLabel("Remove \(catalog.title) shelf")
+                                        }
+                                    }.buttonStyle(.plain).focusEffectDisabled()
                                     NavigationLink(value: catalog.root) {
-                                        Label("See All", systemImage: "chevron.right").font(.system(size: 14, weight: .semibold))
-                                    }.buttonStyle(.plain)
+                                        MediaChromeLabel {
+                                            Label("See All", systemImage: "chevron.right")
+                                                .font(.system(size: 14, weight: .semibold))
+                                        }
+                                    }.buttonStyle(.plain).focusEffectDisabled()
                                 }
                                 .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
@@ -252,7 +265,7 @@ private struct MediaCatalogsScreen: View {
                                                 Group {
                                                     if item.isFolder {
                                                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                                                            .buttonStyle(.plain)
+                                                            .buttonStyle(.plain).focusEffectDisabled()
                                                     } else { MediaPlayableCard(item: item, shape: shape) }
                                                 }.frame(width: cardWidth(shape))
                                             }
@@ -352,7 +365,7 @@ private struct MediaGridScreen: View {
                 ForEach(items) { item in
                     if item.isFolder {
                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.plain).focusEffectDisabled()
                     } else {
                         MediaPlayableCard(item: item, shape: shape)
                     }
@@ -487,6 +500,7 @@ private struct MediaShowScreen: View {
     @State private var loading = true
     @State private var error: String?
     @State private var chosen: MediaItem?
+    @FocusState private var seasonFocused: Bool
 
     private var show: MediaItem { detail ?? series }
 
@@ -585,10 +599,10 @@ private struct MediaShowScreen: View {
                 }
                 .font(.system(size: 17))
                 .frame(maxWidth: .infinity).frame(height: buttonHeight)
-                .foregroundStyle(LineupStyle.background)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .modifier(MediaChromeFocus(prominent: true))
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
@@ -605,10 +619,10 @@ private struct MediaShowScreen: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
                 .frame(width: buttonHeight + 8, height: buttonHeight)
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(LineupStyle.line, lineWidth: 1))
+                .modifier(MediaChromeFocus())
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 
     @ViewBuilder
@@ -698,7 +712,7 @@ private struct MediaShowScreen: View {
                 LazyVGrid(columns: episodeColumns, spacing: 22) {
                     ForEach(episodes) { episode in
                         Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.plain).focusEffectDisabled()
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -718,8 +732,11 @@ private struct MediaShowScreen: View {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
                 }
-                .foregroundStyle(LineupStyle.lightPurple)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .modifier(MediaChromeSurface(focused: seasonFocused))
             }
+            .focused($seasonFocused)
+            .focusEffectDisabled()
         } else {
             Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
         }
@@ -892,7 +909,7 @@ private struct MediaPlayableCard: View {
 
     var body: some View {
         Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).focusEffectDisabled()
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -959,7 +976,7 @@ private struct MediaSourcePicker: View {
                                     Button { selectedSource = source } label: {
                                         MediaSourceRow(source: source)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.plain).focusEffectDisabled()
                                 }
                             }
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
@@ -1019,6 +1036,64 @@ private struct MediaSourcePicker: View {
 
 /// The chip draws its own selection and its own focus, so a remote moving across
 /// the row reads the same as a finger tapping one.
+/// tvOS lights whatever has focus by drawing a white plate behind it, sized to
+/// the whole control. On a poster that plate covers the title under the art as
+/// well, and white belongs to no part of this palette. Every focusable thing in
+/// these screens turns that effect off and draws its own focus instead: the
+/// cards and rows already did, and this is what the chrome around them uses.
+private struct MediaChromeSurface: ViewModifier {
+    var focused = false
+    var prominent = false
+    /// A field the viewer types into. It marks focus with its edge only: filling
+    /// it would put dark text on a light field mid-sentence, which is the same
+    /// jarring inversion this is all here to remove.
+    var outline = false
+    var radius: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(filled ? LineupStyle.background : LineupStyle.lightPurple)
+            .background(filled ? LineupStyle.lightPurple : LineupStyle.surface,
+                in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius)
+                .stroke(border, lineWidth: focused ? 2 : 1))
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+    }
+
+    private var filled: Bool { !outline && (prominent || focused) }
+
+    private var border: Color {
+        if focused { return prominent ? LineupStyle.background : LineupStyle.lightPurple }
+        return prominent ? .clear : LineupStyle.line
+    }
+}
+
+/// The same surface, reading focus from the button wrapped around it rather
+/// than being told. A Menu's label cannot read focus this way, so the two menus
+/// carry their own focus binding instead.
+private struct MediaChromeFocus: ViewModifier {
+    @Environment(\.isFocused) private var focused
+    var prominent = false
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(MediaChromeSurface(focused: focused, prominent: prominent))
+            .scaleEffect(focused ? 1.04 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+    }
+}
+
+/// Padded chrome -- Add Shelf, See All, remove -- around a focusable button.
+private struct MediaChromeLabel<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .modifier(MediaChromeFocus())
+    }
+}
+
 private struct MediaProviderChip: View {
     @Environment(\.isFocused) private var focused
     let title: String
