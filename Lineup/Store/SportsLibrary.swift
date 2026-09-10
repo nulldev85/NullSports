@@ -117,13 +117,26 @@ final class SportsLibrary: ObservableObject {
     // pitch. That window is the only time refetching the lineup is likely to
     // turn an unmatched game into a matched one, and starting a little early
     // means the channel is ready when the game is rather than found afterwards.
-    private var hasUnmatchedGameNearStart: Bool {
+    /// The provider's data is only as old as the older of its two halves: a
+    /// fresh channel list cannot help while the guide that confirms the game is
+    /// from this morning.
+    private var providerFetchedAt: Date? {
+        switch (libraryUpdatedAt, guideUpdatedAt) {
+        case let (library?, guide?): return min(library, guide)
+        case let (library?, nil): return library
+        case let (nil, guide?): return guide
+        case (nil, nil): return nil
+        }
+    }
+
+    private var hasUnmatchedGameNeedingProviderData: Bool {
         let now = Date()
+        let fetchedAt = providerFetchedAt
         return gamesByLeague.values.contains { games in
             games.contains { game in
                 (game.isLive || game.isUpcoming) && gameStreamCache[game.id] == nil
-                    && game.start.addingTimeInterval(-5 * 60) <= now
-                    && now < game.start.addingTimeInterval(30 * 60)
+                    && ProviderRefreshPolicy.needsRefresh(gameStart: game.start,
+                        providerFetchedAt: fetchedAt, now: now)
             }
         }
     }
@@ -503,10 +516,7 @@ final class SportsLibrary: ObservableObject {
                 if update.1 || self.hasUnmatchedLiveGame {
                     await self.rebuildGameStreamCache()
                 }
-                // Rematching cannot find a channel the app has not downloaded,
-                // and the channel list and guide otherwise sit for hours. A game
-                // unmatched around its own start time asks for both again.
-                if self.hasUnmatchedGameNearStart,
+                if self.hasUnmatchedGameNeedingProviderData,
                    Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
                     self.lastUnmatchedProviderRefresh = Date()
                     await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
