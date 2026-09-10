@@ -111,6 +111,21 @@ final class SportsLibrary: ObservableObject {
         didCompleteMatching && channelsValidatedThisSession && guideValidatedThisSession && sportsIndexReady
     }
 
+    // Providers publish a game's own feed, and its guide entry, around first
+    // pitch. That window is the only time refetching the lineup is likely to
+    // turn an unmatched game into a matched one, and starting a little early
+    // means the channel is ready when the game is rather than found afterwards.
+    private var hasUnmatchedGameNearStart: Bool {
+        let now = Date()
+        return gamesByLeague.values.contains { games in
+            games.contains { game in
+                (game.isLive || game.isUpcoming) && gameStreamCache[game.id] == nil
+                    && game.start.addingTimeInterval(-5 * 60) <= now
+                    && now < game.start.addingTimeInterval(30 * 60)
+            }
+        }
+    }
+
     // A channel's guide usually only names the game once it is under way, and a
     // scoreless opening gives the schedule nothing to change, so nothing asks
     // matching to look again. Retry rather than leave a live game unmatched.
@@ -486,12 +501,10 @@ final class SportsLibrary: ObservableObject {
                 if update.1 || self.hasUnmatchedLiveGame {
                     await self.rebuildGameStreamCache()
                 }
-                // Rematching cannot find a channel the app has not downloaded.
-                // Providers publish a game's own feed, and its guide entry, close
-                // to first pitch, while the channel list and guide otherwise sit
-                // for hours. A live game still without a channel asks for both
-                // again, at a distance that keeps this off the provider's back.
-                if self.hasUnmatchedLiveGame,
+                // Rematching cannot find a channel the app has not downloaded,
+                // and the channel list and guide otherwise sit for hours. A game
+                // unmatched around its own start time asks for both again.
+                if self.hasUnmatchedGameNearStart,
                    Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
                     self.lastUnmatchedProviderRefresh = Date()
                     await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
