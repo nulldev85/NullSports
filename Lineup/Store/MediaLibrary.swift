@@ -32,8 +32,11 @@ final class MediaLibrary: ObservableObject {
 
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanUsername.isEmpty, !password.isEmpty else {
-            errorMessage = "Enter your media server username and password."
+        // Only the user name is required. A Jellyfin-compatible server may have
+        // no password set on the account, and the server itself is the right
+        // judge of whether the credentials it was handed are good enough.
+        guard !cleanUsername.isEmpty else {
+            errorMessage = "Enter your media server user name."
             return false
         }
         isLoading = true

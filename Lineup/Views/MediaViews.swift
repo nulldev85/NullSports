@@ -1339,12 +1339,15 @@ struct MediaServerSetupView: View {
                                 username: username, password: password) { dismiss() }
                         }
                     }
+                    // A password is not required. Jellyfin-compatible servers
+                    // allow passwordless users, and some ship that way until an
+                    // operator sets one -- refusing to try left those servers
+                    // unreachable with the button simply dead.
                     .disabled(media.isLoading
                         || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || password.isEmpty)
+                        || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
-                    Text("Supports Jellyfin and Nullfin. Nullfin libraries include catalogs and streams from the addons configured on your server. Access tokens are stored securely in this device’s Keychain.")
+                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers, whose libraries include the catalogs and streams from any addons configured on them. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
                 }
                 if let error = media.errorMessage {
                     Section { Text(error).foregroundStyle(.red) }
