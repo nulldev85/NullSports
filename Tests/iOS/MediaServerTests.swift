@@ -57,6 +57,108 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(response.items[0].overview, "Metadata provider result")
     }
 
+    // Each test below passes the multi-line Name a Nullfin addon actually returns,
+    // so the parsing is pinned to real payloads rather than to the tokens it seeks.
+    private func source(name: String, container: String? = nil,
+        size: Int64? = nil, bitrate: Int64? = nil) throws -> MediaPlaybackSource {
+        var payload: [String: Any] = ["Id": "source-1", "Name": name]
+        if let container { payload["Container"] = container }
+        if let size { payload["Size"] = size }
+        if let bitrate { payload["Bitrate"] = bitrate }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(MediaPlaybackSource.self, from: data)
+    }
+
+    func testReadsEveryStreamDetailFromAnAddonResult() throws {
+        let stream = try source(name: """
+            StreamNZB
+            Reacher
+            Reacher (2022) S04E04 (2160p AMZN WEB-DL Hybrid H265 DV HDR10+ DDP Atmos 5.1 English - HONE)
+            hevc Main 10 2160p 10-bit HDR10 eac3
+            \u{1F50D} StreamNZB Library - altHUB \u{2022} \u{1F3AF} Score: +70494
+            """, container: "matroska", size: 62_700_000_000, bitrate: 24_400_000)
+
+        XCTAssertEqual(stream.quality, "4K")
+        XCTAssertEqual(stream.dynamicRangeTags, ["DV", "HDR10+"])
+        XCTAssertEqual(stream.videoCodec, "H.265")
+        XCTAssertEqual(stream.bitDepth, "10-bit")
+        XCTAssertEqual(stream.audioCodec, "DD+")
+        XCTAssertTrue(stream.hasAtmos)
+        XCTAssertEqual(stream.audioChannels, "5.1")
+        XCTAssertEqual(stream.sourceTag, "WEB-DL")
+        XCTAssertEqual(stream.containerLabel, "MKV")
+        XCTAssertEqual(stream.indexer, "altHUB")
+        XCTAssertEqual(stream.score, 70494)
+        XCTAssertEqual(stream.provider, "StreamNZB")
+        XCTAssertEqual(stream.facts.count, 4)
+        XCTAssertEqual(Array(stream.facts.dropFirst()), ["24 Mbps", "MKV", "altHUB"])
+    }
+
+    // "DDP5 1" and "H 265" lose their separators in some indexers and keep them in
+    // others, and the release name outranks a probe line that reports the width.
+    func testReadsDetailsWhenSeparatorsAreMissingOrTheProbeDisagrees() throws {
+        let stream = try source(name: """
+            StreamNZB
+            Reacher
+            Reacher S04E04 Karambits and Pieces 2160p AMZN WEB-DL DDP5 1 Atmos DV HDR10Plus H 265-Kitsune
+            hevc Main 10 1920p 10-bit HDR10 eac3
+            \u{1F50D} StreamNZB Library - NinjaCentral \u{2022} \u{1F3AF} Score: +70173
+            """)
+
+        XCTAssertEqual(stream.quality, "4K")
+        XCTAssertEqual(stream.dynamicRangeTags, ["DV", "HDR10+"])
+        XCTAssertEqual(stream.videoCodec, "H.265")
+        XCTAssertEqual(stream.audioChannels, "5.1")
+        XCTAssertEqual(stream.indexer, "NinjaCentral")
+    }
+
+    // A result with no probe line still has to yield its badges, and an indexer
+    // that only repeats the addon name is not worth a second mention.
+    func testReadsDottedReleaseNamesAndDropsARedundantIndexer() throws {
+        let stream = try source(name: """
+            StreamNZB
+            Reacher
+            Reacher.S04E04.Karambits.and.Pieces.2160p.AMZN.WEB-DL.DDP5.1.Atmos.DoVi.HDR.H.265-playWEB
+            \u{1F50D} NZBgeek \u{2022} \u{1F3AF} Score: +69263
+            """)
+
+        XCTAssertEqual(stream.dynamicRangeTags, ["DV", "HDR"])
+        XCTAssertEqual(stream.videoCodec, "H.265")
+        XCTAssertEqual(stream.audioChannels, "5.1")
+        XCTAssertEqual(stream.indexer, "NZBgeek")
+
+        let sameName = try source(name: "StreamNZB\nReacher\nRelease\n\u{1F50D} StreamNZB \u{2022} \u{1F3AF} Score: +1")
+        XCTAssertNil(sameName.indexer)
+    }
+
+    // A year, an episode number and a score are all digits either side of a
+    // separator, and none of them describe a surround layout.
+    func testPlainReleaseReportsNoDynamicRangeAndNoInventedChannels() throws {
+        let stream = try source(name: """
+            AIOStreams
+            Movie
+            Movie (2022) 1080p BluRay x264 AAC
+            \u{1F50D} AIOStreams \u{2022} \u{1F3AF} Score: +2075
+            """, container: "quicktime")
+
+        XCTAssertEqual(stream.quality, "1080p")
+        XCTAssertTrue(stream.dynamicRangeTags.isEmpty)
+        XCTAssertEqual(stream.videoCodec, "H.264")
+        XCTAssertEqual(stream.audioCodec, "AAC")
+        XCTAssertFalse(stream.hasAtmos)
+        XCTAssertNil(stream.audioChannels)
+        XCTAssertEqual(stream.sourceTag, "BluRay")
+        XCTAssertEqual(stream.containerLabel, "MP4")
+        XCTAssertEqual(stream.badges, ["H.264", "AAC", "BluRay"])
+    }
+
+    func testBitrateReadsInMbpsAndIsOmittedWhenTheServerReportsNone() throws {
+        XCTAssertEqual(try source(name: "A", bitrate: 24_400_000).formattedBitrate, "24 Mbps")
+        XCTAssertEqual(try source(name: "A", bitrate: 7_400_000).formattedBitrate, "7.4 Mbps")
+        XCTAssertNil(try source(name: "A", bitrate: 0).formattedBitrate)
+        XCTAssertNil(try source(name: "A").formattedBitrate)
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)

@@ -443,6 +443,19 @@ private struct MediaSourcePicker: View {
     @State private var loading = true
     @State private var error: String?
     @State private var selectedSource: MediaPlaybackSource?
+    @State private var providerFilter: String?
+
+    // Addons in the order the server ranked their best result, so the chip row
+    // reads the same way the list below it does.
+    private var providers: [String] {
+        var seen: Set<String> = []
+        return sources.map(\.provider).filter { seen.insert($0).inserted }
+    }
+
+    private var visibleSources: [MediaPlaybackSource] {
+        guard let providerFilter else { return sources }
+        return sources.filter { $0.provider == providerFilter }
+    }
 
     var body: some View {
         NavigationStack {
@@ -460,16 +473,33 @@ private struct MediaSourcePicker: View {
                     ContentUnavailableView("No Streams Found", systemImage: "play.slash",
                         description: Text("None of the connected streaming addons returned a playable result."))
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: rowSpacing) {
-                            ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
-                                Button { selectedSource = source } label: {
-                                    MediaSourceRow(source: source, rank: index + 1)
+                    VStack(spacing: 0) {
+                        // Results arrive interleaved from every connected addon, and
+                        // a viewer who trusts one of them wants to see only its rows.
+                        if providers.count > 1 {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    providerChip(title: "All", count: sources.count, provider: nil)
+                                    ForEach(providers, id: \.self) { provider in
+                                        providerChip(title: provider,
+                                            count: sources.filter { $0.provider == provider }.count,
+                                            provider: provider)
+                                    }
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.horizontal, horizontalPadding).padding(.vertical, 12)
                             }
                         }
-                        .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
+                        ScrollView {
+                            LazyVStack(spacing: rowSpacing) {
+                                ForEach(visibleSources) { source in
+                                    Button { selectedSource = source } label: {
+                                        MediaSourceRow(source: source)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
+                        }
                     }
                 }
             }
@@ -483,6 +513,7 @@ private struct MediaSourcePicker: View {
         }
         .task(id: item.id) {
             loading = true
+            providerFilter = nil
             do { sources = try await media.playbackSources(for: item); error = nil }
             catch { self.error = error.localizedDescription }
             loading = false
@@ -496,6 +527,14 @@ private struct MediaSourcePicker: View {
                 #endif
             } else { ContentUnavailableView("Playback Unavailable", systemImage: "play.slash") }
         }
+    }
+
+    private func providerChip(title: String, count: Int, provider: String?) -> some View {
+        Button { providerFilter = provider } label: {
+            MediaProviderChip(title: title, count: count, active: providerFilter == provider)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 
     private var rowSpacing: CGFloat {
@@ -514,66 +553,145 @@ private struct MediaSourcePicker: View {
     }
 }
 
-private struct MediaSourceRow: View {
+/// The chip draws its own selection and its own focus, so a remote moving across
+/// the row reads the same as a finger tapping one.
+private struct MediaProviderChip: View {
     @Environment(\.isFocused) private var focused
-    let source: MediaPlaybackSource
-    let rank: Int
+    let title: String
+    let count: Int
+    let active: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("#\(rank)")
-                .font(.system(.subheadline, design: .rounded, weight: .bold)).monospacedDigit()
-                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.65) : NullSportsStyle.lightPurple.opacity(0.48))
-                .fixedSize()
-            VStack(alignment: .leading, spacing: 7) {
-                // A release name is the whole row's width to spend. The score used
-                // to take a column of its own beside it, which left neither enough.
-                Text(source.releaseName)
-                    .font(.subheadline.weight(.semibold)).lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Each chip keeps its own width so none of them can break mid-word.
-                // The provider is last and truncates, so the numbers stay readable.
-                HStack(spacing: 6) {
-                    if let score = source.score { sourceBadge(score >= 0 ? "+\(score)" : "\(score)") }
-                    if let quality = source.quality { sourceBadge(quality) }
-                    if let size = source.formattedSize { sourceBadge(size) }
-                    if let bitrate = source.formattedBitrate { sourceBadge(bitrate) }
-                    if let container = Self.shortContainer(source.container) { sourceBadge(container) }
-                    Text(source.provider)
-                        .font(.caption2.weight(.semibold)).lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.72) : NullSportsStyle.lightPurple.opacity(0.62))
-            }
-            Image(systemName: "play.circle.fill").font(.title3).fixedSize()
+        HStack(spacing: 5) {
+            Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+            Text("\(count)").font(.caption2.weight(.bold)).monospacedDigit().opacity(0.55)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(NullSportsStyle.line, lineWidth: focused ? 0 : 1))
-        .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
-        .scaleEffect(focused ? 1.018 : 1)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .foregroundStyle(active ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+        .background(active ? NullSportsStyle.lightPurple : NullSportsStyle.surface, in: Capsule())
+        .overlay(Capsule().stroke(border, lineWidth: focused ? 2 : 1))
+        .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
-    private func sourceBadge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.bold)).lineLimit(1).fixedSize()
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background((focused ? NullSportsStyle.background : NullSportsStyle.lightPurple).opacity(0.1), in: Capsule())
+    private var border: Color {
+        if focused { return active ? NullSportsStyle.background : NullSportsStyle.lightPurple }
+        return active ? .clear : NullSportsStyle.line
+    }
+}
+
+private struct MediaSourceRow: View {
+    @Environment(\.isFocused) private var focused
+    let source: MediaPlaybackSource
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            // The addon and the resolution answer "is this worth reading?", so they
+            // sit above the name rather than competing with it for the row's width.
+            HStack(spacing: 8) {
+                if let quality = source.quality {
+                    Text(quality)
+                        .font(.caption.weight(.heavy))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(accent.opacity(0.2), in: Capsule())
+                }
+                Text(source.provider).font(.caption.weight(.bold)).lineLimit(1)
+                Spacer(minLength: 4)
+                if let score = source.score {
+                    Text(score >= 0 ? "+\(score)" : "\(score)")
+                        .font(.caption2.weight(.bold)).monospacedDigit()
+                        .foregroundStyle(accent.opacity(0.6)).fixedSize()
+                }
+                Image(systemName: "play.circle.fill").font(.title3).fixedSize()
+            }
+            Text(source.releaseName)
+                .font(.subheadline.weight(.semibold)).lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            if !source.badges.isEmpty {
+                BadgeFlow(spacing: 6) {
+                    ForEach(source.badges, id: \.self) { badge($0) }
+                }
+            }
+            if !source.facts.isEmpty {
+                Text(source.facts.joined(separator: "  \u{00B7}  "))
+                    .font(.caption2).monospacedDigit().lineLimit(1).truncationMode(.tail)
+                    .foregroundStyle(accent.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(NullSportsStyle.line, lineWidth: focused ? 0 : 1))
+        .foregroundStyle(accent)
+        .scaleEffect(focused ? 1.018 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        .accessibilityElement(children: .combine)
     }
 
-    // Servers name containers in full, and "MATROSKA" costs a chip the width of
-    // the numbers beside it for no more meaning than "MKV".
-    private static func shortContainer(_ raw: String?) -> String? {
-        guard let first = raw?.split(separator: ",").first else { return nil }
-        let value = first.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !value.isEmpty else { return nil }
-        switch value {
-        case "matroska": return "MKV"
-        case "quicktime", "mpeg-4": return "MP4"
-        default: return value.uppercased()
+    // On tvOS a focused row inverts, so every shade is mixed from whichever colour
+    // is currently the readable one.
+    private var accent: Color {
+        focused ? NullSportsStyle.background : NullSportsStyle.lightPurple
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text).font(.caption2.weight(.bold)).lineLimit(1).fixedSize()
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .foregroundStyle(accent.opacity(0.85))
+            .background(accent.opacity(0.11), in: Capsule())
+    }
+}
+
+/// A stream carries anywhere from two to seven badges. One row of them either
+/// clips the last few or squeezes every badge until none of them read, so they
+/// wrap onto as many lines as the width needs.
+private struct BadgeFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let lines = wrap(subviews, within: proposal.width ?? .infinity)
+        let height = lines.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, lines.count - 1))
+        return CGSize(width: proposal.width ?? (lines.map(\.width).max() ?? 0), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in wrap(subviews, within: bounds.width) {
+            var x = bounds.minX
+            for index in line.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += line.height + spacing
         }
+    }
+
+    private struct Line {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func wrap(_ subviews: Subviews, within width: CGFloat) -> [Line] {
+        var lines: [Line] = []
+        var line = Line()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let extended = line.indices.isEmpty ? size.width : line.width + spacing + size.width
+            if extended > width, !line.indices.isEmpty {
+                lines.append(line)
+                line = Line(indices: [index], width: size.width, height: size.height)
+            } else {
+                line.indices.append(index)
+                line.width = extended
+                line.height = max(line.height, size.height)
+            }
+        }
+        if !line.indices.isEmpty { lines.append(line) }
+        return lines
     }
 }
 
