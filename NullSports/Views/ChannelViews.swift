@@ -292,7 +292,7 @@ private struct LiveBoardHeading: View {
     // game reads as unmatched until it lands. Cover that window too, so it is
     // not mistaken for a settled answer of "no channel".
     private var isPreparingStreams: Bool {
-        library.isScheduleLoading || library.isLoading || library.channelsAreSyncing
+        library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady
     }
 
     var body: some View {
@@ -2187,7 +2187,7 @@ private struct MatchDiagnosticsView: View {
             HStack(alignment: .firstTextBaseline, spacing: 24) {
                 ScreenHeading(title: "Channel matching", detail: "The rule that chose each game's channel")
                 Spacer()
-                if library.channelsAreSyncing { RefreshingStreamsLabel() }
+                if !library.automaticMatchingReady { RefreshingStreamsLabel() }
             }
             if games.isEmpty {
                 Text("No live or upcoming games to match.").foregroundColor(NullSportsStyle.lightPurple)

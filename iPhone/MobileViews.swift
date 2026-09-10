@@ -248,7 +248,7 @@ private struct MatchDiagnosticsView: View {
     var body: some View {
         List {
             Section {
-                if library.channelsAreSyncing {
+                if !library.automaticMatchingReady {
                     ProgressView("Matching\u{2026}")
                 } else if games.isEmpty {
                     Text("No live or upcoming games to match.").foregroundStyle(.secondary)

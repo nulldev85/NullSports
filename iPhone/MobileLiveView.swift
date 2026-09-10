@@ -48,7 +48,7 @@ struct MobileLiveView: View {
                         // Channel matching keeps running after the schedule and
                         // library finish, and every game reads as unmatched until
                         // it lands. Say so instead of showing a settled empty row.
-                        if library.isScheduleLoading || library.isLoading || library.channelsAreSyncing {
+                        if library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady {
                             RefreshingStreamsBanner()
                         }
                         if let error = library.scheduleErrorMessage {

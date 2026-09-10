@@ -55,6 +55,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     @Published private var matchEvidenceScores: [String: Int] = [:]
+    @Published private var didCompleteMatching = false
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
@@ -103,9 +104,19 @@ final class SportsLibrary: ObservableObject {
 
     var hasProfile: Bool { activeProfile != nil }
 
+    // A rebuild no longer withdraws the matches already on screen: the first
+    // completed pass is what makes them trustworthy, not the absence of work.
     var automaticMatchingReady: Bool {
-        channelsValidatedThisSession && guideValidatedThisSession && sportsIndexReady
-            && channelMatchingWorkCount == 0
+        didCompleteMatching && channelsValidatedThisSession && guideValidatedThisSession && sportsIndexReady
+    }
+
+    // A channel's guide usually only names the game once it is under way, and a
+    // scoreless opening gives the schedule nothing to change, so nothing asks
+    // matching to look again. Retry rather than leave a live game unmatched.
+    private var hasUnmatchedLiveGame: Bool {
+        gamesByLeague.values.contains { games in
+            games.contains { $0.isLive && gameStreamCache[$0.id] == nil }
+        }
     }
 
     // Startup refreshes gate automatic matching; the Guide remains browsable.
@@ -411,6 +422,7 @@ final class SportsLibrary: ObservableObject {
             scheduleValidatedLeagues = []
             gameStreamCache = [:]
             matchEvidenceScores = [:]
+            didCompleteMatching = false
             gameMatchSignatures = [:]
             matchedGameIdentities = [:]
             matchGeneration = UUID()
@@ -464,6 +476,8 @@ final class SportsLibrary: ObservableObject {
                 if update.1 {
                     self.gamesByLeague = update.0
                     self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
+                }
+                if update.1 || self.hasUnmatchedLiveGame {
                     await self.rebuildGameStreamCache()
                 }
                 guard self.activeProfile?.id == profileID else { return }
@@ -679,6 +693,7 @@ final class SportsLibrary: ObservableObject {
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
         matchEvidenceScores = result.3
+        didCompleteMatching = true
         let newIdentities = identities.filter { result.0[$0.key] != nil }
         let identityChanged = newIdentities != matchedGameIdentities
         matchedGameIdentities = newIdentities
@@ -853,6 +868,7 @@ final class SportsLibrary: ObservableObject {
         sportsIndexReady = false
         gameStreamCache = [:]
         matchEvidenceScores = [:]
+        didCompleteMatching = false
         channelsValidatedThisSession = false
         guideValidatedThisSession = false
         scheduleValidatedLeagues = []
