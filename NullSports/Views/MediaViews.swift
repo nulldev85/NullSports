@@ -619,19 +619,23 @@ private struct MediaShowScreen: View {
 
     private struct Rating: Identifiable {
         let id: String
-        let symbol: String
+        let source: String
         let value: String
     }
 
     // Only what the server actually reports. An empty row beats an invented one.
+    //
+    // The community score is worth naming: on a Nullfin server it is filled from
+    // the metadata addon's own IMDb rating, and an unlabelled star said nothing
+    // about where the number came from.
     private var ratingValues: [Rating] {
         var values: [Rating] = []
         if let community = show.communityRating, community > 0 {
-            values.append(Rating(id: "community", symbol: "star.fill",
+            values.append(Rating(id: "community", source: "IMDb",
                 value: String(format: "%.1f", community)))
         }
         if let critic = show.criticRating, critic > 0 {
-            values.append(Rating(id: "critic", symbol: "hand.thumbsup.fill",
+            values.append(Rating(id: "critic", source: "Critics",
                 value: "\(Int(critic.rounded()))%"))
         }
         return values
@@ -642,13 +646,16 @@ private struct MediaShowScreen: View {
         if !ratingValues.isEmpty {
             HStack(spacing: 16) {
                 ForEach(ratingValues) { rating in
-                    HStack(spacing: 5) {
-                        Image(systemName: rating.symbol).font(.caption)
-                        Text(rating.value).font(.subheadline.weight(.semibold)).monospacedDigit()
+                    HStack(spacing: 6) {
+                        Text(rating.source)
+                            .font(.caption2.weight(.heavy))
+                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+                        Text(rating.value)
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
                     }
                 }
             }
-            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.76))
+            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.82))
         }
     }
 
