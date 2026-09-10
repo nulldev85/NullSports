@@ -143,8 +143,26 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let state: String
     let broadcast: String
 
-    var isLive: Bool { state == "in" }
-    var isUpcoming: Bool { state == "pre" }
+    // How long a game can run before an unchanged status is stale rather than late.
+    static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
+
+    // The schedule feed's own status can lag the first pitch by minutes, and
+    // while it does the game is neither live nor upcoming to anything that asks:
+    // no red dot, nothing in On Air, and -- worse -- the retry that rematches
+    // live games never runs for it, so it can sit unmatched until something
+    // reloads the whole library by hand.
+    //
+    // The clock settles what the feed has not. Once the start time has passed
+    // the game is live, until either the feed says it finished or enough time
+    // has gone by that a status still reading "pre" is broken rather than slow.
+    var isLive: Bool {
+        if state == "in" { return true }
+        guard state == "pre" else { return false }
+        let now = Date()
+        return start <= now && now < start.addingTimeInterval(Self.longestPlausibleGame)
+    }
+
+    var isUpcoming: Bool { state == "pre" && start > Date() }
 }
 
 struct XtreamEnvelope: Codable {
