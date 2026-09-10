@@ -1,5 +1,5 @@
 import XCTest
-@testable import NullSportsiOS
+@testable import LineupiOS
 
 final class MediaServerTests: XCTestCase {
     func testDecodesJellyfinAndNullfinCatalogItems() throws {

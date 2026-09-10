@@ -64,7 +64,7 @@ struct MobilePlayerView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
-        .background(.black).foregroundStyle(NullSportsStyle.lightPurple)
+        .background(.black).foregroundStyle(LineupStyle.lightPurple)
         .modifier(MobileDismissGesture(enabled: true) { dismiss() })
         .ignoresSafeArea()
         .statusBarHidden(true)

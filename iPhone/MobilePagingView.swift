@@ -13,7 +13,7 @@ struct MobilePagingView: UIViewControllerRepresentable {
         let pager = MobilePageController(transitionStyle: .scroll, navigationOrientation: .horizontal)
         context.coordinator.controllers = pages.map {
             let host = UIHostingController(rootView: $0)
-            host.view.backgroundColor = UIColor(NullSportsStyle.background)
+            host.view.backgroundColor = UIColor(LineupStyle.background)
             return host
         }
         pager.dataSource = context.coordinator

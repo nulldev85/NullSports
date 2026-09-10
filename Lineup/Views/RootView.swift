@@ -14,9 +14,9 @@ struct RootView: View {
                 InitialSourceSetupView()
             }
         }
-        .foregroundStyle(NullSportsStyle.text)
-        .tint(NullSportsStyle.lightPurple)
-        .background(NullSportsStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.text)
+        .tint(LineupStyle.lightPurple)
+        .background(LineupStyle.background.ignoresSafeArea())
         .task {
             guard library.hasProfile else { return }
             if library.streams.isEmpty { await library.bootstrap() }
@@ -36,7 +36,7 @@ struct RootView: View {
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(library.errorMessage ?? "Unknown error").foregroundColor(NullSportsStyle.lightPurple)
+            Text(library.errorMessage ?? "Unknown error").foregroundColor(LineupStyle.lightPurple)
         }
     }
 }
@@ -61,7 +61,7 @@ struct MainView: View {
                 .tag(3)
         }
         .ignoresSafeArea(.container, edges: .bottom)
-        .tint(NullSportsStyle.field)
+        .tint(LineupStyle.field)
     }
 }
 #endif

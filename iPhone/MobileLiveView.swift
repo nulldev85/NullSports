@@ -53,7 +53,7 @@ struct MobileLiveView: View {
                         }
                         if let error = library.scheduleErrorMessage {
                             Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                                .font(.caption).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                .font(.caption).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .padding(16)
                         }
                         if !live.isEmpty {
@@ -82,7 +82,7 @@ struct MobileLiveView: View {
                 }
                 .refreshable { library.refreshSchedule(showsLoading: true) }
             }
-            .background(NullSportsStyle.background)
+            .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
             .alert("Game has not started yet", isPresented: Binding(
                 get: { upcomingGame != nil },
@@ -118,14 +118,14 @@ struct MobileLiveView: View {
     private var masthead: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("NULLSPORTS").font(.system(size: 11, weight: .black)).tracking(3)
+                Text("LINEUP").font(.system(size: 11, weight: .black)).tracking(3)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 5) {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.caption2.weight(.medium)).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.6))
+                    .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 HStack(spacing: 5) {
-                    Circle().fill(NullSportsStyle.lightPurple).frame(width: 5, height: 5)
+                    Circle().fill(LineupStyle.lightPurple).frame(width: 5, height: 5)
                     Text(live.isEmpty ? "\(games.count) MATCHUPS" : "\(live.count) LIVE NOW")
                         .font(.system(size: 10, weight: .bold)).tracking(1)
                 }
@@ -140,7 +140,7 @@ struct MobileLiveView: View {
                 ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
             }.padding(.horizontal, 20)
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
     private func leagueTab(value: SportsLeague?) -> some View {
@@ -152,14 +152,14 @@ struct MobileLiveView: View {
                     MobileLeagueLogo(league: value, size: 32)
                 } else {
                     Image(systemName: "square.grid.2x2.fill").font(.system(size: 21))
-                        .foregroundStyle(NullSportsStyle.lightPurple)
+                        .foregroundStyle(LineupStyle.lightPurple)
                 }
             }
                 .opacity(league == value ? 1 : 0.55)
                 .frame(minWidth: 44, minHeight: 48)
                 .overlay(alignment: .bottom) {
                     if league == value {
-                        Capsule().fill(NullSportsStyle.lightPurple).frame(height: 2)
+                        Capsule().fill(LineupStyle.lightPurple).frame(height: 2)
                             .matchedGeometryEffect(id: "leagueUnderline", in: selection)
                     }
                 }
@@ -176,9 +176,9 @@ struct MobileLiveView: View {
             Text(detail).tracking(1)
         }
         .font(.system(size: 9, weight: .bold))
-        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
         .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
-        .background(NullSportsStyle.background)
+        .background(LineupStyle.background)
     }
 
     private func matchup(_ game: SportsGame) -> some View {
@@ -218,7 +218,7 @@ private struct MobileMatchupRow: View {
                 team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
                 team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
             }.frame(maxWidth: .infinity)
-            Rectangle().fill(NullSportsStyle.line).frame(width: 1)
+            Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
                 MobileLeagueLogo(league: game.league, size: 25)
                 if game.isLive {
@@ -234,7 +234,7 @@ private struct MobileMatchupRow: View {
                 }
                 if !game.broadcast.isEmpty {
                     Text(game.broadcast).font(.system(size: 10)).lineLimit(2)
-                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }
                 Image(systemName: "play.fill").font(.system(size: 10))
                     .padding(.top, 2).accessibilityHidden(true)
@@ -242,11 +242,11 @@ private struct MobileMatchupRow: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 20).padding(.vertical, 13)
-        .background(game.isLive ? NullSportsStyle.lightPurple.opacity(0.025) : .clear)
+        .background(game.isLive ? LineupStyle.lightPurple.opacity(0.025) : .clear)
         .overlay(alignment: .leading) {
-            if game.isLive { Rectangle().fill(NullSportsStyle.lightPurple.opacity(0.7)).frame(width: 2).padding(.vertical, 18) }
+            if game.isLive { Rectangle().fill(LineupStyle.lightPurple.opacity(0.7)).frame(width: 2).padding(.vertical, 18) }
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1).padding(.horizontal, 20) }
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
         .contentShape(Rectangle())
     }
 
@@ -273,7 +273,7 @@ private struct MobileMatchupRow: View {
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
                     Text(record).font(.caption2).monospacedDigit()
-                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.5))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                         .accessibilityLabel("Record: \(record)")
                 }
             }
@@ -288,7 +288,7 @@ private struct MobileMatchupRow: View {
 private struct MobileMatchupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? NullSportsStyle.raised : .clear)
+            .background(configuration.isPressed ? LineupStyle.raised : .clear)
     }
 }
 
@@ -335,10 +335,10 @@ private struct RefreshingStreamsBanner: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle().fill(NullSportsStyle.live).frame(width: 6, height: 6)
+            Circle().fill(LineupStyle.live).frame(width: 6, height: 6)
             Text("REFRESHING STREAMS").font(.system(size: 10, weight: .bold)).tracking(1.6)
         }
-        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.75))
+        .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
         .opacity(reduceMotion || !dimmed ? 1 : 0.32)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
         .onAppear { dimmed = true }

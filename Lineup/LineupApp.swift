@@ -2,17 +2,17 @@ import SwiftUI
 import UIKit
 
 @main
-struct NullSportsApp: App {
+struct LineupApp: App {
     @StateObject private var library = SportsLibrary()
     @StateObject private var media = MediaLibrary()
 
     init() {
         #if os(tvOS)
-        let purple = UIColor(NullSportsStyle.lightPurple)
+        let purple = UIColor(LineupStyle.lightPurple)
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor(NullSportsStyle.background)
-        appearance.selectionIndicatorTintColor = UIColor(NullSportsStyle.focused)
+        appearance.backgroundColor = UIColor(LineupStyle.background)
+        appearance.selectionIndicatorTintColor = UIColor(LineupStyle.focused)
         for item in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
             for state in [item.normal, item.selected, item.disabled, item.focused] {
                 state.iconColor = purple

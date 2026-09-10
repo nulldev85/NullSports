@@ -1,4 +1,4 @@
-name: NullSports
+name: Lineup
 options:
   bundleIdPrefix: com.nulldev85
   deploymentTarget:
@@ -17,50 +17,56 @@ packages:
     url: https://github.com/tylerjonesio/vlckit-spm
     exactVersion: 3.6.0
 targets:
-  NullSports:
+  # The bundle identifiers below keep the old name on purpose. iOS identifies an
+  # app by that string: change it and the build becomes a separate app with an
+  # empty container, so every provider, media server, favourite and saved
+  # password is gone. There is no migration back -- a new container cannot read
+  # the old one's defaults, and an unsigned build has no Keychain access group
+  # to share. The name a person sees is set by CFBundleDisplayName instead.
+  Lineup:
     type: application
     platform: tvOS
     sources:
-      - NullSports
+      - Lineup
     dependencies:
       - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
-        PRODUCT_NAME: NullSports
+        PRODUCT_NAME: Lineup
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: NullSports
+        INFOPLIST_KEY_CFBundleDisplayName: Lineup
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
     scheme:
       testTargets: []
-  NullSportsiOS:
+  LineupiOS:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - NullSports/Models
-      - NullSports/Services
-      - NullSports/Store
-      - NullSports/Design
-      - NullSports/NullSportsApp.swift
-      - NullSports/Views/RootView.swift
-      - NullSports/Views/MediaViews.swift
+      - Lineup/Models
+      - Lineup/Services
+      - Lineup/Store
+      - Lineup/Design
+      - Lineup/LineupApp.swift
+      - Lineup/Views/RootView.swift
+      - Lineup/Views/MediaViews.swift
       - iPhone
     dependencies:
       - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
-        PRODUCT_MODULE_NAME: NullSportsiOS
+        PRODUCT_MODULE_NAME: LineupiOS
         MARKETING_VERSION: "0.17.16"
         CURRENT_PROJECT_VERSION: "75"
-        PRODUCT_NAME: NullSports
+        PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: NullSports
+        INFOPLIST_KEY_CFBundleDisplayName: Lineup
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to IPTV providers, Jellyfin, and Nullfin media servers on your local network.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
@@ -69,17 +75,17 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
       testTargets:
-        - NullSportsiOSTests
-  NullSportsiOSTests:
+        - LineupiOSTests
+  LineupiOSTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "17.0"
     sources:
       - Tests/iOS
     dependencies:
-      - target: NullSportsiOS
+      - target: LineupiOS
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NullSports.app/NullSports"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Lineup.app/Lineup"
         BUNDLE_LOADER: "$(TEST_HOST)"

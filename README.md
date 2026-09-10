@@ -1,28 +1,44 @@
-# NullSports
+# Lineup
 
-NullSports is a quiet, sports-first IPTV player for Apple TV. It organizes a provider's live channels around the NFL, NBA, NHL, and MLB instead of dropping everything into one enormous grid.
+Lineup is a quiet living-room client for Apple TV and iPhone, covering the two
+things a lineup means: the games on now, and the library you browse.
 
-The first release supports Xtream-compatible profiles, secure password storage in the Apple TV Keychain, league filtering, channel search, and native HLS playback. You supply the provider and streams you are authorized to watch; NullSports does not include or sell content.
+**Live** organizes an Xtream provider's channels around the NFL, NBA, NHL, MLB
+and college football rather than dropping everything into one enormous grid, and
+matches each game to the channel actually carrying it. **Guide** is the full
+channel list with search and favorites. **Media Servers** browses Jellyfin and
+Nullfin libraries, including the catalogs and streams from any addons configured
+on the server.
+
+Xtream-compatible profiles, passwords stored in the device Keychain, and native
+VLC playback throughout. You supply the provider, server and streams you are
+authorized to watch; Lineup does not include or sell content.
+
+> Formerly NullSports. The app's bundle identifier and stored data keep the old
+> name so existing installs keep their providers, servers and saved passwords —
+> see the note in `project.yml`.
 
 ## Build
 
-Run the **Build NullSports tvOS IPA** workflow in GitHub Actions. The downloadable artifact contains an unsigned tvOS IPA ready for your normal signing process.
+Run the **Build Lineup tvOS IPA** workflow in GitHub Actions. The downloadable artifact contains an unsigned tvOS IPA ready for your normal signing process.
 
 ## iPhone
 
-The `NullSportsiOS` target supports iPhones on iOS 17 or later, with a touch-first
+The `LineupiOS` target supports iPhones on iOS 17 or later, with a touch-first
 Live screen, league filters, searchable channel guide, favorites, provider setup,
 and full-screen VLC playback in portrait or landscape. Unmatched games open a
 manual channel picker. Provider credentials, schedules, guide parsing, and channel
 matching share the Apple TV implementation. Profiles and favorites are stored
 locally on each device; they do not sync between iPhone and Apple TV.
 
-Run **Build NullSports iPhone IPA**, or push the `iphone` branch. Download the
-`NullSports-iPhone-unsigned-IPA` artifact, unzip it, and sign/install the enclosed
+Run **Build Lineup iPhone IPA**, or push the `iphone` branch. Download the
+`Lineup-iPhone-unsigned-IPA` artifact, unzip it, and sign/install the enclosed
 IPA using your usual sideloading tool. Its bundle ID is
-`com.nulldev85.NullSports.iOS`. TestFlight distribution is not configured yet.
+`com.nulldev85.NullSports.iOS` — unchanged by the rename, deliberately, so the
+build installs over an existing one instead of arriving as a second empty app.
+TestFlight distribution is not configured yet.
 
-For a local Mac build, run `xcodegen generate` and build the `NullSportsiOS` scheme.
+For a local Mac build, run `xcodegen generate` and build the `LineupiOS` scheme.
 The iPhone target includes the shared models/services/store/design and its own
 `iPhone` views/assets; it excludes the TV views and TV icon catalog.
 
@@ -34,7 +50,7 @@ version plays one stream at a time and pauses when backgrounded.
 
 iPhone 0.17.2 adds team records to Live cards and a timeline EPG with frozen
 channel logos, a fixed time ruler, aligned program blocks, elapsed shading, and
-a current-time marker in the NullSports palette. Swipe horizontally for later
+a current-time marker in the Lineup palette. Swipe horizontally for later
 programs and vertically for more channels. Tap Now to return to the current
 window. Use the toolbar filter menu for categories/favorites, and long-press a
 channel logo to add or remove a favorite. Tapping a channel or program plays that
@@ -82,7 +98,7 @@ the transform animation. The app icon is now a white NS monogram on black.
 Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
 fullscreen in both orientations, player close buttons, and Reduce Motion.
 
-iPhone 0.17.10 corrects the simulator test host path to the actual NullSports.app
+iPhone 0.17.10 corrects the simulator test host path to the actual Lineup.app
 executable. It also anchors the EPG content at the top, prevents the nested guide
 scrollers from adding duplicate navigation insets, and disables horizontal
 rubber-banding while preserving vertical pull-to-refresh. Account displays the

@@ -1,4 +1,4 @@
-name: Build NullSports tvOS IPA
+name: Build Lineup tvOS IPA
 
 on:
   workflow_dispatch:
@@ -19,20 +19,20 @@ jobs:
       - name: Check college channel matching policy
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/nullsports-matcher-checks
-          /tmp/nullsports-matcher-checks
+          swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/lineup-matcher-checks
+          /tmp/lineup-matcher-checks
 
       - name: Check Guide elapsed progress
         run: |
           set -euo pipefail
-          swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/nullsports-guide-checks
-          /tmp/nullsports-guide-checks
+          swiftc Lineup/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/lineup-guide-checks
+          /tmp/lineup-guide-checks
 
       - name: Check daily schedule and match persistence
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/nullsports-daily-cache-checks
-          /tmp/nullsports-daily-cache-checks
+          swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
+          /tmp/lineup-daily-cache-checks
 
       - name: Install project generator
         run: brew install xcodegen
@@ -40,10 +40,10 @@ jobs:
       - name: Check live playback recovery and professional matchup evidence
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/nullsports-playback-health-checks
-          /tmp/nullsports-playback-health-checks
-          swiftc NullSports/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/nullsports-professional-match-checks
-          /tmp/nullsports-professional-match-checks
+          swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
+          /tmp/lineup-playback-health-checks
+          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
+          /tmp/lineup-professional-match-checks
 
       - name: Generate project
         run: |
@@ -55,8 +55,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project NullSports.xcodeproj \
-            -scheme NullSports \
+            -project Lineup.xcodeproj \
+            -scheme Lineup \
             -configuration Release \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath build \
@@ -65,17 +65,17 @@ jobs:
       - name: Package IPA
         run: |
           set -euo pipefail
-          app="build/Build/Products/Release-appletvos/NullSports.app"
+          app="build/Build/Products/Release-appletvos/Lineup.app"
           test -d "$app"
           mkdir -p package/Payload
           cp -R "$app" package/Payload/
           cd package
-          zip -qry ../NullSports-unsigned.ipa Payload
+          zip -qry ../Lineup-unsigned.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NullSports-tvOS-unsigned-IPA
-          path: NullSports-unsigned.ipa
+          name: Lineup-tvOS-unsigned-IPA
+          path: Lineup-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

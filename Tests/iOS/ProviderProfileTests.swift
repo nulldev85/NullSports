@@ -1,5 +1,5 @@
 import XCTest
-@testable import NullSportsiOS
+@testable import LineupiOS
 
 final class ProviderProfileTests: XCTestCase {
     @MainActor

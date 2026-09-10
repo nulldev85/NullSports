@@ -11,16 +11,16 @@ struct ProfileSetupView: View {
     var body: some View {
         HStack(spacing: 80) {
             VStack(alignment: .leading, spacing: 26) {
-                Text("NULLSPORTS").foregroundColor(NullSportsStyle.lightPurple)
+                Text("LINEUP").foregroundColor(LineupStyle.lightPurple)
                     .font(.caption.weight(.black))
                     .tracking(3)
-                    .foregroundStyle(NullSportsStyle.field)
-                Text("Your games.\nYour provider.").foregroundColor(NullSportsStyle.lightPurple)
+                    .foregroundStyle(LineupStyle.field)
+                Text("Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
                     .font(.system(size: 58, weight: .bold, design: .rounded))
-                    .foregroundStyle(NullSportsStyle.text)
-                Text("A quiet, fast home for live American sports.").foregroundColor(NullSportsStyle.lightPurple)
+                    .foregroundStyle(LineupStyle.text)
+                Text("A quiet, fast home for live American sports.").foregroundColor(LineupStyle.lightPurple)
                     .font(.title3)
-                    .foregroundStyle(NullSportsStyle.secondary)
+                    .foregroundStyle(LineupStyle.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -36,7 +36,7 @@ struct ProfileSetupView: View {
                     connect()
                 } label: {
                     HStack {
-                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(NullSportsStyle.lightPurple)
+                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(LineupStyle.lightPurple)
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
@@ -45,16 +45,16 @@ struct ProfileSetupView: View {
                 .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isConnecting)
             }
             .textFieldStyle(.plain)
-            .foregroundColor(NullSportsStyle.lightPurple)
+            .foregroundColor(LineupStyle.lightPurple)
             .focusEffectDisabled()
-            .buttonStyle(NullSportsButtonStyle())
+            .buttonStyle(LineupButtonStyle())
             .padding(34)
-            .background(NullSportsStyle.surface)
-            .overlay(Rectangle().stroke(NullSportsStyle.line, lineWidth: 1))
+            .background(LineupStyle.surface)
+            .overlay(Rectangle().stroke(LineupStyle.line, lineWidth: 1))
             .frame(width: 560)
         }
         .padding(.horizontal, 90)
-        .background(NullSportsStyle.background.ignoresSafeArea())
+        .background(LineupStyle.background.ignoresSafeArea())
     }
 
     private func connect() {

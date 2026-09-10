@@ -81,7 +81,7 @@ struct MobileGuideView: View {
                                 onClose: closePlayer, onExpand: { expanded.toggle() },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream)) })
                                 .frame(height: expanded ? viewport.size.height : videoHeight + metadataHeight, alignment: .top)
-                                .background(NullSportsStyle.background)
+                                .background(LineupStyle.background)
                         }
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(enabled: expanded, onDismiss: closePlayer))
@@ -89,7 +89,7 @@ struct MobileGuideView: View {
                 }
             }
             .ignoresSafeArea(expanded ? .all : [], edges: .all)
-            .background(NullSportsStyle.background)
+            .background(LineupStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if showsSearch && !expanded {
@@ -118,7 +118,7 @@ struct MobileGuideView: View {
                     .frame(minHeight: 44)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(NullSportsStyle.background)
+                    .background(LineupStyle.background)
                 }
             }
             .toolbar {
@@ -170,7 +170,7 @@ struct MobileGuideView: View {
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
                     .environmentObject(library)
-                    .tint(NullSportsStyle.lightPurple)
+                    .tint(LineupStyle.lightPurple)
                     .preferredColorScheme(.dark)
             }
         }
@@ -262,7 +262,7 @@ struct MobileGuideView: View {
                     .font(.caption2.weight(.semibold)).monospacedDigit()
             }
                 .frame(width: logoWidth, height: 40)
-                .background(NullSportsStyle.background)
+                .background(LineupStyle.background)
                 .offset(x: horizontalOffset).zIndex(2)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
@@ -273,8 +273,8 @@ struct MobileGuideView: View {
                 }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
         }
-        .background(NullSportsStyle.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
+        .background(LineupStyle.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
     private func channelTile(_ stream: XtreamStream) -> some View {
@@ -295,14 +295,14 @@ struct MobileGuideView: View {
             .overlay(alignment: .topLeading) {
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill").font(.caption2)
-                        .padding(4).background(NullSportsStyle.background.opacity(0.85), in: Circle())
+                        .padding(4).background(LineupStyle.background.opacity(0.85), in: Circle())
                         .padding(3)
                 }
             }
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
             // The frozen column masks scrolling programs with the guide's base color.
-            .background(NullSportsStyle.background)
+            .background(LineupStyle.background)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
@@ -337,20 +337,20 @@ struct MobileGuideView: View {
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(live ? NullSportsStyle.selected : NullSportsStyle.surface)
+                            .fill(live ? LineupStyle.selected : LineupStyle.surface)
                         if program != nil {
-                            Rectangle().fill(NullSportsStyle.lightPurple.opacity(0.08))
+                            Rectangle().fill(LineupStyle.lightPurple.opacity(0.08))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.caption.weight(program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(program == nil ? 0.5 : 1))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(program == nil ? 0.5 : 1))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
                                     if live {
-                                        Circle().fill(NullSportsStyle.lightPurple)
+                                        Circle().fill(LineupStyle.lightPurple)
                                             .frame(width: 4, height: 4)
                                             .accessibilityHidden(true)
                                         Text("LIVE")
@@ -360,7 +360,7 @@ struct MobileGuideView: View {
                                     if program.isNew == true { Text("NEW") }
                                 }
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .lineLimit(1)
                             }
                         }
@@ -372,7 +372,7 @@ struct MobileGuideView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(NullSportsStyle.lightPurple.opacity(live ? 0.15 : 0.04), lineWidth: 0.5)
+                            .strokeBorder(LineupStyle.lightPurple.opacity(live ? 0.15 : 0.04), lineWidth: 0.5)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
@@ -414,7 +414,7 @@ private struct FavoritesOrderView: View {
                                 .frame(width: 44, height: 30)
                                 Text(stream.name).lineLimit(1)
                             }
-                            .listRowBackground(NullSportsStyle.surface)
+                            .listRowBackground(LineupStyle.surface)
                         }
                         .onMove { source, destination in
                             library.moveFavorites(listed, fromOffsets: source, toOffset: destination)
@@ -427,7 +427,7 @@ private struct FavoritesOrderView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-            .background(NullSportsStyle.background)
+            .background(LineupStyle.background)
             .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }

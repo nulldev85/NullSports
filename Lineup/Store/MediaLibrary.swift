@@ -10,6 +10,8 @@ final class MediaLibrary: ObservableObject {
     @Published var errorMessage: String?
 
     private let defaults: UserDefaults
+    // Named for the app's old name on purpose: this is where existing installs
+    // already keep their data, and renaming the key would hide it from them.
     private let profilesKey = "NullSports.mediaServers"
     private let activeKey = "NullSports.activeMediaServer"
     private let deviceKey = "NullSports.mediaDeviceID"
