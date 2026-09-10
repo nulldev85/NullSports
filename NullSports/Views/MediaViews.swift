@@ -245,14 +245,16 @@ private struct MediaCatalogsScreen: View {
                                     // content instead, so a card scrolls away at the
                                     // screen edge rather than being clipped by the
                                     // margin with the first one cut in half at rest.
+                                    let shape = MediaArtShape.forItems(catalog.items)
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         LazyHStack(alignment: .top, spacing: itemSpacing) {
                                             ForEach(catalog.items) { item in
                                                 Group {
                                                     if item.isFolder {
-                                                        NavigationLink(value: item) { MediaItemCard(item: item) }.buttonStyle(.plain)
-                                                    } else { MediaPlayableCard(item: item) }
-                                                }.frame(width: cardWidth)
+                                                        NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
+                                                            .buttonStyle(.plain)
+                                                    } else { MediaPlayableCard(item: item, shape: shape) }
+                                                }.frame(width: cardWidth(shape))
                                             }
                                         }
                                         .padding(.vertical, 8)
@@ -307,11 +309,13 @@ private struct MediaCatalogsScreen: View {
         14
         #endif
     }
-    private var cardWidth: CGFloat {
+    // A still is landscape, so the same width that suits a poster would leave it
+    // a sliver. Each shape gets the width that reads at its own proportions.
+    private func cardWidth(_ shape: MediaArtShape) -> CGFloat {
         #if os(tvOS)
-        230
+        shape == .poster ? 230 : 360
         #else
-        150
+        shape == .poster ? 150 : 232
         #endif
     }
     private var sectionTitleFont: Font {
@@ -347,10 +351,10 @@ private struct MediaGridScreen: View {
             LazyVGrid(columns: columns, spacing: gridSpacing) {
                 ForEach(items) { item in
                     if item.isFolder {
-                        NavigationLink(value: item) { MediaItemCard(item: item) }
+                        NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                             .buttonStyle(.plain)
                     } else {
-                        MediaPlayableCard(item: item)
+                        MediaPlayableCard(item: item, shape: shape)
                     }
                 }
             }
@@ -368,11 +372,17 @@ private struct MediaGridScreen: View {
         #endif
     }
 
+    private var shape: MediaArtShape { .forItems(items) }
+
     private var columns: [GridItem] {
         #if os(tvOS)
-        [GridItem(.adaptive(minimum: 250, maximum: 310), spacing: 24)]
+        shape == .poster
+            ? [GridItem(.adaptive(minimum: 250, maximum: 310), spacing: 24)]
+            : [GridItem(.adaptive(minimum: 360, maximum: 460), spacing: 24)]
         #else
-        [GridItem(.adaptive(minimum: 145, maximum: 210), spacing: 14)]
+        shape == .poster
+            ? [GridItem(.adaptive(minimum: 145, maximum: 210), spacing: 14)]
+            : [GridItem(.adaptive(minimum: 200, maximum: 300), spacing: 14)]
         #endif
     }
     private var gridSpacing: CGFloat {
@@ -424,10 +434,11 @@ private struct MediaFolderScreen: View {
 
 private struct MediaPlayableCard: View {
     let item: MediaItem
+    var shape: MediaArtShape = .poster
     @State private var choosingSource = false
 
     var body: some View {
-        Button { choosingSource = true } label: { MediaItemCard(item: item) }
+        Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
             .buttonStyle(.plain)
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
@@ -695,31 +706,55 @@ private struct BadgeFlow: Layout {
     }
 }
 
+/// An episode's primary image is a 16:9 still and a movie's is a portrait poster.
+/// Choosing per item is what left a shelf ragged, so a screen picks one shape
+/// from what it is showing and every card on it is cut to that shape.
+private enum MediaArtShape {
+    case poster
+    case still
+
+    var ratio: CGFloat { self == .poster ? 2 / 3 : 16 / 9 }
+
+    static func forItems(_ items: [MediaItem]) -> MediaArtShape {
+        if items.isEmpty { return .poster }
+        return items.contains(where: { $0.type != "Episode" }) ? .poster : .still
+    }
+}
+
 private struct MediaItemCard: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.isFocused) private var focused
     let item: MediaItem
+    var shape: MediaArtShape = .poster
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ZStack {
-                LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                AsyncImage(url: media.imageURL(for: item)) { phase in
-                    if let image = phase.image { image.resizable().scaledToFill() }
-                    else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+            // A resizable image keeps its own pixel size as its ideal size, so an
+            // aspect box built around the art still took the shape of whatever the
+            // server sent: shelves stayed ragged, and a 16:9 episode still grew
+            // past its cell and painted over the cards beside it. The box is a
+            // clear rectangle with no size of its own, sized from the width the
+            // grid offers, and the art hangs off it as an overlay where filling
+            // and cropping cannot reach the layout.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .aspectRatio(shape.ratio, contentMode: .fit)
+                .overlay {
+                    ZStack {
+                        LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                            startPoint: .topLeading, endPoint: .bottomTrailing)
+                        AsyncImage(url: media.imageURL(for: item)) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() }
+                            else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+                        }
+                    }
                 }
-            }
-            // Servers report a per-item ratio, so honouring it gave a shelf a mix
-            // of tall posters and short backdrops. One poster shape for every card
-            // keeps a row on a single baseline; the art fills and crops to it.
-            .aspectRatio(2 / 3, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: cardRadius).stroke(
-                focused ? NullSportsStyle.lightPurple.opacity(0.9) : NullSportsStyle.line, lineWidth: focused ? 2 : 1))
-            Text(item.name).font(titleFont).lineLimit(2)
+                .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: cardRadius).stroke(
+                    focused ? NullSportsStyle.lightPurple.opacity(0.9) : NullSportsStyle.line, lineWidth: focused ? 2 : 1))
+            // Two lines are held whether or not the title needs them, so the line
+            // under it lands on the same baseline across a row.
+            Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
             HStack(spacing: 7) {
                 Text(item.type.uppercased())
                 if let year = item.productionYear { Text("· \(String(year))") }
