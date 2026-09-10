@@ -2369,6 +2369,7 @@ struct PlayerView: View {
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     @FocusState private var focusedControl: TVPlayerControl?
+    @FocusState private var surfaceFocused: Bool
 
     var body: some View {
         ZStack {
@@ -2386,9 +2387,14 @@ struct PlayerView: View {
             }
         }
         .background(Color.black).contentShape(Rectangle())
-        .onTapGesture { revealControls() }
+        // Hiding the chrome removes every focusable view in the player, and the
+        // remote only reaches a view that holds focus. Without somewhere for
+        // focus to land the controls could never be summoned back.
+        .focusable(!controlsVisible)
+        .focused($surfaceFocused)
+        .onTapGesture { revealControls(focus: true) }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        .onMoveCommand { _ in revealControls() }
+        .onMoveCommand { _ in revealControls(focus: true) }
         .onExitCommand { controller.stop(); dismiss() }
         .onAppear { controller.start(urls: urls); revealControls(focus: true) }
         .onDisappear { hideControlsTask?.cancel(); controller.stop() }
@@ -2416,6 +2422,10 @@ struct PlayerView: View {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             guard !Task.isCancelled else { return }
             controlsVisible = false
+            // Hand focus to the video surface as the chrome leaves, so the next
+            // press on the remote has somewhere to arrive.
+            await Task.yield()
+            surfaceFocused = true
         }
     }
 }
@@ -2485,7 +2495,7 @@ private struct TVPlayerChrome: View {
                         } label: {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)", focused: focusedControl.wrappedValue == .quality)
                         }
-                        .buttonStyle(.plain).focused(focusedControl, equals: .quality)
+                        .buttonStyle(.plain).focused(focusedControl, equals: .quality).focusEffectDisabled()
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 72).padding(.bottom, 52)
@@ -2521,7 +2531,10 @@ private struct TVPlayerButton: View {
             .scaleEffect(selected ? 1.06 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
         }
-        .buttonStyle(.plain).focused(focus, equals: id).accessibilityLabel(title)
+        // The button draws its own focus state, so tvOS's plate would sit on top
+        // of it as a second, larger highlight.
+        .buttonStyle(.plain).focused(focus, equals: id).focusEffectDisabled()
+        .accessibilityLabel(title)
     }
 }
 
