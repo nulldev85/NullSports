@@ -136,7 +136,7 @@ struct JellyfinClient: Sendable {
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var authorization = "MediaBrowser Client=\"NullSports\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""
+        var authorization = "MediaBrowser Client=\"Lineup\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""
         if let accessToken { authorization += ", Token=\"\(accessToken)\"" }
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }

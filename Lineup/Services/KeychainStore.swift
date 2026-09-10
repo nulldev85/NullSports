@@ -2,6 +2,8 @@ import Foundation
 import Security
 
 enum KeychainStore {
+    // The old name, kept deliberately: a saved password is filed under this
+    // service, and renaming it would leave every stored password unreadable.
     private static let service = "com.nulldev85.NullSports.xtream"
 
     static func save(password: String, profileID: UUID) throws {
@@ -50,6 +52,7 @@ enum KeychainStore {
 }
 
 enum MediaKeychainStore {
+    // As above: renaming this locks users out of their saved server tokens.
     private static let service = "com.nulldev85.NullSports.jellyfin"
 
     static func save(token: String, profileID: UUID) throws {

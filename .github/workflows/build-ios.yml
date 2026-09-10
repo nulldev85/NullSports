@@ -1,4 +1,4 @@
-name: Build NullSports iPhone IPA
+name: Build Lineup iPhone IPA
 
 on:
   workflow_dispatch:
@@ -19,21 +19,21 @@ jobs:
       - name: Check shared sports logic
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
+          swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
           /tmp/matcher-checks
-          swiftc NullSports/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/daily-checks
+          swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/daily-checks
           /tmp/daily-checks
-          swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/guide-checks
+          swiftc Lineup/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/guide-checks
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
       - name: Check live playback recovery and professional matchup evidence
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/nullsports-playback-health-checks
-          /tmp/nullsports-playback-health-checks
-          swiftc NullSports/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/nullsports-professional-match-checks
-          /tmp/nullsports-professional-match-checks
+          swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
+          /tmp/lineup-playback-health-checks
+          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
+          /tmp/lineup-professional-match-checks
 
       - name: Generate project
         run: |
@@ -44,28 +44,28 @@ jobs:
         run: |
           set -euo pipefail
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "iPhone" in v["name"]))')
-          xcodebuild test -project NullSports.xcodeproj -scheme NullSportsiOS \
+          xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
-          xcodebuild -project NullSports.xcodeproj -scheme NullSportsiOS \
+          xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO
       - name: Package IPA
         run: |
           set -euo pipefail
-          app="build/Build/Products/Release-iphoneos/NullSports.app"
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
           test -d "$app"
           mkdir -p package/Payload
           cp -R "$app" package/Payload/
           cd package
-          zip -qry ../NullSports-iPhone-unsigned.ipa Payload
+          zip -qry ../Lineup-iPhone-unsigned.ipa Payload
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NullSports-iPhone-unsigned-IPA
-          path: NullSports-iPhone-unsigned.ipa
+          name: Lineup-iPhone-unsigned-IPA
+          path: Lineup-iPhone-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

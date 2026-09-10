@@ -73,7 +73,7 @@ struct MobileGuidePlayer: View {
             if !expanded && showsMetadata {
                 HStack(alignment: .top, spacing: 12) {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(NullSportsStyle.lightPurple.opacity(0.7))
+                        .fill(LineupStyle.lightPurple.opacity(0.7))
                         .frame(width: 3, height: 72)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 5) {
@@ -81,18 +81,18 @@ struct MobileGuidePlayer: View {
                             Text("NOW SHOWING")
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(1.5)
-                                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                             if program?.isNew == true {
                                 Text("NEW")
                                     .font(.system(size: 9, weight: .bold))
                                     .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(NullSportsStyle.raised, in: RoundedRectangle(cornerRadius: 4))
+                                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 4))
                             }
                             Spacer(minLength: 4)
                             if let program {
                                 Text("\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))")
                                     .font(.caption2)
-                                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.65))
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                     .lineLimit(1)
                             }
                         }
@@ -102,7 +102,7 @@ struct MobileGuidePlayer: View {
                             .accessibilityAddTraits(.isHeader)
                         Text(stream.name)
                             .font(.caption)
-                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.7))
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
                             .lineLimit(1)
                     }
                 }
@@ -111,8 +111,8 @@ struct MobileGuidePlayer: View {
                 .accessibilityElement(children: .combine)
             }
         }
-        .foregroundStyle(NullSportsStyle.lightPurple)
-        .background(NullSportsStyle.background)
+        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupStyle.background)
         .onChange(of: stream.id) { _, _ in showControls() }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }

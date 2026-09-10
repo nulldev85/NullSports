@@ -1,6 +1,6 @@
 import XCTest
 import UIKit
-@testable import NullSportsiOS
+@testable import LineupiOS
 
 final class PlaybackLifecycleTests: XCTestCase {
     @MainActor

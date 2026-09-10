@@ -25,7 +25,7 @@ struct MediaServersView: View {
                     MediaCatalogsScreen(catalogs: media.catalogs)
                 }
             }
-            .background(NullSportsStyle.background.ignoresSafeArea())
+            .background(LineupStyle.background.ignoresSafeArea())
             .navigationTitle("Media Servers")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -63,18 +63,18 @@ private struct TVMediaServersHome: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MEDIA SERVERS")
                         .font(.system(size: 13, weight: .bold)).tracking(2.2)
-                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     Text(media.activeProfile?.name ?? "Your library")
                         .font(.system(size: 34, weight: .semibold, design: .rounded))
-                        .foregroundStyle(NullSportsStyle.lightPurple)
+                        .foregroundStyle(LineupStyle.lightPurple)
                 }
                 Spacer()
                 if let profile = media.activeProfile {
                     Label(profile.username, systemImage: "checkmark.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.72))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
                         .padding(.horizontal, 14).frame(height: 38)
-                        .background(NullSportsStyle.surface, in: Capsule())
+                        .background(LineupStyle.surface, in: Capsule())
                 }
                 Button { Task { await media.reload() } } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 42, height: 42)
@@ -94,7 +94,7 @@ private struct TVMediaServersHome: View {
                     ProgressView().controlSize(.large)
                     Text("Loading your libraries…").font(.headline)
                 }
-                .foregroundStyle(NullSportsStyle.lightPurple)
+                .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if media.roots.isEmpty {
                 VStack(spacing: 12) {
@@ -103,7 +103,7 @@ private struct TVMediaServersHome: View {
                     Text("Refresh the server, or confirm this account can access a library.")
                         .font(.callout).opacity(0.68)
                 }
-                .foregroundStyle(NullSportsStyle.lightPurple)
+                .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 MediaCatalogsScreen(catalogs: media.catalogs)
@@ -111,8 +111,8 @@ private struct TVMediaServersHome: View {
         }
         .background(
             ZStack {
-                NullSportsStyle.background
-                RadialGradient(colors: [NullSportsStyle.lightPurple.opacity(0.055), .clear],
+                LineupStyle.background
+                RadialGradient(colors: [LineupStyle.lightPurple.opacity(0.055), .clear],
                     center: .topTrailing, startRadius: 30, endRadius: 760)
             }.ignoresSafeArea()
         )
@@ -124,9 +124,9 @@ private struct TVMediaEmptyState: View {
     var body: some View {
         HStack(spacing: 34) {
             ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(NullSportsStyle.surface)
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(LineupStyle.surface)
                 Image(systemName: "play.square.stack.fill")
-                    .font(.system(size: 72, weight: .light)).foregroundStyle(NullSportsStyle.lightPurple)
+                    .font(.system(size: 72, weight: .light)).foregroundStyle(LineupStyle.lightPurple)
             }
             .frame(width: 210, height: 150)
             VStack(alignment: .leading, spacing: 12) {
@@ -135,13 +135,13 @@ private struct TVMediaEmptyState: View {
                 Text("Connect Jellyfin or Nullfin to browse libraries, addon catalogs, and streams.")
                     .font(.system(size: 18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 Button("Connect a Server", systemImage: "plus", action: add)
-                    .buttonStyle(NullSportsButtonStyle()).focusEffectDisabled().padding(.top, 6)
+                    .buttonStyle(LineupButtonStyle()).focusEffectDisabled().padding(.top, 6)
             }
-            .foregroundStyle(NullSportsStyle.lightPurple)
+            .foregroundStyle(LineupStyle.lightPurple)
         }
         .padding(42)
-        .background(NullSportsStyle.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26).stroke(NullSportsStyle.line, lineWidth: 1))
+        .background(LineupStyle.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(LineupStyle.line, lineWidth: 1))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 90).padding(.bottom, 80)
     }
@@ -157,9 +157,9 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+                .foregroundStyle(focused ? LineupStyle.background : LineupStyle.lightPurple)
                 .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
+                .background(focused ? LineupStyle.lightPurple : LineupStyle.surface,
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .scaleEffect(focused ? 1.055 : 1)
                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
@@ -189,8 +189,8 @@ private struct MediaCatalogsScreen: View {
                     }
                 }
                 .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
-                .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 13).stroke(NullSportsStyle.line, lineWidth: 1))
+                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(LineupStyle.line, lineWidth: 1))
                 Menu {
                     if media.availableShelves.isEmpty {
                         Button("All available shelves are visible") { }.disabled(true)
@@ -238,7 +238,7 @@ private struct MediaCatalogsScreen: View {
                                 .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
                                     Text("No titles in this catalog.").font(.callout)
-                                        .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
                                         .padding(.horizontal, horizontalPadding)
                                 } else {
                                     // The shelf spans the full width and insets its
@@ -268,7 +268,7 @@ private struct MediaCatalogsScreen: View {
                 } }
             }
         }
-        .foregroundStyle(NullSportsStyle.lightPurple)
+        .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .task(id: query) {
             let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -437,7 +437,7 @@ private struct MediaFolderScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NullSportsStyle.background.ignoresSafeArea())
+        .background(LineupStyle.background.ignoresSafeArea())
         .task(id: folder.id) {
             loading = true
             do { items = try await media.items(in: folder); error = nil }
@@ -499,8 +499,8 @@ private struct MediaShowScreen: View {
             .padding(.bottom, 44)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NullSportsStyle.background.ignoresSafeArea())
-        .foregroundStyle(NullSportsStyle.lightPurple)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
         .ignoresSafeArea(edges: .top)
         .modifier(TransparentNavigationBar())
         .task(id: series.id) { await load() }
@@ -515,7 +515,7 @@ private struct MediaShowScreen: View {
             .aspectRatio(heroRatio, contentMode: .fit)
             .overlay {
                 ZStack {
-                    LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                         startPoint: .topLeading, endPoint: .bottomTrailing)
                     AsyncImage(url: heroURL) { phase in
                         if let image = phase.image { image.resizable().scaledToFill() }
@@ -526,7 +526,7 @@ private struct MediaShowScreen: View {
             // The art has to end somewhere, and a hard edge across the screen
             // reads as a seam. It fades into the page instead.
             .overlay(alignment: .bottom) {
-                LinearGradient(colors: [.clear, NullSportsStyle.background],
+                LinearGradient(colors: [.clear, LineupStyle.background],
                     startPoint: .top, endPoint: .bottom)
                     .frame(height: 160)
             }
@@ -547,7 +547,7 @@ private struct MediaShowScreen: View {
         if !metaParts.isEmpty {
             Text(metaParts.joined(separator: "  \u{00B7}  "))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
         }
     }
 
@@ -573,12 +573,12 @@ private struct MediaShowScreen: View {
                     Image(systemName: "play.fill")
                     Text("Play").fontWeight(.bold)
                     if let code = playTarget?.episodeCode {
-                        Text(code).foregroundStyle(NullSportsStyle.background.opacity(0.5))
+                        Text(code).foregroundStyle(LineupStyle.background.opacity(0.5))
                     }
                 }
                 .font(.system(size: 17))
                 .frame(maxWidth: .infinity).frame(height: buttonHeight)
-                .foregroundStyle(NullSportsStyle.background)
+                .foregroundStyle(LineupStyle.background)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -598,8 +598,8 @@ private struct MediaShowScreen: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
                 .frame(width: buttonHeight + 8, height: buttonHeight)
-                .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(NullSportsStyle.line, lineWidth: 1))
+                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(LineupStyle.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -609,7 +609,7 @@ private struct MediaShowScreen: View {
         if let text = show.overview, !text.isEmpty {
             Text(text)
                 .font(.subheadline)
-                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.76))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.76))
                 .lineLimit(expandedOverview ? nil : 3)
                 .multilineTextAlignment(.leading)
                 .onTapGesture {
@@ -660,14 +660,14 @@ private struct MediaShowScreen: View {
                     HStack(spacing: 6) {
                         Text(rating.source)
                             .font(.caption2.weight(.heavy))
-                            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                         Text(rating.value)
                             .font(.subheadline.weight(.semibold)).monospacedDigit()
                     }
                     .fixedSize()
                 }
             }
-            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.82))
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.82))
         }
     }
 
@@ -681,11 +681,11 @@ private struct MediaShowScreen: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
             } else if let error {
                 Text(error).font(.footnote)
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
             } else if episodes.isEmpty {
                 Text("No episodes here yet.").font(.footnote)
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
             } else {
                 LazyVGrid(columns: episodeColumns, spacing: 22) {
@@ -711,7 +711,7 @@ private struct MediaShowScreen: View {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
                 }
-                .foregroundStyle(NullSportsStyle.lightPurple)
+                .foregroundStyle(LineupStyle.lightPurple)
             }
         } else {
             Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
@@ -831,7 +831,7 @@ private struct MediaEpisodeCard: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .overlay {
                     ZStack {
-                        LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                        LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
                         AsyncImage(url: media.imageURL(for: episode, width: 640)) { phase in
                             if let image = phase.image { image.resizable().scaledToFill() }
@@ -841,34 +841,34 @@ private struct MediaEpisodeCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(
-                    focused ? NullSportsStyle.lightPurple.opacity(0.9) : NullSportsStyle.line,
+                    focused ? LineupStyle.lightPurple.opacity(0.9) : LineupStyle.line,
                     lineWidth: focused ? 2 : 1))
                 .overlay(alignment: .topLeading) {
                     if episode.isPlayed {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(NullSportsStyle.background)
+                            .foregroundStyle(LineupStyle.background)
                             .frame(width: 26, height: 26)
-                            .background(NullSportsStyle.lightPurple, in: Circle())
+                            .background(LineupStyle.lightPurple, in: Circle())
                             .padding(8)
                     }
                 }
             if let label = episode.episodeLabel {
                 Text(label).font(.caption.weight(.semibold))
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
             Text(episode.name).font(.subheadline.weight(.bold)).lineLimit(2)
             if let overview = episode.overview, !overview.isEmpty {
                 Text(overview).font(.caption).lineLimit(3)
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.6))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
             }
             if !footer.isEmpty {
                 Text(footer).font(.caption2)
-                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.45))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             }
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(NullSportsStyle.lightPurple)
+        .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: 1.03)
     }
 
@@ -922,7 +922,7 @@ private struct MediaSourcePicker: View {
                         ProgressView().controlSize(.large)
                         Text("Finding the best streams…").font(.headline)
                         Text("Connected addons are ranking results for \(item.name).")
-                            .font(.subheadline).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                            .font(.subheadline).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     }
                 } else if let error {
                     ContentUnavailableView("Streams Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
@@ -961,8 +961,8 @@ private struct MediaSourcePicker: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(NullSportsStyle.background.ignoresSafeArea())
-            .foregroundStyle(NullSportsStyle.lightPurple)
+            .background(LineupStyle.background.ignoresSafeArea())
+            .foregroundStyle(LineupStyle.lightPurple)
             .navigationTitle(item.name)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
@@ -1024,16 +1024,16 @@ private struct MediaProviderChip: View {
             Text("\(count)").font(.caption2.weight(.bold)).monospacedDigit().opacity(0.55)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .foregroundStyle(active ? NullSportsStyle.background : NullSportsStyle.lightPurple)
-        .background(active ? NullSportsStyle.lightPurple : NullSportsStyle.surface, in: Capsule())
+        .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
+        .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
         .overlay(Capsule().stroke(border, lineWidth: focused ? 2 : 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
     private var border: Color {
-        if focused { return active ? NullSportsStyle.background : NullSportsStyle.lightPurple }
-        return active ? .clear : NullSportsStyle.line
+        if focused { return active ? LineupStyle.background : LineupStyle.lightPurple }
+        return active ? .clear : LineupStyle.line
     }
 }
 
@@ -1083,9 +1083,9 @@ private struct MediaSourceRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
+        .background(focused ? LineupStyle.lightPurple : LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(NullSportsStyle.line, lineWidth: focused ? 0 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(LineupStyle.line, lineWidth: focused ? 0 : 1))
         .foregroundStyle(accent)
         .scaleEffect(focused ? 1.018 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -1095,7 +1095,7 @@ private struct MediaSourceRow: View {
     // On tvOS a focused row inverts, so every shade is mixed from whichever colour
     // is currently the readable one.
     private var accent: Color {
-        focused ? NullSportsStyle.background : NullSportsStyle.lightPurple
+        focused ? LineupStyle.background : LineupStyle.lightPurple
     }
 
     private func badge(_ text: String) -> some View {
@@ -1192,7 +1192,7 @@ private struct MediaItemCard: View {
                 .aspectRatio(shape.ratio, contentMode: .fit)
                 .overlay {
                     ZStack {
-                        LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                        LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
                         AsyncImage(url: media.imageURL(for: item)) { phase in
                             if let image = phase.image { image.resizable().scaledToFill() }
@@ -1202,7 +1202,7 @@ private struct MediaItemCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius).stroke(
-                    focused ? NullSportsStyle.lightPurple.opacity(0.9) : NullSportsStyle.line, lineWidth: focused ? 2 : 1))
+                    focused ? LineupStyle.lightPurple.opacity(0.9) : LineupStyle.line, lineWidth: focused ? 2 : 1))
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
@@ -1211,9 +1211,9 @@ private struct MediaItemCard: View {
                 if let year = item.productionYear { Text("· \(String(year))") }
                 if let count = item.childCount { Text("· \(count)") }
             }
-            .font(.caption2.weight(.medium)).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.58))
+            .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
-        .foregroundStyle(NullSportsStyle.lightPurple)
+        .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: 1.035)
     }
 
@@ -1281,7 +1281,7 @@ struct InitialSourceSetupView: View {
 
     var body: some View {
         VStack(spacing: 30) {
-            PageTitle(eyebrow: "NULLSPORTS", title: "Bring your streams together.",
+            PageTitle(eyebrow: "LINEUP", title: "Bring your streams together.",
                 detail: "Connect live television, your own media library, or both.")
             #if os(tvOS)
             HStack(spacing: 24) {
@@ -1292,7 +1292,7 @@ struct InitialSourceSetupView: View {
                     Label("Add Media Server", systemImage: "play.square.stack")
                 }
             }
-            .buttonStyle(NullSportsButtonStyle())
+            .buttonStyle(LineupButtonStyle())
             #else
             VStack(spacing: 14) {
                 Button { addingIPTV = true } label: {
@@ -1304,12 +1304,12 @@ struct InitialSourceSetupView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(NullSportsButtonStyle())
+            .buttonStyle(LineupButtonStyle())
             #endif
         }
         .padding(setupPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NullSportsStyle.background)
+        .background(LineupStyle.background)
         .sheet(isPresented: $addingIPTV) {
             #if os(iOS)
             ProfileSetupView(addingProvider: true)

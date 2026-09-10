@@ -20,7 +20,7 @@ struct MainView: View {
             MobileAccountView()
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
-        .tint(NullSportsStyle.lightPurple)
+        .tint(LineupStyle.lightPurple)
         .preferredColorScheme(.dark)
         .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in
@@ -59,11 +59,11 @@ struct ProfileSetupView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("NULLSPORTS").font(.caption.bold()).tracking(3)
+                        Text("LINEUP").font(.caption.bold()).tracking(3)
                         Text("Your games.\nAnywhere.").font(.largeTitle.bold())
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
-                }.listRowBackground(NullSportsStyle.surface)
+                }.listRowBackground(LineupStyle.surface)
                 Section("Your provider") {
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -71,7 +71,7 @@ struct ProfileSetupView: View {
                         .keyboardType(.URL).textContentType(.URL)
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
-                }.listRowBackground(NullSportsStyle.surface)
+                }.listRowBackground(LineupStyle.surface)
                 Section {
                     Button {
                         connecting = true
@@ -93,10 +93,10 @@ struct ProfileSetupView: View {
                     }.disabled(connecting || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || username.isEmpty || password.isEmpty)
                 } footer: {
                     Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhoneâ€™s Keychain.")
-                }.listRowBackground(NullSportsStyle.raised)
+                }.listRowBackground(LineupStyle.raised)
                 if let connectionError {
                     Section { Text(connectionError).foregroundStyle(.red) }
-                        .listRowBackground(NullSportsStyle.surface)
+                        .listRowBackground(LineupStyle.surface)
                 }
             }
             .navigationTitle(addingProvider ? "Add provider" : "")
@@ -111,7 +111,7 @@ struct ProfileSetupView: View {
             .disabled(connecting)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .scrollContentBackground(.hidden)
-            .background(NullSportsStyle.background)
+            .background(LineupStyle.background)
         }
     }
 }
@@ -162,7 +162,7 @@ private struct MobileAccountView: View {
                     Text("Providers")
                 } footer: {
                     Text("Select a provider to use its channels and guide. Each provider keeps its own favorites.")
-                }.listRowBackground(NullSportsStyle.surface)
+                }.listRowBackground(LineupStyle.surface)
                 Section("Current library") {
                     LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     LabeledContent("Channels", value: "\(library.streams.count)")
@@ -171,7 +171,7 @@ private struct MobileAccountView: View {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
-                }.listRowBackground(NullSportsStyle.surface)
+                }.listRowBackground(LineupStyle.surface)
                 Section {
                     ForEach(media.profiles) { profile in
                         HStack {
@@ -198,20 +198,20 @@ private struct MobileAccountView: View {
                     Text("Media Servers")
                 } footer: {
                     Text("Jellyfin and Nullfin servers. Nullfin libraries include the addon catalogs configured on your server.")
-                }.listRowBackground(NullSportsStyle.surface)
+                }.listRowBackground(LineupStyle.surface)
             }
-            .scrollContentBackground(.hidden).background(NullSportsStyle.background)
+            .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)
                     .environmentObject(library)
-                    .tint(NullSportsStyle.lightPurple)
+                    .tint(LineupStyle.lightPurple)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView()
                     .environmentObject(media)
-                    .tint(NullSportsStyle.lightPurple)
+                    .tint(LineupStyle.lightPurple)
                     .preferredColorScheme(.dark)
             }
             .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",
@@ -258,10 +258,10 @@ private struct MatchDiagnosticsView: View {
                 }
             } footer: {
                 Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
-            }.listRowBackground(NullSportsStyle.surface)
+            }.listRowBackground(LineupStyle.surface)
         }
         .scrollContentBackground(.hidden)
-        .background(NullSportsStyle.background)
+        .background(LineupStyle.background)
         .navigationTitle("Channel matching")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -276,11 +276,11 @@ private struct MatchDiagnosticsView: View {
             if let stream {
                 Text(stream.name).font(.caption.weight(.medium))
                 if let rejection = library.playbackRejection(for: game) {
-                    Text(rejection.rawValue).font(.caption2).foregroundStyle(NullSportsStyle.live)
+                    Text(rejection.rawValue).font(.caption2).foregroundStyle(LineupStyle.live)
                 } else {
                     Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
                         .font(.caption2)
-                        .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : NullSportsStyle.warning)
+                        .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : LineupStyle.warning)
                 }
             } else {
                 Text("No match \u{2014} opens the channel picker")

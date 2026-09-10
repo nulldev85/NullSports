@@ -80,7 +80,7 @@ struct XtreamClient {
             switch self {
             case .invalidServer: "Enter a valid server URL."
             case .serverRejected: "The IPTV server did not accept the connection."
-            case .invalidResponse: "The server returned data NullSports could not read."
+            case .invalidResponse: "The server returned data Lineup could not read."
             case .unauthorized: "The username or password was not accepted."
             }
         }

@@ -43,6 +43,8 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var isGuideLoading = false
     @Published var errorMessage: String?
 
+    // Named for the app's old name on purpose: this is where existing installs
+    // already keep their data, and renaming the key would hide it from them.
     private let profilesKey = "NullSports.profiles"
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
@@ -401,7 +403,7 @@ final class SportsLibrary: ObservableObject {
 
     nonisolated private static func cacheURL(profileID: UUID) -> URL {
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return directory.appendingPathComponent("nullsports-\(profileID.uuidString).json")
+        return directory.appendingPathComponent("lineup-\(profileID.uuidString).json")
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {

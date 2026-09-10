@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum NullSportsStyle {
+enum LineupStyle {
     static let lightPurple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
     // White is reserved for selected Live card frames.
     static let liveSelectionBorder = Color.white
@@ -21,7 +21,7 @@ enum NullSportsStyle {
     static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
 }
 
-struct NullSportsButtonStyle: ButtonStyle {
+struct LineupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         PurpleButtonLabel(configuration: configuration)
     }
@@ -33,9 +33,9 @@ struct NullSportsButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(NullSportsStyle.lightPurple)
+                .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(focused ? NullSportsStyle.focused : NullSportsStyle.raised,
+                .background(focused ? LineupStyle.focused : LineupStyle.raised,
                             in: RoundedRectangle(cornerRadius: 12))
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
@@ -46,15 +46,15 @@ extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
         self
-            .background(NullSportsStyle.surface.opacity(clear ? 0.72 : 0.94), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(NullSportsStyle.line, lineWidth: 1))
+            .background(LineupStyle.surface.opacity(clear ? 0.72 : 0.94), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
     }
 
     func focusLift(_ focused: Bool, scale: CGFloat = 1.035) -> some View {
         self
             .scaleEffect(focused ? scale : 1)
             .offset(y: focused ? -3 : 0)
-            .shadow(color: focused ? NullSportsStyle.focusGlow.opacity(0.20) : .clear, radius: 22, y: 10)
+            .shadow(color: focused ? LineupStyle.focusGlow.opacity(0.20) : .clear, radius: 22, y: 10)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.25, dampingFraction: 0.78), value: focused)
     }
@@ -67,17 +67,17 @@ struct PageTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(eyebrow.uppercased()).foregroundColor(NullSportsStyle.lightPurple)
+            Text(eyebrow.uppercased()).foregroundColor(LineupStyle.lightPurple)
                 .font(.caption.weight(.bold))
                 .tracking(1.8)
-                .foregroundStyle(NullSportsStyle.field)
-            Text(title).foregroundColor(NullSportsStyle.lightPurple)
+                .foregroundStyle(LineupStyle.field)
+            Text(title).foregroundColor(LineupStyle.lightPurple)
                 .font(.system(size: 50, weight: .semibold))
-                .foregroundStyle(NullSportsStyle.text)
+                .foregroundStyle(LineupStyle.text)
             if let detail {
-                Text(detail).foregroundColor(NullSportsStyle.lightPurple)
+                Text(detail).foregroundColor(LineupStyle.lightPurple)
                     .font(.title3)
-                    .foregroundStyle(NullSportsStyle.secondary)
+                    .foregroundStyle(LineupStyle.secondary)
             }
         }
     }
@@ -87,12 +87,12 @@ struct LeagueMark: View {
     let league: SportsLeague
 
     var body: some View {
-        Text(league.shortName).foregroundColor(NullSportsStyle.lightPurple)
+        Text(league.shortName).foregroundColor(LineupStyle.lightPurple)
             .font(.system(size: 16, weight: .bold))
             .tracking(0.6)
-            .foregroundStyle(NullSportsStyle.text)
+            .foregroundStyle(LineupStyle.text)
             .frame(width: 72, height: 44)
-            .background(NullSportsStyle.raised)
+            .background(LineupStyle.raised)
             .overlay(Rectangle().frame(height: 3).foregroundStyle(league.color), alignment: .bottom)
     }
 }

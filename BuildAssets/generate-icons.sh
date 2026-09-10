@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-assets='NullSports/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
-source='BuildAssets/NullSportsMark.png'
-background=$(mktemp -t nullsports-icon)
+assets='Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
+source='BuildAssets/LineupMark.png'
+background=$(mktemp -t lineup-icon)
 trap 'rm -f "$background"' EXIT
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY+Dk4vwPAAFYARw5ahBmAAAAAElFTkSuQmCC' | base64 --decode > "$background"
 
