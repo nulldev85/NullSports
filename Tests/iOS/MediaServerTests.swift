@@ -159,6 +159,95 @@ final class MediaServerTests: XCTestCase {
         XCTAssertNil(try source(name: "A").formattedBitrate)
     }
 
+    func testDecodesShowPageMetadataAndLeavesOlderPayloadsAlone() throws {
+        let data = Data(#"""
+        {"Items":[
+          {"Id":"series-1","Name":"Reacher","Type":"Series","ProductionYear":2022,
+           "Genres":["Action & Adventure","Drama"],"OfficialRating":"TV-MA",
+           "CommunityRating":8.1,"CriticRating":94,
+           "ImageTags":{"Primary":"a","Logo":"b"},"BackdropImageTags":["c"],
+           "UserData":{"IsFavorite":true,"Played":false}},
+          {"Id":"minimal","Name":"Older Server Item","Type":"Movie"}
+        ]}
+        """#.utf8)
+
+        let items = try JSONDecoder().decode(JellyfinItemsResponse.self, from: data).items
+        let series = items[0]
+
+        XCTAssertTrue(series.isSeries)
+        XCTAssertEqual(series.genres?.prefix(2).joined(separator: ", "), "Action & Adventure, Drama")
+        XCTAssertEqual(series.officialRating, "TV-MA")
+        XCTAssertEqual(series.communityRating, 8.1)
+        XCTAssertEqual(series.criticRating, 94)
+        XCTAssertTrue(series.hasLogo)
+        XCTAssertTrue(series.hasBackdrop)
+        XCTAssertTrue(series.isFavorite)
+        XCTAssertFalse(series.isPlayed)
+
+        // A server that sends none of it must still decode, with nothing shown.
+        let minimal = items[1]
+        XCTAssertNil(minimal.genres)
+        XCTAssertNil(minimal.formattedRuntime)
+        XCTAssertNil(minimal.formattedAirDate)
+        XCTAssertNil(minimal.episodeCode)
+        XCTAssertFalse(minimal.hasLogo)
+        XCTAssertFalse(minimal.isFavorite)
+    }
+
+    func testEpisodeReportsItsNumberRuntimeAndAirDate() throws {
+        let data = Data(#"""
+        {"Id":"ep","Name":"Karambits and Pieces","Type":"Episode",
+         "IndexNumber":4,"ParentIndexNumber":4,"SeriesName":"Reacher",
+         "RunTimeTicks":27600000000,"PremiereDate":"2026-08-11T00:00:00.0000000Z",
+         "UserData":{"Played":true}}
+        """#.utf8)
+
+        let episode = try JSONDecoder().decode(MediaItem.self, from: data)
+
+        XCTAssertEqual(episode.episodeLabel, "Episode 4")
+        XCTAssertEqual(episode.episodeCode, "S04E04")
+        XCTAssertEqual(episode.runtimeMinutes, 46)
+        XCTAssertEqual(episode.formattedRuntime, "46m")
+        XCTAssertTrue(episode.isPlayed)
+        // The exact wording is the reader's locale; the parse is what is pinned.
+        let aired = try XCTUnwrap(episode.formattedAirDate)
+        XCTAssertTrue(aired.contains("2026"), aired)
+        XCTAssertTrue(aired.contains("11"), aired)
+    }
+
+    func testRuntimeReadsInHoursOnceItPassesOne() throws {
+        func runtime(minutes: Int) throws -> String? {
+            let ticks = Int64(minutes) * 600_000_000
+            let data = Data(#"{"Id":"m","Name":"M","Type":"Movie","RunTimeTicks":\#(ticks)}"#.utf8)
+            return try JSONDecoder().decode(MediaItem.self, from: data).formattedRuntime
+        }
+
+        XCTAssertEqual(try runtime(minutes: 46), "46m")
+        XCTAssertEqual(try runtime(minutes: 60), "1h")
+        XCTAssertEqual(try runtime(minutes: 149), "2h 29m")
+        XCTAssertNil(try runtime(minutes: 0))
+    }
+
+    // The scores a Nullfin server keeps per metrics addon. Each addon normalises
+    // to 0-100 before storing, so a score reads whole rather than out of ten.
+    func testDecodesPerSourceScoresAndNamesTheirSources() throws {
+        let data = Data(#"""
+        {"Metrics":[
+          {"Source":"tmdb","Value":80.4,"Date":"2026-09-09"},
+          {"Source":"rottentomatoes","Value":94.0,"Date":"2026-09-09"},
+          {"Source":"trakt","Value":77.6,"Date":"2026-09-09"},
+          {"Source":"someaddon","Value":50,"Date":"2026-09-09"}
+        ]}
+        """#.utf8)
+
+        let metrics = try JSONDecoder().decode(MediaMetricsResponse.self, from: data).metrics
+
+        XCTAssertEqual(metrics.map(\.displayName),
+            ["TMDB", "Rotten Tomatoes", "Trakt", "Someaddon"])
+        XCTAssertEqual(metrics.map(\.formattedValue), ["80", "94", "78", "50"])
+        XCTAssertEqual(metrics.first?.id, "tmdb")
+    }
+
     func testDecodesAuthenticationResponse() throws {
         let data = Data(#"{"User":{"Id":"user-1","Name":"viewer"},"AccessToken":"token-1"}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinAuthenticationResponse.self, from: data)

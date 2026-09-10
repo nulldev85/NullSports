@@ -31,19 +31,57 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
-    func items(userID: String, parentID: String) async throws -> [MediaItem] {
+    // Everything a shelf card, a show page and an episode card between them need.
+    // Asked for once, so no screen has to go back for a second round.
+    static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"
+        + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount"
+
+    func items(userID: String, parentID: String,
+               sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {
         let query = [
             URLQueryItem(name: "ParentId", value: parentID),
-            URLQueryItem(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,ChildCount"),
+            URLQueryItem(name: "Fields", value: Self.fields),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
-            URLQueryItem(name: "EnableImageTypes", value: "Primary"),
-            URLQueryItem(name: "Limit", value: "40"),
-            URLQueryItem(name: "SortBy", value: "SortName"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "SortBy", value: sortBy),
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
         let response: JellyfinItemsResponse = try await send(
             try request(path: "users/\(userID)/items", query: query))
         return response.items
+    }
+
+    func item(userID: String, itemID: String) async throws -> MediaItem {
+        try await send(try request(path: "users/\(userID)/items/\(itemID)"))
+    }
+
+    // The server already knows where a viewer is up to in a series, and it is a
+    // better answer than any guess made from which episodes are marked played.
+    func nextUp(userID: String, seriesID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "userId", value: userID),
+            URLQueryItem(name: "seriesId", value: seriesID),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "Limit", value: "1")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "shows/nextup", query: query))
+        return response.items
+    }
+
+    // A Nullfin extension. Jellyfin has no such route and answers 404, which is
+    // why the caller treats any failure as "this server has no extra scores".
+    func itemMetrics(itemID: String) async throws -> [MediaMetric] {
+        let response: MediaMetricsResponse = try await send(
+            try request(path: "remux/metrics/\(itemID)"))
+        return response.metrics
+    }
+
+    func setFavorite(userID: String, itemID: String, isFavorite: Bool) async throws {
+        try await sendIgnoringBody(
+            try request(path: "users/\(userID)/favoriteitems/\(itemID)",
+                method: isFavorite ? "POST" : "DELETE"))
     }
 
     func search(userID: String, query: String) async throws -> [MediaItem] {
@@ -54,9 +92,9 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "SearchTerm", value: value),
             URLQueryItem(name: "Recursive", value: "true"),
             URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series,Episode,Video"),
-            URLQueryItem(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,ChildCount"),
+            URLQueryItem(name: "Fields", value: Self.fields),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
-            URLQueryItem(name: "EnableImageTypes", value: "Primary"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
             URLQueryItem(name: "Limit", value: "60")
         ]
         let response: JellyfinItemsResponse = try await send(
@@ -64,8 +102,8 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
-    func imageURL(itemID: String, maxWidth: Int = 600) -> URL? {
-        authenticatedURL(path: "items/\(itemID)/images/primary", query: [
+    func imageURL(itemID: String, type: String = "primary", maxWidth: Int = 600) -> URL? {
+        authenticatedURL(path: "items/\(itemID)/images/\(type)", query: [
             URLQueryItem(name: "maxWidth", value: String(maxWidth)),
             URLQueryItem(name: "quality", value: "88")
         ])
@@ -113,15 +151,24 @@ struct JellyfinClient: Sendable {
         return components.url
     }
 
+    private func sendIgnoringBody(_ request: URLRequest) async throws {
+        let (_, response) = try await session.data(for: request)
+        try Self.check(response)
+    }
+
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await session.data(for: request)
+        try Self.check(response)
+        do { return try JSONDecoder().decode(T.self, from: data) }
+        catch { throw JellyfinError.invalidResponse }
+    }
+
+    private static func check(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { throw JellyfinError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw JellyfinError.authenticationFailed }
             throw JellyfinError.server(http.statusCode)
         }
-        do { return try JSONDecoder().decode(T.self, from: data) }
-        catch { throw JellyfinError.invalidResponse }
     }
 }
 
