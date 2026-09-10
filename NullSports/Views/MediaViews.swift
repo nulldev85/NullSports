@@ -597,8 +597,8 @@ private struct MediaSourceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            // The addon and the resolution answer "is this worth reading?", so they
-            // sit above the name rather than competing with it for the row's width.
+            // Resolution, ranking score and addon answer "is this worth reading?",
+            // so they sit above the name rather than competing for its width.
             HStack(spacing: 8) {
                 if let quality = source.quality {
                     Text(quality)
@@ -606,13 +606,18 @@ private struct MediaSourceRow: View {
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(accent.opacity(0.2), in: Capsule())
                 }
-                Text(source.provider).font(.caption.weight(.bold)).lineLimit(1)
-                Spacer(minLength: 4)
+                // A bare "+70494" does not say what it measures, and it is the
+                // number the whole list is ordered by, so it is named in full.
                 if let score = source.score {
-                    Text(score >= 0 ? "+\(score)" : "\(score)")
-                        .font(.caption2.weight(.bold)).monospacedDigit()
-                        .foregroundStyle(accent.opacity(0.6)).fixedSize()
+                    HStack(spacing: 4) {
+                        Text("Ranking Score:").font(.caption2.weight(.semibold)).opacity(0.62)
+                        Text(score >= 0 ? "+\(score)" : "\(score)")
+                            .font(.caption2.weight(.bold)).monospacedDigit()
+                    }
+                    .fixedSize()
                 }
+                Spacer(minLength: 4)
+                Text(source.provider).font(.caption.weight(.bold)).lineLimit(1)
                 Image(systemName: "play.circle.fill").font(.title3).fixedSize()
             }
             Text(source.releaseName)
