@@ -416,24 +416,141 @@ private struct MediaFolderScreen: View {
 }
 
 private struct MediaPlayableCard: View {
-    @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem
-    @State private var playing = false
+    @State private var choosingSource = false
 
     var body: some View {
-        Button { playing = true } label: { MediaItemCard(item: item) }
+        Button { choosingSource = true } label: { MediaItemCard(item: item) }
             .buttonStyle(.plain)
-            .fullScreenCover(isPresented: $playing) {
-                if let url = media.playbackURL(for: item) {
-                    #if os(tvOS)
-                    PlayerView(urls: [url], title: item.name, isLive: false)
-                    #else
-                    MobilePlayerView(name: item.name, urls: [url])
-                    #endif
+            .sheet(isPresented: $choosingSource) {
+                MediaSourcePicker(item: item)
+            }
+    }
+}
+
+private struct MediaSourcePicker: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.dismiss) private var dismiss
+    let item: MediaItem
+    @State private var sources: [MediaPlaybackSource] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var selectedSource: MediaPlaybackSource?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    VStack(spacing: 14) {
+                        ProgressView().controlSize(.large)
+                        Text("Finding the best streams…").font(.headline)
+                        Text("Connected addons are ranking results for \(item.name).")
+                            .font(.subheadline).foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    }
+                } else if let error {
+                    ContentUnavailableView("Streams Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else if sources.isEmpty {
+                    ContentUnavailableView("No Streams Found", systemImage: "play.slash",
+                        description: Text("None of the connected streaming addons returned a playable result."))
                 } else {
-                    ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
+                    ScrollView {
+                        LazyVStack(spacing: rowSpacing) {
+                            ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
+                                Button { selectedSource = source } label: {
+                                    MediaSourceRow(source: source, rank: index + 1)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(NullSportsStyle.background.ignoresSafeArea())
+            .foregroundStyle(NullSportsStyle.lightPurple)
+            .navigationTitle(item.name)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
+            }
+        }
+        .task(id: item.id) {
+            loading = true
+            do { sources = try await media.playbackSources(for: item); error = nil }
+            catch { self.error = error.localizedDescription }
+            loading = false
+        }
+        .fullScreenCover(item: $selectedSource) { source in
+            if let url = media.playbackURL(for: item, source: source) {
+                #if os(tvOS)
+                PlayerView(urls: [url], title: item.name, isLive: false)
+                #else
+                MobilePlayerView(name: item.name, urls: [url])
+                #endif
+            } else { ContentUnavailableView("Playback Unavailable", systemImage: "play.slash") }
+        }
+    }
+
+    private var rowSpacing: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        10
+        #endif
+    }
+    private var horizontalPadding: CGFloat {
+        #if os(tvOS)
+        70
+        #else
+        16
+        #endif
+    }
+}
+
+private struct MediaSourceRow: View {
+    @Environment(\.isFocused) private var focused
+    let source: MediaPlaybackSource
+    let rank: Int
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text("#\(rank)")
+                .font(.system(.subheadline, design: .rounded, weight: .bold)).monospacedDigit()
+                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.65) : NullSportsStyle.lightPurple.opacity(0.48))
+                .frame(width: 34)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(source.releaseName).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
+                HStack(spacing: 8) {
+                    Text(source.provider).font(.caption.weight(.semibold))
+                    if let quality = source.quality { sourceBadge(quality) }
+                    if let size = source.formattedSize { sourceBadge(size) }
+                    if let container = source.container?.split(separator: ",").first { sourceBadge(String(container).uppercased()) }
+                }
+                .foregroundStyle(focused ? NullSportsStyle.background.opacity(0.72) : NullSportsStyle.lightPurple.opacity(0.58))
+            }
+            Spacer(minLength: 10)
+            if let score = source.score {
+                VStack(spacing: 1) {
+                    Text(score >= 0 ? "+\(score)" : "\(score)")
+                        .font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit()
+                    Text("SCORE").font(.system(size: 9, weight: .bold)).tracking(1.2)
+                }
+                .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+            }
+            Image(systemName: "play.fill").font(.headline)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 13)
+        .background(focused ? NullSportsStyle.lightPurple : NullSportsStyle.surface,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(NullSportsStyle.line, lineWidth: focused ? 0 : 1))
+        .foregroundStyle(focused ? NullSportsStyle.background : NullSportsStyle.lightPurple)
+        .scaleEffect(focused ? 1.018 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+    }
+
+    private func sourceBadge(_ text: String) -> some View {
+        Text(text).font(.caption2.weight(.bold)).padding(.horizontal, 7).padding(.vertical, 3)
+            .background((focused ? NullSportsStyle.background : NullSportsStyle.lightPurple).opacity(0.1), in: Capsule())
     }
 }
 

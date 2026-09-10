@@ -72,9 +72,19 @@ struct JellyfinClient: Sendable {
     }
 
     func playbackURL(itemID: String) -> URL? {
-        authenticatedURL(path: "videos/\(itemID)/stream", query: [
-            URLQueryItem(name: "static", value: "true")
-        ])
+        playbackURL(itemID: itemID, mediaSourceID: nil)
+    }
+
+    func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
+        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST")
+        value.httpBody = Data("{}".utf8)
+        return try await send(value)
+    }
+
+    func playbackURL(itemID: String, mediaSourceID: String?) -> URL? {
+        var query = [URLQueryItem(name: "static", value: "true")]
+        if let mediaSourceID { query.append(URLQueryItem(name: "MediaSourceId", value: mediaSourceID)) }
+        return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
     }
 
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = []) throws -> URLRequest {

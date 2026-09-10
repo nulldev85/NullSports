@@ -65,4 +65,30 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(response.user.name, "viewer")
         XCTAssertEqual(response.accessToken, "token-1")
     }
+
+    func testDecodesRankedStreamNZBPlaybackSources() throws {
+        let data = Data(#"{"MediaSources":[{"Id":"source-1","Name":"StreamNZB\nMovie\nMovie.2026.2160p.REMUX\n🔍 NZBgeek • 🎯 Score: +68648","Path":"/remux/source-1/Movie","Container":"mkv","Size":21015541816,"Remux":{"ProviderInfo":{"source":"StreamNZB","filename":"🎯 SCORE +68648 🎯 • Movie.2026.2160p.REMUX","description":"Movie\nMovie.2026.2160p.REMUX\n🔍 NZBgeek • 🎯 Score: +68648"}}}]}"#.utf8)
+
+        let response = try JSONDecoder().decode(MediaPlaybackInfo.self, from: data)
+        let source = try XCTUnwrap(response.mediaSources.first)
+
+        XCTAssertEqual(source.provider, "StreamNZB")
+        XCTAssertEqual(source.releaseName, "Movie.2026.2160p.REMUX")
+        XCTAssertEqual(source.score, 68648)
+        XCTAssertEqual(source.quality, "4K")
+        XCTAssertNotNil(source.formattedSize)
+    }
+
+    func testSelectedPlaybackURLCarriesMediaSourceID() throws {
+        let client = try JellyfinClient(
+            serverURL: "https://media.example.test",
+            accessToken: "token",
+            deviceID: "device-1"
+        )
+
+        let url = try XCTUnwrap(client.playbackURL(itemID: "movie-1", mediaSourceID: "ranked-source-2"))
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "MediaSourceId" })?.value, "ranked-source-2")
+        XCTAssertEqual(query?.first(where: { $0.name == "api_key" })?.value, "token")
+    }
 }

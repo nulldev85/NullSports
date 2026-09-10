@@ -170,6 +170,17 @@ final class MediaLibrary: ObservableObject {
         return try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID)
     }
 
+    func playbackSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
+        guard let profile = activeProfile else { return [] }
+        return try await client(for: profile).playbackInfo(itemID: item.id).mediaSources
+            .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
+    }
+
+    func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
+        guard let profile = activeProfile else { return nil }
+        return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: source.id)
+    }
+
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
         let selections = savedShelves()
         if let saved = selections[profileID.uuidString] {
