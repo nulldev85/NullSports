@@ -122,6 +122,36 @@ final class MediaLibrary: ObservableObject {
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
     }
 
+    // Seasons and episodes are numbered, not named: "Season 10" sorts before
+    // "Season 2" by name. A season can also run long past the shelf's limit.
+    func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
+        guard let profile = activeProfile else { return [] }
+        return try await client(for: profile).items(userID: profile.userID,
+            parentID: parent.id, sortBy: "IndexNumber", limit: 500)
+    }
+
+    /// The full record for an item. A shelf card carries only what a shelf needs.
+    func details(of item: MediaItem) async throws -> MediaItem {
+        guard let profile = activeProfile else { return item }
+        return try await client(for: profile).item(userID: profile.userID, itemID: item.id)
+    }
+
+    func nextUp(in series: MediaItem) async -> MediaItem? {
+        guard let profile = activeProfile else { return nil }
+        return try? await client(for: profile)
+            .nextUp(userID: profile.userID, seriesID: series.id).first
+    }
+
+    func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
+        guard let profile = activeProfile else { return }
+        do {
+            try await client(for: profile)
+                .setFavorite(userID: profile.userID, itemID: item.id, isFavorite: isFavorite)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func search(_ query: String) async throws -> [MediaItem] {
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).search(userID: profile.userID, query: query)
@@ -149,6 +179,18 @@ final class MediaLibrary: ObservableObject {
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
+    }
+
+    // Asking for art the server did not report leaves a request to 404 behind
+    // every hero, so each of these answers nil unless the item claims one.
+    func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
+        guard item.hasBackdrop, let profile = activeProfile else { return nil }
+        return try? client(for: profile).imageURL(itemID: item.id, type: "backdrop", maxWidth: width)
+    }
+
+    func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
+        guard item.hasLogo, let profile = activeProfile else { return nil }
+        return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
     }
 
     func playbackURL(for item: MediaItem) -> URL? {

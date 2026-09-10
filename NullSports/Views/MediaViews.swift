@@ -269,7 +269,7 @@ private struct MediaCatalogsScreen: View {
             }
         }
         .foregroundStyle(NullSportsStyle.lightPurple)
-        .navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .task(id: query) {
             let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { results = []; searching = false; searchError = nil; return }
@@ -365,10 +365,10 @@ private struct MediaGridScreen: View {
     @ViewBuilder
     var body: some View {
         #if os(tvOS)
-        grid.navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+        grid.navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         #else
         grid.navigationTitle(title)
-            .navigationDestination(for: MediaItem.self) { folder in MediaFolderScreen(folder: folder) }
+            .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         #endif
     }
 
@@ -401,6 +401,21 @@ private struct MediaGridScreen: View {
     }
 }
 
+/// A series opens to its own page; anything else is still a grid of what is
+/// inside it. Both destinations are registered under one item type, so the
+/// choice has to be made here rather than at the link.
+private struct MediaBrowseDestination: View {
+    let item: MediaItem
+
+    var body: some View {
+        if item.isSeries {
+            MediaShowScreen(series: item)
+        } else {
+            MediaFolderScreen(folder: item)
+        }
+    }
+}
+
 private struct MediaFolderScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let folder: MediaItem
@@ -429,6 +444,417 @@ private struct MediaFolderScreen: View {
             catch { self.error = error.localizedDescription }
             loading = false
         }
+    }
+}
+
+/// The hero art runs to the top of the screen, so the bar sitting over it
+/// carries no background of its own. tvOS has no navigation bar to quieten.
+private struct TransparentNavigationBar: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
+    }
+}
+
+/// The page a series opens to: its art, what to play next, and the season the
+/// viewer is on with every episode in it. A season used to be one more grid of
+/// unlabelled cards, which said nothing about the episode being picked.
+private struct MediaShowScreen: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let series: MediaItem
+
+    @State private var detail: MediaItem?
+    @State private var seasons: [MediaItem] = []
+    @State private var selectedSeason: MediaItem?
+    @State private var episodes: [MediaItem] = []
+    @State private var nextUp: MediaItem?
+    @State private var favorite = false
+    @State private var expandedOverview = false
+    @State private var loading = true
+    @State private var error: String?
+    @State private var chosen: MediaItem?
+
+    private var show: MediaItem { detail ?? series }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                hero
+                VStack(alignment: .leading, spacing: 16) {
+                    if !show.hasLogo { Text(show.name).font(titleFont) }
+                    metaLine
+                    actions
+                    overview
+                    ratings
+                }
+                .padding(.horizontal, horizontalPadding)
+                episodesSection
+            }
+            .padding(.bottom, 44)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NullSportsStyle.background.ignoresSafeArea())
+        .foregroundStyle(NullSportsStyle.lightPurple)
+        .ignoresSafeArea(edges: .top)
+        .modifier(TransparentNavigationBar())
+        .task(id: series.id) { await load() }
+        .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+    }
+
+    // MARK: - Header
+
+    private var hero: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .aspectRatio(heroRatio, contentMode: .fit)
+            .overlay {
+                ZStack {
+                    LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                        startPoint: .topLeading, endPoint: .bottomTrailing)
+                    AsyncImage(url: heroURL) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                }
+            }
+            .clipped()
+            // The art has to end somewhere, and a hard edge across the screen
+            // reads as a seam. It fades into the page instead.
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, NullSportsStyle.background],
+                    startPoint: .top, endPoint: .bottom)
+                    .frame(height: 160)
+            }
+            .overlay(alignment: .bottom) {
+                if show.hasLogo {
+                    AsyncImage(url: media.logoURL(for: show)) { phase in
+                        if let image = phase.image { image.resizable().scaledToFit() }
+                    }
+                    .frame(height: logoHeight)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.bottom, 6)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var metaLine: some View {
+        if !metaParts.isEmpty {
+            Text(metaParts.joined(separator: "  \u{00B7}  "))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+        }
+    }
+
+    private var metaParts: [String] {
+        [show.productionYear.map(String.init),
+         show.genres?.prefix(2).joined(separator: ", "),
+         show.officialRating]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    // MARK: - Actions
+
+    /// What the play button starts: the server's own next-up answer, else the
+    /// first unwatched episode on screen, else the season from the top.
+    private var playTarget: MediaItem? {
+        nextUp ?? episodes.first { !$0.isPlayed } ?? episodes.first
+    }
+
+    private var actions: some View {
+        HStack(spacing: 12) {
+            Button { chosen = playTarget } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "play.fill")
+                    Text("Play").fontWeight(.bold)
+                    if let code = playTarget?.episodeCode {
+                        Text(code).foregroundStyle(NullSportsStyle.background.opacity(0.5))
+                    }
+                }
+                .font(.system(size: 17))
+                .frame(maxWidth: .infinity).frame(height: buttonHeight)
+                .foregroundStyle(NullSportsStyle.background)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(playTarget == nil)
+            .opacity(playTarget == nil ? 0.45 : 1)
+
+            iconButton(favorite ? "bookmark.fill" : "bookmark") {
+                favorite.toggle()
+                Task { await media.setFavorite(favorite, for: show) }
+            }
+            iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
+                .disabled(episodes.isEmpty)
+        }
+    }
+
+    private func iconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                .frame(width: buttonHeight + 8, height: buttonHeight)
+                .background(NullSportsStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(NullSportsStyle.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var overview: some View {
+        if let text = show.overview, !text.isEmpty {
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.76))
+                .lineLimit(expandedOverview ? nil : 3)
+                .multilineTextAlignment(.leading)
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { expandedOverview.toggle() }
+                }
+        }
+    }
+
+    private struct Rating: Identifiable {
+        let id: String
+        let symbol: String
+        let value: String
+    }
+
+    // Only what the server actually reports. An empty row beats an invented one.
+    private var ratingValues: [Rating] {
+        var values: [Rating] = []
+        if let community = show.communityRating, community > 0 {
+            values.append(Rating(id: "community", symbol: "star.fill",
+                value: String(format: "%.1f", community)))
+        }
+        if let critic = show.criticRating, critic > 0 {
+            values.append(Rating(id: "critic", symbol: "hand.thumbsup.fill",
+                value: "\(Int(critic.rounded()))%"))
+        }
+        return values
+    }
+
+    @ViewBuilder
+    private var ratings: some View {
+        if !ratingValues.isEmpty {
+            HStack(spacing: 16) {
+                ForEach(ratingValues) { rating in
+                    HStack(spacing: 5) {
+                        Image(systemName: rating.symbol).font(.caption)
+                        Text(rating.value).font(.subheadline.weight(.semibold)).monospacedDigit()
+                    }
+                }
+            }
+            .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.76))
+        }
+    }
+
+    // MARK: - Episodes
+
+    @ViewBuilder
+    private var episodesSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            seasonHeading.padding(.horizontal, horizontalPadding)
+            if loading {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+            } else if let error {
+                Text(error).font(.footnote)
+                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    .padding(.horizontal, horizontalPadding)
+            } else if episodes.isEmpty {
+                Text("No episodes here yet.").font(.footnote)
+                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.62))
+                    .padding(.horizontal, horizontalPadding)
+            } else {
+                LazyVGrid(columns: episodeColumns, spacing: 22) {
+                    ForEach(episodes) { episode in
+                        Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, horizontalPadding)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var seasonHeading: some View {
+        if seasons.count > 1 {
+            Menu {
+                ForEach(seasons) { season in
+                    Button(season.name) { Task { await loadSeason(season) } }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                }
+                .foregroundStyle(NullSportsStyle.lightPurple)
+            }
+        } else {
+            Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
+        }
+    }
+
+    // MARK: - Loading
+
+    private func load() async {
+        loading = true
+        error = nil
+        let loaded = try? await media.details(of: series)
+        detail = loaded ?? series
+        favorite = (loaded ?? series).isFavorite
+        do {
+            let children = try await media.numberedChildren(of: series)
+            let seasonList = children.filter { $0.type == "Season" }
+            guard !seasonList.isEmpty else {
+                // Some addon catalogs hang episodes straight off the series.
+                seasons = []
+                selectedSeason = nil
+                episodes = children.filter(\.isPlayable)
+                loading = false
+                return
+            }
+            seasons = seasonList
+            let up = await media.nextUp(in: series)
+            nextUp = up
+            await loadSeason(seasonList.first { $0.indexNumber == up?.parentIndexNumber } ?? seasonList[0])
+        } catch {
+            self.error = error.localizedDescription
+            loading = false
+        }
+    }
+
+    private func loadSeason(_ season: MediaItem) async {
+        selectedSeason = season
+        loading = true
+        error = nil
+        do { episodes = try await media.numberedChildren(of: season).filter(\.isPlayable) }
+        catch { self.error = error.localizedDescription }
+        loading = false
+    }
+
+    // MARK: - Metrics
+
+    private var heroURL: URL? {
+        #if os(tvOS)
+        media.backdropURL(for: show) ?? media.imageURL(for: show, width: 1280)
+        #else
+        media.imageURL(for: show, width: 900)
+        #endif
+    }
+    private var heroRatio: CGFloat {
+        #if os(tvOS)
+        16 / 9
+        #else
+        2 / 3
+        #endif
+    }
+    private var logoHeight: CGFloat {
+        #if os(tvOS)
+        110
+        #else
+        76
+        #endif
+    }
+    private var horizontalPadding: CGFloat {
+        #if os(tvOS)
+        70
+        #else
+        16
+        #endif
+    }
+    private var buttonHeight: CGFloat {
+        #if os(tvOS)
+        58
+        #else
+        50
+        #endif
+    }
+    private var titleFont: Font {
+        #if os(tvOS)
+        .system(size: 40, weight: .bold, design: .rounded)
+        #else
+        .title.weight(.bold)
+        #endif
+    }
+    private var sectionTitleFont: Font {
+        #if os(tvOS)
+        .system(size: 24, weight: .semibold, design: .rounded)
+        #else
+        .title3.weight(.bold)
+        #endif
+    }
+    private var episodeColumns: [GridItem] {
+        #if os(tvOS)
+        [GridItem(.adaptive(minimum: 360, maximum: 460), spacing: 24)]
+        #else
+        [GridItem(.adaptive(minimum: 150, maximum: 260), spacing: 14)]
+        #endif
+    }
+}
+
+/// An episode card says which episode it is and what happens in it, so a viewer
+/// picks by the description rather than by guessing from a still.
+private struct MediaEpisodeCard: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.isFocused) private var focused
+    let episode: MediaItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay {
+                    ZStack {
+                        LinearGradient(colors: [NullSportsStyle.raised, NullSportsStyle.surface],
+                            startPoint: .topLeading, endPoint: .bottomTrailing)
+                        AsyncImage(url: media.imageURL(for: episode, width: 640)) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() }
+                            else { Image(systemName: "film.fill").font(.largeTitle) }
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(
+                    focused ? NullSportsStyle.lightPurple.opacity(0.9) : NullSportsStyle.line,
+                    lineWidth: focused ? 2 : 1))
+                .overlay(alignment: .topLeading) {
+                    if episode.isPlayed {
+                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(NullSportsStyle.background)
+                            .frame(width: 26, height: 26)
+                            .background(NullSportsStyle.lightPurple, in: Circle())
+                            .padding(8)
+                    }
+                }
+            if let label = episode.episodeLabel {
+                Text(label).font(.caption.weight(.semibold))
+                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.55))
+            }
+            Text(episode.name).font(.subheadline.weight(.bold)).lineLimit(2)
+            if let overview = episode.overview, !overview.isEmpty {
+                Text(overview).font(.caption).lineLimit(3)
+                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.6))
+            }
+            if !footer.isEmpty {
+                Text(footer).font(.caption2)
+                    .foregroundStyle(NullSportsStyle.lightPurple.opacity(0.45))
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(NullSportsStyle.lightPurple)
+        .focusLift(focused, scale: 1.03)
+    }
+
+    private var footer: String {
+        [episode.formattedAirDate, episode.formattedRuntime]
+            .compactMap { $0 }.joined(separator: "  \u{00B7}  ")
     }
 }
 

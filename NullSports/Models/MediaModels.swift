@@ -24,12 +24,107 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let productionYear: Int?
     let primaryImageAspectRatio: Double?
     let childCount: Int?
+    // Everything below is optional so an older server, or an addon that returns
+    // only the basics, still decodes: a missing field simply goes unshown.
+    let genres: [String]?
+    let officialRating: String?
+    let communityRating: Double?
+    let criticRating: Double?
+    let runTimeTicks: Int64?
+    let premiereDate: String?
+    let indexNumber: Int?
+    let parentIndexNumber: Int?
+    let seriesName: String?
+    let userData: MediaUserData?
+    let imageTags: [String: String]?
+    let backdropImageTags: [String]?
+
+    // An optional `let` gets no implicit default, so the added fields are given
+    // one here and every existing caller keeps the call it already makes.
+    init(id: String, name: String, type: String, overview: String?,
+         productionYear: Int?, primaryImageAspectRatio: Double?, childCount: Int?,
+         genres: [String]? = nil, officialRating: String? = nil,
+         communityRating: Double? = nil, criticRating: Double? = nil,
+         runTimeTicks: Int64? = nil, premiereDate: String? = nil,
+         indexNumber: Int? = nil, parentIndexNumber: Int? = nil,
+         seriesName: String? = nil, userData: MediaUserData? = nil,
+         imageTags: [String: String]? = nil, backdropImageTags: [String]? = nil) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.overview = overview
+        self.productionYear = productionYear
+        self.primaryImageAspectRatio = primaryImageAspectRatio
+        self.childCount = childCount
+        self.genres = genres
+        self.officialRating = officialRating
+        self.communityRating = communityRating
+        self.criticRating = criticRating
+        self.runTimeTicks = runTimeTicks
+        self.premiereDate = premiereDate
+        self.indexNumber = indexNumber
+        self.parentIndexNumber = parentIndexNumber
+        self.seriesName = seriesName
+        self.userData = userData
+        self.imageTags = imageTags
+        self.backdropImageTags = backdropImageTags
+    }
 
     var isPlayable: Bool {
         ["Movie", "Episode", "Video"].contains(type)
     }
 
     var isFolder: Bool { !isPlayable }
+
+    var isSeries: Bool { type == "Series" }
+
+    var isPlayed: Bool { userData?.played == true }
+
+    var isFavorite: Bool { userData?.isFavorite == true }
+
+    var hasLogo: Bool { imageTags?["Logo"] != nil }
+
+    var hasBackdrop: Bool { backdropImageTags?.isEmpty == false }
+
+    // Servers count in ticks of 100 nanoseconds, and a runtime is read in minutes.
+    var runtimeMinutes: Int? {
+        guard let runTimeTicks, runTimeTicks > 0 else { return nil }
+        return max(1, Int(runTimeTicks / 600_000_000))
+    }
+
+    var formattedRuntime: String? {
+        guard let minutes = runtimeMinutes else { return nil }
+        guard minutes >= 60 else { return "\(minutes)m" }
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h \(remainder)m"
+    }
+
+    // A premiere arrives as "2026-08-11T00:00:00.0000000Z", whose seven fractional
+    // digits defeat the ISO parser, and only the day is ever shown. Reading the
+    // date part directly avoids both the parser and a cached formatter.
+    var formattedAirDate: String? {
+        guard let premiereDate, premiereDate.count >= 10 else { return nil }
+        let parts = premiereDate.prefix(10).split(separator: "-")
+        guard parts.count == 3, let year = Int(parts[0]),
+              let month = Int(parts[1]), let day = Int(parts[2]) else { return nil }
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        guard let date = Calendar(identifier: .gregorian).date(from: components) else { return nil }
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    var episodeLabel: String? {
+        indexNumber.map { "Episode \($0)" }
+    }
+
+    // "S04E04", the way a viewer names the place they are up to.
+    var episodeCode: String? {
+        guard let indexNumber else { return nil }
+        let season = parentIndexNumber ?? 1
+        return String(format: "S%02dE%02d", season, indexNumber)
+    }
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -39,6 +134,30 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case productionYear = "ProductionYear"
         case primaryImageAspectRatio = "PrimaryImageAspectRatio"
         case childCount = "ChildCount"
+        case genres = "Genres"
+        case officialRating = "OfficialRating"
+        case communityRating = "CommunityRating"
+        case criticRating = "CriticRating"
+        case runTimeTicks = "RunTimeTicks"
+        case premiereDate = "PremiereDate"
+        case indexNumber = "IndexNumber"
+        case parentIndexNumber = "ParentIndexNumber"
+        case seriesName = "SeriesName"
+        case userData = "UserData"
+        case imageTags = "ImageTags"
+        case backdropImageTags = "BackdropImageTags"
+    }
+}
+
+struct MediaUserData: Codable, Hashable, Sendable {
+    let played: Bool?
+    let isFavorite: Bool?
+    let playedPercentage: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case played = "Played"
+        case isFavorite = "IsFavorite"
+        case playedPercentage = "PlayedPercentage"
     }
 }
 
