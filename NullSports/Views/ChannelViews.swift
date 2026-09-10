@@ -2224,9 +2224,13 @@ private struct MatchDiagnosticsRow: View {
             if let stream {
                 Text(stream.name).foregroundColor(NullSportsStyle.lightPurple)
                     .font(.system(size: 17, weight: .medium)).lineLimit(1)
-                Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
-                    .foregroundColor(evidence == .dedicatedFeed ? NullSportsStyle.lightPurple : NullSportsStyle.warning)
-                    .font(.system(size: 15))
+                if let rejection = library.playbackRejection(for: game) {
+                    Text(rejection.rawValue).foregroundColor(NullSportsStyle.warning).font(.system(size: 15))
+                } else {
+                    Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
+                        .foregroundColor(evidence == .dedicatedFeed ? NullSportsStyle.lightPurple : NullSportsStyle.warning)
+                        .font(.system(size: 15))
+                }
             } else {
                 Text("No match — opens the channel picker").foregroundColor(NullSportsStyle.lightPurple)
                     .font(.system(size: 15)).foregroundStyle(NullSportsStyle.secondary)

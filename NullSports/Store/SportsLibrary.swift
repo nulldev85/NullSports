@@ -56,6 +56,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     @Published private var matchEvidenceScores: [String: Int] = [:]
     @Published private var didCompleteMatching = false
+    private var lastUnmatchedProviderRefresh: Date?
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
@@ -108,6 +109,21 @@ final class SportsLibrary: ObservableObject {
     // completed pass is what makes them trustworthy, not the absence of work.
     var automaticMatchingReady: Bool {
         didCompleteMatching && channelsValidatedThisSession && guideValidatedThisSession && sportsIndexReady
+    }
+
+    // Providers publish a game's own feed, and its guide entry, around first
+    // pitch. That window is the only time refetching the lineup is likely to
+    // turn an unmatched game into a matched one, and starting a little early
+    // means the channel is ready when the game is rather than found afterwards.
+    private var hasUnmatchedGameNearStart: Bool {
+        let now = Date()
+        return gamesByLeague.values.contains { games in
+            games.contains { game in
+                (game.isLive || game.isUpcoming) && gameStreamCache[game.id] == nil
+                    && game.start.addingTimeInterval(-5 * 60) <= now
+                    && now < game.start.addingTimeInterval(30 * 60)
+            }
+        }
     }
 
     // A channel's guide usually only names the game once it is under way, and a
@@ -268,13 +284,18 @@ final class SportsLibrary: ObservableObject {
         await refreshLibrary(forceGuide: true)
     }
 
-    private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true) async {
+    // `invalidatesSession` is what makes startup withhold playback until a fetch
+    // has happened this session, because providers recycle numbered event stream
+    // IDs. A later top-up is replacing already validated data rather than waiting
+    // for its first fetch, so it leaves that gate alone and keeps the matches up.
+    private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true,
+                                invalidatesSession: Bool = true) async {
         guard !libraryRefreshInFlight,
               let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         libraryRefreshInFlight = true
         defer { libraryRefreshInFlight = false }
-        if refreshChannels { channelsValidatedThisSession = false }
-        if forceGuide { guideValidatedThisSession = false }
+        if refreshChannels && invalidatesSession { channelsValidatedThisSession = false }
+        if forceGuide && invalidatesSession { guideValidatedThisSession = false }
         isLoading = refreshChannels && streams.isEmpty
         errorMessage = nil
         let client = XtreamClient(profile: profile, password: password)
@@ -480,6 +501,14 @@ final class SportsLibrary: ObservableObject {
                 if update.1 || self.hasUnmatchedLiveGame {
                     await self.rebuildGameStreamCache()
                 }
+                // Rematching cannot find a channel the app has not downloaded,
+                // and the channel list and guide otherwise sit for hours. A game
+                // unmatched around its own start time asks for both again.
+                if self.hasUnmatchedGameNearStart,
+                   Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
+                    self.lastUnmatchedProviderRefresh = Date()
+                    await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
+                }
                 guard self.activeProfile?.id == profileID else { return }
                 self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
@@ -521,6 +550,19 @@ final class SportsLibrary: ObservableObject {
     // The two matchers score on different scales, so the league decides how a
     // score reads: college ranks guide evidence highest, while the professional
     // policy ranks a channel named for the game above a national channel's guide.
+    enum MatchRejection: String {
+        case scheduleChanged = "Matched, but the schedule moved since — a tap opens the picker"
+        case noLongerShowing = "Matched, but the channel no longer shows this game — a tap opens the picker"
+    }
+
+    // Playback asks verifiedStream, which revalidates; the rows ask stream(for:),
+    // which does not. A diagnostics row reporting the cheap answer could promise a
+    // channel that a tap then refuses, so it reports the disagreement instead.
+    func playbackRejection(for game: SportsGame) -> MatchRejection? {
+        guard stream(for: game) != nil, verifiedStream(for: game) == nil else { return nil }
+        return matchedGameIdentities[game.id] == Self.matchIdentity(game) ? .noLongerShowing : .scheduleChanged
+    }
+
     func matchEvidence(for game: SportsGame) -> MatchEvidence? {
         guard let score = matchEvidenceScores[game.id] else { return nil }
         guard game.league == .ncaaf else { return score >= 400 ? .dedicatedFeed : .guideListing }
@@ -869,6 +911,7 @@ final class SportsLibrary: ObservableObject {
         gameStreamCache = [:]
         matchEvidenceScores = [:]
         didCompleteMatching = false
+        lastUnmatchedProviderRefresh = nil
         channelsValidatedThisSession = false
         guideValidatedThisSession = false
         scheduleValidatedLeagues = []
