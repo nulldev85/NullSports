@@ -56,6 +56,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     @Published private var matchEvidenceScores: [String: Int] = [:]
     @Published private var didCompleteMatching = false
+    private var lastUnmatchedProviderRefresh: Date?
     private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
@@ -268,13 +269,18 @@ final class SportsLibrary: ObservableObject {
         await refreshLibrary(forceGuide: true)
     }
 
-    private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true) async {
+    // `invalidatesSession` is what makes startup withhold playback until a fetch
+    // has happened this session, because providers recycle numbered event stream
+    // IDs. A later top-up is replacing already validated data rather than waiting
+    // for its first fetch, so it leaves that gate alone and keeps the matches up.
+    private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true,
+                                invalidatesSession: Bool = true) async {
         guard !libraryRefreshInFlight,
               let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         libraryRefreshInFlight = true
         defer { libraryRefreshInFlight = false }
-        if refreshChannels { channelsValidatedThisSession = false }
-        if forceGuide { guideValidatedThisSession = false }
+        if refreshChannels && invalidatesSession { channelsValidatedThisSession = false }
+        if forceGuide && invalidatesSession { guideValidatedThisSession = false }
         isLoading = refreshChannels && streams.isEmpty
         errorMessage = nil
         let client = XtreamClient(profile: profile, password: password)
@@ -479,6 +485,16 @@ final class SportsLibrary: ObservableObject {
                 }
                 if update.1 || self.hasUnmatchedLiveGame {
                     await self.rebuildGameStreamCache()
+                }
+                // Rematching cannot find a channel the app has not downloaded.
+                // Providers publish a game's own feed, and its guide entry, close
+                // to first pitch, while the channel list and guide otherwise sit
+                // for hours. A live game still without a channel asks for both
+                // again, at a distance that keeps this off the provider's back.
+                if self.hasUnmatchedLiveGame,
+                   Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
+                    self.lastUnmatchedProviderRefresh = Date()
+                    await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
                 }
                 guard self.activeProfile?.id == profileID else { return }
                 self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
@@ -882,6 +898,7 @@ final class SportsLibrary: ObservableObject {
         gameStreamCache = [:]
         matchEvidenceScores = [:]
         didCompleteMatching = false
+        lastUnmatchedProviderRefresh = nil
         channelsValidatedThisSession = false
         guideValidatedThisSession = false
         scheduleValidatedLeagues = []
