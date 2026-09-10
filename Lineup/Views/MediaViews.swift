@@ -447,14 +447,22 @@ private struct MediaFolderScreen: View {
     }
 }
 
-/// The hero art runs to the top of the screen, so the bar sitting over it
-/// carries no background of its own. tvOS has no navigation bar to quieten.
-private struct TransparentNavigationBar: ViewModifier {
+/// On iPhone the hero art runs to the very top of the screen, under a
+/// navigation bar carrying no background of its own.
+///
+/// tvOS gets neither half. Its tab bar sits along the *top* edge and appears
+/// when focus moves up into it, so a screen that ignores the top safe area
+/// draws over that bar and takes the focus meant for it -- leaving the Menu
+/// button with nowhere to go and the viewer stuck on the page. Every other tvOS
+/// screen here ignores `[.horizontal, .bottom]` and leaves the top alone for
+/// exactly this reason.
+private struct FullBleedHeader: ViewModifier {
     func body(content: Content) -> some View {
         #if os(tvOS)
         content
         #else
         content
+            .ignoresSafeArea(edges: .top)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
         #endif
@@ -501,8 +509,7 @@ private struct MediaShowScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
-        .ignoresSafeArea(edges: .top)
-        .modifier(TransparentNavigationBar())
+        .modifier(FullBleedHeader())
         .task(id: series.id) { await load() }
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
     }
