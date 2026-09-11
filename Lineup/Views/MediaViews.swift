@@ -5,8 +5,36 @@ struct MediaServersView: View {
     @State private var addingServer = false
 
     var body: some View {
+        #if os(tvOS)
+        // No NavigationStack: its bar is what produced the oversized title and
+        // the Close button. The remote's Menu button is how a viewer leaves a
+        // screen on this platform, so that is all this needs.
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SELECT A STREAM").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text(item.name).font(.system(size: 22, weight: .semibold)).lineLimit(1)
+            }
+            .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .onExitCommand { dismiss() }
+        .task(id: item.id) { await loadSources() }
+        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        #else
         NavigationStack {
-            Group {
+            content
+        }
+        .task(id: item.id) { await loadSources() }
+        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        #endif
+    }
+
+    private var content: some View {
+        Group {
             #if os(tvOS)
             TVMediaServersHome(addingServer: $addingServer)
             #else
@@ -627,7 +655,11 @@ private struct MediaShowScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .modifier(FullBleedHeader())
         .task(id: series.id) { await load() }
+        #if os(tvOS)
+        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        #else
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        #endif
     }
 
     // MARK: - Header
@@ -1035,7 +1067,7 @@ private struct MediaPlayableCard: View {
     var body: some View {
         #if os(tvOS)
         TVSelectable(action: { choosingSource = true }) { MediaItemCard(item: item, shape: shape) }
-            .sheet(isPresented: $choosingSource) {
+            .fullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #else
@@ -1071,8 +1103,36 @@ private struct MediaSourcePicker: View {
     }
 
     var body: some View {
+        #if os(tvOS)
+        // No NavigationStack: its bar is what produced the oversized title and
+        // the Close button. The remote's Menu button is how a viewer leaves a
+        // screen on this platform, so that is all this needs.
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SELECT A STREAM").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text(item.name).font(.system(size: 22, weight: .semibold)).lineLimit(1)
+            }
+            .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .onExitCommand { dismiss() }
+        .task(id: item.id) { await loadSources() }
+        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        #else
         NavigationStack {
-            Group {
+            content
+        }
+        .task(id: item.id) { await loadSources() }
+        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        #endif
+    }
+
+    private var content: some View {
+        Group {
                 if loading {
                     VStack(spacing: 14) {
                         ProgressView().controlSize(.large)
@@ -1125,26 +1185,32 @@ private struct MediaSourcePicker: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LineupStyle.background.ignoresSafeArea())
             .foregroundStyle(LineupStyle.lightPurple)
+            #if !os(tvOS)
             .navigationTitle(item.name)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
             }
-        }
-        .task(id: item.id) {
-            loading = true
-            providerFilter = nil
-            do { sources = try await media.playbackSources(for: item); error = nil }
-            catch { self.error = error.localizedDescription }
-            loading = false
-        }
-        .fullScreenCover(item: $selectedSource) { source in
-            if let url = media.playbackURL(for: item, source: source) {
-                #if os(tvOS)
-                PlayerView(urls: [url], title: item.name, isLive: false)
-                #else
-                MobilePlayerView(name: item.name, urls: [url])
-                #endif
-            } else { ContentUnavailableView("Playback Unavailable", systemImage: "play.slash") }
+            #endif
+    }
+
+    private func loadSources() async {
+        loading = true
+        providerFilter = nil
+        do { sources = try await media.playbackSources(for: item); error = nil }
+        catch { self.error = error.localizedDescription }
+        loading = false
+    }
+
+    @ViewBuilder
+    private func playback(for source: MediaPlaybackSource) -> some View {
+        if let url = media.playbackURL(for: item, source: source) {
+            #if os(tvOS)
+            PlayerView(urls: [url], title: item.name, isLive: false)
+            #else
+            MobilePlayerView(name: item.name, urls: [url])
+            #endif
+        } else {
+            ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
         }
     }
 
@@ -1157,7 +1223,7 @@ private struct MediaSourcePicker: View {
 
     private var rowSpacing: CGFloat {
         #if os(tvOS)
-        10
+        12
         #else
         10
         #endif
@@ -1272,7 +1338,7 @@ private struct MediaSourceRow: View {
                 .frame(width: 62, height: 26)
                 .background(accent.opacity(0.14),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(source.releaseName)
                     .font(.system(size: 16, weight: .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
@@ -1306,7 +1372,7 @@ private struct MediaSourceRow: View {
             }
             .fixedSize()
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 20).padding(.vertical, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 10, style: .continuous))
