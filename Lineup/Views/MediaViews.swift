@@ -157,10 +157,12 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(focused ? LineupStyle.background : LineupStyle.lightPurple)
+                .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(focused ? LineupStyle.lightPurple : LineupStyle.surface,
+                .background(LineupStyle.surface,
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(focused ? LineupStyle.lightPurple : LineupStyle.line, lineWidth: focused ? 2 : 1))
                 .scaleEffect(focused ? 1.055 : 1)
                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
         }
@@ -1060,7 +1062,10 @@ private struct MediaChromeSurface: ViewModifier {
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
-    private var filled: Bool { !outline && (prominent || focused) }
+    // Focus marks the edge. Only a deliberate call to action fills, and it
+    // fills whether or not it happens to be focused, so focus never turns a
+    // control into a pale slab.
+    private var filled: Bool { !outline && prominent }
 
     private var border: Color {
         if focused { return prominent ? LineupStyle.background : LineupStyle.lightPurple }
@@ -1165,20 +1170,19 @@ private struct MediaSourceRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(focused ? LineupStyle.lightPurple : LineupStyle.surface,
+        .background(LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(LineupStyle.line, lineWidth: focused ? 0 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 16)
+            .stroke(focused ? LineupStyle.lightPurple : LineupStyle.line, lineWidth: focused ? 2 : 1))
         .foregroundStyle(accent)
         .scaleEffect(focused ? 1.018 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         .accessibilityElement(children: .combine)
     }
 
-    // On tvOS a focused row inverts, so every shade is mixed from whichever colour
-    // is currently the readable one.
-    private var accent: Color {
-        focused ? LineupStyle.background : LineupStyle.lightPurple
-    }
+    // The row no longer inverts on focus, so every shade stays mixed from the
+    // one readable colour.
+    private var accent: Color { LineupStyle.lightPurple }
 
     private func badge(_ text: String) -> some View {
         Text(text).font(.caption2.weight(.bold)).lineLimit(1).fixedSize()

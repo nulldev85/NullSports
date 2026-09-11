@@ -94,7 +94,6 @@ enum LineupStyle {
     static var secondary: Color { lightPurple }
     static var field: Color { lightPurple }
     static var live: Color { lightPurple }
-    static var focusGlow: Color { lightPurple }
     static var warning: Color { palette.warning }
 }
 
@@ -198,7 +197,11 @@ extension View {
         self
             .scaleEffect(focused ? scale : 1)
             .offset(y: focused ? -3 : 0)
-            .shadow(color: focused ? LineupStyle.focusGlow.opacity(0.20) : .clear, radius: 22, y: 10)
+            // A pale shadow on a dark screen does not read as depth; it reads as
+            // a light slab sitting behind the control. At this radius it spread
+            // around the whole card and washed out the title under the art. A
+            // dark shadow lifts the card without painting anything behind it.
+            .shadow(color: focused ? .black.opacity(0.5) : .clear, radius: 18, y: 12)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.25, dampingFraction: 0.78), value: focused)
     }

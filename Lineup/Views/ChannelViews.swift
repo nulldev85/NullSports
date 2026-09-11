@@ -2010,9 +2010,9 @@ private struct TVReorderDoneButton: View {
         Label("Done", systemImage: "checkmark")
             .font(.callout.weight(.semibold))
             .padding(.horizontal, 20).frame(height: 46)
-            .background(focused ? LineupStyle.lightPurple : LineupStyle.lightPurple.opacity(0.09), in: Capsule())
-            .foregroundStyle(focused ? GuidePalette.background : LineupStyle.lightPurple)
-            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(focused ? 0 : 0.16), lineWidth: 1))
+            .background(LineupStyle.lightPurple.opacity(0.09), in: Capsule())
+            .foregroundStyle(LineupStyle.lightPurple)
+            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(focused ? 0.9 : 0.16), lineWidth: focused ? 2 : 1))
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
             .onTapGesture(perform: action)
@@ -2526,12 +2526,13 @@ private struct TVPlayerButton: View {
                 Image(systemName: symbol).font(.system(size: 18, weight: .bold)).frame(width: 22)
                 Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
             }
-            .foregroundStyle(prominent && selected ? LineupStyle.background : LineupStyle.lightPurple)
+            .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 18).frame(height: 52)
-            .background(selected ? LineupStyle.lightPurple : (prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88)),
+            .background(prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(LineupStyle.lightPurple.opacity(selected ? 0 : 0.16), lineWidth: 1))
-            .shadow(color: selected ? LineupStyle.lightPurple.opacity(0.24) : .black.opacity(0.18), radius: selected ? 18 : 8, y: 7)
+            .overlay(RoundedRectangle(cornerRadius: 13)
+                .stroke(LineupStyle.lightPurple.opacity(selected ? 0.9 : 0.16), lineWidth: selected ? 2 : 1))
+            .shadow(color: .black.opacity(selected ? 0.45 : 0.18), radius: selected ? 16 : 8, y: 7)
             .scaleEffect(selected ? 1.06 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
         }
@@ -2551,11 +2552,12 @@ private struct TVPlayerMenuLabel: View {
             Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
         }
-        .foregroundStyle(focused ? LineupStyle.background : LineupStyle.lightPurple)
+        .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 18).frame(height: 52)
-        .background(focused ? LineupStyle.lightPurple : LineupStyle.surface.opacity(0.88),
+        .background(LineupStyle.surface.opacity(0.88),
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(LineupStyle.lightPurple.opacity(focused ? 0 : 0.16), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 13)
+            .stroke(LineupStyle.lightPurple.opacity(focused ? 0.9 : 0.16), lineWidth: focused ? 2 : 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
