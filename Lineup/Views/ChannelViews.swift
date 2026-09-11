@@ -2012,7 +2012,7 @@ private struct TVReorderDoneButton: View {
             .padding(.horizontal, 20).frame(height: 46)
             .background(LineupStyle.lightPurple.opacity(0.09), in: Capsule())
             .foregroundStyle(LineupStyle.lightPurple)
-            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(focused ? 0.9 : 0.16), lineWidth: focused ? 2 : 1))
+            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
             .onTapGesture(perform: action)
@@ -2150,7 +2150,7 @@ struct AccountView: View {
                                     AccountRow(label: profile.name,
                                         value: media.activeProfile?.id == profile.id ? "Active" : "Select")
                                 }
-                                .buttonStyle(.plain)
+                                .lineupFlatButton()
                                 Button("Remove", role: .destructive) { media.remove(profile) }
                             }
                         }
@@ -2499,7 +2499,7 @@ private struct TVPlayerChrome: View {
                         } label: {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)", focused: focusedControl.wrappedValue == .quality)
                         }
-                        .buttonStyle(.plain).focused(focusedControl, equals: .quality).focusEffectDisabled()
+                        .lineupFlatButton().focused(focusedControl, equals: .quality).focusEffectDisabled()
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 72).padding(.bottom, 52)
@@ -2531,14 +2531,14 @@ private struct TVPlayerButton: View {
             .background(prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13)
-                .stroke(LineupStyle.lightPurple.opacity(selected ? 0.9 : 0.16), lineWidth: selected ? 2 : 1))
-            .shadow(color: .black.opacity(selected ? 0.45 : 0.18), radius: selected ? 16 : 8, y: 7)
+                .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 10, y: 7)
             .scaleEffect(selected ? 1.06 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
         }
         // The button draws its own focus state, so tvOS's plate would sit on top
         // of it as a second, larger highlight.
-        .buttonStyle(.plain).focused(focus, equals: id).focusEffectDisabled()
+        .lineupFlatButton().focused(focus, equals: id).focusEffectDisabled()
         .accessibilityLabel(title)
     }
 }
@@ -2557,7 +2557,7 @@ private struct TVPlayerMenuLabel: View {
         .background(LineupStyle.surface.opacity(0.88),
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13)
-            .stroke(LineupStyle.lightPurple.opacity(focused ? 0.9 : 0.16), lineWidth: focused ? 2 : 1))
+            .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }

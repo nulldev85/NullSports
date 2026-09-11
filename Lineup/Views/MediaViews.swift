@@ -162,7 +162,7 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
                 .background(LineupStyle.surface,
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(focused ? LineupStyle.lightPurple : LineupStyle.line, lineWidth: focused ? 2 : 1))
+                    .stroke(LineupStyle.line, lineWidth: 1))
                 .scaleEffect(focused ? 1.055 : 1)
                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
         }
@@ -189,7 +189,7 @@ private struct MediaCatalogsScreen: View {
                     if searching { ProgressView().controlSize(.small) }
                     if !query.isEmpty {
                         Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain)
+                            .lineupFlatButton()
                     }
                 }
                 .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
@@ -242,13 +242,13 @@ private struct MediaCatalogsScreen: View {
                                             Image(systemName: "minus.circle")
                                                 .accessibilityLabel("Remove \(catalog.title) shelf")
                                         }
-                                    }.buttonStyle(.plain).focusEffectDisabled()
+                                    }.lineupFlatButton()
                                     NavigationLink(value: catalog.root) {
                                         MediaChromeLabel {
                                             Label("See All", systemImage: "chevron.right")
                                                 .font(.system(size: 14, weight: .semibold))
                                         }
-                                    }.buttonStyle(.plain).focusEffectDisabled()
+                                    }.lineupFlatButton()
                                 }
                                 .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
@@ -267,7 +267,7 @@ private struct MediaCatalogsScreen: View {
                                                 Group {
                                                     if item.isFolder {
                                                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                                                            .buttonStyle(.plain).focusEffectDisabled()
+                                                            .lineupFlatButton()
                                                     } else { MediaPlayableCard(item: item, shape: shape) }
                                                 }.frame(width: cardWidth(shape))
                                             }
@@ -367,7 +367,7 @@ private struct MediaGridScreen: View {
                 ForEach(items) { item in
                     if item.isFolder {
                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                            .buttonStyle(.plain).focusEffectDisabled()
+                            .lineupFlatButton()
                     } else {
                         MediaPlayableCard(item: item, shape: shape)
                     }
@@ -603,8 +603,7 @@ private struct MediaShowScreen: View {
                 .frame(maxWidth: .infinity).frame(height: buttonHeight)
                 .modifier(MediaChromeFocus(prominent: true))
             }
-            .buttonStyle(.plain)
-            .focusEffectDisabled()
+            .lineupFlatButton()
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
@@ -623,8 +622,7 @@ private struct MediaShowScreen: View {
                 .frame(width: buttonHeight + 8, height: buttonHeight)
                 .modifier(MediaChromeFocus())
         }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
+        .lineupFlatButton()
     }
 
     @ViewBuilder
@@ -714,7 +712,7 @@ private struct MediaShowScreen: View {
                 LazyVGrid(columns: episodeColumns, spacing: 22) {
                     ForEach(episodes) { episode in
                         Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
-                            .buttonStyle(.plain).focusEffectDisabled()
+                            .lineupFlatButton()
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -794,7 +792,11 @@ private struct MediaShowScreen: View {
     }
     private var heroRatio: CGFloat {
         #if os(tvOS)
-        16 / 9
+        // A full-width 16:9 hero is exactly one 16:9 screen, so the title,
+        // actions and episodes all landed below the fold and the page looked
+        // like nothing but artwork had loaded. Half a screen leaves the rest
+        // of the page on screen with it.
+        32 / 9
         #else
         2 / 3
         #endif
@@ -866,9 +868,8 @@ private struct MediaEpisodeCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(
-                    focused ? LineupStyle.lightPurple.opacity(0.9) : LineupStyle.line,
-                    lineWidth: focused ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
                     if episode.isPlayed {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
@@ -911,7 +912,7 @@ private struct MediaPlayableCard: View {
 
     var body: some View {
         Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
-            .buttonStyle(.plain).focusEffectDisabled()
+            .lineupFlatButton()
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -978,7 +979,7 @@ private struct MediaSourcePicker: View {
                                     Button { selectedSource = source } label: {
                                         MediaSourceRow(source: source)
                                     }
-                                    .buttonStyle(.plain).focusEffectDisabled()
+                                    .lineupFlatButton()
                                 }
                             }
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
@@ -1016,8 +1017,7 @@ private struct MediaSourcePicker: View {
         Button { providerFilter = provider } label: {
             MediaProviderChip(title: title, count: count, active: providerFilter == provider)
         }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
+        .lineupFlatButton()
     }
 
     private var rowSpacing: CGFloat {
@@ -1058,7 +1058,7 @@ private struct MediaChromeSurface: ViewModifier {
             .background(filled ? LineupStyle.lightPurple : LineupStyle.surface,
                 in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius)
-                .stroke(border, lineWidth: focused ? 2 : 1))
+                .stroke(border, lineWidth: 1))
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
@@ -1067,10 +1067,8 @@ private struct MediaChromeSurface: ViewModifier {
     // control into a pale slab.
     private var filled: Bool { !outline && prominent }
 
-    private var border: Color {
-        if focused { return prominent ? LineupStyle.background : LineupStyle.lightPurple }
-        return prominent ? .clear : LineupStyle.line
-    }
+    // Constant: a control must look the same whether or not it holds focus.
+    private var border: Color { prominent ? .clear : LineupStyle.line }
 }
 
 /// The same surface, reading focus from the button wrapped around it rather
@@ -1113,15 +1111,13 @@ private struct MediaProviderChip: View {
         .padding(.horizontal, 12).padding(.vertical, 7)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
         .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().stroke(border, lineWidth: focused ? 2 : 1))
+        .overlay(Capsule().stroke(border, lineWidth: 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
-    private var border: Color {
-        if focused { return active ? LineupStyle.background : LineupStyle.lightPurple }
-        return active ? .clear : LineupStyle.line
-    }
+    // Constant: the chip shows whether it is active, not whether it is focused.
+    private var border: Color { active ? .clear : LineupStyle.line }
 }
 
 private struct MediaSourceRow: View {
@@ -1173,7 +1169,7 @@ private struct MediaSourceRow: View {
         .background(LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16)
-            .stroke(focused ? LineupStyle.lightPurple : LineupStyle.line, lineWidth: focused ? 2 : 1))
+            .stroke(LineupStyle.line, lineWidth: 1))
         .foregroundStyle(accent)
         .scaleEffect(focused ? 1.018 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -1287,8 +1283,8 @@ private struct MediaItemCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: cardRadius).stroke(
-                    focused ? LineupStyle.lightPurple.opacity(0.9) : LineupStyle.line, lineWidth: focused ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: cardRadius)
+                    .stroke(LineupStyle.line, lineWidth: 1))
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)

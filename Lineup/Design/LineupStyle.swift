@@ -185,6 +185,29 @@ extension View {
 }
 #endif
 
+#if os(tvOS)
+/// A button that draws nothing but its label.
+///
+/// tvOS's own button styles paint a light plate behind a focused button. That
+/// plate is what put a white slab behind a focused poster and chip, and it is
+/// drawn by the style, not by the focus effect, so focusEffectDisabled() never
+/// touched it. Replacing the style replaces that drawing entirely.
+struct LineupFlatButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
+}
+#endif
+
+extension View {
+    /// A button with no styling of its own, on either platform.
+    func lineupFlatButton() -> some View {
+        #if os(tvOS)
+        return buttonStyle(LineupFlatButtonStyle()).focusEffectDisabled()
+        #else
+        return buttonStyle(.plain)
+        #endif
+    }
+}
+
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
