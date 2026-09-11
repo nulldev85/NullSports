@@ -5,6 +5,7 @@ struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
         Group {
@@ -17,6 +18,10 @@ struct RootView: View {
         .foregroundStyle(LineupStyle.text)
         .tint(LineupStyle.lightPurple)
         .background(LineupStyle.background.ignoresSafeArea())
+        .animation(.easeInOut(duration: 0.22), value: selectedTheme)
+        #if os(tvOS)
+        .onChange(of: selectedTheme) { _, _ in applyLineupTabBarTheme() }
+        #endif
         .task {
             guard library.hasProfile else { return }
             if library.streams.isEmpty { await library.bootstrap() }

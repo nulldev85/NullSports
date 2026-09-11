@@ -214,11 +214,11 @@ private struct ManualGameChannelPicker: View {
 }
 
 private enum LiveBoardStyle {
-    static let accent = LineupStyle.lightPurple
-    static let leagueFocus = LineupStyle.focused
-    static let canvas = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
-    static let panel = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
-    static let muted = LineupStyle.lightPurple
+    static var accent: Color { LineupStyle.lightPurple }
+    static var leagueFocus: Color { LineupStyle.focused }
+    static var canvas: Color { LineupStyle.background }
+    static var panel: Color { LineupStyle.surface }
+    static var muted: Color { LineupStyle.lightPurple }
 }
 
 private struct LiveBoardRail: View {
@@ -1044,20 +1044,20 @@ private struct ChannelLogo: View {
     }
 }
 
-// Plum surfaces and light-purple content shared across the Guide.
+// Theme surfaces shared across the Guide.
 private enum GuidePalette {
-    static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
-    static let panel = Color(red: 0x17 / 255.0, green: 0x16 / 255.0, blue: 0x1A / 255.0)
-    static let surface = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
-    static let raised = Color(red: 0x33 / 255.0, green: 0x2B / 255.0, blue: 0x3A / 255.0)
-    static let channelTile = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
-    static let line = LineupStyle.lightPurple.opacity(0.08)
-    static let text = LineupStyle.lightPurple
-    static let secondary = LineupStyle.lightPurple
-    static let purple = LineupStyle.lightPurple
-    static let pink = LineupStyle.lightPurple
-    static let green = LineupStyle.lightPurple
-    static let yellow = LineupStyle.lightPurple
+    static var background: Color { LineupStyle.background }
+    static var panel: Color { LineupStyle.surface.opacity(0.74) }
+    static var surface: Color { LineupStyle.surface }
+    static var raised: Color { LineupStyle.raised }
+    static var channelTile: Color { LineupStyle.selected }
+    static var line: Color { LineupStyle.lightPurple.opacity(0.08) }
+    static var text: Color { LineupStyle.lightPurple }
+    static var secondary: Color { LineupStyle.lightPurple }
+    static var purple: Color { LineupStyle.lightPurple }
+    static var pink: Color { LineupStyle.lightPurple }
+    static var green: Color { LineupStyle.lightPurple }
+    static var yellow: Color { LineupStyle.lightPurple }
 }
 
 struct GuideView: View {
@@ -2123,10 +2123,39 @@ struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingMediaServer = false
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 30) {
                 ScreenHeading(title: "Account", detail: "Provider and app details")
+                DetailPanel(title: "APPEARANCE") {
+                    HStack(spacing: 14) {
+                        ForEach(LineupTheme.allCases) { theme in
+                            Button {
+                                selectedTheme = theme.rawValue
+                            } label: {
+                                HStack(spacing: 12) {
+                                    LineupThemeSwatch(theme: theme)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(theme.name).font(.headline)
+                                        Text(theme.detail).font(.caption).opacity(0.68)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if selectedTheme == theme.rawValue {
+                                        Image(systemName: "checkmark.circle.fill")
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                                .frame(maxWidth: .infinity, minHeight: 72)
+                                .background(selectedTheme == theme.rawValue ? LineupStyle.selected : LineupStyle.surface,
+                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                        }
+                    }
+                    .padding(.vertical, 12)
+                }
                 if let profile = library.activeProfile {
                     DetailPanel(title: "PROVIDER") {
                         AccountRow(label: "Profile", value: profile.name)

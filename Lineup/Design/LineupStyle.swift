@@ -1,24 +1,111 @@
 import SwiftUI
 
+enum LineupTheme: String, CaseIterable, Identifiable {
+    case velvet
+    case grandstand
+    case pitLane
+
+    static let storageKey = "lineup.appearance.theme"
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .velvet: "Velvet"
+        case .grandstand: "Grandstand"
+        case .pitLane: "Pit Lane"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .velvet: "Plum & lilac"
+        case .grandstand: "Ink & champagne"
+        case .pitLane: "Graphite & copper"
+        }
+    }
+
+    fileprivate var palette: LineupPalette {
+        switch self {
+        case .velvet:
+            LineupPalette(
+                accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
+                raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
+                focused: rgb(0x3D3444), warning: rgb(0xC78259)
+            )
+        case .grandstand:
+            LineupPalette(
+                accent: rgb(0xE8D9B5), background: rgb(0x07131D), surface: rgb(0x0D1C28),
+                raised: rgb(0x152938), sidebar: rgb(0x0A1823), selected: rgb(0x132633),
+                focused: rgb(0x203A4B), warning: rgb(0xD89A56)
+            )
+        case .pitLane:
+            LineupPalette(
+                accent: rgb(0xE8A66A), background: rgb(0x101112), surface: rgb(0x181A1C),
+                raised: rgb(0x24272A), sidebar: rgb(0x141618), selected: rgb(0x202326),
+                focused: rgb(0x32363A), warning: rgb(0xE0B15B)
+            )
+        }
+    }
+}
+
+fileprivate struct LineupPalette {
+    let accent: Color
+    let background: Color
+    let surface: Color
+    let raised: Color
+    let sidebar: Color
+    let selected: Color
+    let focused: Color
+    let warning: Color
+}
+
+private func rgb(_ value: UInt32) -> Color {
+    Color(
+        red: Double((value >> 16) & 0xFF) / 255,
+        green: Double((value >> 8) & 0xFF) / 255,
+        blue: Double(value & 0xFF) / 255
+    )
+}
+
 enum LineupStyle {
-    static let lightPurple = Color(red: 0xD4 / 255.0, green: 0xC7 / 255.0, blue: 0xE1 / 255.0)
+    static var theme: LineupTheme {
+        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
+    }
+    private static var palette: LineupPalette { theme.palette }
+    static var lightPurple: Color { palette.accent }
     // White is reserved for selected Live card frames.
     static let liveSelectionBorder = Color.white
-    static let background = Color(red: 0x22 / 255.0, green: 0x1D / 255.0, blue: 0x27 / 255.0)
-    static let surface = Color(red: 0x28 / 255.0, green: 0x21 / 255.0, blue: 0x2D / 255.0)
-    static let raised = Color(red: 0x33 / 255.0, green: 0x2B / 255.0, blue: 0x3A / 255.0)
-    static let sidebarRow = Color(red: 0x25 / 255.0, green: 0x1F / 255.0, blue: 0x2A / 255.0)
-    static let selected = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
-    static let focused = Color(red: 0x3D / 255.0, green: 0x34 / 255.0, blue: 0x44 / 255.0)
-    static let liveSurface = Color(red: 0x2D / 255.0, green: 0x26 / 255.0, blue: 0x33 / 255.0)
-    static let liveBorder = lightPurple.opacity(0.72)
-    static let line = lightPurple.opacity(0.11)
-    static let text = lightPurple
-    static let secondary = lightPurple
-    static let field = lightPurple
-    static let live = lightPurple
-    static let focusGlow = lightPurple
-    static let warning = Color(red: 0.78, green: 0.51, blue: 0.35)
+    static var background: Color { palette.background }
+    static var surface: Color { palette.surface }
+    static var raised: Color { palette.raised }
+    static var sidebarRow: Color { palette.sidebar }
+    static var selected: Color { palette.selected }
+    static var focused: Color { palette.focused }
+    static var liveSurface: Color { palette.selected }
+    static var liveBorder: Color { lightPurple.opacity(0.72) }
+    static var line: Color { lightPurple.opacity(0.11) }
+    static var text: Color { lightPurple }
+    static var secondary: Color { lightPurple }
+    static var field: Color { lightPurple }
+    static var live: Color { lightPurple }
+    static var focusGlow: Color { lightPurple }
+    static var warning: Color { palette.warning }
+}
+
+struct LineupThemeSwatch: View {
+    let theme: LineupTheme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            theme.palette.background
+            theme.palette.surface
+            theme.palette.accent
+        }
+        .frame(width: 54, height: 24)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+        .accessibilityHidden(true)
+    }
 }
 
 extension View {

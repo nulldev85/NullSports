@@ -7,6 +7,7 @@ struct MainView: View {
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var guideFullscreen = false
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
         TabView(selection: $tab) {
@@ -21,6 +22,9 @@ struct MainView: View {
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         .tint(LineupStyle.lightPurple)
+        .toolbarBackground(LineupStyle.background, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
         .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in
@@ -123,10 +127,31 @@ private struct MobileAccountView: View {
     @State private var addingMediaServer = false
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Theme", selection: $selectedTheme) {
+                        ForEach(LineupTheme.allCases) { theme in
+                            HStack {
+                                LineupThemeSwatch(theme: theme)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(theme.name)
+                                    Text(theme.detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .tag(theme.rawValue)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("A complete color treatment for Lineup. Your choice stays on this device.")
+                }
+                .listRowBackground(LineupStyle.surface)
                 Section {
                     ForEach(library.profiles) { profile in
                         HStack(spacing: 12) {
