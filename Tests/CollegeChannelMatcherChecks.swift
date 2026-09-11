@@ -112,6 +112,55 @@ enum CollegeChannelMatcherChecks {
         check(Matcher.score(channel: "ESPN", listings: [matchup], game: delayed, now: kickoff.addingTimeInterval(86400)) == nil, "Delay cannot preserve yesterday's match")
         check(!game(status: "Postponed after delay").isDelayed, "Postponement is not an active delay")
         check(!game(status: "Final after delay").isDelayed, "Final is not an active delay")
+
+        // Regression: the only college game of the night (Florida A&M at Miami on
+        // ACC Network) matched no channel because "Rattlers" was not a known
+        // mascot, so the school name never resolved and the guide entry for the
+        // game itself was read as a different program.
+        let miami = game("ACC Network", away: "Florida A&M Rattlers", home: "Miami Hurricanes",
+                         awayShort: "FAMU", homeShort: "MIA")
+        func miamiScore(_ channel: String, _ listings: [Matcher.Listing] = []) -> Int? {
+            Matcher.score(channel: channel, listings: listings, game: miami, now: now)
+        }
+        check(miamiScore("ACC Network", [listing("Florida A&M at Miami")]) == 400, "Unknown mascot still resolves the school")
+        check(miamiScore("ACCN", [listing("College Football", detail: "Florida A&M at Miami")]) == 400, "Unknown mascot in the description")
+        check(miamiScore("ACC Network", [listing("Florida A&M Rattlers at Miami Hurricanes")]) == 400, "Full display names")
+        check(miamiScore("ACC Network") != nil, "Announced ACC Network without EPG")
+        check(miamiScore("ESPN", [listing("Florida A&M at Miami")]) == nil, "Advertised network still governs")
+        check(miamiScore("ACC Network", [listing("Alabama vs Georgia")]) == nil, "Different active game on the announced network")
+
+        // Schools whose mascot no list happened to carry.
+        check(Matcher.titleMatches("Stanford at Virginia", away: "Stanford Cardinal", home: "Virginia Cavaliers"), "Stanford Cardinal")
+        check(Matcher.titleMatches("Nebraska vs Akron", away: "Nebraska Cornhuskers", home: "Akron Zips"), "Nebraska Cornhuskers")
+        check(Matcher.titleMatches("Delaware at Cornell", away: "Delaware Blue Hens", home: "Cornell Big Red"), "Two-word mascots")
+        check(Matcher.titleMatches("Montana State at Dartmouth", away: "Montana State Bobcats", home: "Dartmouth Big Green"), "Dartmouth Big Green")
+        check(Matcher.titleMatches("Mercer at Furman", away: "Mercer Bears", home: "Furman Paladins"), "FCS opponents resolve")
+
+        // Trimming a mascot must never trim a token that identifies the school.
+        check(!Matcher.titleMatches("Miami at Florida State", away: "Miami (OH) RedHawks", home: "Florida State Seminoles"), "Miami (OH) is not Miami")
+        check(!Matcher.titleMatches("Miami (OH) at Rutgers", away: "Miami Hurricanes", home: "Rutgers Scarlet Knights"), "Miami is not Miami (OH)")
+        check(!Matcher.titleMatches("Ohio at Rutgers", away: "Ohio State Buckeyes", home: "Rutgers Scarlet Knights"), "Ohio State is not Ohio")
+        check(!Matcher.titleMatches("New Hampshire at Akron", away: "New Mexico Lobos", home: "Akron Zips"), "New Mexico is not New Hampshire")
+        check(!Matcher.titleMatches("Sam Houston at Rice", away: "Houston Cougars", home: "Rice Owls"), "Houston is not Sam Houston")
+        check(!Matcher.titleMatches("Southern Illinois at Akron", away: "Southern Jaguars", home: "Akron Zips"), "Southern is not Southern Illinois")
+        check(!Matcher.titleMatches("Austin Peay at Rice", away: "Stephen F. Austin Lumberjacks", home: "Rice Owls"), "Austin is not Austin Peay")
+        check(!Matcher.titleMatches("North Carolina Central at Elon", away: "North Carolina Tar Heels", home: "Elon Phoenix"), "North Carolina is not NC Central")
+
+        // One identified school on the advertised network still finds the game
+        // when the other school's name cannot be parsed.
+        let partial = game("ESPN", away: "Southern Jaguars", home: "Jackson State Tigers",
+                           awayShort: "SOU", homeShort: "JKST")
+        func partialScore(_ channel: String, _ listings: [Matcher.Listing], fallback: Bool = true) -> Int? {
+            Matcher.score(channel: channel, listings: listings, game: partial, now: now, allowNetworkFallback: fallback)
+        }
+        check(partialScore("ESPN", [listing("Southern at Jackson State")]) == 150, "One identified school confirms the game")
+        check(partialScore("ESPN", [listing("Southern at Jackson State")], fallback: false) == 150, "Partial evidence survives an ambiguous slate")
+        check(partialScore("ESPN", [listing("Alabama vs Georgia")]) == nil, "Partial evidence needs one of our schools")
+        check(partialScore("ESPN", [listing("Jackson State Classic")]) == nil, "Replay naming one school is not the game")
+        check(partialScore("ESPN", [listing("Women's Basketball: Jackson State vs Alcorn")]) == nil, "Another sport naming one school is not the game")
+        check(Matcher.score(channel: "ESPN", listings: [listing("SMU vs Florida State")], game: game(), now: now)! >
+              partialScore("ESPN", [listing("Southern at Jackson State")])!, "Confirmed matchup outranks partial evidence")
+
         print("\(checks) college channel matching checks passed")
     }
 }

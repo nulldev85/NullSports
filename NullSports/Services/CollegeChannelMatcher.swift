@@ -121,8 +121,7 @@ enum CollegeChannelMatcher {
         }
         if relevant.contains(where: {
             let text = $0.text
-            return !["replay", "classic", "highlights", "sportscenter", "gameday", "preview", "basketball", "baseball", "soccer", "volleyball", "softball", "lacrosse", "hockey", "tennis"].contains(where: { contains(text, phrase: $0) })
-                && teams(text)
+            return !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) && teams(text)
         }) { return networkMatch ? 400 : 300 }
 
         // Generic or absent listings are common. An explicit different program
@@ -143,10 +142,22 @@ enum CollegeChannelMatcher {
             return (generic.contains(title) || placeholder)
                 && !["vs", "versus", "at", "replay", "classic"].contains(where: { contains(title, phrase: $0) })
         }
-        guard genericGuide || delayCoverage else { return nil }
+        // A guide title we cannot fully parse must not veto the advertised network.
+        // One confirmed school is decisive because a team plays one game at a time,
+        // and the exact advertised network keeps an unrelated feed from qualifying.
+        let partialGuide = networkMatch && !current.isEmpty && current.allSatisfy { listing in
+            let text = listing.text
+            guard !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) else { return false }
+            return sideMatches(text, names: game.awayAliases) != sideMatches(text, names: game.homeAliases)
+        }
+        guard genericGuide || delayCoverage || partialGuide else { return nil }
 
         // A specifically named event feed can work without XMLTV metadata.
         if genericGuide && teams(name) { return networkMatch ? 250 : 200 }
+
+        // One identified school outranks a blind network match but never a feed
+        // that names the matchup outright.
+        if partialGuide { return 150 }
 
         // Only linear national sports networks are safe without team evidence.
         // Affiliates, regional feeds and multiplex services still need a matchup.
@@ -162,6 +173,35 @@ enum CollegeChannelMatcher {
         guard !networkName.split(separator: " ").contains(where: { Int($0) != nil }) else { return nil }
         return current.isEmpty ? 100 : 120
     }
+
+    // Programming that is about a game without being the game itself, or that is
+    // plainly another sport. Shared by the evidence and partial-evidence checks.
+    static let nonGameMarkers: [String] = ["replay", "classic", "highlights", "sportscenter", "gameday", "preview", "basketball", "baseball", "soccer", "volleyball", "softball", "lacrosse", "hockey", "tennis"]
+
+    static let mascots: [String] = ["crimson tide", "fighting irish", "yellow jackets", "golden bears", "golden gophers", "red raiders", "blue devils", "tar heels", "nittany lions", "sun devils", "horned frogs", "demon deacons", "fighting illini", "mountaineers", "seminoles", "mustangs", "cougars", "huskies", "bulldogs", "tigers", "wildcats", "cardinals", "owls", "longhorns", "sooners", "buckeyes", "wolverines", "ducks", "beavers", "gators", "volunteers", "razorbacks", "rebels", "aggies", "spartans", "trojans", "bruins", "badgers", "hawkeyes", "cyclones", "jayhawks", "cowboys", "bears", "buffaloes", "utes", "hoosiers", "boilermakers", "terrapins", "scarlet knights", "panthers", "eagles", "hokies", "cavaliers", "orange", "wolfpack", "commodores", "gamecocks", "hurricanes", "knights", "golden knights", "black knights", "midshipmen", "green wave", "golden eagles", "golden flashes", "golden hurricane", "thundering herd", "mean green", "blue raiders", "red wolves", "redhawks", "red hawks", "bobcats", "rockets", "falcons", "zips", "bulls", "broncos", "chippewas", "minutemen", "monarchs", "flames", "hilltoppers", "bearkats", "bearcats", "roadrunners", "miners", "lobos", "wolf pack", "aztecs", "rainbow warriors", "warriors", "rams", "ragin cajuns", "warhawks", "jaguars", "chanticleers", "dukes", "pirates", "blazers", "49ers", "leopards", "bison", "jackrabbits"].sorted { $0.count > $1.count }
+
+    // Tokens that carry school identity. Trimming one turns a school into a
+    // different school: Ohio State into Ohio, New Mexico into New.
+    static let identityTokens: Set<String> = ["state", "st", "tech", "a", "m", "am", "oh", "ohio", "fl", "florida", "southern", "northern", "eastern", "western", "central", "north", "south", "east", "west", "new", "atlantic", "international", "christian", "college", "university", "poly", "valley", "sam", "saint", "holy", "old", "bay", "carolina", "dakota", "michigan", "illinois", "kentucky"]
+    // A school name that is only a direction or qualifier cannot stand alone;
+    // "southern" appears inside Southern Miss, Georgia Southern and USC alike.
+    static let genericSchools: Set<String> = ["southern", "northern", "eastern", "western", "central", "north", "south", "east", "west", "new", "state", "saint", "holy", "old", "big", "the"]
+    // First word of a two-word mascot: Blue Hens, Big Red, Golden Lions.
+    static let mascotModifiers: Set<String> = ["blue", "big", "black", "red", "golden", "fighting", "green", "mountain", "runnin", "rainbow", "scarlet", "crimson", "thundering", "demon", "horned", "nittany", "sun", "tar", "yellow", "wolf", "ragin", "delta", "white", "purple", "flying", "screaming", "mean", "war", "great", "sea", "night", "fightin"]
+    static let synonyms: [[String]] = [
+        ["smu", "southern methodist"], ["florida state", "fsu"],
+        ["ole miss", "mississippi"], ["uconn", "connecticut"],
+        ["umass", "massachusetts"], ["ucf", "central florida"],
+        ["usf", "south florida"], ["lsu", "louisiana state"],
+        ["tcu", "texas christian"], ["byu", "brigham young"],
+        ["utsa", "texas san antonio"], ["utep", "texas el paso"],
+        ["miami oh", "miami ohio"], ["miami", "miami fl", "miami florida"],
+        ["southern miss", "southern mississippi"], ["pitt", "pittsburgh"],
+        ["app state", "appalachian state"], ["hawai i", "hawaii"]]
+    // A following token that continues a longer school name, or a preceding token
+    // that starts one: Florida is not Florida State, Virginia is not West Virginia.
+    static let trailingQualifiers: [String] = ["state", "st", "tech", "a m", "atlantic", "international", "oh", "ohio", "southern", "valley", "monroe", "peay", "pine", "christian", "poly", "dominion", "cross", "brook", "force", "wesleyan", "central", "illinois", "utah", "carolina", "methodist", "miss", "mississippi", "houston", "jaguars"]
+    static let leadingQualifiers: [String] = ["west", "east", "north", "south", "western", "eastern", "northern", "southern", "central", "southeastern", "northeastern", "southwestern", "northwestern", "middle", "sam", "prairie", "abilene", "stephen", "f", "houston", "texas", "charleston", "gardner", "holy", "saint", "old"]
 
     static func normalized(_ value: String) -> String {
         value.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
@@ -205,21 +245,28 @@ enum CollegeChannelMatcher {
 
     static func teamAliases(_ team: String, abbreviation: String) -> [String] {
         let full = normalized(team)
-        // Strip known mascot suffixes, never arbitrary words from school names.
-        let mascots = ["crimson tide", "fighting irish", "yellow jackets", "golden bears", "golden gophers", "red raiders", "blue devils", "tar heels", "nittany lions", "sun devils", "horned frogs", "demon deacons", "fighting illini", "mountaineers", "seminoles", "mustangs", "cougars", "huskies", "bulldogs", "tigers", "wildcats", "cardinals", "owls", "longhorns", "sooners", "buckeyes", "wolverines", "ducks", "beavers", "gators", "volunteers", "razorbacks", "rebels", "aggies", "spartans", "trojans", "bruins", "badgers", "hawkeyes", "cyclones", "jayhawks", "cowboys", "bears", "buffaloes", "utes", "hoosiers", "boilermakers", "terrapins", "scarlet knights", "panthers", "eagles", "hokies", "cavaliers", "orange", "wolfpack", "commodores", "gamecocks"]
-        let additionalMascots = ["hurricanes", "knights", "golden knights", "black knights", "midshipmen", "green wave", "golden eagles", "golden flashes", "golden hurricane", "thundering herd", "mean green", "blue raiders", "red wolves", "redhawks", "red hawks", "bobcats", "rockets", "falcons", "zips", "bulls", "broncos", "chippewas", "minutemen", "monarchs", "flames", "hilltoppers", "bearkats", "bearcats", "roadrunners", "miners", "lobos", "wolf pack", "aztecs", "rainbow warriors", "warriors", "rams", "ragin cajuns", "warhawks", "jaguars", "chanticleers", "dukes", "pirates", "blazers", "49ers", "owls", "leopards", "bison", "jackrabbits"]
-        let suffix = (mascots + additionalMascots).sorted { $0.count > $1.count }.first { full.hasSuffix(" " + $0) }
+        // A mascot list can never cover every program, and an unknown mascot used
+        // to leave the school name unrecoverable, which rejected the one channel
+        // carrying the game. Trim a known mascot when there is one, then also offer
+        // the name minus a one- or two-word trailing mascot, never trimming a token
+        // that carries school identity.
+        let suffix = mascots.first { full.hasSuffix(" " + $0) }
         let school = suffix.map { String(full.dropLast($0.count + 1)) } ?? full
-        let synonyms = [["smu", "southern methodist"], ["florida state", "fsu"],
-                        ["ole miss", "mississippi"], ["uconn", "connecticut"],
-                        ["umass", "massachusetts"], ["ucf", "central florida"],
-                        ["usf", "south florida"], ["lsu", "louisiana state"],
-                        ["tcu", "texas christian"], ["byu", "brigham young"],
-                        ["utsa", "texas san antonio"], ["utep", "texas el paso"],
-                        ["miami oh", "miami ohio"], ["miami", "miami fl", "miami florida"],
-                        ["southern miss", "southern mississippi"], ["pitt", "pittsburgh"],
-                        ["app state", "appalachian state"], ["hawai i", "hawaii"]]
-        var result: Set<String> = [full, school]
+        var result: Set<String> = [full]
+        func offer(_ name: String) {
+            guard !name.isEmpty, !genericSchools.contains(name),
+                  !synonyms.contains(where: { $0.contains(name) && !$0.contains(school) }) else { return }
+            result.insert(name)
+        }
+        offer(school)
+        let tokens = full.split(separator: " ").map(String.init)
+        if tokens.count > 1, let last = tokens.last, !identityTokens.contains(last) {
+            offer(tokens.dropLast().joined(separator: " "))
+            let modifier = tokens[tokens.count - 2]
+            if tokens.count > 2, mascotModifiers.contains(modifier), !identityTokens.contains(modifier) {
+                offer(tokens.dropLast(2).joined(separator: " "))
+            }
+        }
         for group in synonyms where group.contains(school) { result.formUnion(group) }
         for name in Array(result) {
             if name.contains(" state") { result.insert(name.replacingOccurrences(of: " state", with: " st")) }
@@ -238,10 +285,34 @@ enum CollegeChannelMatcher {
         return titleMatches(text, awayNames: awayNames, homeNames: homeNames)
     }
 
+    // The first occurrence of `phrase` that names the school itself rather than
+    // part of a longer school name. Later occurrences still count, so "Washington"
+    // is found in "Washington State at Washington".
+    private static func schoolRange(_ padded: String, phrase: String) -> Range<String.Index>? {
+        let needle = " " + phrase + " "
+        var searchStart = padded.startIndex
+        while let range = padded.range(of: needle, range: searchStart..<padded.endIndex) {
+            let following = String(padded[range.upperBound...])
+            let preceding = String(padded[..<range.lowerBound])
+            if !trailingQualifiers.contains(where: { following == $0 || following.hasPrefix($0 + " ") })
+                && !leadingQualifiers.contains(where: { preceding.hasSuffix(" " + $0) }) {
+                return range
+            }
+            searchStart = padded.index(after: range.lowerBound)
+        }
+        return nil
+    }
+
+    // One side of a matchup, for guide text that names a school we can identify
+    // alongside one we cannot. Callers supply normalized text.
+    static func sideMatches(_ text: String, names: [String]) -> Bool {
+        let padded = " " + text + " "
+        return names.contains { schoolRange(padded, phrase: $0) != nil }
+    }
+
     private static func titleMatches(_ title: String, awayNames: [String], homeNames: [String]) -> Bool {
         let text = title // Callers supply normalized channel/guide text.
-        guard awayNames.contains(where: { contains(text, phrase: $0) }),
-              homeNames.contains(where: { contains(text, phrase: $0) }) else { return false }
+        guard sideMatches(text, names: awayNames), sideMatches(text, names: homeNames) else { return false }
         // Consume the longer occurrence first so Washington State cannot also
         // supply Washington, and no shared mascot can establish a match.
         for first in awayNames {
@@ -250,15 +321,7 @@ enum CollegeChannelMatcher {
                 var remaining = " " + text + " "
                 var matched = true
                 for phrase in ordered {
-                    guard let range = remaining.range(of: " " + phrase + " ") else { matched = false; break }
-                    let following = String(remaining[range.upperBound...])
-                    let preceding = String(remaining[..<range.lowerBound])
-                    // Florida is not Florida State; Virginia is not Virginia Tech.
-                    if ["state", "st", "tech", "a m", "atlantic", "international", "oh", "ohio"].contains(where: { following == $0 || following.hasPrefix($0 + " ") })
-                        || ["west", "east", "north", "south", "western", "eastern", "northern", "southern", "central"].contains(where: { preceding.hasSuffix(" " + $0) }) {
-                        matched = false
-                        break
-                    }
+                    guard let range = schoolRange(remaining, phrase: phrase) else { matched = false; break }
                     remaining.replaceSubrange(range, with: " ")
                 }
                 if matched { return true }
