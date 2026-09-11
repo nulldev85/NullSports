@@ -252,20 +252,22 @@ private struct MobileMatchupRow: View {
 
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
         HStack(spacing: 9) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.94))
-                AsyncImage(url: URL(string: logo)) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFit().padding(2)
-                    } else {
-                        Text(String(name.prefix(3)).uppercased())
-                            .font(.system(size: 7, weight: .black)).foregroundStyle(.black.opacity(0.65))
-                    }
+            // A near-opaque white disc read as a sticker pasted on the card.
+            // The logo now sits on the card itself, lifted by a brighter ring.
+            // The initials fallback follows the theme, since the white it used
+            // to be drawn against is gone.
+            AsyncImage(url: URL(string: logo)) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit().padding(3)
+                } else {
+                    Text(String(name.prefix(3)).uppercased())
+                        .font(.system(size: 7, weight: .black))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
                 }
-                .transaction { $0.animation = nil }
             }
+            .transaction { $0.animation = nil }
             .frame(width: 28, height: 28)
-            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            .overlay(Circle().strokeBorder(LineupStyle.lightPurple.opacity(0.34), lineWidth: 1))
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.subheadline.weight(.semibold))

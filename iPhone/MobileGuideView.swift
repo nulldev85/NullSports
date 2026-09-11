@@ -63,7 +63,7 @@ struct MobileGuideView: View {
                                 guide(now: clock.date)
                                     .onChange(of: clock.date) { _, now in
                                         // Keep live in view while preserving deliberate future browsing.
-                                        if horizontalOffset < 1 && now >= window.start.addingTimeInterval(1800) {
+                                        if horizontalOffset < 1 && window.isStale(at: now) {
                                             window = MobileGuideWindow(now: now)
                                         }
                                     }
