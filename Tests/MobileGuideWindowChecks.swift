@@ -20,7 +20,9 @@ struct MobileGuideWindowChecks {
             (date(-600), date(1800)),
             (date(1200), date(2400)),
             (date(8000), date(7000)),
-            (date(30000), date(31000))
+            // Anchored to the span so a longer window cannot quietly pull this
+            // entry back on screen and change what the check is testing.
+            (date(MobileGuideWindow.span + 600), date(MobileGuideWindow.span + 1200))
         ])
         check(mixed.compactMap(\.programIndex) == [1, 2, 0], "Sorting preserves source indices and excludes invalid/offscreen entries")
         check(mixed[1].start == date(1800), "Overlaps must not double-book horizontal space")
