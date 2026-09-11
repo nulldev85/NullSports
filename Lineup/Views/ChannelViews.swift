@@ -2398,13 +2398,11 @@ struct PlayerView: View {
         .focused($surfaceFocused)
         .onTapGesture { revealControls(focus: true) }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        // A directional press summons the chrome when it is hidden. While the
-        // chrome is already up the press belongs to the controls themselves:
-        // forcing focus back to play/pause here meant focus could never move
-        // off it, so Go Live, Mute and Quality were unreachable.
-        .onMoveCommand { _ in
-            if controlsVisible { keepControlsVisible() } else { revealControls(focus: true) }
-        }
+        // onMoveCommand consumes the press, so while the chrome is up it must
+        // not exist at all: with it attached the focus engine never saw a
+        // direction and play/pause was the only control focus could hold. It
+        // is only here to summon the chrome back once it has hidden.
+        .modifier(SummonOnMove(enabled: !controlsVisible) { revealControls(focus: true) })
         .onExitCommand { controller.stop(); dismiss() }
         .onAppear { controller.start(urls: urls); revealControls(focus: true) }
         .onDisappear { hideControlsTask?.cancel(); controller.stop() }
@@ -2437,6 +2435,19 @@ struct PlayerView: View {
             await Task.yield()
             surfaceFocused = true
         }
+    }
+}
+
+/// Applies onMoveCommand only while it is wanted. The modifier swallows the
+/// press wherever it is attached, so it cannot simply be left in place and
+/// ignored.
+private struct SummonOnMove: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled { content.onMoveCommand { _ in action() } } else { content }
     }
 }
 

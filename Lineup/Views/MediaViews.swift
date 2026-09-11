@@ -1157,14 +1157,16 @@ private struct MediaSourcePicker: View {
 
     private var rowSpacing: CGFloat {
         #if os(tvOS)
-        16
+        10
         #else
         10
         #endif
     }
     private var horizontalPadding: CGFloat {
         #if os(tvOS)
-        70
+        // The sheet already insets itself. Another 70 on top of that left the
+        // rows floating in a column down the middle of the screen.
+        28
         #else
         16
         #endif
@@ -1261,31 +1263,31 @@ private struct MediaSourceRow: View {
     let source: MediaPlaybackSource
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
+        HStack(alignment: .top, spacing: 14) {
             // Fixed width and a single line, so 1080p reads as a rank marker and
             // can never wrap into a stack of digits the way it used to.
             Text(source.quality ?? "SD")
-                .font(.system(size: 15, weight: .heavy)).monospacedDigit()
+                .font(.system(size: 13, weight: .heavy)).monospacedDigit()
                 .lineLimit(1).fixedSize()
-                .frame(width: 78, height: 32)
+                .frame(width: 62, height: 26)
                 .background(accent.opacity(0.14),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(source.releaseName)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 // One quiet line each. Pills inside a pill inside a card was the
                 // cheap part; the words carry themselves.
                 if !source.badges.isEmpty {
-                    Text(source.badges.joined(separator: "   \u{00B7}   "))
-                        .font(.system(size: 14, weight: .medium))
+                    Text(source.badges.joined(separator: "  \u{00B7}  "))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(accent.opacity(0.74))
                         .lineLimit(1).truncationMode(.tail)
                 }
                 if !source.facts.isEmpty {
-                    Text(source.facts.joined(separator: "   \u{00B7}   "))
-                        .font(.system(size: 13)).monospacedDigit()
+                    Text(source.facts.joined(separator: "  \u{00B7}  "))
+                        .font(.system(size: 11)).monospacedDigit()
                         .foregroundStyle(accent.opacity(0.5))
                         .lineLimit(1).truncationMode(.tail)
                 }
@@ -1293,22 +1295,22 @@ private struct MediaSourceRow: View {
             Spacer(minLength: 16)
             VStack(alignment: .trailing, spacing: 4) {
                 Text(source.provider)
-                    .font(.system(size: 13, weight: .bold)).lineLimit(1)
+                    .font(.system(size: 11, weight: .bold)).lineLimit(1)
                     .foregroundStyle(accent.opacity(0.74))
                 if let score = source.score {
                     Text(score >= 0 ? "+\(score)" : "\(score)")
-                        .font(.system(size: 17, weight: .bold)).monospacedDigit()
-                    Text("RANK").font(.system(size: 10, weight: .heavy)).tracking(1.4)
+                        .font(.system(size: 14, weight: .bold)).monospacedDigit()
+                    Text("RANK").font(.system(size: 9, weight: .heavy)).tracking(1.2)
                         .foregroundStyle(accent.opacity(0.42))
                 }
             }
             .fixedSize()
         }
-        .padding(.horizontal, 22).padding(.vertical, 18)
+        .padding(.horizontal, 18).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(LineupStyle.surface,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(LineupStyle.line, lineWidth: 1))
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(LineupStyle.line, lineWidth: 1))
         .foregroundStyle(accent)
         .accessibilityElement(children: .combine)
     }
