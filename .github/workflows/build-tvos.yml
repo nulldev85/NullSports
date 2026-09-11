@@ -72,8 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project NullSports.xcodeproj \
-            -scheme NullSports \
+            -project Lineup.xcodeproj \
+            -scheme Lineup \
             -configuration Debug \
             -destination 'platform=tvOS Simulator,name=Apple TV' \
             -derivedDataPath build-sim \
@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
           xcrun simctl boot "$device"
-          app="build-sim/Build/Products/Debug-appletvsimulator/NullSports.app"
+          app="build-sim/Build/Products/Debug-appletvsimulator/Lineup.app"
           test -d "$app"
           xcrun simctl install "$device" "$app"
           xcrun simctl launch "$device" com.nulldev85.NullSports
@@ -94,7 +94,7 @@ jobs:
           sleep 6
           if ! xcrun simctl spawn "$device" launchctl list | grep -q com.nulldev85.NullSports; then
             echo "App did not stay running after launch — collecting crash logs"
-            xcrun simctl spawn "$device" log show --predicate 'process == "NullSports"' --last 2m || true
+            xcrun simctl spawn "$device" log show --predicate 'process == "Lineup"' --last 2m || true
             exit 1
           fi
           xcrun simctl shutdown "$device"
