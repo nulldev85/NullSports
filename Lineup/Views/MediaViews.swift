@@ -602,6 +602,7 @@ private struct MediaShowScreen: View {
     @State private var error: String?
     @State private var chosen: MediaItem?
     @FocusState private var seasonFocused: Bool
+    @State private var choosingSeason = false
 
     private var show: MediaItem { detail ?? series }
 
@@ -825,6 +826,24 @@ private struct MediaShowScreen: View {
     @ViewBuilder
     private var seasonHeading: some View {
         if seasons.count > 1 {
+            #if os(tvOS)
+            // A Menu renders through tvOS's own chrome, which is the bulk this
+            // screen had left. Same treatment as Add Shelf: no Menu.
+            TVSelectable(scale: 1.04, action: { choosingSeason = true }) {
+                HStack(spacing: 7) {
+                    Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .modifier(MediaChromeSurface())
+            }
+            .confirmationDialog("Season", isPresented: $choosingSeason, titleVisibility: .visible) {
+                ForEach(seasons) { season in
+                    Button(season.name) { Task { await loadSeason(season) } }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+            #else
             Menu {
                 ForEach(seasons) { season in
                     Button(season.name) { Task { await loadSeason(season) } }
@@ -839,6 +858,7 @@ private struct MediaShowScreen: View {
             }
             .focused($seasonFocused)
             .focusEffectDisabled()
+            #endif
         } else {
             Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
         }

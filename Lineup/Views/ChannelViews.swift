@@ -2443,6 +2443,7 @@ struct PlayerView: View {
 private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, quality }
 
 private struct TVPlayerChrome: View {
+    @State private var showingQuality = false
     let title: String
     let program: CurrentProgram?
     let isLive: Bool
@@ -2501,16 +2502,20 @@ private struct TVPlayerChrome: View {
                         TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
                             symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
-                        Menu {
-                            Button("Auto · \(controller.qualityLabel)", systemImage: "checkmark") { }
-                                .disabled(true)
-                            Button(isLive ? "Refresh stream" : "Restart playback", systemImage: "arrow.clockwise") {
+                        // A Menu renders through tvOS's own chrome, so this is a
+                        // plain selectable with a dialog, like every other control.
+                        TVSelectable(scale: 1.06, action: { showingQuality = true }) {
+                            TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
+                                              focused: focusedControl.wrappedValue == .quality)
+                        }
+                        .focused(focusedControl, equals: .quality)
+                        .confirmationDialog("Quality · \(controller.qualityLabel)",
+                                            isPresented: $showingQuality, titleVisibility: .visible) {
+                            Button(isLive ? "Refresh stream" : "Restart playback") {
                                 controller.goLive(); onInteraction()
                             }
-                        } label: {
-                            TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)", focused: focusedControl.wrappedValue == .quality)
+                            Button("Cancel", role: .cancel) { onInteraction() }
                         }
-                        .lineupFlatButton().focused(focusedControl, equals: .quality).focusEffectDisabled()
                         Spacer(minLength: 0)
                     }
                     }
