@@ -195,12 +195,19 @@ extension View {
 struct TVSelectable<Content: View>: View {
     @FocusState private var focused: Bool
     var scale: CGFloat = 1.06
+    /// A borderless row draws nothing of its own, so a lift and a shadow have
+    /// no shape to lift. Such a row asks for a fill instead, and it is painted
+    /// here for the same reason the lift is: this is where focus is known.
+    var fill: Color?
+    var fillRadius: CGFloat = 12
     let action: () -> Void
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .contentShape(Rectangle())
+            .background(focused ? (fill ?? .clear) : .clear,
+                in: RoundedRectangle(cornerRadius: fillRadius, style: .continuous))
             .focusable()
             .focused($focused)
             .focusEffectDisabled()

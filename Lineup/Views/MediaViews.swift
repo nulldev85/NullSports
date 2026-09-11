@@ -1088,7 +1088,12 @@ private struct MediaSourcePicker: View {
             .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
             results
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A row left to its own devices runs the full width of a television,
+        // which is what made every result read as a stretched strip. The whole
+        // screen is held to one column instead, so the rows are boxes and the
+        // eyebrow above them still lines up with their left edge.
+        .frame(maxWidth: columnWidth, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
         .onExitCommand { dismiss() }
@@ -1138,7 +1143,8 @@ private struct MediaSourcePicker: View {
                             LazyVStack(spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
                                     #if os(tvOS)
-                                    TVSelectable(scale: 1.02, action: { selectedSource = source }) {
+                                    TVSelectable(scale: 1.02, fill: LineupStyle.focused,
+                                        fillRadius: 12, action: { selectedSource = source }) {
                                         MediaSourceRow(source: source)
                                     }
                                     #else
@@ -1207,6 +1213,15 @@ private struct MediaSourcePicker: View {
         28
         #else
         16
+        #endif
+    }
+    /// The measure the list is held to. A line of a release name wider than
+    /// this is further than the eye tracks comfortably from a couch.
+    private var columnWidth: CGFloat {
+        #if os(tvOS)
+        1020
+        #else
+        .infinity
         #endif
     }
 }
@@ -1301,57 +1316,92 @@ private struct MediaSourceRow: View {
     let source: MediaPlaybackSource
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            // Fixed width and a single line, so 1080p reads as a rank marker and
-            // can never wrap into a stack of digits the way it used to.
-            Text(source.quality ?? "SD")
-                .font(.system(size: 13, weight: .heavy)).monospacedDigit()
-                .lineLimit(1).fixedSize()
-                .frame(width: 62, height: 26)
-                .background(accent.opacity(0.14),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 8) {
+        // Everything in one column. Spread across a television the old
+        // three-column row put the provider a screen away from the title it
+        // belonged to, and left each result a thin strip a few pixels tall.
+        // Stacked, a result is a block of lines the eye reads straight down.
+        VStack(alignment: .leading, spacing: lineSpacing) {
+            HStack(alignment: .top, spacing: 12) {
+                // Fixed width and a single line, so 1080p reads as a rank marker
+                // and can never wrap into a stack of digits the way it used to.
+                Text(source.quality ?? "SD")
+                    .font(.system(size: qualitySize, weight: .heavy)).monospacedDigit()
+                    .lineLimit(1).fixedSize()
+                    .frame(width: qualityWidth, height: qualityHeight)
+                    .background(accent.opacity(0.14),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(source.releaseName)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: titleSize, weight: .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                // One quiet line each. Pills inside a pill inside a card was the
-                // cheap part; the words carry themselves.
-                if !source.badges.isEmpty {
-                    Text(source.badges.joined(separator: "  \u{00B7}  "))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(accent.opacity(0.74))
-                        .lineLimit(1).truncationMode(.tail)
-                }
-                if !source.facts.isEmpty {
-                    Text(source.facts.joined(separator: "  \u{00B7}  "))
-                        .font(.system(size: 11)).monospacedDigit()
-                        .foregroundStyle(accent.opacity(0.5))
-                        .lineLimit(1).truncationMode(.tail)
-                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 16)
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(source.provider)
-                    .font(.system(size: 11, weight: .bold)).lineLimit(1)
+            // One quiet line each. Pills inside a pill inside a card was the
+            // cheap part; the words carry themselves.
+            if !source.badges.isEmpty {
+                Text(source.badges.joined(separator: "  \u{00B7}  "))
+                    .font(.system(size: badgeSize, weight: .medium))
                     .foregroundStyle(accent.opacity(0.74))
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            if !source.facts.isEmpty {
+                Text(source.facts.joined(separator: "  \u{00B7}  "))
+                    .font(.system(size: factSize)).monospacedDigit()
+                    .foregroundStyle(accent.opacity(0.5))
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            HStack(spacing: 8) {
+                Text(source.provider.uppercased())
+                    .font(.system(size: factSize, weight: .heavy)).tracking(1.1)
+                    .lineLimit(1)
                 if let score = source.score {
-                    Text(score >= 0 ? "+\(score)" : "\(score)")
-                        .font(.system(size: 14, weight: .bold)).monospacedDigit()
-                    Text("RANK").font(.system(size: 9, weight: .heavy)).tracking(1.2)
-                        .foregroundStyle(accent.opacity(0.42))
+                    Text("\u{00B7}").font(.system(size: factSize, weight: .heavy))
+                    Text("RANK " + (score >= 0 ? "+\(score)" : "\(score)"))
+                        .font(.system(size: factSize, weight: .heavy)).tracking(1.1)
+                        .monospacedDigit()
                 }
             }
-            .fixedSize()
+            .foregroundStyle(accent.opacity(0.5))
         }
-        .padding(.horizontal, 20).padding(.vertical, 20)
+        .padding(.horizontal, insetH).padding(.vertical, insetV)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.surface,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(LineupStyle.line, lineWidth: 1))
+        .background { plate }
         .foregroundStyle(accent)
         .accessibilityElement(children: .combine)
     }
+
+    /// Nothing is drawn around a result on a television: the list floats on the
+    /// background and the focused row is the only one wearing a fill. A phone
+    /// keeps its card, where a tap target needs an edge to aim at.
+    @ViewBuilder private var plate: some View {
+        #if !os(tvOS)
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(LineupStyle.surface)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LineupStyle.line, lineWidth: 1))
+        #endif
+    }
+
+    #if os(tvOS)
+    private var lineSpacing: CGFloat { 9 }
+    private var titleSize: CGFloat { 20 }
+    private var badgeSize: CGFloat { 14 }
+    private var factSize: CGFloat { 12 }
+    private var qualitySize: CGFloat { 14 }
+    private var qualityWidth: CGFloat { 66 }
+    private var qualityHeight: CGFloat { 28 }
+    private var insetH: CGFloat { 20 }
+    private var insetV: CGFloat { 16 }
+    #else
+    private var lineSpacing: CGFloat { 8 }
+    private var titleSize: CGFloat { 16 }
+    private var badgeSize: CGFloat { 12 }
+    private var factSize: CGFloat { 11 }
+    private var qualitySize: CGFloat { 13 }
+    private var qualityWidth: CGFloat { 62 }
+    private var qualityHeight: CGFloat { 26 }
+    private var insetH: CGFloat { 20 }
+    private var insetV: CGFloat { 18 }
+    #endif
 
     private var accent: Color { LineupStyle.lightPurple }
 
