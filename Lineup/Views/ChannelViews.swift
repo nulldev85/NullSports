@@ -2123,39 +2123,10 @@ struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingMediaServer = false
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 30) {
                 ScreenHeading(title: "Account", detail: "Provider and app details")
-                DetailPanel(title: "APPEARANCE") {
-                    HStack(spacing: 14) {
-                        ForEach(LineupTheme.allCases) { theme in
-                            Button {
-                                selectedTheme = theme.rawValue
-                            } label: {
-                                HStack(spacing: 12) {
-                                    LineupThemeSwatch(theme: theme)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(theme.name).font(.headline)
-                                        Text(theme.detail).font(.caption).opacity(0.68)
-                                    }
-                                    Spacer(minLength: 0)
-                                    if selectedTheme == theme.rawValue {
-                                        Image(systemName: "checkmark.circle.fill")
-                                    }
-                                }
-                                .padding(.horizontal, 18)
-                                .frame(maxWidth: .infinity, minHeight: 72)
-                                .background(selectedTheme == theme.rawValue ? LineupStyle.selected : LineupStyle.surface,
-                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .focusEffectDisabled()
-                        }
-                    }
-                    .padding(.vertical, 12)
-                }
                 if let profile = library.activeProfile {
                     DetailPanel(title: "PROVIDER") {
                         AccountRow(label: "Profile", value: profile.name)

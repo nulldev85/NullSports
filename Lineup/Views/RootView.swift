@@ -20,6 +20,13 @@ struct RootView: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         #if os(tvOS)
+        // Every focusable surface in this app draws its own focus -- a filled
+        // background, a lift, a border. tvOS's plate was drawn on top of that,
+        // sized to the whole control, so anything that missed a local
+        // focusEffectDisabled() carried a second, much larger frame. Disabling
+        // it here covers the whole tree, including controls added later, rather
+        // than relying on every call site to remember.
+        .focusEffectDisabled()
         .onChange(of: selectedTheme) { _, _ in applyLineupTabBarTheme() }
         #endif
         .task {

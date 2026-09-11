@@ -69,7 +69,13 @@ private func rgb(_ value: UInt32) -> Color {
 
 enum LineupStyle {
     static var theme: LineupTheme {
-        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
+        // The TV app ships Velvet only, so a palette chosen on a phone cannot
+        // follow the same account onto a television and restyle it there.
+        #if os(tvOS)
+        return .velvet
+        #else
+        return LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
+        #endif
     }
     private static var palette: LineupPalette { theme.palette }
     static var lightPurple: Color { palette.accent }
