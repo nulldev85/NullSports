@@ -181,10 +181,28 @@ private struct MediaCatalogsScreen: View {
     @FocusState private var addShelfFocused: Bool
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
+    @State private var choosingShelf = false
+    @State private var editingQuery = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
+                #if os(tvOS)
+                TVSelectable(scale: 1.02, action: { editingQuery = true }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass").opacity(0.58)
+                        Text(query.isEmpty ? "Search movies, shows, and addon catalogs" : query)
+                            .lineLimit(1).truncationMode(.tail)
+                            .opacity(query.isEmpty ? 0.58 : 1)
+                        if searching { ProgressView().controlSize(.small) }
+                        Spacer(minLength: 0)
+                    }
+                    .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .modifier(MediaChromeSurface(outline: true, radius: 13))
+                }
+                .sheet(isPresented: $editingQuery) { searchSheet }
+                #else
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass").opacity(0.58)
                     TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
@@ -198,6 +216,21 @@ private struct MediaCatalogsScreen: View {
                 .modifier(MediaChromeSurface(focused: searchFocused, outline: true, radius: 13))
                 .focused($searchFocused)
                 .focusEffectDisabled()
+                #endif
+                #if os(tvOS)
+                TVSelectable(scale: 1.04, action: { choosingShelf = true }) {
+                    Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(.horizontal, 16).frame(height: searchHeight)
+                        .modifier(MediaChromeSurface(radius: 13))
+                }
+                .confirmationDialog("Add Shelf", isPresented: $choosingShelf, titleVisibility: .visible) {
+                    ForEach(media.availableShelves) { root in
+                        Button(root.name) { Task { await media.addShelf(root) } }
+                    }
+                    Button("Cancel", role: .cancel) { }
+                }
+                #else
                 Menu {
                     if media.availableShelves.isEmpty {
                         Button("All available shelves are visible") { }.disabled(true)
@@ -214,6 +247,7 @@ private struct MediaCatalogsScreen: View {
                 }
                 .focused($addShelfFocused)
                 .focusEffectDisabled()
+                #endif
             }
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
 
@@ -328,6 +362,37 @@ private struct MediaCatalogsScreen: View {
         }
     }
 
+    #if os(tvOS)
+    /// The field lives here rather than on the shelf screen. tvOS draws its own
+    /// heavy treatment around a focused text field, and that is the one frame
+    /// this app cannot restyle, so it is kept off the screen behind it.
+    private var searchSheet: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Search").font(.system(size: 34, weight: .semibold))
+            TextField("Movies, shows, and addon catalogs", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 24))
+            HStack(spacing: 14) {
+                TVSelectable(scale: 1.04, action: { editingQuery = false }) {
+                    Text("Done").font(.system(size: 17, weight: .semibold))
+                        .padding(.horizontal, 22).frame(height: 52)
+                        .modifier(MediaChromeSurface(prominent: true, radius: 12))
+                }
+                TVSelectable(scale: 1.04, action: { query = ""; results = [] }) {
+                    Text("Clear").font(.system(size: 17, weight: .semibold))
+                        .padding(.horizontal, 22).frame(height: 52)
+                        .modifier(MediaChromeSurface(radius: 12))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+    }
+    #endif
+
     private var horizontalPadding: CGFloat {
         #if os(tvOS)
         54
@@ -387,6 +452,8 @@ private struct MediaGridScreen: View {
     let items: [MediaItem]
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
+    @State private var choosingShelf = false
+    @State private var editingQuery = false
 
     private var grid: some View {
         ScrollView {
@@ -1018,10 +1085,16 @@ private struct MediaSourcePicker: View {
                         ScrollView {
                             LazyVStack(spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
+                                    #if os(tvOS)
+                                    TVSelectable(scale: 1.02, action: { selectedSource = source }) {
+                                        MediaSourceRow(source: source)
+                                    }
+                                    #else
                                     Button { selectedSource = source } label: {
                                         MediaSourceRow(source: source)
                                     }
                                     .lineupFlatButton()
+                                    #endif
                                 }
                             }
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
@@ -1165,63 +1238,61 @@ private struct MediaProviderChip: View {
 }
 
 private struct MediaSourceRow: View {
-    @Environment(\.isFocused) private var focused
     let source: MediaPlaybackSource
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            // Resolution, ranking score and addon answer "is this worth reading?",
-            // so they sit above the name rather than competing for its width.
-            HStack(spacing: 8) {
-                if let quality = source.quality {
-                    Text(quality)
-                        .font(.caption.weight(.heavy))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(accent.opacity(0.2), in: Capsule())
+        HStack(alignment: .top, spacing: 18) {
+            // Fixed width and a single line, so 1080p reads as a rank marker and
+            // can never wrap into a stack of digits the way it used to.
+            Text(source.quality ?? "SD")
+                .font(.system(size: 15, weight: .heavy)).monospacedDigit()
+                .lineLimit(1).fixedSize()
+                .frame(width: 78, height: 32)
+                .background(accent.opacity(0.14),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 8) {
+                Text(source.releaseName)
+                    .font(.system(size: 20, weight: .semibold))
+                    .lineLimit(2).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                // One quiet line each. Pills inside a pill inside a card was the
+                // cheap part; the words carry themselves.
+                if !source.badges.isEmpty {
+                    Text(source.badges.joined(separator: "   \u{00B7}   "))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(accent.opacity(0.74))
+                        .lineLimit(1).truncationMode(.tail)
                 }
-                // A bare "+70494" does not say what it measures, and it is the
-                // number the whole list is ordered by, so it is named in full.
+                if !source.facts.isEmpty {
+                    Text(source.facts.joined(separator: "   \u{00B7}   "))
+                        .font(.system(size: 13)).monospacedDigit()
+                        .foregroundStyle(accent.opacity(0.5))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+            }
+            Spacer(minLength: 16)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(source.provider)
+                    .font(.system(size: 13, weight: .bold)).lineLimit(1)
+                    .foregroundStyle(accent.opacity(0.74))
                 if let score = source.score {
-                    HStack(spacing: 4) {
-                        Text("Ranking Score:").font(.caption2.weight(.semibold)).opacity(0.62)
-                        Text(score >= 0 ? "+\(score)" : "\(score)")
-                            .font(.caption2.weight(.bold)).monospacedDigit()
-                    }
-                    .fixedSize()
-                }
-                Spacer(minLength: 4)
-                Text(source.provider).font(.caption.weight(.bold)).lineLimit(1)
-                Image(systemName: "play.circle.fill").font(.title3).fixedSize()
-            }
-            Text(source.releaseName)
-                .font(.subheadline.weight(.semibold)).lineLimit(3)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-            if !source.badges.isEmpty {
-                BadgeFlow(spacing: 6) {
-                    ForEach(source.badges, id: \.self) { badge($0) }
+                    Text(score >= 0 ? "+\(score)" : "\(score)")
+                        .font(.system(size: 17, weight: .bold)).monospacedDigit()
+                    Text("RANK").font(.system(size: 10, weight: .heavy)).tracking(1.4)
+                        .foregroundStyle(accent.opacity(0.42))
                 }
             }
-            if !source.facts.isEmpty {
-                Text(source.facts.joined(separator: "  \u{00B7}  "))
-                    .font(.caption2).monospacedDigit().lineLimit(1).truncationMode(.tail)
-                    .foregroundStyle(accent.opacity(0.6))
-            }
+            .fixedSize()
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 22).padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(focused ? LineupStyle.focused : LineupStyle.surface,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16)
-            .stroke(LineupStyle.line, lineWidth: 1))
+        .background(LineupStyle.surface,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(LineupStyle.line, lineWidth: 1))
         .foregroundStyle(accent)
-        .scaleEffect(focused ? 1.018 : 1)
-        .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         .accessibilityElement(children: .combine)
     }
 
-    // The row no longer inverts on focus, so every shade stays mixed from the
-    // one readable colour.
     private var accent: Color { LineupStyle.lightPurple }
 
     private func badge(_ text: String) -> some View {

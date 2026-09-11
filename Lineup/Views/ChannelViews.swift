@@ -2484,6 +2484,11 @@ private struct TVPlayerChrome: View {
             LinearGradient(colors: [.clear, .black.opacity(0.34), .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
                 .frame(height: 270)
                 .overlay(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 26) {
+                    if !isLive && controller.duration > 0 {
+                        TVSeekBar(controller: controller, focus: focusedControl,
+                                  onInteraction: onInteraction)
+                    }
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
                             symbol: controller.isPlaying ? "pause.fill" : "play.fill", prominent: true,
@@ -2508,14 +2513,8 @@ private struct TVPlayerChrome: View {
                         .lineupFlatButton().focused(focusedControl, equals: .quality).focusEffectDisabled()
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 72).padding(.bottom, 52)
-                }
-                .overlay(alignment: .bottom) {
-                    if !isLive && controller.duration > 0 {
-                        TVSeekBar(controller: controller, focus: focusedControl,
-                                  onInteraction: onInteraction)
-                            .padding(.horizontal, 72).padding(.bottom, 140)
                     }
+                    .padding(.horizontal, 72).padding(.bottom, 52)
                 }
         }
         .ignoresSafeArea()
@@ -2565,7 +2564,7 @@ private struct TVSeekBar: View {
             switch direction {
             case .left: controller.seek(by: -10)
             case .right: controller.seek(by: 10)
-            case .down: focus.wrappedValue = .playPause
+            case .down, .up: focus.wrappedValue = .playPause
             default: break
             }
             onInteraction()
