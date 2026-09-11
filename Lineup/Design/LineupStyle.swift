@@ -194,6 +194,7 @@ extension View {
 /// to look the same focused as unfocused goes through here.
 struct TVSelectable<Content: View>: View {
     @FocusState private var focused: Bool
+    var scale: CGFloat = 1.06
     let action: () -> Void
     @ViewBuilder var content: Content
 
@@ -204,6 +205,15 @@ struct TVSelectable<Content: View>: View {
             .focused($focused)
             .focusEffectDisabled()
             .onTapGesture(perform: action)
+            // The cue lives here rather than in the content, because content
+            // reading @Environment(\.isFocused) cannot be relied on to see the
+            // focus this view owns -- and something wrapped in here would then
+            // show no feedback at all. A lift and a dark shadow say where you
+            // are without painting anything pale over the control.
+            .scaleEffect(focused ? scale : 1)
+            .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 18, y: 12)
+            .zIndex(focused ? 10 : 0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
 }
 #endif

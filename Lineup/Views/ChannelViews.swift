@@ -2528,7 +2528,7 @@ private struct TVPlayerButton: View {
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 18).frame(height: 52)
-            .background(prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
+            .background(selected || prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13)
                 .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
@@ -2554,7 +2554,7 @@ private struct TVPlayerMenuLabel: View {
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 18).frame(height: 52)
-        .background(LineupStyle.surface.opacity(0.88),
+        .background(focused ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13)
             .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))

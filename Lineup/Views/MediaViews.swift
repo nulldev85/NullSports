@@ -159,7 +159,7 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(LineupStyle.surface,
+                .background(focused ? LineupStyle.focused : LineupStyle.surface,
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
@@ -1097,7 +1097,8 @@ private struct MediaChromeSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
             .foregroundStyle(filled ? LineupStyle.background : LineupStyle.lightPurple)
-            .background(filled ? LineupStyle.lightPurple : LineupStyle.surface,
+            .background(filled ? LineupStyle.lightPurple
+                : (focused ? LineupStyle.focused : LineupStyle.surface),
                 in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius)
                 .stroke(border, lineWidth: 1))
@@ -1152,7 +1153,8 @@ private struct MediaProviderChip: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
-        .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
+        .background(active ? LineupStyle.lightPurple
+            : (focused ? LineupStyle.focused : LineupStyle.surface), in: Capsule())
         .overlay(Capsule().stroke(border, lineWidth: 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -1208,7 +1210,7 @@ private struct MediaSourceRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.surface,
+        .background(focused ? LineupStyle.focused : LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(LineupStyle.line, lineWidth: 1))
