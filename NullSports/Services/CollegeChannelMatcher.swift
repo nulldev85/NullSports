@@ -183,9 +183,11 @@ enum CollegeChannelMatcher {
     // Tokens that carry school identity. Trimming one turns a school into a
     // different school: Ohio State into Ohio, New Mexico into New.
     static let identityTokens: Set<String> = ["state", "st", "tech", "a", "m", "am", "oh", "ohio", "fl", "florida", "southern", "northern", "eastern", "western", "central", "north", "south", "east", "west", "new", "atlantic", "international", "christian", "college", "university", "poly", "valley", "sam", "saint", "holy", "old", "bay", "carolina", "dakota", "michigan", "illinois", "kentucky"]
-    // A school name that is only a direction or qualifier cannot stand alone;
-    // "southern" appears inside Southern Miss, Georgia Southern and USC alike.
-    static let genericSchools: Set<String> = ["southern", "northern", "eastern", "western", "central", "north", "south", "east", "west", "new", "state", "saint", "holy", "old", "big", "the"]
+    // A school name that is only a direction or qualifier cannot stand alone.
+    // "southern" is the exception: Southern University is named exactly that, so
+    // it stays and the qualifier guards below keep it out of Southern Miss,
+    // Georgia Southern, Southern Illinois and the rest.
+    static let genericSchools: Set<String> = ["northern", "eastern", "western", "central", "north", "south", "east", "west", "new", "state", "saint", "holy", "old", "big", "the"]
     // First word of a two-word mascot: Blue Hens, Big Red, Golden Lions.
     static let mascotModifiers: Set<String> = ["blue", "big", "black", "red", "golden", "fighting", "green", "mountain", "runnin", "rainbow", "scarlet", "crimson", "thundering", "demon", "horned", "nittany", "sun", "tar", "yellow", "wolf", "ragin", "delta", "white", "purple", "flying", "screaming", "mean", "war", "great", "sea", "night", "fightin"]
     static let synonyms: [[String]] = [
@@ -200,8 +202,8 @@ enum CollegeChannelMatcher {
         ["app state", "appalachian state"], ["hawai i", "hawaii"]]
     // A following token that continues a longer school name, or a preceding token
     // that starts one: Florida is not Florida State, Virginia is not West Virginia.
-    static let trailingQualifiers: [String] = ["state", "st", "tech", "a m", "atlantic", "international", "oh", "ohio", "southern", "valley", "monroe", "peay", "pine", "christian", "poly", "dominion", "cross", "brook", "force", "wesleyan", "central", "illinois", "utah", "carolina", "methodist", "miss", "mississippi", "houston", "jaguars"]
-    static let leadingQualifiers: [String] = ["west", "east", "north", "south", "western", "eastern", "northern", "southern", "central", "southeastern", "northeastern", "southwestern", "northwestern", "middle", "sam", "prairie", "abilene", "stephen", "f", "houston", "texas", "charleston", "gardner", "holy", "saint", "old"]
+    static let trailingQualifiers: [String] = ["state", "st", "tech", "a m", "atlantic", "international", "oh", "ohio", "southern", "valley", "monroe", "peay", "pine", "christian", "poly", "dominion", "cross", "brook", "force", "wesleyan", "central", "illinois", "utah", "carolina", "methodist", "miss", "mississippi", "houston", "jaguars", "california"]
+    static let leadingQualifiers: [String] = ["west", "east", "north", "south", "western", "eastern", "northern", "southern", "central", "southeastern", "northeastern", "southwestern", "northwestern", "middle", "sam", "prairie", "abilene", "stephen", "f", "houston", "texas", "charleston", "gardner", "holy", "saint", "old", "georgia"]
 
     static func normalized(_ value: String) -> String {
         value.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
@@ -220,6 +222,8 @@ enum CollegeChannelMatcher {
             with: "$1", options: .regularExpression)
         guard !contains(text, phrase: "news"), !contains(text, phrase: "business") else { return [] }
         let aliases: [(String, [String])] = [
+            // Only the full name: providers prefix channels "USA:" by country.
+            ("usa", ["usa network"]),
             ("espnplus", ["espn plus", "espnplus"]), ("espnnews", ["espnews", "espn news"]),
             ("espn2", ["espn2", "espn 2"]),
             ("espnu", ["espnu", "espn u"]), ("espn", ["espn"]),
