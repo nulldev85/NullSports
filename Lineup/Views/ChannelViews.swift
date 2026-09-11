@@ -2440,7 +2440,7 @@ struct PlayerView: View {
     }
 }
 
-private enum TVPlayerControl: Hashable { case playPause, goLive, mute, quality }
+private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, quality }
 
 private struct TVPlayerChrome: View {
     let title: String
@@ -2510,8 +2510,79 @@ private struct TVPlayerChrome: View {
                     }
                     .padding(.horizontal, 72).padding(.bottom, 52)
                 }
+                .overlay(alignment: .bottom) {
+                    if !isLive && controller.duration > 0 {
+                        TVSeekBar(controller: controller, focus: focusedControl,
+                                  onInteraction: onInteraction)
+                            .padding(.horizontal, 72).padding(.bottom, 140)
+                    }
+                }
         }
         .ignoresSafeArea()
+    }
+}
+
+/// A minimal transport bar for recorded media.
+///
+/// Left and right step ten seconds, and because tvOS repeats a held
+/// direction the same press scrubs continuously. Down hands focus back to the
+/// controls explicitly: onMoveCommand consumes the press, so without that the
+/// bar would keep focus and trap the viewer on it.
+private struct TVSeekBar: View {
+    @ObservedObject var controller: VLCPlaybackController
+    let focus: FocusState<TVPlayerControl?>.Binding
+    let onInteraction: () -> Void
+
+    private var progress: Double {
+        guard controller.duration > 0 else { return 0 }
+        return min(max(controller.elapsed / controller.duration, 0), 1)
+    }
+
+    var body: some View {
+        let selected = focus.wrappedValue == .scrubber
+        VStack(spacing: 10) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(LineupStyle.lightPurple.opacity(0.18))
+                    Capsule().fill(LineupStyle.lightPurple)
+                        .frame(width: max(0, geometry.size.width * progress))
+                }
+            }
+            .frame(height: selected ? 10 : 6)
+            HStack {
+                Text(Self.clock(controller.elapsed))
+                Spacer(minLength: 0)
+                Text("-" + Self.clock(max(0, controller.duration - controller.elapsed)))
+            }
+            .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
+        }
+        .contentShape(Rectangle())
+        .focusable()
+        .focused(focus, equals: .scrubber)
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: controller.seek(by: -10)
+            case .right: controller.seek(by: 10)
+            case .down: focus.wrappedValue = .playPause
+            default: break
+            }
+            onInteraction()
+        }
+        .animation(.easeOut(duration: 0.18), value: selected)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue(Self.clock(controller.elapsed) + " of " + Self.clock(controller.duration))
+    }
+
+    private static func clock(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%d:%02d", minutes, secs)
     }
 }
 
@@ -2576,6 +2647,10 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
+    /// Seconds. Zero duration means the item is not seekable, which is how a
+    /// live channel presents, so the seek bar simply does not appear for it.
+    @Published private(set) var elapsed: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
     private var urlIndex = 0
@@ -2630,7 +2705,27 @@ private struct TVPlayerMenuLabel: View {
         setMuted(muted)
     }
 
+    /// Position has to keep updating while paused too, so the bar still reads
+    /// correctly after a seek that the viewer makes without resuming.
+    private func updateProgress() {
+        let length = Double(player.media?.length.intValue ?? 0) / 1000
+        if length > 0 { duration = length }
+        let time = Double(player.time.intValue) / 1000
+        elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
+    }
+
+    /// Steps by `seconds` and clamps inside the item. Uses `position` rather
+    /// than a time jump because it is the one seek API this VLCKit exposes
+    /// consistently.
+    func seek(by seconds: TimeInterval) {
+        guard duration > 0 else { return }
+        let target = min(max(elapsed + seconds, 0), max(duration - 1, 0))
+        player.position = Float(target / duration)
+        elapsed = target
+    }
+
     private func checkPlayback() {
+        updateProgress()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
