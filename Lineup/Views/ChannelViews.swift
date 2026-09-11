@@ -2398,7 +2398,13 @@ struct PlayerView: View {
         .focused($surfaceFocused)
         .onTapGesture { revealControls(focus: true) }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        .onMoveCommand { _ in revealControls(focus: true) }
+        // A directional press summons the chrome when it is hidden. While the
+        // chrome is already up the press belongs to the controls themselves:
+        // forcing focus back to play/pause here meant focus could never move
+        // off it, so Go Live, Mute and Quality were unreachable.
+        .onMoveCommand { _ in
+            if controlsVisible { keepControlsVisible() } else { revealControls(focus: true) }
+        }
         .onExitCommand { controller.stop(); dismiss() }
         .onAppear { controller.start(urls: urls); revealControls(focus: true) }
         .onDisappear { hideControlsTask?.cancel(); controller.stop() }
