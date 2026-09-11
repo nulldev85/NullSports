@@ -5,36 +5,8 @@ struct MediaServersView: View {
     @State private var addingServer = false
 
     var body: some View {
-        #if os(tvOS)
-        // No NavigationStack: its bar is what produced the oversized title and
-        // the Close button. The remote's Menu button is how a viewer leaves a
-        // screen on this platform, so that is all this needs.
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SELECT A STREAM").font(.system(size: 12, weight: .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                Text(item.name).font(.system(size: 22, weight: .semibold)).lineLimit(1)
-            }
-            .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
-            content
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
-        .onExitCommand { dismiss() }
-        .task(id: item.id) { await loadSources() }
-        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
-        #else
         NavigationStack {
-            content
-        }
-        .task(id: item.id) { await loadSources() }
-        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
-        #endif
-    }
-
-    private var content: some View {
-        Group {
+            Group {
             #if os(tvOS)
             TVMediaServersHome(addingServer: $addingServer)
             #else
@@ -1104,9 +1076,9 @@ private struct MediaSourcePicker: View {
 
     var body: some View {
         #if os(tvOS)
-        // No NavigationStack: its bar is what produced the oversized title and
-        // the Close button. The remote's Menu button is how a viewer leaves a
-        // screen on this platform, so that is all this needs.
+        // No NavigationStack: its bar is what drew the oversized title and the
+        // Close button, and a sheet drew the card around them. The remote's
+        // Menu button is how a viewer leaves a screen on this platform.
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("SELECT A STREAM").font(.system(size: 12, weight: .heavy)).tracking(1.6)
@@ -1114,7 +1086,7 @@ private struct MediaSourcePicker: View {
                 Text(item.name).font(.system(size: 22, weight: .semibold)).lineLimit(1)
             }
             .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
-            content
+            results
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.background.ignoresSafeArea())
@@ -1124,14 +1096,14 @@ private struct MediaSourcePicker: View {
         .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
         #else
         NavigationStack {
-            content
+            results
         }
         .task(id: item.id) { await loadSources() }
         .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
         #endif
     }
 
-    private var content: some View {
+    private var results: some View {
         Group {
                 if loading {
                     VStack(spacing: 14) {
