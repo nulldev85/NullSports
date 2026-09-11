@@ -78,7 +78,8 @@ struct MobileGuidePlayer: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(NullSportsStyle.raised, in: RoundedRectangle(cornerRadius: 16))
+                    .nullLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
+                                     fallback: NullSportsStyle.raised, border: .clear)
                 }.padding(.horizontal, 12).padding(.vertical, 10)
             }
         }
@@ -124,8 +125,7 @@ struct MobileGuidePlayer: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size == 56 ? 24 : 18, weight: .bold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.6), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .nullLiquidGlass(Circle())
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 
@@ -139,8 +139,7 @@ struct MobileGuidePlayer: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .nullLiquidGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -149,7 +148,6 @@ struct MobileGuidePlayer: View {
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.caption2.weight(.semibold))
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .nullLiquidGlass(Capsule())
     }
 }

@@ -23,7 +23,7 @@ struct MainView: View {
                     tabButton("Account", symbol: "person.crop.circle", index: 2)
                 }
                 .padding(.top, 7).padding(.bottom, 4)
-                .background(NullSportsStyle.surface)
+                .nullLiquidGlass(Rectangle(), fallback: NullSportsStyle.surface, border: .clear)
                 .overlay(alignment: .top) { Rectangle().fill(NullSportsStyle.line).frame(height: 1) }
             }
         }

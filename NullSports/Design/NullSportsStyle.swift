@@ -43,6 +43,31 @@ struct NullSportsButtonStyle: ButtonStyle {
     }
 }
 
+#if os(iOS)
+extension View {
+    // Apple's Liquid Glass for the iPhone app's chrome and floating controls.
+    // Below iOS 26 the same surfaces keep the app's own fill and hairline, so
+    // nothing shifts in size, shape or spacing on older systems.
+    @ViewBuilder
+    func nullLiquidGlass<S: InsettableShape, F: ShapeStyle>(
+        _ shape: S, clear: Bool = false, fallback: F,
+        border: Color = .white.opacity(0.12)
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(clear ? .clear : .regular, in: shape)
+        } else {
+            self.background(fallback, in: shape)
+                .overlay(shape.strokeBorder(border, lineWidth: 1))
+        }
+    }
+
+    // The floating-control default: dark scrim and hairline below iOS 26.
+    func nullLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
+        nullLiquidGlass(shape, clear: clear, fallback: Color.black.opacity(0.6))
+    }
+}
+#endif
+
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
