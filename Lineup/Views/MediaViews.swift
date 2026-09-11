@@ -179,6 +179,8 @@ private struct MediaCatalogsScreen: View {
     @State private var searchError: String?
     @FocusState private var searchFocused: Bool
     @FocusState private var addShelfFocused: Bool
+    // tvOS pushes by hand because its cards are not NavigationLinks any more.
+    @State private var pushed: MediaItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -237,18 +239,36 @@ private struct MediaCatalogsScreen: View {
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(catalog.title).font(sectionTitleFont)
                                     Spacer()
+                                    #if os(tvOS)
+                                    TVSelectable(action: { media.removeShelf(catalog) }) {
+                                        MediaChromeLabel {
+                                            Image(systemName: "minus.circle")
+                                                .accessibilityLabel("Remove \(catalog.title) shelf")
+                                        }
+                                    }
+                                    #else
                                     Button { media.removeShelf(catalog) } label: {
                                         MediaChromeLabel {
                                             Image(systemName: "minus.circle")
                                                 .accessibilityLabel("Remove \(catalog.title) shelf")
                                         }
                                     }.lineupFlatButton()
+                                    #endif
+                                    #if os(tvOS)
+                                    TVSelectable(action: { pushed = catalog.root }) {
+                                        MediaChromeLabel {
+                                            Label("See All", systemImage: "chevron.right")
+                                                .font(.system(size: 14, weight: .semibold))
+                                        }
+                                    }
+                                    #else
                                     NavigationLink(value: catalog.root) {
                                         MediaChromeLabel {
                                             Label("See All", systemImage: "chevron.right")
                                                 .font(.system(size: 14, weight: .semibold))
                                         }
                                     }.lineupFlatButton()
+                                    #endif
                                 }
                                 .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
@@ -266,8 +286,12 @@ private struct MediaCatalogsScreen: View {
                                             ForEach(catalog.items) { item in
                                                 Group {
                                                     if item.isFolder {
+                                                        #if os(tvOS)
+                                                        TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
+                                                        #else
                                                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                                                             .lineupFlatButton()
+                                                        #endif
                                                     } else { MediaPlayableCard(item: item, shape: shape) }
                                                 }.frame(width: cardWidth(shape))
                                             }
@@ -285,6 +309,7 @@ private struct MediaCatalogsScreen: View {
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task(id: query) {
             let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { results = []; searching = false; searchError = nil; return }
@@ -360,14 +385,20 @@ private struct MediaGridScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let title: String
     let items: [MediaItem]
+    // tvOS pushes by hand because its cards are not NavigationLinks any more.
+    @State private var pushed: MediaItem?
 
     private var grid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: gridSpacing) {
                 ForEach(items) { item in
                     if item.isFolder {
+                        #if os(tvOS)
+                        TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
+                        #else
                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                             .lineupFlatButton()
+                        #endif
                     } else {
                         MediaPlayableCard(item: item, shape: shape)
                     }
@@ -381,6 +412,7 @@ private struct MediaGridScreen: View {
     var body: some View {
         #if os(tvOS)
         grid.navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+            .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #else
         grid.navigationTitle(title)
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
@@ -616,13 +648,16 @@ private struct MediaShowScreen: View {
         }
     }
 
+    @ViewBuilder
     private func iconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
-                .frame(width: buttonHeight + 8, height: buttonHeight)
-                .modifier(MediaChromeFocus())
-        }
-        .lineupFlatButton()
+        let label = Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+            .frame(width: buttonHeight + 8, height: buttonHeight)
+            .modifier(MediaChromeFocus())
+        #if os(tvOS)
+        TVSelectable(action: action) { label }
+        #else
+        Button(action: action) { label }.lineupFlatButton()
+        #endif
     }
 
     @ViewBuilder
@@ -911,11 +946,18 @@ private struct MediaPlayableCard: View {
     @State private var choosingSource = false
 
     var body: some View {
+        #if os(tvOS)
+        TVSelectable(action: { choosingSource = true }) { MediaItemCard(item: item, shape: shape) }
+            .sheet(isPresented: $choosingSource) {
+                MediaSourcePicker(item: item)
+            }
+        #else
         Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
             .lineupFlatButton()
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
+        #endif
     }
 }
 

@@ -186,6 +186,29 @@ extension View {
 #endif
 
 #if os(tvOS)
+/// A plain view that takes focus and a press, with no Button involved.
+///
+/// This is exactly what the Live and Guide screens do, and it is why they never
+/// showed tvOS's light focus plate: the plate belongs to a button style, so the
+/// way past it is not to style a Button but not to use one. Anything that wants
+/// to look the same focused as unfocused goes through here.
+struct TVSelectable<Content: View>: View {
+    @FocusState private var focused: Bool
+    let action: () -> Void
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .contentShape(Rectangle())
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onTapGesture(perform: action)
+    }
+}
+#endif
+
+#if os(tvOS)
 /// A button that draws nothing but its label.
 ///
 /// tvOS's own button styles paint a light plate behind a focused button. That
