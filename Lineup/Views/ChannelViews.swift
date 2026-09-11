@@ -2380,6 +2380,28 @@ struct PlayerView: View {
             VLCVideoSurface(player: controller.player)
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .background(Color.black).ignoresSafeArea()
+            // Hiding the chrome removes every focusable view, and the remote
+            // only reaches a view that holds focus, so this stands in for it
+            // and summons the chrome back on any press.
+            //
+            // It is a sibling of the video rather than a set of modifiers on
+            // their shared container. A modifier that comes and goes gives the
+            // container a new identity, which rebuilds the video surface with
+            // it, and a rebuilt surface loses the drawable VLC is decoding
+            // into: the picture stops while the audio carries on. Siblings
+            // appear and disappear without disturbing the surface, which is
+            // why the chrome itself has always been safe to toggle.
+            //
+            // Nothing consumes a direction while the chrome is up either, so
+            // focus can move between the seek bar and the buttons.
+            if !controlsVisible {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .focusable()
+                    .focused($surfaceFocused)
+                    .onMoveCommand { _ in revealControls(focus: true) }
+                    .onTapGesture { revealControls(focus: true) }
+            }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: title, program: program, isLive: isLive, controller: controller,
                     focusedControl: $focusedControl, onInteraction: keepControlsVisible)
@@ -2390,19 +2412,8 @@ struct PlayerView: View {
                     .foregroundStyle(LineupStyle.lightPurple).padding(60)
             }
         }
-        .background(Color.black).contentShape(Rectangle())
-        // Hiding the chrome removes every focusable view in the player, and the
-        // remote only reaches a view that holds focus. Without somewhere for
-        // focus to land the controls could never be summoned back.
-        .focusable(!controlsVisible)
-        .focused($surfaceFocused)
-        .onTapGesture { revealControls(focus: true) }
+        .background(Color.black)
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        // onMoveCommand consumes the press, so while the chrome is up it must
-        // not exist at all: with it attached the focus engine never saw a
-        // direction and play/pause was the only control focus could hold. It
-        // is only here to summon the chrome back once it has hidden.
-        .modifier(SummonOnMove(enabled: !controlsVisible) { revealControls(focus: true) })
         .onExitCommand { controller.stop(); dismiss() }
         .onAppear { controller.start(urls: urls); revealControls(focus: true) }
         .onDisappear { hideControlsTask?.cancel(); controller.stop() }
@@ -2435,19 +2446,6 @@ struct PlayerView: View {
             await Task.yield()
             surfaceFocused = true
         }
-    }
-}
-
-/// Applies onMoveCommand only while it is wanted. The modifier swallows the
-/// press wherever it is attached, so it cannot simply be left in place and
-/// ignored.
-private struct SummonOnMove: ViewModifier {
-    let enabled: Bool
-    let action: () -> Void
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled { content.onMoveCommand { _ in action() } } else { content }
     }
 }
 
