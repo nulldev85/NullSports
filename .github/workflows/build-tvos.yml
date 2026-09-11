@@ -2,6 +2,10 @@ name: Build Lineup tvOS IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -63,6 +67,37 @@ jobs:
             -destination 'generic/platform=tvOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Build for tvOS Simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project NullSports.xcodeproj \
+            -scheme NullSports \
+            -configuration Debug \
+            -destination 'platform=tvOS Simulator,name=Apple TV' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Smoke test app launch in tvOS Simulator
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
+          xcrun simctl boot "$device"
+          app="build-sim/Build/Products/Debug-appletvsimulator/NullSports.app"
+          test -d "$app"
+          xcrun simctl install "$device" "$app"
+          xcrun simctl launch "$device" com.nulldev85.NullSports
+          # Give the app a few seconds to finish launching, then confirm it's
+          # still alive rather than having crashed on a VLCKit link/runtime error.
+          sleep 6
+          if ! xcrun simctl spawn "$device" launchctl list | grep -q com.nulldev85.NullSports; then
+            echo "App did not stay running after launch — collecting crash logs"
+            xcrun simctl spawn "$device" log show --predicate 'process == "NullSports"' --last 2m || true
+            exit 1
+          fi
+          xcrun simctl shutdown "$device"
 
       - name: Package IPA
         run: |

@@ -153,8 +153,7 @@ struct MobileGuidePlayer: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.48), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                .lineupLiquidGlass(Circle(), fallback: Color.black.opacity(0.48))
                 .contentShape(Circle())
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
@@ -169,8 +168,7 @@ struct MobileGuidePlayer: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -179,7 +177,6 @@ struct MobileGuidePlayer: View {
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.caption2.weight(.semibold))
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
     }
 }

@@ -142,6 +142,44 @@ struct LineupButtonStyle: ButtonStyle {
     }
 }
 
+#if os(iOS)
+extension View {
+    // Apple's Liquid Glass for the iPhone app's chrome and floating controls.
+    // Below iOS 26 the same surfaces keep the theme's own fill and hairline, so
+    // nothing shifts in size, shape or spacing on older systems.
+    @ViewBuilder
+    func lineupLiquidGlass<S: InsettableShape, F: ShapeStyle>(
+        _ shape: S, clear: Bool = false, fallback: F,
+        border: Color = .white.opacity(0.12)
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(clear ? .clear : .regular, in: shape)
+        } else {
+            self.background(fallback, in: shape)
+                .overlay(shape.strokeBorder(border, lineWidth: 1))
+        }
+    }
+
+    // The floating-control default: dark scrim and hairline below iOS 26.
+    func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
+        lineupLiquidGlass(shape, clear: clear, fallback: Color.black.opacity(0.6))
+    }
+
+    // iOS 26 draws the tab bar in Liquid Glass itself. Forcing an opaque
+    // toolbar background paints over that, so the theme colour is applied
+    // only below iOS 26, where there is no glass to preserve.
+    @ViewBuilder
+    func lineupTabBarBackground(_ color: Color) -> some View {
+        if #available(iOS 26.0, *) {
+            self
+        } else {
+            self.toolbarBackground(color, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+        }
+    }
+}
+#endif
+
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {

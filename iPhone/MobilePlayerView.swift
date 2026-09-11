@@ -33,7 +33,8 @@ struct MobilePlayerView: View {
                 }.padding(32)
             } else if controller.loading {
                 ProgressView("Opening stream…").padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
+                                     fallback: Material.ultraThinMaterial, border: .clear)
             }
             if controlsVisible {
                 VStack(spacing: 0) {
@@ -114,8 +115,7 @@ struct MobilePlayerView: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -124,8 +124,7 @@ struct MobilePlayerView: View {
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.caption2.weight(.semibold))
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
     }
 
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
@@ -133,8 +132,7 @@ struct MobilePlayerView: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.6), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .lineupLiquidGlass(Circle())
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }

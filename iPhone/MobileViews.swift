@@ -22,8 +22,7 @@ struct MainView: View {
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         .tint(LineupStyle.lightPurple)
-        .toolbarBackground(LineupStyle.background, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
+        .lineupTabBarBackground(LineupStyle.background)
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
         .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
