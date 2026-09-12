@@ -108,7 +108,15 @@ enum LineupFonts {
 
     private static func uiStyle(_ style: Font.TextStyle) -> UIFont.TextStyle {
         switch style {
-        case .largeTitle: return .largeTitle
+        // A television has no large-title style of its own; its title1 is the
+        // 76-point heading that plays that part, and SwiftUI's largeTitle
+        // lands there too.
+        case .largeTitle:
+            #if os(tvOS)
+            return .title1
+            #else
+            return .largeTitle
+            #endif
         case .title: return .title1
         case .title2: return .title2
         case .title3: return .title3
