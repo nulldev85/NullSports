@@ -1147,6 +1147,13 @@ struct GuideView: View {
     @State private var previewPlaybackStream: XtreamStream?
     @State private var pinnedPreviewItem: GuideFocusItem?
     @State private var playbackTransitionID: UUID?
+    /// What the preview goes back to playing when full screen closes.
+    ///
+    /// Going full screen tears the preview's player down first -- two players
+    /// on one channel is two connections to the provider for one picture --
+    /// so on the way back there is nothing left running to return to. This is
+    /// what was pinned when it left, kept so it can be put back.
+    @State private var resumeAfterFullscreen: GuideFocusItem?
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -1296,7 +1303,7 @@ struct GuideView: View {
                         RadialGradient(colors: [GuidePalette.text.opacity(0.03), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
                     }.ignoresSafeArea()
                 )
-                .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
+                .fullScreenCover(item: $selectedStream, onDismiss: resumePreview) { stream in
                     PlayerView(
                         urls: library.playbackURLs(for: stream),
                         title: stream.name,
@@ -1361,11 +1368,32 @@ struct GuideView: View {
         gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
     }
 
+    /// Put the preview back on the channel that was just full screen.
+    ///
+    /// It keeps playing there until a different channel is chosen, which is
+    /// the branch below that pins a new one. Choosing the same channel again
+    /// goes back to full screen, as it did before.
+    ///
+    /// The stream is opened again rather than handed over: the full-screen
+    /// player and the preview are separate players, so there is a moment of
+    /// reconnecting rather than an unbroken picture.
+    private func resumePreview() {
+        previewHidden = false
+        guard let resume = resumeAfterFullscreen else { return }
+        resumeAfterFullscreen = nil
+        pinnedPreviewItem = resume
+        previewPlaybackStream = resume.stream
+    }
+
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
             if previewPlaybackStream?.id == stream.id {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
+                // Remember what is being handed to full screen, so closing it
+                // comes back to this channel still playing rather than to a
+                // dark panel and a channel that has to be chosen again.
+                resumeAfterFullscreen = pinnedPreviewItem
                 previewPlaybackStream = nil
                 pinnedPreviewItem = nil
                 previewHidden = true
