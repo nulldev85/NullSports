@@ -5,7 +5,7 @@ struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
         Group {
@@ -60,7 +60,7 @@ struct RootView: View {
 #if os(tvOS)
 struct MainView: View {
     @State private var selectedTab = 0
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
         // Each tab's content is scoped, not the TabView: the bar and the

@@ -1,8 +1,10 @@
 import SwiftUI
 
 enum LineupTheme: String, CaseIterable, Identifiable {
-    case velvet
+    // Declaration order is the order the settings screens list them, and the
+    // default belongs at the top.
     case signal
+    case velvet
 
     static let storageKey = "lineup.appearance.theme"
     var id: String { rawValue }
@@ -33,6 +35,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 // changes by giving the slot a value.
                 highlight: rgb(0xD4C7E1), selectionBorder: rgb(0xFFFFFF),
                 liveDot: rgb(0xFA4757), positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
+                line: rgb(0xD4C7E1).opacity(0.11),
                 leagues: LeagueColors(
                     football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
                     hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8)
@@ -45,11 +48,18 @@ enum LineupTheme: String, CaseIterable, Identifiable {
             // white type, and one saturated cyan that carries every live and
             // active state in the app.
             LineupPalette(
-                accent: rgb(0xE7ECF5), background: rgb(0x07090C), surface: rgb(0x0E1117),
-                raised: rgb(0x171B23), sidebar: rgb(0x0A0D11), selected: rgb(0x131821),
-                focused: rgb(0x1F2732), warning: rgb(0xFFB224),
+                accent: rgb(0xE8EDF7), background: rgb(0x06080B), surface: rgb(0x10141C),
+                raised: rgb(0x1B212B), sidebar: rgb(0x090C11), selected: rgb(0x151C26),
+                // Focus leans towards the theme's own colour rather than just
+                // sitting a shade lighter. On a television, where something is
+                // always focused, that one step does more than any other.
+                focused: rgb(0x1E2C37), warning: rgb(0xFFB224),
                 highlight: rgb(0x22D3EE), selectionBorder: rgb(0x22D3EE),
-                liveDot: rgb(0xFF2D55), positive: rgb(0x3DDC84), logoPlate: rgb(0xDCE3EE),
+                liveDot: rgb(0xFF2D55), positive: rgb(0x3DDC84), logoPlate: rgb(0xE4EAF4),
+                // A hairline at Velvet's weight all but vanishes on a ground
+                // this dark, and a card with no edge is a card that floats
+                // nowhere. Slightly stronger, and it draws.
+                line: rgb(0xE8EDF7).opacity(0.16),
                 leagues: LeagueColors(
                     football: rgb(0x3E6BFF), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
                     hockey: rgb(0x8B5CF6), baseball: rgb(0x3DDC84)
@@ -88,6 +98,10 @@ fileprivate struct LineupPalette {
     /// A team badge arrives as artwork drawn for a light background, so it sits
     /// on a plate. Which light is the theme's call.
     let logoPlate: Color
+    /// Dividers and card edges. Derived from the text tint in both themes, but
+    /// at its own weight: how far a hairline has to carry depends on how dark
+    /// the ground under it is.
+    let line: Color
     let leagues: LeagueColors
 }
 
@@ -104,8 +118,11 @@ enum LineupStyle {
     /// pinned to Velvet because the themes it could have picked were not
     /// finished for it; the two that remain are, and each has its own settings
     /// entry to choose from.
+    /// Signal is what the app looks like out of the box. A device that has
+    /// been through the settings screen keeps whatever was chosen there --
+    /// changing the default is not a reason to overrule someone's pick.
     static var theme: LineupTheme {
-        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
+        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .signal
     }
     private static var palette: LineupPalette { theme.palette }
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
@@ -123,7 +140,7 @@ enum LineupStyle {
     static var liveSurface: Color { palette.selected }
     static var highlight: Color { palette.highlight }
     static var liveBorder: Color { palette.highlight.opacity(0.72) }
-    static var line: Color { lightPurple.opacity(0.11) }
+    static var line: Color { palette.line }
     static var text: Color { lightPurple }
     static var secondary: Color { lightPurple }
     static var field: Color { lightPurple }

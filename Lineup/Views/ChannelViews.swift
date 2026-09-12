@@ -2133,7 +2133,7 @@ struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingMediaServer = false
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
     var body: some View {
         NavigationStack {
             // Scrolling, because the panels already filled the screen before

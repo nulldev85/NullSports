@@ -7,7 +7,7 @@ struct MainView: View {
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var guideFullscreen = false
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
         // Each tab's content is scoped to the theme, not the TabView: the bar
@@ -134,7 +134,7 @@ private struct MobileAccountView: View {
     @State private var addingMediaServer = false
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
         NavigationStack {
