@@ -635,6 +635,7 @@ private struct LiveGameSlate: View {
 
 private struct LiveSlateRow: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var reminders: GameReminders
     let game: SportsGame
     let rowFocus: FocusState<String?>.Binding
     private var isFocused: Bool { rowFocus.wrappedValue == game.id }
@@ -692,6 +693,12 @@ private struct LiveSlateRow: View {
         .accessibilityAddTraits(.isButton)
         .onChange(of: isFocused) { value in if value { onFocus() } }
         .contextMenu {
+            if game.isUpcoming {
+                Button(reminders.reminds(game) ? "Remove Reminder" : "Remind Me",
+                       systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                }
+            }
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
                     .disabled(isPrimary)
