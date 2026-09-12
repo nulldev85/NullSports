@@ -680,7 +680,12 @@ private struct MediaShelfPicker: View {
                             Text(group.name.uppercased())
                                 .font(.system(size: 12, weight: .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                            Text("Not imported yet — choosing one starts the import")
+                            // The server re-imports every enabled catalog when
+                            // asked, so this is minutes, not seconds. Saying so
+                            // is the difference between waiting and giving up.
+                            Text(media.importing.isEmpty
+                                ? "Not imported yet — choosing one starts the import"
+                                : "Importing can take several minutes. You can close this; it keeps going.")
                                 .font(.system(size: 13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }

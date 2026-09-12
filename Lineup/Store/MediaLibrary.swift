@@ -199,13 +199,18 @@ final class MediaLibrary: ObservableObject {
         return try await client(for: profile).search(userID: profile.userID, query: query)
     }
 
+    /// Add a shelf for a library or collection.
+    ///
+    /// A shelf whose contents will not load is still added, empty. It was
+    /// asked for by name, and a row with a title and nothing under it can be
+    /// seen, understood and removed; a choice that quietly does nothing cannot.
     func addShelf(_ root: MediaItem) async {
         guard let profile = activeProfile, !catalogs.contains(where: { $0.id == root.id }) else { return }
-        do {
-            let loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id)
-            catalogs.append(MediaCatalog(root: root, items: loaded))
-            saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
-        } catch { errorMessage = error.localizedDescription }
+        var loaded: [MediaItem] = []
+        do { loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id) }
+        catch { errorMessage = error.localizedDescription }
+        catalogs.append(MediaCatalog(root: root, items: loaded))
+        saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
@@ -266,8 +271,18 @@ final class MediaLibrary: ObservableObject {
     /// it to import, then wait for the collection to exist. Nothing is
     /// browsable in between, and the import is the server walking a catalog,
     /// so this can take a while.
+    /// Switch a catalog on and put it on screen as a shelf.
+    ///
+    /// The catalog stays in the list it was chosen from for as long as this
+    /// runs. It used to be taken out the moment the server accepted the
+    /// switch, on the reasoning that it was enabled now whatever happened
+    /// next -- but what happened next could be the import taking longer than
+    /// anyone waited, and then the catalog was gone from the list without ever
+    /// becoming a shelf. Vanishing is the worst answer of the three. It leaves
+    /// when it becomes a shelf, and not before.
     func enableCatalog(_ catalog: NullfinCatalog, addonID: String) async {
         guard let profile = activeProfile, let source = try? client(for: profile) else { return }
+        guard !importing.contains(catalog.catalogId) else { return }
         importing.insert(catalog.catalogId)
         do {
             try await source.setCatalog(addonID: addonID, catalogID: catalog.catalogId, enabled: true)
@@ -277,13 +292,14 @@ final class MediaLibrary: ObservableObject {
             importing.remove(catalog.catalogId)
             return
         }
-        // It is enabled now whatever the import does next, so it stops being
-        // something to offer.
+        await waitForImport(of: catalog, profile: profile)
+    }
+
+    private func drop(_ catalog: NullfinCatalog) {
         addonGroups = addonGroups.compactMap { group in
             let rest = group.catalogs.filter { $0.catalogId != catalog.catalogId }
             return rest.isEmpty ? nil : AddonCatalogGroup(id: group.id, name: group.name, catalogs: rest)
         }
-        await waitForImport(of: catalog, profile: profile)
     }
 
     /// Poll until the catalog's collection turns up, then shelve it.
@@ -294,18 +310,33 @@ final class MediaLibrary: ObservableObject {
     /// finishes.
     private func waitForImport(of catalog: NullfinCatalog, profile: MediaServerProfile) async {
         defer { importing.remove(catalog.catalogId) }
-        guard let wanted = catalog.collectionId.map(Self.normalizedID),
-              let source = try? client(for: profile) else { return }
-        for _ in 0..<36 {
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+        guard let source = try? client(for: profile) else { return }
+        guard let wanted = catalog.collectionId.map(Self.normalizedID) else {
+            // Without an id there is nothing to watch for. It is switched on
+            // either way, so say so rather than leaving the choice looking
+            // like it did nothing.
+            errorMessage = "\(catalog.name) is switched on, but this server did not say which collection it becomes. It will appear under imported catalogs once the server finishes."
+            return
+        }
+        // A full library refresh re-imports every enabled catalog, not just
+        // this one, so on a server with several addons it is minutes of work.
+        // Ten of them, checked twice a minute.
+        for _ in 0..<60 {
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
             guard activeProfile?.id == profile.id else { return }
             let found = (try? await source.collections(userID: profile.userID))?
                 .first { Self.normalizedID($0.id) == wanted }
             guard let found else { continue }
             await addShelf(found)
+            drop(catalog)
             await reload()
             return
         }
+        // Out of patience, not out of luck: the server is still working and
+        // the catalog is still enabled. Put it where it will turn up.
+        errorMessage = "\(catalog.name) is still importing on the server. It will appear under imported catalogs when that finishes — refresh then to add it."
+        await reload()
+        await loadAddonCatalogs()
     }
 
     /// Two servers spell the same identifier differently often enough that
