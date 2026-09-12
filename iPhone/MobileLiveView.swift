@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MobileLiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @State private var league: SportsLeague?
     @State private var choosingChannel: SportsGame?
@@ -88,6 +89,12 @@ struct MobileLiveView: View {
                 get: { upcomingGame != nil },
                 set: { if !$0 { upcomingGame = nil } }
             )) {
+                if let game = upcomingGame {
+                    Button(reminders.reminds(game) ? "Remove reminder" : "Remind me") {
+                        reminders.toggleGame(game)
+                        upcomingGame = nil
+                    }
+                }
                 Button("OK", role: .cancel) { upcomingGame = nil }
             } message: {
                 if let game = upcomingGame {

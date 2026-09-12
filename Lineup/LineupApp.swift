@@ -5,6 +5,9 @@ import UIKit
 struct LineupApp: App {
     @StateObject private var library = SportsLibrary()
     @StateObject private var media = MediaLibrary()
+    @StateObject private var cloud = CloudSettingsSync.shared
+    @StateObject private var reminders = GameReminders.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Before anything is drawn: a view built ahead of this would ask for a
@@ -21,12 +24,32 @@ struct LineupApp: App {
             RootView()
                 .environmentObject(library)
                 .environmentObject(media)
+                .environmentObject(reminders)
+                .environmentObject(cloud)
                 // Inter for everything that never asked for a font of its own
                 // -- form rows, field text, a progress view's label. Without
                 // this they keep the system font and the app reads in two
                 // typefaces depending on how carefully each line was written.
                 .environment(\.font, .inter(.body))
                 .preferredColorScheme(.dark)
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    await cloud.sync()
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(90)) } catch { return }
+                        await cloud.sync()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: CloudSettingsSync.imported)) { _ in
+                    Task {
+                        await library.restoreCloudSettings()
+                        await media.restoreCloudSettings()
+                        reminders.restore()
+                    }
+                }
+                .onReceive(library.$gamesByLeague) { games in
+                    reminders.updateGames(games.values.flatMap { $0 })
+                }
         }
     }
 }

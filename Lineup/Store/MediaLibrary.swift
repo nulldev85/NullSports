@@ -562,10 +562,28 @@ final class MediaLibrary: ObservableObject {
         var value = savedShelves()
         value[profileID.uuidString] = ids
         defaults.set(try? JSONEncoder().encode(value), forKey: shelvesKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     private func persist() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: profilesKey)
         defaults.set(activeProfile?.id.uuidString, forKey: activeKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    func restoreCloudSettings() async {
+        guard let data = defaults.data(forKey: profilesKey),
+              let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
+        let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
+        profiles = saved
+        let selected = saved.first { $0.id == activeID } ?? saved.first
+        if selected?.id != activeProfile?.id {
+            activeProfile = selected
+            roots = []
+            catalogs = []
+            if selected != nil { await reload() }
+        } else {
+            activeProfile = selected
+        }
     }
 }

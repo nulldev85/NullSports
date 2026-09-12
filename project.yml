@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.18.0"
-    CURRENT_PROJECT_VERSION: "62"
+    MARKETING_VERSION: "0.19.0"
+    CURRENT_PROJECT_VERSION: "63"
 packages:
   # VLCKit's official Swift Package is only published on the 4.0 alpha line
   # (still at a22, undocumented in places, and the source of two build
@@ -38,6 +38,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Lineup
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Lineup/Lineup.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
     scheme:
@@ -62,8 +63,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
         PRODUCT_MODULE_NAME: LineupiOS
-        MARKETING_VERSION: "0.17.16"
-        CURRENT_PROJECT_VERSION: "75"
+        MARKETING_VERSION: "0.18.0"
+        CURRENT_PROJECT_VERSION: "76"
         PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
@@ -73,6 +74,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: iPhone/LineupiOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
       testTargets:
