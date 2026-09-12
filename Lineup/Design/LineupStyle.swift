@@ -468,15 +468,15 @@ struct PageTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(eyebrow.uppercased()).foregroundColor(LineupStyle.lightPurple)
-                .font(.caption.weight(.bold))
+                .font(.inter(.caption, .bold))
                 .tracking(1.8)
                 .foregroundStyle(LineupStyle.field)
             Text(title).foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 50, weight: .semibold))
+                .font(.inter(50, .semibold))
                 .foregroundStyle(LineupStyle.text)
             if let detail {
                 Text(detail).foregroundColor(LineupStyle.lightPurple)
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .foregroundStyle(LineupStyle.secondary)
             }
         }
@@ -488,7 +488,7 @@ struct LeagueMark: View {
 
     var body: some View {
         Text(league.shortName).foregroundColor(LineupStyle.lightPurple)
-            .font(.system(size: 16, weight: .bold))
+            .font(.inter(16, .bold))
             .tracking(0.6)
             .foregroundStyle(LineupStyle.text)
             .frame(width: 72, height: 44)

@@ -30,12 +30,12 @@ struct MobileGuidePlayer: View {
                     .accessibilityLabel("Video. Tap to show playback controls")
                 if let error = controller.error {
                     VStack(spacing: 8) {
-                        Text(error).font(.caption).multilineTextAlignment(.center)
+                        Text(error).font(.inter(.caption)).multilineTextAlignment(.center)
                         Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
                             .buttonStyle(.borderedProminent)
                     }.padding(.horizontal, 52)
                 } else if controller.loading {
-                    ProgressView("Opening stream…").font(.caption)
+                    ProgressView("Opening stream…").font(.inter(.caption))
                 }
                 if controlsVisible {
                     VStack {
@@ -79,29 +79,29 @@ struct MobileGuidePlayer: View {
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 8) {
                             Text("NOW SHOWING")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.inter(9, .bold))
                                 .tracking(1.5)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                             if program?.isNew == true {
                                 Text("NEW")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.inter(9, .bold))
                                     .padding(.horizontal, 5).padding(.vertical, 2)
                                     .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                             }
                             Spacer(minLength: 4)
                             if let program {
                                 Text("\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))")
-                                    .font(.caption2)
+                                    .font(.inter(.caption2))
                                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                     .lineLimit(1)
                             }
                         }
                         Text(program?.title ?? "Live channel · No guide information")
-                            .font(.headline)
+                            .font(.inter(.headline))
                             .lineLimit(2)
                             .accessibilityAddTraits(.isHeader)
                         Text(stream.name)
-                            .font(.caption)
+                            .font(.inter(.caption))
                             .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
                             .lineLimit(1)
                     }
@@ -165,7 +165,7 @@ struct MobileGuidePlayer: View {
         Button { controller.goLive() } label: {
             HStack(spacing: 6) {
                 if controller.isPlaying { MobileLiveDot() }
-                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
             .lineupLiquidGlass(Capsule())
@@ -175,7 +175,7 @@ struct MobileGuidePlayer: View {
     }
 
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.semibold))
+        Text(text).font(.inter(.caption2, .semibold))
             .padding(.horizontal, 9).padding(.vertical, 7)
             .lineupLiquidGlass(Capsule())
     }

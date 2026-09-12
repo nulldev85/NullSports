@@ -70,8 +70,8 @@ struct ProfileSetupView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("LINEUP").font(.caption.bold()).tracking(3)
-                        Text("Your games.\nAnywhere.").font(.largeTitle.bold())
+                        Text("LINEUP").font(.inter(.caption, .bold)).tracking(3)
+                        Text("Your games.\nAnywhere.").font(.inter(.largeTitle, .bold))
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
                 }.listRowBackground(LineupStyle.surface)
@@ -150,7 +150,7 @@ private struct MobileAccountView: View {
                                 LineupThemeSwatch(theme: theme)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(theme.name)
-                                    Text(theme.detail).font(.caption).foregroundStyle(.secondary)
+                                    Text(theme.detail).font(.inter(.caption)).foregroundStyle(.secondary)
                                 }
                             }
                             .tag(theme.rawValue)
@@ -172,12 +172,12 @@ private struct MobileAccountView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: library.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(profile.name).font(.body.weight(.semibold))
-                                        Text(profile.username).font(.caption).foregroundStyle(.secondary)
+                                        Text(profile.name).font(.inter(.body, .semibold))
+                                        Text(profile.username).font(.inter(.caption)).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     if library.activeProfile?.id == profile.id {
-                                        Text("Active").font(.caption).foregroundStyle(.secondary)
+                                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
                                     }
                                 }.contentShape(Rectangle())
                             }
@@ -217,8 +217,8 @@ private struct MobileAccountView: View {
                                 HStack {
                                     Image(systemName: media.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
                                     VStack(alignment: .leading) {
-                                        Text(profile.name).fontWeight(.semibold)
-                                        Text(profile.serverURL).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(profile.name).font(.inter(.body, .semibold))
+                                        Text(profile.serverURL).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer()
                                 }
@@ -306,21 +306,21 @@ private struct MatchDiagnosticsView: View {
         let stream = library.stream(for: game)
         let evidence = library.matchEvidence(for: game)
         return VStack(alignment: .leading, spacing: 5) {
-            Text("\(game.awayTeam) at \(game.homeTeam)").font(.subheadline.weight(.semibold))
+            Text("\(game.awayTeam) at \(game.homeTeam)").font(.inter(.subheadline, .semibold))
             Text("\(game.league.shortName) \u{00B7} \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.inter(.caption)).foregroundStyle(.secondary)
             if let stream {
-                Text(stream.name).font(.caption.weight(.medium))
+                Text(stream.name).font(.inter(.caption, .medium))
                 if let rejection = library.playbackRejection(for: game) {
-                    Text(rejection.rawValue).font(.caption2).foregroundStyle(LineupStyle.live)
+                    Text(rejection.rawValue).font(.inter(.caption2)).foregroundStyle(LineupStyle.live)
                 } else {
                     Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
-                        .font(.caption2)
+                        .font(.inter(.caption2))
                         .foregroundStyle(evidence == .dedicatedFeed ? Color.secondary : LineupStyle.warning)
                 }
             } else {
                 Text("No match \u{2014} opens the channel picker")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.inter(.caption2)).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)

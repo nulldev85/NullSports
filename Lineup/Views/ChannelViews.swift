@@ -194,7 +194,7 @@ private struct ManualGameChannelPicker: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
-                Text("No verified channel").foregroundColor(LineupStyle.lightPurple).font(.title2)
+                Text("No verified channel").foregroundColor(LineupStyle.lightPurple).font(.inter(.title2))
                 Text("\(game.awayTeam) vs. \(game.homeTeam)").foregroundColor(LineupStyle.lightPurple)
                 Text("Listed network: \(game.broadcast.isEmpty ? "Unavailable" : game.broadcast). Choose a channel manually.").foregroundColor(LineupStyle.lightPurple)
                     .foregroundStyle(LineupStyle.secondary)
@@ -228,7 +228,7 @@ private struct LiveBoardRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("EXPLORE").foregroundColor(LineupStyle.lightPurple).font(.system(size: 12, weight: .bold)).tracking(3)
+            Text("EXPLORE").foregroundColor(LineupStyle.lightPurple).font(.inter(12, .bold)).tracking(3)
                 .foregroundStyle(LiveBoardStyle.muted).padding(.bottom, 8)
             LiveBoardLeagueButton(title: "All sports", league: nil, selected: selectedLeague == nil,
                 onEnterGames: onEnterGames) { selectedLeague = nil; onChoose() }
@@ -264,7 +264,7 @@ private struct LiveBoardLeagueButton: View {
                 } else {
                     Image(systemName: "square.grid.2x2.fill").frame(width: 26)
                 }
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(17, .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LineupStyle.lightPurple)
@@ -291,7 +291,7 @@ private struct LiveBoardHeading: View {
     var body: some View {
         HStack(alignment: .center) {
             Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
-                .font(.system(size: 16, weight: .medium))
+                .font(.inter(16, .medium))
                 .foregroundStyle(LiveBoardStyle.muted)
             Spacer()
         }
@@ -323,8 +323,12 @@ private struct RefreshingStreamsLabel: View {
             // Monospaced, because the rest of the app reads a number that way
             // and this is the set reporting on itself rather than talking.
             Text("REFRESHING STREAMS")
-                .font(.system(size: type, weight: .bold,
-                              design: isScreen ? .monospaced : .default))
+                // The one deliberate exception to Inter: on the screen this
+                // line is the app reporting on itself, and a monospaced cut is
+                // what makes it read that way. Inline, where it sits beside
+                // ordinary text, it matches everything else.
+                .font(isScreen ? .system(size: type, weight: .bold, design: .monospaced)
+                               : .inter(type, .bold))
                 .tracking(isScreen ? 3.5 : 2)
         }
         .foregroundStyle(LineupStyle.lightPurple.opacity(isScreen ? 0.92 : 0.75))
@@ -401,13 +405,13 @@ private struct LiveEmptySlateDashboard: View {
                 LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
                 VStack(alignment: .leading, spacing: 22) {
                     Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
-                        .font(.system(size: 56, weight: .ultraLight)).foregroundStyle(LiveBoardStyle.muted)
+                        .font(.inter(56, .ultraLight)).foregroundStyle(LiveBoardStyle.muted)
                     Text(isLoading ? "Setting the board." : (isAvailable ? "A moment between games." : "The schedule is unavailable.")).foregroundColor(LineupStyle.lightPurple)
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                        .font(.inter(38, .bold))
                     Text(isLoading ? "Your games will appear here shortly." :
                         (isAvailable ? "Explore another sport, or come back for the next matchup." :
                             (errorMessage ?? "We’ll try again shortly. Your saved channels are still available in Guide."))).foregroundColor(LineupStyle.lightPurple)
-                        .font(.system(size: 20)).foregroundStyle(LiveBoardStyle.muted)
+                        .font(.inter(20)).foregroundStyle(LiveBoardStyle.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -494,15 +498,15 @@ private struct LiveSlateDashboard: View {
                 .frame(height: screenHeight(in: geometry.size) + 8)
                 HStack(spacing: 14) {
                     Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME").foregroundColor(LineupStyle.lightPurple)
-                        .font(.system(size: 12, weight: .bold)).tracking(2.5)
-                    Text("\(events.count)").foregroundColor(LineupStyle.lightPurple).font(.system(size: 12, weight: .bold).monospacedDigit())
+                        .font(.inter(12, .bold)).tracking(2.5)
+                    Text("\(events.count)").foregroundColor(LineupStyle.lightPurple).font(.interDigits(12, .bold))
                         .foregroundStyle(LiveBoardStyle.muted)
                     Spacer()
                     if multiviewTitle != nil {
                         GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
                     } else {
                         Text("Select to preview  ·  Hold for multiview").foregroundColor(LineupStyle.lightPurple)
-                            .font(.system(size: 13)).foregroundStyle(LiveBoardStyle.muted)
+                            .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
                     }
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
@@ -563,15 +567,15 @@ private struct LiveBoardTeam: View {
         HStack(spacing: large ? 14 : 10) {
             TeamBadge(url: logo, fallback: abbreviation, size: large ? 44 : 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).foregroundColor(LineupStyle.lightPurple).font(.system(size: large ? 25 : 23, weight: .semibold))
+                Text(name).foregroundColor(LineupStyle.lightPurple).font(.inter(large ? 25 : 23, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
                 if let record = nonempty(record) {
-                    Text(record).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .medium).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
+                    Text(record).foregroundColor(LineupStyle.lightPurple).font(.interDigits(17, .medium)).foregroundStyle(LiveBoardStyle.muted)
                 }
             }
             Spacer(minLength: 6)
             if let score, !score.isEmpty {
-                Text(score).foregroundColor(LineupStyle.lightPurple).font(.system(size: large ? 33 : 25, weight: .bold, design: .rounded).monospacedDigit())
+                Text(score).foregroundColor(LineupStyle.lightPurple).font(.interDigits(large ? 33 : 25, .bold))
                     .foregroundStyle(LineupStyle.lightPurple)
             }
         }
@@ -647,7 +651,7 @@ private struct LiveSlateRow: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     LeagueLogo(league: game.league, size: 28)
-                    Text(game.league.shortName).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .semibold)).tracking(1)
+                    Text(game.league.shortName).foregroundColor(LineupStyle.lightPurple).font(.inter(17, .semibold)).tracking(1)
                         .foregroundStyle(LineupStyle.lightPurple)
                     Spacer()
                     if game.isLive {
@@ -655,11 +659,11 @@ private struct LiveSlateRow: View {
                         Text(game.status.uppercased()).foregroundColor(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
                     } else {
                         Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundColor(LineupStyle.lightPurple)
-                            .font(.system(size: 17, weight: .semibold).monospacedDigit())
+                            .font(.interDigits(17, .semibold))
                             .foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
                     }
                 }
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(LiveBoardStyle.muted)
+                .font(.inter(11, .semibold)).foregroundStyle(LiveBoardStyle.muted)
                 LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
                     record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
                 LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
@@ -670,7 +674,7 @@ private struct LiveSlateRow: View {
                     Spacer(minLength: 4)
                     Image(systemName: isFocused ? "play.fill" : "arrow.up.right")
                 }
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(isFocused ? LiveBoardStyle.accent : LiveBoardStyle.muted)
+                .font(.inter(11, .semibold)).foregroundStyle(isFocused ? LiveBoardStyle.accent : LiveBoardStyle.muted)
             }
             .padding(18)
             .frame(maxWidth: .infinity)
@@ -730,7 +734,7 @@ private struct LiveTicker: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 24) {
-            Text("SCORE").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(3).foregroundStyle(LineupStyle.secondary)
+            Text("SCORE").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(3).foregroundStyle(LineupStyle.secondary)
             Rectangle().fill(LineupStyle.line).frame(width: 1, height: 28)
             GeometryReader { viewport in
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
@@ -785,7 +789,7 @@ private struct LiveTicker: View {
                 ForEach(displayedEvents) { game in
                     HStack(spacing: 12) {
                         Text(game.league.shortName).foregroundColor(LineupStyle.lightPurple)
-                            .font(.caption2.weight(.bold)).tracking(1.5)
+                            .font(.inter(.caption2, .bold)).tracking(1.5)
                             .foregroundStyle(LineupStyle.secondary)
                             .frame(width: 62, alignment: .leading)
                         Text(game.awayAbbreviation)
@@ -800,7 +804,7 @@ private struct LiveTicker: View {
                         Text(game.homeScore).foregroundColor(LineupStyle.lightPurple).fontWeight(.bold).foregroundStyle(LineupStyle.text)
                             .frame(width: 48, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL").foregroundColor(LineupStyle.lightPurple)
-                            .font(.caption2.weight(.bold)).tracking(1.2)
+                            .font(.inter(.caption2, .bold)).tracking(1.2)
                             .foregroundStyle(game.isLive ? LineupStyle.live : LineupStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -886,7 +890,7 @@ private struct LiveFilterButton: View {
     let selected: Bool
     let action: () -> Void
     var body: some View {
-        Text(title).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).padding(.horizontal, 20).frame(height: 42)
+        Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).padding(.horizontal, 20).frame(height: 42)
             .foregroundStyle(selected || isFocused ? LineupStyle.text : LineupStyle.secondary)
             .background(selected ? LineupStyle.lightPurple.opacity(0.10) : Color.clear)
             .clipShape(Capsule()).nullGlass(cornerRadius: 22)
@@ -907,9 +911,9 @@ private struct ScheduleSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 if title == "Live now" { Circle().fill(LineupStyle.text).frame(width: 9, height: 9) }
-                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.caption.weight(.bold)).tracking(1.5)
+                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.5)
                     .foregroundStyle(title == "Live now" ? LineupStyle.text : LineupStyle.secondary)
-                Text("(\(events.count))").foregroundColor(LineupStyle.lightPurple).font(.caption).foregroundStyle(LineupStyle.secondary)
+                Text("(\(events.count))").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
                 Rectangle().fill(LineupStyle.line).frame(height: 1)
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)], spacing: 18) {
@@ -931,8 +935,8 @@ private struct ScreenHeading: View {
     let detail: String
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 42, weight: .semibold)).foregroundStyle(LineupStyle.text)
-            Text(detail).foregroundColor(LineupStyle.lightPurple).font(.callout).foregroundStyle(LineupStyle.secondary)
+            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(42, .semibold)).foregroundStyle(LineupStyle.text)
+            Text(detail).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(LineupStyle.secondary)
         }
     }
 }
@@ -946,7 +950,7 @@ private struct EmptySchedule: View {
             if isLoading { ProgressView() } else { Image(systemName: isAvailable ? "calendar" : "wifi.exclamationmark") }
             Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled today or tomorrow" : (errorMessage ?? "Schedule unavailable — try Refresh"))).foregroundColor(LineupStyle.lightPurple)
         }
-        .font(.title3).foregroundStyle(LineupStyle.secondary)
+        .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
         .padding(.vertical, 46)
     }
 }
@@ -966,14 +970,14 @@ private struct GameEventCard: View {
                 MatchupArtwork(event: event)
                 VStack(alignment: .leading, spacing: 8) {
                     GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
-                    Text("@").foregroundColor(LineupStyle.lightPurple).font(.caption.weight(.bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
+                    Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
                     GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
                     HStack(spacing: 12) {
                         Text(event.league.shortName).foregroundColor(LineupStyle.lightPurple)
-                            .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
+                            .font(.inter(.caption, .bold)).padding(.horizontal, 10).frame(height: 28)
                             .background(LineupStyle.selected).clipShape(Capsule())
                         Text(event.start.formatted(date: .abbreviated, time: .shortened)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.caption.monospacedDigit()).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                            .font(.interDigits(.caption)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
                         Spacer(minLength: 118)
                     }
                 }
@@ -989,15 +993,15 @@ private struct GameEventCard: View {
                     Image(systemName: stream == nil ? "tv.slash" : "checkmark.circle.fill")
                         .foregroundStyle(stream == nil ? LineupStyle.warning : LineupStyle.positive)
                     Text(stream?.name ?? (event.broadcast.isEmpty ? "No matching channel" : event.broadcast)).foregroundColor(LineupStyle.lightPurple)
-                        .font(.callout.weight(.medium)).foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
+                        .font(.inter(.callout, .medium)).foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
                     Spacer()
                     if isFocused, stream != nil {
                         Label("Watch", systemImage: "play.fill")
-                            .font(.caption.weight(.bold)).foregroundStyle(LineupStyle.text)
+                            .font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.text)
                             .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
                     if stream == nil {
-                        Label("No channel", systemImage: "display").font(.caption.weight(.semibold)).foregroundStyle(LineupStyle.secondary)
+                        Label("No channel", systemImage: "display").font(.inter(.caption, .semibold)).foregroundStyle(LineupStyle.secondary)
                     }
                 }
                 .padding(.horizontal, 18).frame(height: 46)
@@ -1036,7 +1040,7 @@ private struct GameStatusBadge: View {
     var body: some View {
         HStack(spacing: 7) {
             if event.isLive { Circle().fill(LineupStyle.live).frame(width: 7, height: 7) }
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.caption.weight(.bold)).tracking(1.1)
+            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.1)
         }
         .foregroundStyle(event.isLive ? LineupStyle.lightPurple : LineupStyle.text)
         .padding(.horizontal, 13).frame(height: 34)
@@ -1053,7 +1057,7 @@ private struct MatchupArtwork: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LineupStyle.raised)
             HStack(spacing: 16) {
                 TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
-                Text("VS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).foregroundStyle(LineupStyle.secondary)
+                Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
                     .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
                 TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
             }
@@ -1069,7 +1073,7 @@ private struct GameTeamLine: View {
         HStack(spacing: 12) {
             TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 34)
             Text(name).foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.inter(18, .semibold))
                 .foregroundStyle(LineupStyle.text)
                 .lineLimit(1)
                 .allowsTightening(true)
@@ -1077,7 +1081,7 @@ private struct GameTeamLine: View {
                 .layoutPriority(1)
             Spacer(minLength: 12)
             if let score, !score.isEmpty {
-                Text(score).foregroundColor(LineupStyle.lightPurple).font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(LineupStyle.text)
+                Text(score).foregroundColor(LineupStyle.lightPurple).font(.interDigits(.title2, .bold)).foregroundStyle(LineupStyle.text)
             }
         }
     }
@@ -1212,7 +1216,7 @@ struct GuideView: View {
                             GuideTimelineHeader(now: guideNow)
                             if filtered.isEmpty {
                                 Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.").foregroundColor(LineupStyle.lightPurple)
-                                    .font(.title3).foregroundStyle(GuidePalette.secondary).padding(.top, 24)
+                                    .font(.inter(.title3)).foregroundStyle(GuidePalette.secondary).padding(.top, 24)
                                     .focusable()
                                     .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
                                     .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
@@ -1451,24 +1455,24 @@ private struct GuideControlBar: View {
         HStack(spacing: 12) {
             if let multiviewTitle {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.3).foregroundStyle(GuidePalette.secondary)
-                    Text(multiviewTitle).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.3).foregroundStyle(GuidePalette.secondary)
+                    Text(multiviewTitle).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(1)
                 }
             } else if searchActive {
                 TextField("Search channels", text: $query)
                     .textFieldStyle(.plain).focusEffectDisabled()
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.inter(22, .medium))
                     .padding(.horizontal, 14).frame(maxWidth: 520, minHeight: 40)
                     .background(GuidePalette.raised).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 24, weight: .semibold)).lineLimit(1)
+                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(24, .semibold)).lineLimit(1)
             }
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
-            Text("\(channelCount) CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.4).foregroundStyle(GuidePalette.secondary)
+            Text("\(channelCount) CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.4).foregroundStyle(GuidePalette.secondary)
             Rectangle().fill(GuidePalette.line).frame(width: 1, height: 22)
             Label(now.formatted(date: .omitted, time: .shortened), systemImage: "clock")
-                .font(.system(size: 18, weight: .medium).monospacedDigit())
+                .font(.interDigits(18, .medium))
                 .foregroundStyle(GuidePalette.text)
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel("Current time, \(now.formatted(date: .omitted, time: .shortened))")
@@ -1519,17 +1523,17 @@ private struct GuidePreviewPanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) {
                     Text("‹ \(categoryName.uppercased())  ·  \(item.stream.name.uppercased())").foregroundColor(LineupStyle.lightPurple)
-                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(GuidePalette.highlight).lineLimit(1)
+                        .font(.inter(.caption2, .bold)).tracking(1.15).foregroundStyle(GuidePalette.highlight).lineLimit(1)
                     if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
-                    if item.program.isLive { GuideTinyBadge(title: "LIVE", color: GuidePalette.raised) }
+                    if item.program.isLive { GuideLiveDot(size: 11) }
                 }
                 HStack(spacing: 10) {
                     Text(item.program.title.isEmpty ? "Untitled" : item.program.title).foregroundColor(LineupStyle.lightPurple)
-                        .font(.system(size: 27, weight: .semibold)).lineLimit(1)
+                        .font(.inter(27, .semibold)).lineLimit(1)
                     if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.raised) }
                 }
                 HStack(spacing: 12) {
-                    Text(guideTimeRange(item.program)).foregroundColor(LineupStyle.lightPurple).font(.callout.monospacedDigit()).foregroundStyle(GuidePalette.secondary)
+                    Text(guideTimeRange(item.program)).foregroundColor(LineupStyle.lightPurple).font(.interDigits(.callout)).foregroundStyle(GuidePalette.secondary)
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             Capsule().fill(GuidePalette.raised)
@@ -1538,9 +1542,9 @@ private struct GuidePreviewPanel: View {
                     }.frame(width: 170, height: 4)
                 }
                 Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail).foregroundColor(LineupStyle.lightPurple)
-                    .font(.callout).foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                    .font(.inter(.callout)).foregroundStyle(GuidePalette.secondary).lineLimit(1)
                 Text("Press Menu to hide preview").foregroundColor(LineupStyle.lightPurple)
-                    .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple)
+                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.lightPurple)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1576,7 +1580,7 @@ private struct GuidePreviewArtwork: View {
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "tv").font(.system(size: 38, weight: .light))
-                        Text(stream.name).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).lineLimit(2).multilineTextAlignment(.center)
+                        Text(stream.name).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(2).multilineTextAlignment(.center)
                     }
                     .foregroundStyle(GuidePalette.secondary)
                     .padding(24)
@@ -1592,7 +1596,7 @@ private struct GuideTinyBadge: View {
     let color: Color
 
     var body: some View {
-        Text(title).font(.system(size: 10, weight: .bold)).tracking(0.8)
+        Text(title).font(.inter(10, .bold)).tracking(0.8)
             .foregroundStyle(LineupStyle.lightPurple.opacity(0.78))
             .padding(.horizontal, 8).frame(height: 19)
             .background(color, in: Capsule())
@@ -1628,7 +1632,7 @@ private struct GuideSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
+                Text("CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
                 Spacer()
 
             }
@@ -1639,7 +1643,7 @@ private struct GuideSidebar: View {
             GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly, focus: focus, focusID: "favorites") {
                 selectedCategoryID = nil; favoritesOnly = true
             }
-            Text("CATEGORIES").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
+            Text("CATEGORIES").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
                 .lineLimit(1).padding(.leading, 14).padding(.top, 8).frame(height: 30)
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -1675,7 +1679,7 @@ private struct GuideSidebarButton: View {
         HStack(spacing: 13) {
             Image(systemName: symbol).font(.caption).frame(width: 22)
             Text(title).foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 22, weight: .medium))
+                .font(.inter(22, .medium))
                 .lineLimit(nil)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1704,7 +1708,7 @@ private struct GuideHeaderButton: View {
     let action: () -> Void
     var body: some View {
         Label(title, systemImage: symbol)
-            .font(.callout.weight(.semibold))
+            .font(.inter(.callout, .semibold))
             .foregroundStyle(LineupStyle.text)
             .padding(.horizontal, 18).frame(height: 42)
             .background(isFocused ? LineupStyle.lightPurple.opacity(0.12) : Color.clear)
@@ -1734,7 +1738,7 @@ private struct GuideTimelineHeader: View {
             }
             .padding(.top, 24)
         }
-        .font(.caption2.weight(.bold)).tracking(1.4)
+        .font(.inter(.caption2, .bold)).tracking(1.4)
         .padding(.horizontal, 14).frame(height: 58)
         .background(
             LinearGradient(colors: [GuidePalette.panel.opacity(0.72), GuidePalette.surface.opacity(0.38)],
@@ -1939,7 +1943,7 @@ private struct GuideChannelArtwork: View {
                                    height: max(1, proxy.size.height - 45))
                     } else {
                         Image(systemName: "tv")
-                            .font(.system(size: 24, weight: .light))
+                            .font(.inter(24, .light))
                             .foregroundStyle(GuidePalette.secondary)
                             .frame(width: max(1, proxy.size.width - 22),
                                    height: max(1, proxy.size.height - 45))
@@ -1947,7 +1951,7 @@ private struct GuideChannelArtwork: View {
                 }
                 .transaction { $0.animation = nil }
                 Text(stream.name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.inter(12, .semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.4)
                     .allowsTightening(true)
@@ -1959,7 +1963,7 @@ private struct GuideChannelArtwork: View {
             .overlay(alignment: .topLeading) {
                 if isFavorite {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.inter(10, .bold))
                         .padding(7)
                         .background(GuidePalette.background.opacity(0.88), in: Circle())
                         .padding(6)
@@ -1994,19 +1998,19 @@ private struct TVFavoritesOrderView: View {
                 HStack(alignment: .center, spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR CHANNELS")
-                            .font(.caption.weight(.bold)).tracking(3)
+                            .font(.inter(.caption, .bold)).tracking(3)
                             .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                         Text("Arrange Favorites")
-                            .font(.system(size: 46, weight: .semibold, design: .rounded))
+                            .font(.inter(46, .semibold))
                         Text(instruction)
-                            .font(.title3)
+                            .font(.inter(.title3))
                             .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
                             .contentTransition(.opacity)
                     }
                     Spacer()
                     HStack(spacing: 10) {
                         Label("\(favorites.count) FAVORITES", systemImage: "star.fill")
-                            .font(.caption.weight(.bold)).tracking(1.2)
+                            .font(.inter(.caption, .bold)).tracking(1.2)
                             .padding(.horizontal, 16).frame(height: 46)
                             .nullGlass(clear: true, cornerRadius: 23)
                         TVReorderDoneButton { dismiss() }
@@ -2069,7 +2073,7 @@ private struct TVFavoritesOrderView: View {
         return HStack(spacing: 22) {
             ZStack {
                 Circle().fill(isPicked ? LineupStyle.lightPurple : LineupStyle.lightPurple.opacity(0.08))
-                Text("\(position)").font(.callout.weight(.bold).monospacedDigit())
+                Text("\(position)").font(.interDigits(.callout, .bold))
                     .foregroundStyle(isPicked ? GuidePalette.background : LineupStyle.lightPurple.opacity(0.64))
             }
             .frame(width: 44, height: 44)
@@ -2087,20 +2091,20 @@ private struct TVFavoritesOrderView: View {
             }
             .frame(width: 100, height: 60)
             VStack(alignment: .leading, spacing: 5) {
-                Text(stream.name).font(.title3.weight(.semibold)).lineLimit(1)
+                Text(stream.name).font(.inter(.title3, .semibold)).lineLimit(1)
                 Text(isPicked ? "Ready to move" : "Favorite channel")
-                    .font(.caption).foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                    .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
             }
             Spacer()
             if isPicked {
                 Label("PICKED UP", systemImage: "hand.draw.fill")
-                    .font(.caption.bold()).tracking(1.2)
+                    .font(.inter(.caption, .bold)).tracking(1.2)
                     .padding(.horizontal, 14).frame(height: 36)
                     .background(LineupStyle.lightPurple, in: Capsule())
                     .foregroundStyle(GuidePalette.background)
             } else if pickedStreamID != nil && isFocused {
                 Label("PLACE HERE", systemImage: "arrow.down.to.line")
-                    .font(.caption.bold()).tracking(1.2)
+                    .font(.inter(.caption, .bold)).tracking(1.2)
                     .padding(.horizontal, 14).frame(height: 36)
                     .background(LineupStyle.lightPurple.opacity(0.12), in: Capsule())
             }
@@ -2172,7 +2176,7 @@ private struct TVReorderDoneButton: View {
 
     var body: some View {
         Label("Done", systemImage: "checkmark")
-            .font(.callout.weight(.semibold))
+            .font(.inter(.callout, .semibold))
             .padding(.horizontal, 20).frame(height: 46)
             .background(LineupStyle.lightPurple.opacity(0.09), in: Capsule())
             .foregroundStyle(LineupStyle.lightPurple)
@@ -2223,19 +2227,19 @@ private struct GuideProgramCell: View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 HStack(spacing: 6) {
-                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
-                    if isOnNow { GuideInlineStatus(title: "LIVE") }
+                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
+                    if isOnNow { GuideLiveDot() }
                     else if program.isNew == true { GuideInlineStatus(title: "NEW") }
                 }
                 if showsTime {
                     HStack(spacing: 7) {
                         Text(guideTimeRange(program)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.callout.monospacedDigit()).foregroundStyle(GuidePalette.secondary)
+                            .font(.interDigits(.callout)).foregroundStyle(GuidePalette.secondary)
                         if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     }
                 }
             } else {
-                Text(empty).foregroundColor(LineupStyle.lightPurple).font(.callout).foregroundStyle(GuidePalette.secondary)
+                Text(empty).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(GuidePalette.secondary)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 12)
@@ -2277,12 +2281,40 @@ private struct GuideProgramCell: View {
     }
 }
 
+/// On now, as a dot that breathes.
+///
+/// This was a pill reading LIVE: a word, a capsule, a border and a tint,
+/// repeated down every row of a grid whose whole left-hand column is on now.
+/// Four pieces of ink for one fact, and the word competed with the programme
+/// title beside it. A dot says it instead, and the pulse is the part that
+/// means *now* -- a still dot is a bullet point.
+private struct GuideLiveDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+    var size: CGFloat = 10
+
+    var body: some View {
+        Circle()
+            .fill(GuidePalette.highlight)
+            .frame(width: size, height: size)
+            // Reduced motion keeps the dot, at the brighter end of the pulse.
+            .opacity(reduceMotion || pulsing ? 1 : 0.38)
+            .shadow(color: GuidePalette.highlight.opacity(reduceMotion || pulsing ? 0.55 : 0.12),
+                    radius: size * 0.55)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
+                       value: pulsing)
+            .onAppear { pulsing = true }
+            .accessibilityLabel("On now")
+    }
+}
+
 private struct GuideInlineStatus: View {
     let title: String
-    private var accent: Color { title == "LIVE" ? GuidePalette.liveMark : GuidePalette.upcomingMark }
+    // Only NEW reaches this now that being on the air is a dot.
+    private var accent: Color { GuidePalette.upcomingMark }
     var body: some View {
         Text(title)
-            .font(.system(size: 10, weight: .heavy)).tracking(1.3)
+            .font(.inter(10, .heavy)).tracking(1.3)
             .foregroundStyle(accent)
             .padding(.horizontal, 8).frame(height: 20)
             .background(accent.opacity(0.14), in: Capsule())
@@ -2371,12 +2403,12 @@ private struct ThemeCard: View {
         HStack(spacing: 16) {
             LineupThemeSwatch(theme: theme)
             VStack(alignment: .leading, spacing: 3) {
-                Text(theme.name).font(.system(size: 21, weight: .semibold))
-                Text(theme.detail).font(.system(size: 14)).opacity(0.6)
+                Text(theme.name).font(.inter(21, .semibold))
+                Text(theme.detail).font(.inter(14)).opacity(0.6)
             }
             Spacer(minLength: 12)
             Image(systemName: active ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.inter(22, .semibold))
                 .foregroundStyle(active ? LineupStyle.highlight : LineupStyle.lightPurple.opacity(0.28))
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -2410,7 +2442,7 @@ private struct MatchDiagnosticsView: View {
             }
             if games.isEmpty {
                 Text("No live or upcoming games to match.").foregroundColor(LineupStyle.lightPurple)
-                    .font(.title3).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
@@ -2436,23 +2468,23 @@ private struct MatchDiagnosticsRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("\(game.awayTeam) at \(game.homeTeam)").foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.inter(24, .semibold))
             Text("\(game.league.shortName)  ·  \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
                 .foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 16)).foregroundStyle(LineupStyle.secondary)
+                .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
             if let stream {
                 Text(stream.name).foregroundColor(LineupStyle.lightPurple)
-                    .font(.system(size: 17, weight: .medium)).lineLimit(1)
+                    .font(.inter(17, .medium)).lineLimit(1)
                 if let rejection = library.playbackRejection(for: game) {
-                    Text(rejection.rawValue).foregroundColor(LineupStyle.warning).font(.system(size: 15))
+                    Text(rejection.rawValue).foregroundColor(LineupStyle.warning).font(.inter(15))
                 } else {
                     Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
                         .foregroundColor(evidence == .dedicatedFeed ? LineupStyle.lightPurple : LineupStyle.warning)
-                        .font(.system(size: 15))
+                        .font(.inter(15))
                 }
             } else {
                 Text("No match — opens the channel picker").foregroundColor(LineupStyle.lightPurple)
-                    .font(.system(size: 15)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(15)).foregroundStyle(LineupStyle.secondary)
             }
         }
         .padding(20)
@@ -2470,7 +2502,7 @@ private struct DetailPanel<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.caption.weight(.bold)).tracking(1.5).foregroundStyle(LineupStyle.secondary)
+            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.5).foregroundStyle(LineupStyle.secondary)
             VStack(spacing: 0) { content }.padding(.horizontal, 24).background(LineupStyle.surface)
         }
     }
@@ -2545,15 +2577,15 @@ private struct MultiviewPane: View {
             if urls.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle").font(.title2)
-                    Text("Stream unavailable").foregroundColor(LineupStyle.lightPurple).font(.headline)
+                    Text("Stream unavailable").foregroundColor(LineupStyle.lightPurple).font(.inter(.headline))
                 }
                 .foregroundStyle(LineupStyle.lightPurple).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack(spacing: 10) {
                 Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(1)
                 Spacer()
-                if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.1) }
+                if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.1) }
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 18).frame(height: 50)
@@ -2627,7 +2659,7 @@ struct PlayerView: View {
                     .transition(.opacity)
             }
             if urls.isEmpty {
-                Text("This stream is unavailable").font(.title2)
+                Text("This stream is unavailable").font(.inter(.title2))
                     .foregroundStyle(LineupStyle.lightPurple).padding(60)
             }
         }
@@ -2698,12 +2730,12 @@ private struct TVPlayerChrome: View {
                         HStack(spacing: 9) {
                             Circle().fill(LineupStyle.lightPurple).frame(width: 8, height: 8)
                             Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
-                                .font(.system(size: 15, weight: .bold)).tracking(1.5)
+                                .font(.inter(15, .bold)).tracking(1.5)
                         }
-                        Text(nowPlayingTitle).font(.system(size: 36, weight: .semibold, design: .rounded)).lineLimit(1)
-                        if let subtitle { Text(subtitle).font(.system(size: 19, weight: .medium)).opacity(0.78).lineLimit(1) }
+                        Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
+                        if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
                         if let detail = program?.detail, !detail.isEmpty {
-                            Text(detail).font(.system(size: 16)).opacity(0.62).lineLimit(1)
+                            Text(detail).font(.inter(16)).opacity(0.62).lineLimit(1)
                         }
                     }
                     .foregroundStyle(LineupStyle.lightPurple)
@@ -2786,7 +2818,7 @@ private struct TVSeekBar: View {
                 Spacer(minLength: 0)
                 Text("-" + Self.clock(max(0, controller.duration - controller.elapsed)))
             }
-            .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+            .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
         .contentShape(Rectangle())
@@ -2833,7 +2865,7 @@ private struct TVPlayerButton: View {
             HStack(spacing: 10) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
                 Image(systemName: symbol).font(.system(size: 18, weight: .bold)).frame(width: 22)
-                Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
+                Text(title).font(.inter(18, .semibold)).fixedSize()
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 18).frame(height: 52)
@@ -2858,7 +2890,7 @@ private struct TVPlayerMenuLabel: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "gearshape.fill").font(.system(size: 17, weight: .bold))
-            Text(title).font(.system(size: 18, weight: .semibold)).fixedSize()
+            Text(title).font(.inter(18, .semibold)).fixedSize()
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
         }
         .foregroundStyle(LineupStyle.lightPurple)

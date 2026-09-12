@@ -31,7 +31,7 @@ struct TeamBadge: View {
                 art.background { halo(art) }
             } else {
                 Text(fallback)
-                    .font(.system(size: max(7, size * 0.3), weight: .black))
+                    .font(.inter(max(7, size * 0.3), .black))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)

@@ -40,7 +40,7 @@ struct MobilePlayerView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { dismiss() }
-                        Text(name).font(.headline).lineLimit(1)
+                        Text(name).font(.inter(.headline)).lineLimit(1)
                         Spacer(minLength: 8)
                         if controller.error == nil && !controller.loading {
                             statusBadge
@@ -112,7 +112,7 @@ struct MobilePlayerView: View {
         Button { controller.goLive() } label: {
             HStack(spacing: 6) {
                 if controller.isPlaying { MobileLiveDot() }
-                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .lineupLiquidGlass(Capsule())
@@ -122,7 +122,7 @@ struct MobilePlayerView: View {
     }
 
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.semibold))
+        Text(text).font(.inter(.caption2, .semibold))
             .padding(.horizontal, 10).padding(.vertical, 6)
             .lineupLiquidGlass(Capsule())
     }

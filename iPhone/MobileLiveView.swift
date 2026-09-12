@@ -53,7 +53,7 @@ struct MobileLiveView: View {
                         }
                         if let error = library.scheduleErrorMessage {
                             Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                                .font(.caption).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
+                                .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .padding(16)
                         }
                         if !live.isEmpty {
@@ -118,16 +118,16 @@ struct MobileLiveView: View {
     private var masthead: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("LINEUP").font(.system(size: 11, weight: .black)).tracking(3)
+                Text("LINEUP").font(.inter(11, .black)).tracking(3)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 5) {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 HStack(spacing: 5) {
                     Circle().fill(LineupStyle.lightPurple).frame(width: 5, height: 5)
                     Text(live.isEmpty ? "\(games.count) MATCHUPS" : "\(live.count) LIVE NOW")
-                        .font(.system(size: 10, weight: .bold)).tracking(1)
+                        .font(.inter(10, .bold)).tracking(1)
                 }
             }
         }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 15)
@@ -175,7 +175,7 @@ struct MobileLiveView: View {
             Spacer()
             Text(detail).tracking(1)
         }
-        .font(.system(size: 9, weight: .bold))
+        .font(.inter(9, .bold))
         .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
         .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
         .background(LineupStyle.background)
@@ -225,15 +225,15 @@ private struct MobileMatchupRow: View {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
                         Text(game.status.isEmpty ? "Live now" : game.status)
-                            .font(.caption.weight(.semibold)).lineLimit(2)
+                            .font(.inter(.caption, .semibold)).lineLimit(2)
                     }.accessibilityElement(children: .ignore)
                         .accessibilityLabel("Live. \(game.status)")
                 } else {
                     Text(game.start, format: .dateTime.hour().minute())
-                        .font(.caption.weight(.semibold)).monospacedDigit()
+                        .font(.interDigits(.caption, .semibold))
                 }
                 if !game.broadcast.isEmpty {
-                    Text(game.broadcast).font(.system(size: 10)).lineLimit(2)
+                    Text(game.broadcast).font(.inter(10)).lineLimit(2)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }
                 Image(systemName: "play.fill").font(.system(size: 10))
@@ -257,18 +257,18 @@ private struct MobileMatchupRow: View {
             // its own shape instead.
             TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.subheadline.weight(.semibold))
+                Text(name).font(.inter(.subheadline, .semibold))
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
-                    Text(record).font(.caption2).monospacedDigit()
+                    Text(record).font(.interDigits(.caption2))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                         .accessibilityLabel("Record: \(record)")
                 }
             }
             Spacer(minLength: 3)
             if game.isLive {
-                Text(score).font(.system(.title3, design: .rounded, weight: .semibold)).monospacedDigit()
+                Text(score).font(.interDigits(.title3, .semibold))
             }
         }
     }
@@ -325,7 +325,7 @@ private struct RefreshingStreamsBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(LineupStyle.live).frame(width: 6, height: 6)
-            Text("REFRESHING STREAMS").font(.system(size: 10, weight: .bold)).tracking(1.6)
+            Text("REFRESHING STREAMS").font(.inter(10, .bold)).tracking(1.6)
         }
         .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
         .opacity(reduceMotion || !dimmed ? 1 : 0.32)

@@ -51,6 +51,7 @@ targets:
       - Lineup/Services
       - Lineup/Store
       - Lineup/Design
+      - Lineup/Resources
       - Lineup/LineupApp.swift
       - Lineup/Views/RootView.swift
       - Lineup/Views/MediaViews.swift

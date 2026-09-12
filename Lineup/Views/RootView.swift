@@ -32,6 +32,10 @@ struct RootView: View {
         // than relying on every call site to remember.
         .focusEffectDisabled()
         .onChange(of: selectedTheme) { _, _ in applyLineupTabBarTheme() }
+        // Again once there is a window: the pass in the app's initialiser runs
+        // before any tab bar exists, and the bar's own font is read off a label
+        // it has laid out.
+        .onAppear { applyLineupTabBarTheme() }
         #endif
         .task {
             guard library.hasProfile else { return }

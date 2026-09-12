@@ -12,14 +12,14 @@ struct ProfileSetupView: View {
         HStack(spacing: 80) {
             VStack(alignment: .leading, spacing: 26) {
                 Text("LINEUP").foregroundColor(LineupStyle.lightPurple)
-                    .font(.caption.weight(.black))
+                    .font(.inter(.caption, .black))
                     .tracking(3)
                     .foregroundStyle(LineupStyle.field)
                 Text("Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
-                    .font(.system(size: 58, weight: .bold, design: .rounded))
+                    .font(.inter(58, .bold))
                     .foregroundStyle(LineupStyle.text)
                 Text("A quiet, fast home for live American sports.").foregroundColor(LineupStyle.lightPurple)
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .foregroundStyle(LineupStyle.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -40,7 +40,7 @@ struct ProfileSetupView: View {
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
-                    .font(.headline)
+                    .font(.inter(.headline))
                 }
                 .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isConnecting)
             }

@@ -80,16 +80,16 @@ private struct TVMediaServersHome: View {
             HStack(alignment: .center, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MEDIA SERVERS")
-                        .font(.system(size: 13, weight: .bold)).tracking(2.2)
+                        .font(.inter(13, .bold)).tracking(2.2)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     Text(media.activeProfile?.name ?? (media.addons.isEmpty ? "Your library" : "Your addons"))
-                        .font(.system(size: 34, weight: .semibold, design: .rounded))
+                        .font(.inter(34, .semibold))
                         .foregroundStyle(LineupStyle.lightPurple)
                 }
                 Spacer()
                 if let profile = media.activeProfile {
                     Label(profile.username, systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.inter(15, .semibold))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(LineupStyle.surface, in: Capsule())
@@ -97,7 +97,7 @@ private struct TVMediaServersHome: View {
                 if !media.addons.isEmpty {
                     Label("\(media.addons.count) addon\(media.addons.count == 1 ? "" : "s")",
                         systemImage: "puzzlepiece.extension.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.inter(15, .semibold))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(LineupStyle.surface, in: Capsule())
@@ -123,16 +123,16 @@ private struct TVMediaServersHome: View {
             } else if media.shelves.isEmpty && media.isLoading {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("Loading your libraries…").font(.headline)
+                    Text("Loading your libraries…").font(.inter(.headline))
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if media.roots.isEmpty && media.addons.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
-                    Text("No libraries found").font(.title2.weight(.semibold))
+                    Text("No libraries found").font(.inter(.title2, .semibold))
                     Text("Refresh the server, or confirm this account can access a library.")
-                        .font(.callout).opacity(0.68)
+                        .font(.inter(.callout)).opacity(0.68)
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -158,14 +158,14 @@ private struct TVMediaEmptyState: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(LineupStyle.surface)
                 Image(systemName: "play.square.stack.fill")
-                    .font(.system(size: 72, weight: .light)).foregroundStyle(LineupStyle.lightPurple)
+                    .font(.inter(72, .light)).foregroundStyle(LineupStyle.lightPurple)
             }
             .frame(width: 210, height: 150)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
-                    .font(.system(size: 32, weight: .semibold, design: .rounded))
+                    .font(.inter(32, .semibold))
                 Text("Add an addon to browse its catalogs and play its streams, or connect a Jellyfin or Nullfin server for a library of your own. Both can be on at once.")
-                    .font(.system(size: 18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
+                    .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Add an Addon", systemImage: "puzzlepiece.extension", action: addAddon)
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -191,7 +191,7 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
         let configuration: ButtonStyle.Configuration
         var body: some View {
             configuration.label
-                .font(.system(size: 16, weight: .semibold))
+                .font(.inter(16, .semibold))
                 .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 14).frame(minHeight: 42)
                 .background(focused ? LineupStyle.focused : LineupStyle.surface,
@@ -255,7 +255,7 @@ private struct MediaCatalogsScreen: View {
                 #if os(tvOS)
                 TVSelectable(scale: LineupStyle.controlLift, action: { choosingShelf = true }) {
                     Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.inter(16, .semibold))
                         .padding(.horizontal, 16).frame(height: searchHeight)
                         .modifier(MediaChromeSurface(radius: 13))
                 }
@@ -266,7 +266,7 @@ private struct MediaCatalogsScreen: View {
                 #else
                 Button { choosingShelf = true } label: {
                     Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.inter(16, .semibold))
                         .padding(.horizontal, 16).frame(height: searchHeight)
                         .modifier(MediaChromeSurface(focused: addShelfFocused, radius: 13))
                 }
@@ -319,21 +319,21 @@ private struct MediaCatalogsScreen: View {
                                     TVSelectable(scale: LineupStyle.controlLift, action: { pushed = catalog.root }) {
                                         MediaChromeLabel {
                                             Label("See All", systemImage: "chevron.right")
-                                                .font(.system(size: 14, weight: .semibold))
+                                                .font(.inter(14, .semibold))
                                         }
                                     }
                                     #else
                                     NavigationLink(value: catalog.root) {
                                         MediaChromeLabel {
                                             Label("See All", systemImage: "chevron.right")
-                                                .font(.system(size: 14, weight: .semibold))
+                                                .font(.inter(14, .semibold))
                                         }
                                     }.lineupFlatButton()
                                     #endif
                                 }
                                 .padding(.horizontal, horizontalPadding)
                                 if catalog.items.isEmpty {
-                                    Text("No titles in this catalog.").font(.callout)
+                                    Text("No titles in this catalog.").font(.inter(.callout))
                                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
                                         .padding(.horizontal, horizontalPadding)
                                 } else {
@@ -395,18 +395,18 @@ private struct MediaCatalogsScreen: View {
     /// this app cannot restyle, so it is kept off the screen behind it.
     private var searchSheet: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("Search").font(.system(size: 34, weight: .semibold))
+            Text("Search").font(.inter(34, .semibold))
             TextField("Movies, shows, and addon catalogs", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 24))
+                .font(.inter(24))
             HStack(spacing: 14) {
                 TVSelectable(scale: LineupStyle.controlLift, action: { editingQuery = false }) {
-                    Text("Done").font(.system(size: 17, weight: .semibold))
+                    Text("Done").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(prominent: true, radius: 12))
                 }
                 TVSelectable(scale: LineupStyle.controlLift, action: { query = ""; results = [] }) {
-                    Text("Clear").font(.system(size: 17, weight: .semibold))
+                    Text("Clear").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(radius: 12))
                 }
@@ -452,16 +452,16 @@ private struct MediaCatalogsScreen: View {
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .system(size: 24, weight: .semibold, design: .rounded)
+        .inter(24, .semibold)
         #else
-        .title3.weight(.bold)
+        .inter(.title3, .bold)
         #endif
     }
     private var searchFont: Font {
         #if os(tvOS)
-        .system(size: 19, weight: .medium)
+        .inter(19, .medium)
         #else
-        .body
+        .inter(.body)
         #endif
     }
     private var searchHeight: CGFloat {
@@ -645,10 +645,10 @@ private struct MediaShelfPicker: View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("ADD A SHELF").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                Text("ADD A SHELF").font(.inter(12, .heavy)).tracking(1.6)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
                 Text("Pick a row for the Media Servers tab")
-                    .font(.system(size: 22, weight: .semibold)).lineLimit(1)
+                    .font(.inter(22, .semibold)).lineLimit(1)
             }
             .padding(.horizontal, 28).padding(.top, 36).padding(.bottom, 18)
             list
@@ -686,9 +686,9 @@ private struct MediaShelfPicker: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(group.id).font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                            Text(group.id).font(.inter(12, .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                            Text(group.detail).font(.system(size: 13))
+                            Text(group.detail).font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
@@ -714,10 +714,10 @@ private struct MediaShelfPicker: View {
                     ForEach(media.availableAddonCatalogs) { entry in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(entry.addon.name.uppercased())
-                                .font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                                .font(.inter(12, .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
                             Text("Added addon — rows appear as soon as you pick one")
-                                .font(.system(size: 13))
+                                .font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
@@ -747,7 +747,7 @@ private struct MediaShelfPicker: View {
                     ForEach(media.addonGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(group.name.uppercased())
-                                .font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                                .font(.inter(12, .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
                             // The server re-imports every enabled catalog when
                             // asked, so this is minutes, not seconds. Saying so
@@ -755,7 +755,7 @@ private struct MediaShelfPicker: View {
                             Text(media.importing.isEmpty
                                 ? "Not imported yet — choosing one starts the import"
                                 : "Importing can take several minutes. You can close this; it keeps going.")
-                                .font(.system(size: 13))
+                                .font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
@@ -847,10 +847,10 @@ private struct MediaShelfRow: View {
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: nameSize, weight: .semibold))
+                Text(title).font(.inter(nameSize, .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                 if let detail {
-                    Text(detail).font(.system(size: detailSize))
+                    Text(detail).font(.inter(detailSize))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }
             }
@@ -859,7 +859,7 @@ private struct MediaShelfRow: View {
                 ProgressView()
             } else {
                 Image(systemName: "plus.circle")
-                    .font(.system(size: nameSize, weight: .semibold))
+                    .font(.inter(nameSize, .semibold))
                     .foregroundStyle(LineupStyle.highlight)
             }
         }
@@ -999,7 +999,7 @@ private struct MediaShowScreen: View {
     private var metaLine: some View {
         if !metaParts.isEmpty {
             Text(metaParts.joined(separator: "  \u{00B7}  "))
-                .font(.subheadline.weight(.medium))
+                .font(.inter(.subheadline, .medium))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
         }
     }
@@ -1052,12 +1052,12 @@ private struct MediaShowScreen: View {
     private var playLabel: some View {
         let text = HStack(spacing: 8) {
             Image(systemName: "play.fill")
-            Text("Play").fontWeight(.semibold)
+            Text("Play").font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
                 Text(code).foregroundStyle(playCodeTint)
             }
         }
-        .font(.system(size: 17))
+        .font(.inter(17))
         #if os(tvOS)
         text.padding(.horizontal, 22).frame(height: buttonHeight)
             .modifier(MediaChromeFocus())
@@ -1094,7 +1094,7 @@ private struct MediaShowScreen: View {
     private var overview: some View {
         if let text = show.overview, !text.isEmpty {
             Text(text)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.76))
                 .lineLimit(expandedOverview ? nil : 3)
                 .multilineTextAlignment(.leading)
@@ -1145,10 +1145,10 @@ private struct MediaShowScreen: View {
                 ForEach(ratingValues) { rating in
                     HStack(spacing: 6) {
                         Text(rating.source)
-                            .font(.caption2.weight(.heavy))
+                            .font(.inter(.caption2, .heavy))
                             .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                         Text(rating.value)
-                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .font(.interDigits(.subheadline, .semibold))
                     }
                     .fixedSize()
                 }
@@ -1166,11 +1166,11 @@ private struct MediaShowScreen: View {
             if loading {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
             } else if let error {
-                Text(error).font(.footnote)
+                Text(error).font(.inter(.footnote))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
             } else if episodes.isEmpty {
-                Text("No episodes here yet.").font(.footnote)
+                Text("No episodes here yet.").font(.inter(.footnote))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
             } else {
@@ -1331,16 +1331,16 @@ private struct MediaShowScreen: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        .system(size: 40, weight: .bold, design: .rounded)
+        .inter(40, .bold)
         #else
-        .title.weight(.bold)
+        .inter(.title, .bold)
         #endif
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .system(size: 24, weight: .semibold, design: .rounded)
+        .inter(24, .semibold)
         #else
-        .title3.weight(.bold)
+        .inter(.title3, .bold)
         #endif
     }
     private var episodeColumns: [GridItem] {
@@ -1387,16 +1387,16 @@ private struct MediaEpisodeCard: View {
                     }
                 }
             if let label = episode.episodeLabel {
-                Text(label).font(.caption.weight(.semibold))
+                Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
-            Text(episode.name).font(.subheadline.weight(.bold)).lineLimit(2)
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
             if let overview = episode.overview, !overview.isEmpty {
-                Text(overview).font(.caption).lineLimit(3)
+                Text(overview).font(.inter(.caption)).lineLimit(3)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
             }
             if !footer.isEmpty {
-                Text(footer).font(.caption2)
+                Text(footer).font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             }
         }
@@ -1462,9 +1462,9 @@ private struct MediaSourcePicker: View {
         // Menu button is how a viewer leaves a screen on this platform.
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("SELECT A STREAM").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                Text("SELECT A STREAM").font(.inter(12, .heavy)).tracking(1.6)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                Text(item.name).font(.system(size: 22, weight: .semibold)).lineLimit(1)
+                Text(item.name).font(.inter(22, .semibold)).lineLimit(1)
             }
             .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
             results
@@ -1494,9 +1494,9 @@ private struct MediaSourcePicker: View {
                 if loading {
                     VStack(spacing: 14) {
                         ProgressView().controlSize(.large)
-                        Text("Finding the best streams…").font(.headline)
+                        Text("Finding the best streams…").font(.inter(.headline))
                         Text("Connected addons are ranking results for \(item.name).")
-                            .font(.subheadline).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
+                            .font(.inter(.subheadline)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     }
                 } else if let error {
                     ContentUnavailableView("Streams Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
@@ -1681,8 +1681,8 @@ private struct MediaProviderChip: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(title).font(.caption.weight(.semibold)).lineLimit(1)
-            Text("\(count)").font(.caption2.weight(.bold)).monospacedDigit().opacity(0.55)
+            Text(title).font(.inter(.caption, .semibold)).lineLimit(1)
+            Text("\(count)").font(.interDigits(.caption2, .bold)).opacity(0.55)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
@@ -1710,13 +1710,13 @@ private struct MediaSourceRow: View {
                 // Fixed width and a single line, so 1080p reads as a rank marker
                 // and can never wrap into a stack of digits the way it used to.
                 Text(source.quality ?? "SD")
-                    .font(.system(size: qualitySize, weight: .heavy)).monospacedDigit()
+                    .font(.interDigits(qualitySize, .heavy))
                     .lineLimit(1).fixedSize()
                     .frame(width: qualityWidth, height: qualityHeight)
                     .background(accent.opacity(0.14),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(source.releaseName)
-                    .font(.system(size: titleSize, weight: .semibold))
+                    .font(.inter(titleSize, .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1724,24 +1724,24 @@ private struct MediaSourceRow: View {
             // cheap part; the words carry themselves.
             if !source.badges.isEmpty {
                 Text(source.badges.joined(separator: "  \u{00B7}  "))
-                    .font(.system(size: badgeSize, weight: .medium))
+                    .font(.inter(badgeSize, .medium))
                     .foregroundStyle(accent.opacity(0.74))
                     .lineLimit(1).truncationMode(.tail)
             }
             if !source.facts.isEmpty {
                 Text(source.facts.joined(separator: "  \u{00B7}  "))
-                    .font(.system(size: factSize)).monospacedDigit()
+                    .font(.interDigits(factSize))
                     .foregroundStyle(accent.opacity(0.5))
                     .lineLimit(1).truncationMode(.tail)
             }
             HStack(spacing: 8) {
                 Text(source.provider.uppercased())
-                    .font(.system(size: markSize, weight: .heavy)).tracking(1.1)
+                    .font(.inter(markSize, .heavy)).tracking(1.1)
                     .lineLimit(1)
                 if let score = source.score {
-                    Text("\u{00B7}").font(.system(size: markSize, weight: .heavy))
+                    Text("\u{00B7}").font(.inter(markSize, .heavy))
                     Text("RANK " + (score >= 0 ? "+\(score)" : "\(score)"))
-                        .font(.system(size: markSize, weight: .heavy)).tracking(1.1)
+                        .font(.inter(markSize, .heavy)).tracking(1.1)
                         .monospacedDigit()
                 }
             }
@@ -1802,7 +1802,7 @@ private struct MediaSourceRow: View {
     private var accent: Color { LineupStyle.lightPurple }
 
     private func badge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.bold)).lineLimit(1).fixedSize()
+        Text(text).font(.inter(.caption2, .bold)).lineLimit(1).fixedSize()
             .padding(.horizontal, 7).padding(.vertical, 3)
             .foregroundStyle(accent.opacity(0.85))
             .background(accent.opacity(0.11), in: Capsule())
@@ -1914,7 +1914,7 @@ private struct MediaItemCard: View {
                 if let year = item.productionYear { Text("· \(String(year))") }
                 if let count = item.childCount { Text("· \(count)") }
             }
-            .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+            .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: LineupStyle.cardLift)
@@ -1929,9 +1929,9 @@ private struct MediaItemCard: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        .headline
+        .inter(.headline)
         #else
-        .subheadline.weight(.semibold)
+        .inter(.subheadline, .semibold)
         #endif
     }
 }
@@ -2061,14 +2061,14 @@ struct AddonSetupView: View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("ADDONS").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                Text("ADDONS").font(.inter(12, .heavy)).tracking(1.6)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
                 Text("Add a catalog or streaming addon")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(.inter(26, .semibold))
             }
             .padding(.bottom, 10)
             Text(explanation)
-                .font(.system(size: 16)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .font(.inter(16)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                 .frame(maxWidth: 820, alignment: .leading)
                 .padding(.bottom, 22)
 
@@ -2082,14 +2082,14 @@ struct AddonSetupView: View {
                     HStack(spacing: 10) {
                         if media.addonBusy { ProgressView().controlSize(.small) }
                         Text(media.addonBusy ? "Reading manifest…" : "Add Addon")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.inter(17, .semibold))
                     }
                     .padding(.horizontal, 22).frame(height: 52)
                     .modifier(MediaChromeSurface(prominent: true, radius: 12))
                 }
                 .disabled(!canAdd)
                 TVSelectable(scale: LineupStyle.controlLift, action: { dismiss() }) {
-                    Text("Done").font(.system(size: 17, weight: .semibold))
+                    Text("Done").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(radius: 12))
                 }
@@ -2099,9 +2099,9 @@ struct AddonSetupView: View {
 
             if media.addons.isEmpty {
                 Text("No addons yet.")
-                    .font(.system(size: 17)).foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                    .font(.inter(17)).foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             } else {
-                Text("INSTALLED").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                Text("INSTALLED").font(.inter(12, .heavy)).tracking(1.6)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
                     .padding(.bottom, 8)
                 ScrollView {
@@ -2213,9 +2213,9 @@ private struct AddonRow: View {
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(addon.name).font(.system(size: nameSize, weight: .semibold))
+                Text(addon.name).font(.inter(nameSize, .semibold))
                     .lineLimit(1)
-                Text(roles).font(.system(size: detailSize))
+                Text(roles).font(.inter(detailSize))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                 Text(host).font(.system(size: detailSize, design: .monospaced))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.38))
@@ -2224,7 +2224,7 @@ private struct AddonRow: View {
             Spacer(minLength: 16)
             #if os(tvOS)
             Image(systemName: "trash")
-                .font(.system(size: nameSize, weight: .semibold))
+                .font(.inter(nameSize, .semibold))
                 .foregroundStyle(LineupStyle.warning)
                 .accessibilityLabel("Remove " + addon.name)
             #endif

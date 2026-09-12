@@ -47,13 +47,13 @@ struct MobileGuideView: View {
                         }
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.subheadline.bold())
+                                Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.inter(.subheadline, .bold))
                                 Text("Choose a channel · \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.inter(.caption)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
                         if library.isLoading || library.isGuideLoading {
-                            ProgressView("Updating guide…").font(.caption).padding(8)
+                            ProgressView("Updating guide…").font(.inter(.caption)).padding(8)
                         }
                         if channels.isEmpty {
                             ContentUnavailableView("No channels", systemImage: "tv",
@@ -277,9 +277,9 @@ struct MobileGuideView: View {
     private func ruler(now: Date) -> some View {
         HStack(spacing: 0) {
             VStack(spacing: 2) {
-                Text("NOW").font(.system(size: 8, weight: .bold)).tracking(1)
+                Text("NOW").font(.inter(8, .bold)).tracking(1)
                 Text(now, format: .dateTime.hour().minute())
-                    .font(.caption2.weight(.semibold)).monospacedDigit()
+                    .font(.interDigits(.caption2, .semibold))
             }
                 .frame(width: logoWidth, height: 40)
                 .background(LineupStyle.background)
@@ -287,7 +287,7 @@ struct MobileGuideView: View {
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
-                        .font(.caption2.weight(.semibold)).monospacedDigit()
+                        .font(.interDigits(.caption2, .semibold))
                         .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
@@ -305,7 +305,7 @@ struct MobileGuideView: View {
                         image.resizable().scaledToFit()
                             .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
                     } else {
-                        Text(stream.name).font(.caption2.weight(.semibold)).lineLimit(3)
+                        Text(stream.name).font(.inter(.caption2, .semibold)).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -368,7 +368,7 @@ struct MobileGuideView: View {
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
-                                .font(.caption.weight(program == nil ? .regular : .semibold)).lineLimit(2)
+                                .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(program == nil ? 0.5 : 1))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
@@ -383,7 +383,7 @@ struct MobileGuideView: View {
                                     }
                                     if program.isNew == true { Text("NEW") }
                                 }
-                                .font(.system(size: 9, weight: .medium))
+                                .font(.inter(9, .medium))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .lineLimit(1)
                             }
