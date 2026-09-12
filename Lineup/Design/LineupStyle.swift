@@ -12,57 +12,35 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .velvet: "Velvet"
-        case .signal: "Signal"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .velvet: "Plum & lilac"
-        case .signal: "Carbon & electric"
-        }
-    }
-
-    fileprivate var palette: LineupPalette {
-        switch self {
-        case .velvet:
-            LineupPalette(
-                accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
-                raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
-                focused: rgb(0x3D3444), warning: rgb(0xC78259),
-                // Velvet has never had a colour of its own apart from its text
-                // tint, so its highlight is that tint: nothing about the theme
-                // changes by giving the slot a value.
-                highlight: rgb(0xD4C7E1), selectionBorder: rgb(0xFFFFFF),
-                liveDot: rgb(0xFA4757), positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
-                line: rgb(0xD4C7E1).opacity(0.11),
-                leagues: LeagueColors(
-                    football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
-                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8)
-                )
-            )
         case .signal:
-            // Carbon and electric. Velvet is warm, soft and low-contrast: plum
-            // ground, lilac text, nothing saturated anywhere. This is the
-            // opposite on every axis -- a cool near-black ground, crisp cool
-            // white type, and one saturated cyan that carries every live and
-            // active state in the app.
+            // Charcoal and electric blue. Velvet is warm, soft and
+            // low-contrast: plum ground, lilac text, nothing saturated
+            // anywhere. This is the opposite on every axis -- a charcoal
+            // ground with surfaces that climb clear of it, white type, and one
+            // electric blue carrying every live and active state in the app.
+            //
+            // White is the whole light-grey tier as well. Secondary text here
+            // is the accent at reduced opacity, which is how the app has
+            // always drawn it, and white at two thirds is a light grey -- so
+            // the four colours asked for are four, not five.
             LineupPalette(
-                accent: rgb(0xE8EDF7), background: rgb(0x06080B), surface: rgb(0x10141C),
-                raised: rgb(0x1B212B), sidebar: rgb(0x090C11), selected: rgb(0x151C26),
+                accent: rgb(0xFFFFFF), background: rgb(0x191C22), surface: rgb(0x22262E),
+                raised: rgb(0x2F3540), sidebar: rgb(0x14171C), selected: rgb(0x282D36),
                 // Focus leans towards the theme's own colour rather than just
                 // sitting a shade lighter. On a television, where something is
                 // always focused, that one step does more than any other.
-                focused: rgb(0x1E2C37), warning: rgb(0xFFB224),
-                highlight: rgb(0x22D3EE), selectionBorder: rgb(0x22D3EE),
-                liveDot: rgb(0xFF2D55), positive: rgb(0x3DDC84), logoPlate: rgb(0xE4EAF4),
-                // A hairline at Velvet's weight all but vanishes on a ground
-                // this dark, and a card with no edge is a card that floats
-                // nowhere. Slightly stronger, and it draws.
-                line: rgb(0xE8EDF7).opacity(0.16),
+                focused: rgb(0x33404F), warning: rgb(0xFFB224),
+                highlight: rgb(0x5B9DFF), selectionBorder: rgb(0x5B9DFF),
+                liveDot: rgb(0xFF4A63), positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
+                // A charcoal ground is lighter than carbon, so a hairline needs
+                // a little more to draw on it than it did on near-black.
+                line: rgb(0xFFFFFF).opacity(0.14),
+                // No blue among them. The accent is blue now, and a league
+                // chip that shares it reads as the app talking rather than as
+                // the league it stands for.
                 leagues: LeagueColors(
-                    football: rgb(0x3E6BFF), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-                    hockey: rgb(0x8B5CF6), baseball: rgb(0x3DDC84)
+                    football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
+                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84)
                 )
             )
         }
