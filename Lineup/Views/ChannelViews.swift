@@ -310,23 +310,80 @@ private struct RefreshingStreamsLabel: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dimmed = false
+    @State private var pinging = false
     var size: Size = .inline
 
-    private var dot: CGFloat { size == .screen ? 11 : 7 }
-    private var type: CGFloat { size == .screen ? 19 : 13 }
+    private var isScreen: Bool { size == .screen }
+    private var dot: CGFloat { isScreen ? 9 : 7 }
+    private var type: CGFloat { isScreen ? 18 : 13 }
 
     var body: some View {
-        HStack(spacing: size == .screen ? 14 : 10) {
-            Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
-                .shadow(color: LineupStyle.live.opacity(size == .screen ? 0.55 : 0), radius: 8)
+        HStack(spacing: isScreen ? 15 : 10) {
+            mark
+            // Monospaced, because the rest of the app reads a number that way
+            // and this is the set reporting on itself rather than talking.
             Text("REFRESHING STREAMS")
-                .font(.system(size: type, weight: .bold)).tracking(size == .screen ? 3 : 2)
+                .font(.system(size: type, weight: .bold,
+                              design: isScreen ? .monospaced : .default))
+                .tracking(isScreen ? 3.5 : 2)
         }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(size == .screen ? 0.9 : 0.75))
-        .opacity(reduceMotion || !dimmed ? 1 : 0.32)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
-        .onAppear { dimmed = true }
+        .foregroundStyle(LineupStyle.lightPurple.opacity(isScreen ? 0.92 : 0.75))
+        // On the screen the dot carries the motion. Dimming the words as well
+        // was two things blinking out of step with each other.
+        .opacity(isScreen || reduceMotion || !dimmed ? 1 : 0.32)
+        .animation(reduceMotion || isScreen ? nil
+                   : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
+        .onAppear { dimmed = true; pinging = true }
         .accessibilityLabel("Refreshing streams")
+    }
+
+    /// A ping rather than a blink: a ring leaves the dot and fades, which is
+    /// what looking for something looks like.
+    @ViewBuilder private var mark: some View {
+        if isScreen {
+            ZStack {
+                Circle().stroke(LineupStyle.live, lineWidth: 1.5)
+                    .frame(width: dot, height: dot)
+                    .scaleEffect(pinging && !reduceMotion ? 3.2 : 1)
+                    .opacity(pinging && !reduceMotion ? 0 : 0.85)
+                    .animation(reduceMotion ? nil
+                               : .easeOut(duration: 1.8).repeatForever(autoreverses: false),
+                               value: pinging)
+                Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
+                    .shadow(color: LineupStyle.live.opacity(0.6), radius: 7)
+            }
+            .frame(width: dot * 3.2, height: dot * 3.2)
+        } else {
+            Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
+        }
+    }
+}
+
+/// A band of the theme's colour crossing the dark screen, over and over.
+///
+/// The app's own mark is a line travelling across a guide, and so is the line
+/// down the guide itself. A set looking for its channels is the same idea in
+/// motion, and it reads as equipment working rather than as a spinner bolted
+/// onto a television.
+private struct LiveTVSignalSweep: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sweeping = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let band = geometry.size.width * 0.3
+            LinearGradient(
+                colors: [.clear, LineupStyle.live.opacity(0.05),
+                         LineupStyle.live.opacity(0.34), LineupStyle.live.opacity(0.05), .clear],
+                startPoint: .leading, endPoint: .trailing)
+                .frame(width: band)
+                .blur(radius: 10)
+                .offset(x: sweeping ? geometry.size.width : -band)
+                .animation(.linear(duration: 2.6).repeatForever(autoreverses: false), value: sweeping)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear { if !reduceMotion { sweeping = true } }
     }
 }
 
@@ -407,6 +464,7 @@ private struct LiveSlateDashboard: View {
                                 // the corner of the heading it was easy to miss
                                 // and easier to mistake for nothing happening.
                                 if isPreparingStreams {
+                                    LiveTVSignalSweep()
                                     RefreshingStreamsLabel(size: .screen)
                                 }
                             }
