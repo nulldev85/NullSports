@@ -916,6 +916,10 @@ private struct MediaShowScreen: View {
                     ratings
                 }
                 .padding(.horizontal, horizontalPadding)
+                // Up into the fade. The art running down the screen and the
+                // title sitting on the last of it is one picture; the title
+                // waiting below a finished band of artwork is two.
+                .padding(.top, contentRise)
                 episodesSection
             }
             .padding(.bottom, 44)
@@ -938,8 +942,13 @@ private struct MediaShowScreen: View {
         Color.clear
             .frame(maxWidth: .infinity)
             .aspectRatio(heroRatio, contentMode: .fit)
+            // Top, not centre. A backdrop is 16:9 and this box is wider than
+            // that, so filling it crops the difference -- and centred, half of
+            // that crop came off the top, which is where the faces are. Anchored
+            // here the whole crop falls at the foot of the art, under the fade
+            // that is already taking it into the page.
             .overlay {
-                ZStack {
+                ZStack(alignment: .top) {
                     LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                         startPoint: .topLeading, endPoint: .bottomTrailing)
                     AsyncImage(url: heroURL) { phase in
@@ -949,10 +958,15 @@ private struct MediaShowScreen: View {
             }
             .clipped()
             // The art has to end somewhere, and a hard edge across the screen
-            // reads as a seam. It fades into the page instead.
+            // reads as a seam. It fades into the page instead -- over a long
+            // way, and through a middle stop, because a two-stop fade over a
+            // short distance is a visible band rather than a disappearance.
             .overlay(alignment: .bottom) {
-                LinearGradient(colors: [.clear, LineupStyle.background],
-                    startPoint: .top, endPoint: .bottom)
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: LineupStyle.background.opacity(0.62), location: 0.46),
+                    .init(color: LineupStyle.background, location: 0.9)
+                ], startPoint: .top, endPoint: .bottom)
                     .frame(height: fadeHeight)
             }
             .overlay(alignment: .bottom) { heroLogo }
@@ -974,7 +988,9 @@ private struct MediaShowScreen: View {
             }
             .frame(height: logoHeight)
             .padding(.horizontal, horizontalPadding)
-            .padding(.bottom, 6)
+            // Clear of the page's own text, which now sits over the foot of
+            // the art rather than below it.
+            .padding(.bottom, logoBottomInset)
         }
         #endif
     }
@@ -1005,18 +1021,7 @@ private struct MediaShowScreen: View {
 
     private var actions: some View {
         HStack(spacing: 12) {
-            Button { chosen = playTarget } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "play.fill")
-                    Text("Play").fontWeight(.bold)
-                    if let code = playTarget?.episodeCode {
-                        Text(code).foregroundStyle(LineupStyle.background.opacity(0.5))
-                    }
-                }
-                .font(.system(size: 17))
-                .frame(maxWidth: .infinity).frame(height: buttonHeight)
-                .modifier(MediaChromeFocus(prominent: true))
-            }
+            Button { chosen = playTarget } label: { playLabel }
             .lineupFlatButton()
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
@@ -1033,6 +1038,44 @@ private struct MediaShowScreen: View {
             iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
                 .disabled(episodes.isEmpty)
         }
+    }
+
+    /// The play button.
+    ///
+    /// On a television it is as wide as what it says and no paler than anything
+    /// else on the page: a full-width filled bar was the loudest thing on the
+    /// screen for a control that starts one episode, and at that size the white
+    /// read as a slab rather than a button. A phone keeps the filled bar --
+    /// there it is the one thing a thumb goes for, and a full-width primary
+    /// action is how every other app on the platform says so.
+    @ViewBuilder
+    private var playLabel: some View {
+        let text = HStack(spacing: 8) {
+            Image(systemName: "play.fill")
+            Text("Play").fontWeight(.semibold)
+            if let code = playTarget?.episodeCode {
+                Text(code).foregroundStyle(playCodeTint)
+            }
+        }
+        .font(.system(size: 17))
+        #if os(tvOS)
+        text.padding(.horizontal, 22).frame(height: buttonHeight)
+            .modifier(MediaChromeFocus())
+        #else
+        text.frame(maxWidth: .infinity).frame(height: buttonHeight)
+            .modifier(MediaChromeFocus(prominent: true))
+        #endif
+    }
+
+    /// The episode code beside "Play", quieter than the word itself -- which
+    /// means a dark tint on the phone's filled bar and a pale one on the
+    /// television's outlined button.
+    private var playCodeTint: Color {
+        #if os(tvOS)
+        LineupStyle.lightPurple.opacity(0.55)
+        #else
+        LineupStyle.background.opacity(0.5)
+        #endif
     }
 
     @ViewBuilder
@@ -1233,22 +1276,41 @@ private struct MediaShowScreen: View {
     }
     private var heroRatio: CGFloat {
         #if os(tvOS)
-        // A full-width 16:9 hero is exactly one 16:9 screen, so the title,
-        // actions and episodes all landed below the fold and the page looked
-        // like nothing but artwork had loaded. Half a screen leaves the rest
-        // of the page on screen with it.
-        32 / 9
+        // Most of the screen, not half of it. A full 16:9 hero is exactly one
+        // screen and leaves the title and episodes below the fold; half a
+        // screen left the art finishing in the middle of the picture. This runs
+        // the art most of the way down and hands the last of it to the fade,
+        // with the title reaching up into it.
+        20 / 9
         #else
         2 / 3
         #endif
     }
     private var logoHeight: CGFloat { 110 }
+    /// How far the page's text reaches up into the fading art. Negative: it is
+    /// closing the gap the stack would otherwise leave.
+    private var contentRise: CGFloat {
+        #if os(tvOS)
+        -150
+        #else
+        0
+        #endif
+    }
+    /// Where the series logo sits above the foot of the art, clear of the text
+    /// that now overlaps it.
+    private var logoBottomInset: CGFloat {
+        #if os(tvOS)
+        168
+        #else
+        6
+        #endif
+    }
     /// How far the art is feathered into the page at its foot. A phone keeps
     /// this short: the fade used to run 160 points up a poster and take the
     /// artwork's own title into shadow with it.
     private var fadeHeight: CGFloat {
         #if os(tvOS)
-        160
+        380
         #else
         80
         #endif
@@ -1262,7 +1324,7 @@ private struct MediaShowScreen: View {
     }
     private var buttonHeight: CGFloat {
         #if os(tvOS)
-        58
+        50
         #else
         50
         #endif
@@ -1709,18 +1771,18 @@ private struct MediaSourceRow: View {
     #if os(tvOS)
     /// nil lets the row size to its content; a phone card still spans its list.
     private var rowWidth: CGFloat? { nil }
-    private var lineSpacing: CGFloat { 12 }
-    private var titleSize: CGFloat { 26 }
+    private var lineSpacing: CGFloat { 13 }
+    private var titleSize: CGFloat { 28 }
     // The three lines under the release carry the detail somebody is actually
     // choosing between -- codec, size, indexer -- and at a footnote's size a
     // television turns them into texture. They keep their order below the
     // title without being small enough to squint at.
-    private var badgeSize: CGFloat { 20 }
-    private var factSize: CGFloat { 18 }
-    private var markSize: CGFloat { 17 }
-    private var qualitySize: CGFloat { 18 }
-    private var qualityWidth: CGFloat { 82 }
-    private var qualityHeight: CGFloat { 36 }
+    private var badgeSize: CGFloat { 23 }
+    private var factSize: CGFloat { 21 }
+    private var markSize: CGFloat { 20 }
+    private var qualitySize: CGFloat { 20 }
+    private var qualityWidth: CGFloat { 90 }
+    private var qualityHeight: CGFloat { 40 }
     private var insetH: CGFloat { 26 }
     private var insetV: CGFloat { 24 }
     #else
