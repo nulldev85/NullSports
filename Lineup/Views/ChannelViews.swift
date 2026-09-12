@@ -1056,7 +1056,7 @@ private enum GuidePalette {
     static var surface: Color { LineupStyle.surface }
     static var raised: Color { LineupStyle.raised }
     static var channelTile: Color { LineupStyle.selected }
-    static var line: Color { LineupStyle.lightPurple.opacity(0.08) }
+    static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.lightPurple }
     static var secondary: Color { LineupStyle.lightPurple }
     /// A progress fill, an eyebrow over a panel: the theme speaking.
@@ -1189,6 +1189,15 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
+                        // Above the grid and below the header, where it reads as
+                        // one mark rather than a mark per row. The sidebar
+                        // covers the channel column when it is out, and the line
+                        // would stand on top of it saying nothing.
+                        .overlay(alignment: .topLeading) {
+                            if !(sidebarVisible && !searchActive), !filtered.isEmpty {
+                                GuideNowLine(now: guideNow).padding(.top, 52)
+                            }
+                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -1484,10 +1493,11 @@ private struct GuideTinyBadge: View {
     let color: Color
 
     var body: some View {
-        Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 9, weight: .bold)).tracking(0.8)
-            .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 7).frame(height: 18)
-            .background(color).clipShape(Capsule())
+        Text(title).font(.system(size: 10, weight: .bold)).tracking(0.8)
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.78))
+            .padding(.horizontal, 8).frame(height: 19)
+            .background(color, in: Capsule())
+            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(0.12), lineWidth: 0.5))
     }
 }
 
@@ -1635,6 +1645,45 @@ private struct GuideTimelineHeader: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(GuidePalette.line).frame(height: 1).padding(.horizontal, 14)
         }
+    }
+}
+
+/// The line marking this moment, standing across the grid.
+///
+/// The guide shaded each programme up to now inside its own cell, which says
+/// how far along one programme is but never where the hour itself has got to.
+/// A single line down the whole grid does, and it is the one thing every guide
+/// worth reading has.
+///
+/// It fades as it descends rather than running at full strength to the bottom:
+/// the top of the grid is where the eye is, and a hard bar the height of the
+/// screen would compete with the programme that is actually focused.
+private struct GuideNowLine: View {
+    @Environment(\.guideLayout) private var layout
+    let now: Date
+
+    /// The row and the header lay out identically -- fourteen points of
+    /// padding, then the channel column, then half-hour slots -- so the line
+    /// can be placed from the same three numbers and stay true to both.
+    private var x: CGFloat {
+        let elapsed = now.timeIntervalSince(guideTimelineAnchor(now))
+        return 14 + layout.channelWidth + CGFloat(elapsed / 1800) * layout.slotWidth
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Circle().fill(GuidePalette.highlight).frame(width: 7, height: 7)
+            Rectangle()
+                .fill(LinearGradient(
+                    colors: [GuidePalette.highlight.opacity(0.9), GuidePalette.highlight.opacity(0.16)],
+                    startPoint: .top, endPoint: .bottom))
+                .frame(width: 2)
+        }
+        .frame(width: 7)
+        .shadow(color: GuidePalette.highlight.opacity(0.45), radius: 7)
+        .offset(x: x - 3.5)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -2098,7 +2147,7 @@ private struct GuideProgramCell: View {
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(layout.slotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    GuidePalette.text.opacity(0.08)
+                    GuidePalette.highlight.opacity(0.1)
                         .frame(width: CGFloat(elapsedWidth))
                 }
             }
@@ -2120,12 +2169,12 @@ private struct GuideInlineStatus: View {
     let title: String
     private var accent: Color { title == "LIVE" ? GuidePalette.liveMark : GuidePalette.upcomingMark }
     var body: some View {
-        Text(title).foregroundColor(LineupStyle.lightPurple)
-            .font(.system(size: 8, weight: .bold)).tracking(1.4)
+        Text(title)
+            .font(.system(size: 10, weight: .heavy)).tracking(1.3)
             .foregroundStyle(accent)
-            .padding(.horizontal, 6).frame(height: 17)
-            .background(accent.opacity(0.08), in: Capsule())
-            .overlay(Capsule().stroke(accent.opacity(0.18), lineWidth: 0.5))
+            .padding(.horizontal, 8).frame(height: 20)
+            .background(accent.opacity(0.14), in: Capsule())
+            .overlay(Capsule().stroke(accent.opacity(0.34), lineWidth: 0.75))
     }
 }
 

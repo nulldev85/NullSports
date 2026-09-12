@@ -236,6 +236,27 @@ struct MobileGuideView: View {
                     .refreshable { await library.reload() }
                 }
                 .frame(width: logoWidth + window.width, height: viewport.size.height, alignment: .topLeading)
+                // This moment, drawn down the grid. Each card already shades
+                // itself up to now, which says how far one programme has run
+                // but never where the hour has got to. The line rides with the
+                // timeline as it scrolls, because that is what it marks; the
+                // channel column is drawn above it and covers it as it passes.
+                .overlay(alignment: .topLeading) {
+                    VStack(spacing: 0) {
+                        Circle().fill(LineupStyle.highlight).frame(width: 6, height: 6)
+                        Rectangle()
+                            .fill(LinearGradient(
+                                colors: [LineupStyle.highlight.opacity(0.9),
+                                         LineupStyle.highlight.opacity(0.14)],
+                                startPoint: .top, endPoint: .bottom))
+                            .frame(width: 1.5)
+                    }
+                    .frame(width: 6)
+                    .padding(.top, 34)
+                    .offset(x: logoWidth + window.x(now) - 3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
                 .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
                     GeometryReader { position in
@@ -339,7 +360,9 @@ struct MobileGuideView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(live ? LineupStyle.selected : LineupStyle.surface)
                         if program != nil {
-                            Rectangle().fill(LineupStyle.lightPurple.opacity(0.08))
+                            // Played, in the theme's own colour, so the wash
+                            // and the line down the grid read as one thing.
+                            Rectangle().fill(LineupStyle.highlight.opacity(0.1))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
                         VStack(alignment: .leading, spacing: 5) {
@@ -350,7 +373,7 @@ struct MobileGuideView: View {
                             if let program {
                                 HStack(spacing: 5) {
                                     if live {
-                                        Circle().fill(LineupStyle.lightPurple)
+                                        Circle().fill(LineupStyle.highlight)
                                             .frame(width: 4, height: 4)
                                             .accessibilityHidden(true)
                                         Text("LIVE")
