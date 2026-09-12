@@ -1275,11 +1275,17 @@ struct GuideView: View {
                 .padding(.horizontal, 20).padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
+                // Two washes across the whole screen, for depth in the corners.
+                // They were written against a theme whose highlight was its text
+                // tint, so what they added was light. Pointed at a real accent
+                // they became six hundred points of blue in each corner, which
+                // is the ground of the busiest screen in the app going navy.
+                // Light is what they were for, so light is what they use.
                 .background(
                     ZStack {
                         GuidePalette.background
-                        RadialGradient(colors: [GuidePalette.highlight.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
-                        RadialGradient(colors: [GuidePalette.liveMark.opacity(0.06), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
+                        RadialGradient(colors: [GuidePalette.text.opacity(0.05), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
+                        RadialGradient(colors: [GuidePalette.text.opacity(0.03), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
                     }.ignoresSafeArea()
                 )
                 .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
@@ -1499,7 +1505,7 @@ private struct GuidePreviewPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(LinearGradient(colors: [GuidePalette.highlight.opacity(0.06), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
+        .background(LinearGradient(colors: [GuidePalette.text.opacity(0.05), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
         .shadow(color: Color.black.opacity(0.35), radius: 24, y: 12)
