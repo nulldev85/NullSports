@@ -163,7 +163,7 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
-                .scaleEffect(focused ? 1.055 : 1)
+                .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
         }
     }
@@ -188,7 +188,7 @@ private struct MediaCatalogsScreen: View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 #if os(tvOS)
-                TVSelectable(scale: 1.02, action: { editingQuery = true }) {
+                TVSelectable(scale: LineupStyle.cardLift, action: { editingQuery = true }) {
                     HStack(spacing: 12) {
                         Image(systemName: "magnifyingglass").opacity(0.58)
                         Text(query.isEmpty ? "Search movies, shows, and addon catalogs" : query)
@@ -218,7 +218,7 @@ private struct MediaCatalogsScreen: View {
                 .focusEffectDisabled()
                 #endif
                 #if os(tvOS)
-                TVSelectable(scale: 1.04, action: { choosingShelf = true }) {
+                TVSelectable(scale: LineupStyle.controlLift, action: { choosingShelf = true }) {
                     Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
                         .font(.system(size: 16, weight: .semibold))
                         .padding(.horizontal, 16).frame(height: searchHeight)
@@ -266,7 +266,7 @@ private struct MediaCatalogsScreen: View {
                                     Text(catalog.title).font(sectionTitleFont)
                                     Spacer()
                                     #if os(tvOS)
-                                    TVSelectable(action: { media.removeShelf(catalog) }) {
+                                    TVSelectable(scale: LineupStyle.controlLift, action: { media.removeShelf(catalog) }) {
                                         MediaChromeLabel {
                                             Image(systemName: "minus.circle")
                                                 .accessibilityLabel("Remove \(catalog.title) shelf")
@@ -281,7 +281,7 @@ private struct MediaCatalogsScreen: View {
                                     }.lineupFlatButton()
                                     #endif
                                     #if os(tvOS)
-                                    TVSelectable(action: { pushed = catalog.root }) {
+                                    TVSelectable(scale: LineupStyle.controlLift, action: { pushed = catalog.root }) {
                                         MediaChromeLabel {
                                             Label("See All", systemImage: "chevron.right")
                                                 .font(.system(size: 14, weight: .semibold))
@@ -365,12 +365,12 @@ private struct MediaCatalogsScreen: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 24))
             HStack(spacing: 14) {
-                TVSelectable(scale: 1.04, action: { editingQuery = false }) {
+                TVSelectable(scale: LineupStyle.controlLift, action: { editingQuery = false }) {
                     Text("Done").font(.system(size: 17, weight: .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(prominent: true, radius: 12))
                 }
-                TVSelectable(scale: 1.04, action: { query = ""; results = [] }) {
+                TVSelectable(scale: LineupStyle.controlLift, action: { query = ""; results = [] }) {
                     Text("Clear").font(.system(size: 17, weight: .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(radius: 12))
@@ -657,7 +657,7 @@ private struct MediaShelfPicker: View {
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items) { item in
                             #if os(tvOS)
-                            TVSelectable(scale: 1.02, fill: LineupStyle.focused,
+                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
                                 fillRadius: 14, action: { add(item) }) {
                                 MediaShelfRow(title: item.name, detail: countText(item),
                                     busy: adding.contains(item.id))
@@ -693,7 +693,7 @@ private struct MediaShelfPicker: View {
                         ForEach(group.catalogs) { catalog in
                             let busy = media.importing.contains(catalog.catalogId)
                             #if os(tvOS)
-                            TVSelectable(scale: 1.02, fill: LineupStyle.focused, fillRadius: 14,
+                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
                                 action: { enable(catalog, in: group.id) }) {
                                 MediaShelfRow(title: catalog.name,
                                     detail: busy ? "Importing… select again to stop waiting" : nil,
@@ -955,7 +955,7 @@ private struct MediaShowScreen: View {
             .frame(width: buttonHeight + 8, height: buttonHeight)
             .modifier(MediaChromeFocus())
         #if os(tvOS)
-        TVSelectable(action: action) { label }
+        TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
         #else
         Button(action: action) { label }.lineupFlatButton()
         #endif
@@ -1062,7 +1062,7 @@ private struct MediaShowScreen: View {
             #if os(tvOS)
             // A Menu renders through tvOS's own chrome, which is the bulk this
             // screen had left. Same treatment as Add Shelf: no Menu.
-            TVSelectable(scale: 1.04, action: { choosingSeason = true }) {
+            TVSelectable(scale: LineupStyle.controlLift, action: { choosingSeason = true }) {
                 HStack(spacing: 7) {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
@@ -1255,7 +1255,7 @@ private struct MediaEpisodeCard: View {
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(LineupStyle.lightPurple)
-        .focusLift(focused, scale: 1.03)
+        .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
     private var footer: String {
@@ -1379,7 +1379,7 @@ private struct MediaSourcePicker: View {
                             LazyVStack(alignment: .leading, spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
                                     #if os(tvOS)
-                                    TVSelectable(scale: 1.02, fill: LineupStyle.focused,
+                                    TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
                                         fillRadius: 14, action: { selectedSource = source }) {
                                         MediaSourceRow(source: source)
                                     }
@@ -1509,7 +1509,7 @@ private struct MediaChromeFocus: ViewModifier {
     func body(content: Content) -> some View {
         content
             .modifier(MediaChromeSurface(focused: focused, prominent: prominent))
-            .scaleEffect(focused ? 1.04 : 1)
+            .scaleEffect(focused ? LineupStyle.controlLift : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 }
@@ -1541,7 +1541,7 @@ private struct MediaProviderChip: View {
         .background(active ? LineupStyle.lightPurple
             : (focused ? LineupStyle.focused : LineupStyle.surface), in: Capsule())
         .overlay(Capsule().stroke(border, lineWidth: 1))
-        .scaleEffect(focused ? 1.06 : 1)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
@@ -1769,7 +1769,7 @@ private struct MediaItemCard: View {
             .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .focusLift(focused, scale: 1.035)
+        .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
     private var cardRadius: CGFloat {

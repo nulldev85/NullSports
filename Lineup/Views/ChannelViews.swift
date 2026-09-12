@@ -892,7 +892,7 @@ private struct LiveFilterButton: View {
             .clipShape(Capsule()).nullGlass(cornerRadius: 22)
             .overlay(alignment: .bottom) { if selected { Capsule().fill(LineupStyle.field).frame(width: 28, height: 3).offset(y: -4) } }
             .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
-            .focusLift(isFocused, scale: 1.06)
+            .focusLift(isFocused, scale: LineupStyle.controlLift)
     }
 }
 
@@ -1657,7 +1657,7 @@ private struct GuideSidebarButton: View {
         .nullGlass(cornerRadius: 12)
         .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
         .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.32) : .clear, radius: 18, y: 8)
-        .scaleEffect(isFocused ? 1.03 : 1)
+        .scaleEffect(isFocused ? LineupStyle.cardLift : 1)
         .offset(y: isFocused ? -2 : 0)
         .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isFocused)
     }
@@ -1677,7 +1677,7 @@ private struct GuideHeaderButton: View {
             .background(isFocused ? LineupStyle.lightPurple.opacity(0.12) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).nullGlass(cornerRadius: 14)
             .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
-            .focusLift(isFocused, scale: 1.055)
+            .focusLift(isFocused, scale: LineupStyle.controlLift)
             .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
     }
 }
@@ -2095,6 +2095,9 @@ private struct TVFavoritesOrderView: View {
         .focused($focusedStreamID, equals: stream.id)
         .focusEffectDisabled()
         .onTapGesture { select(stream) }
+        // Smaller than either standard step, and deliberately so: these cells
+        // sit shoulder to shoulder in a grid, and a card step here would push
+        // one over its neighbours rather than above them.
         .scaleEffect(isPicked ? 1.025 : (isFocused ? 1.012 : 1))
         .offset(y: isPicked ? -3 : 0)
         .shadow(color: isPicked ? LineupStyle.lightPurple.opacity(0.2) : (isFocused ? .black.opacity(0.28) : .clear),
@@ -2139,7 +2142,7 @@ private struct TVReorderDoneButton: View {
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
             .onTapGesture(perform: action)
-            .focusLift(focused, scale: 1.06)
+            .focusLift(focused, scale: LineupStyle.controlLift)
     }
 }
 
@@ -2264,7 +2267,7 @@ struct AccountView: View {
                     DetailPanel(title: "APPEARANCE") {
                         HStack(spacing: 20) {
                             ForEach(LineupTheme.allCases) { theme in
-                                TVSelectable(scale: 1.03, fill: LineupStyle.focused, fillRadius: 14,
+                                TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
                                     action: { selectedTheme = theme.rawValue }) {
                                     ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
                                 }
@@ -2691,7 +2694,7 @@ private struct TVPlayerChrome: View {
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
                         // A Menu renders through tvOS's own chrome, so this is a
                         // plain selectable with a dialog, like every other control.
-                        TVSelectable(scale: 1.06, action: { showingQuality = true }) {
+                        TVSelectable(scale: LineupStyle.controlLift, action: { showingQuality = true }) {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
                                               focused: focusedControl.wrappedValue == .quality)
                         }
@@ -2801,7 +2804,7 @@ private struct TVPlayerButton: View {
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
             .shadow(color: .black.opacity(0.28), radius: 10, y: 7)
-            .scaleEffect(selected ? 1.06 : 1)
+            .scaleEffect(selected ? LineupStyle.controlLift : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
         }
         // The button draws its own focus state, so tvOS's plate would sit on top
@@ -2826,7 +2829,7 @@ private struct TVPlayerMenuLabel: View {
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
             .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
-        .scaleEffect(focused ? 1.06 : 1)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
 }

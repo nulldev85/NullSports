@@ -174,6 +174,20 @@ enum LineupStyle {
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
 
+    /// How far a focused thing rises, in two steps.
+    ///
+    /// A lift is proportional, so the same percentage moves a poster a long
+    /// way and a chip barely at all. Matching the *feel* across the app
+    /// therefore means two numbers, not one: a small control takes the larger
+    /// step and a large surface the smaller. These were six numbers picked one
+    /// at a time -- 1.02, 1.025, 1.03, 1.04, 1.055, 1.06 -- so crossing the
+    /// app with the remote, the amount things jumped changed screen by screen.
+    ///
+    /// Cards, rows, posters and panels.
+    static let cardLift: CGFloat = 1.03
+    /// Chips, labels, header buttons, player controls.
+    static let controlLift: CGFloat = 1.06
+
     static func leagueColor(_ league: SportsLeague) -> Color {
         let leagues = palette.leagues
         switch league {
@@ -306,7 +320,9 @@ extension View {
 /// to look the same focused as unfocused goes through here.
 struct TVSelectable<Content: View>: View {
     @FocusState private var focused: Bool
-    var scale: CGFloat = 1.06
+    /// Defaults to the card step, which is what most of these wrap. A control
+    /// passes LineupStyle.controlLift.
+    var scale: CGFloat = LineupStyle.cardLift
     /// A borderless row draws nothing of its own, so a lift and a shadow have
     /// no shape to lift. Such a row asks for a fill instead, and it is painted
     /// here for the same reason the lift is: this is where focus is known.
@@ -368,7 +384,7 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
     }
 
-    func focusLift(_ focused: Bool, scale: CGFloat = 1.035) -> some View {
+    func focusLift(_ focused: Bool, scale: CGFloat = LineupStyle.cardLift) -> some View {
         self
             .scaleEffect(focused ? scale : 1)
             .offset(y: focused ? -3 : 0)
