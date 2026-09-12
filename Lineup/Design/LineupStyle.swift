@@ -95,8 +95,9 @@ fileprivate struct LineupPalette {
     let selectionBorder: Color
     let liveDot: Color
     let positive: Color
-    /// A team badge arrives as artwork drawn for a light background, so it sits
-    /// on a plate. Which light is the theme's call.
+    /// A team badge arrives as artwork drawn for a light background, so a pale
+    /// rim is thrown behind its own silhouette to keep a dark crest legible.
+    /// Which pale is the theme's call.
     let logoPlate: Color
     /// Dividers and card edges. Derived from the text tint in both themes, but
     /// at its own weight: how far a hairline has to carry depends on how dark

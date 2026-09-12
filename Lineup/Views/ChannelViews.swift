@@ -485,8 +485,7 @@ private struct LiveBoardTeam: View {
 
     var body: some View {
         HStack(spacing: large ? 14 : 10) {
-            TeamLogo(url: logo, fallback: abbreviation)
-                .frame(width: large ? 44 : 34, height: large ? 44 : 34)
+            TeamBadge(url: logo, fallback: abbreviation, size: large ? 44 : 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).foregroundColor(LineupStyle.lightPurple).font(.system(size: large ? 25 : 23, weight: .semibold))
                     .foregroundStyle(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
@@ -977,10 +976,10 @@ private struct MatchupArtwork: View {
         ZStack {
             RoundedRectangle(cornerRadius: 10).fill(LineupStyle.raised)
             HStack(spacing: 16) {
-                TeamLogo(url: event.awayLogo, fallback: event.awayAbbreviation).frame(width: 58, height: 58)
+                TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
                 Text("VS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).foregroundStyle(LineupStyle.secondary)
                     .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
-                TeamLogo(url: event.homeLogo, fallback: event.homeAbbreviation).frame(width: 58, height: 58)
+                TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
             }
         }.frame(width: 190, height: 126)
     }
@@ -992,7 +991,7 @@ private struct GameTeamLine: View {
     let score: String?
     var body: some View {
         HStack(spacing: 12) {
-            TeamLogo(url: logo, fallback: String(name.prefix(3)).uppercased()).frame(width: 34, height: 34)
+            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 34)
             Text(name).foregroundColor(LineupStyle.lightPurple)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(LineupStyle.text)
@@ -1005,29 +1004,6 @@ private struct GameTeamLine: View {
                 Text(score).foregroundColor(LineupStyle.lightPurple).font(.title2.weight(.bold)).monospacedDigit().foregroundStyle(LineupStyle.text)
             }
         }
-    }
-}
-
-private struct TeamLogo: View {
-    let url: String
-    let fallback: String
-    var body: some View {
-        ZStack {
-            Circle().fill(LineupStyle.logoPlate.opacity(0.96))
-            AsyncImage(url: URL(string: url)) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit().padding(4)
-                } else {
-                    Text(fallback)
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.black.opacity(0.68))
-                        .minimumScaleFactor(0.65)
-                }
-            }
-            .transaction { $0.animation = nil }
-        }
-        .clipShape(Circle())
-        .overlay(Circle().stroke(LineupStyle.logoPlate.opacity(0.2), lineWidth: 0.75))
     }
 }
 

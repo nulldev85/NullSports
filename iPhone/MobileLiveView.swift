@@ -252,23 +252,10 @@ private struct MobileMatchupRow: View {
 
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
         HStack(spacing: 9) {
-            // A near-opaque white disc read as a sticker pasted on the card.
-            // The logo now sits on the card itself, lifted by a brighter ring.
-            // The initials fallback follows the theme, since the white it used
-            // to be drawn against is gone.
-            AsyncImage(url: URL(string: logo)) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit().padding(3)
-                } else {
-                    Text(String(name.prefix(3)).uppercased())
-                        .font(.system(size: 7, weight: .black))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
-                }
-            }
-            .transaction { $0.animation = nil }
-            .frame(width: 28, height: 28)
-            .overlay(Circle().strokeBorder(LineupStyle.lightPurple.opacity(0.34), lineWidth: 1))
-            .accessibilityHidden(true)
+            // The disc went first and the ring that replaced it goes now: both
+            // drew a circle around a mark that is not one. The badge lights
+            // its own shape instead.
+            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.subheadline.weight(.semibold))
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
