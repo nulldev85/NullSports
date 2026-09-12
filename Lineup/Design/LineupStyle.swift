@@ -11,7 +11,36 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
+        case .signal: "Signal"
         case .velvet: "Velvet"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .signal: "Charcoal & electric blue"
+        case .velvet: "Plum & lilac"
+        }
+    }
+
+    fileprivate var palette: LineupPalette {
+        switch self {
+        case .velvet:
+            LineupPalette(
+                accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
+                raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
+                focused: rgb(0x3D3444), warning: rgb(0xC78259),
+                // Velvet has never had a colour of its own apart from its text
+                // tint, so its highlight is that tint: nothing about the theme
+                // changes by giving the slot a value.
+                highlight: rgb(0xD4C7E1), selectionBorder: rgb(0xFFFFFF),
+                liveDot: rgb(0xFA4757), positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
+                line: rgb(0xD4C7E1).opacity(0.11),
+                leagues: LeagueColors(
+                    football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
+                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8)
+                )
+            )
         case .signal:
             // Charcoal and electric blue. Velvet is warm, soft and
             // low-contrast: plum ground, lilac text, nothing saturated
