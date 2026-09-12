@@ -4,7 +4,12 @@ import Foundation
 final class MediaLibrary: ObservableObject {
     @Published private(set) var profiles: [MediaServerProfile] = []
     @Published private(set) var activeProfile: MediaServerProfile?
+    /// The server's own libraries, as `/views` reports them.
     @Published private(set) var roots: [MediaItem] = []
+    /// Collections, which on a Nullfin server is where an enabled addon catalog
+    /// lands. Kept apart from `roots` only so the shelf picker can say which is
+    /// which; a shelf made from either behaves the same way.
+    @Published private(set) var collections: [MediaItem] = []
     @Published private(set) var catalogs: [MediaCatalog] = []
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
@@ -67,6 +72,7 @@ final class MediaLibrary: ObservableObject {
         loadID = UUID()
         activeProfile = profile
         roots = []
+        collections = []
         catalogs = []
         persist()
         await reload()
@@ -79,6 +85,7 @@ final class MediaLibrary: ObservableObject {
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
             roots = []
+            collections = []
             catalogs = []
         }
         isLoading = false
@@ -87,7 +94,9 @@ final class MediaLibrary: ObservableObject {
     }
 
     func reload() async {
-        guard let profile = activeProfile else { roots = []; catalogs = []; isLoading = false; return }
+        guard let profile = activeProfile else {
+            roots = []; collections = []; catalogs = []; isLoading = false; return
+        }
         let requestID = UUID()
         loadID = requestID
         isLoading = true
@@ -95,7 +104,18 @@ final class MediaLibrary: ObservableObject {
         do {
             let source = try client(for: profile)
             let loaded = try await source.views(userID: profile.userID)
-            let selectedRoots = selectedShelfRoots(from: loaded, profileID: profile.id)
+            // A server with no collections answers with an empty list, and one
+            // too old to know the route answers an error. Neither is worth
+            // costing the viewer the libraries that did load.
+            // The BoxSet filter matches on the server's own kind, not on the
+            // type it reports, so a promoted collection comes back here as well
+            // as in the views above. Whatever a library already offers is the
+            // library's.
+            let known = Set(loaded.map(\.id))
+            let loadedCollections = ((try? await source.collections(userID: profile.userID)) ?? [])
+                .filter { !known.contains($0.id) }
+            let shelvable = loaded + loadedCollections
+            let selectedRoots = selectedShelfRoots(from: shelvable, profileID: profile.id)
             let loadedCatalogs = await withTaskGroup(of: MediaCatalog.self) { group in
                 for root in selectedRoots {
                     group.addTask {
@@ -106,13 +126,14 @@ final class MediaLibrary: ObservableObject {
                 var result: [MediaCatalog] = []
                 for await catalog in group { result.append(catalog) }
                 return result.sorted { left, right in
-                    let leftIndex = loaded.firstIndex { $0.id == left.id } ?? .max
-                    let rightIndex = loaded.firstIndex { $0.id == right.id } ?? .max
+                    let leftIndex = shelvable.firstIndex { $0.id == left.id } ?? .max
+                    let rightIndex = shelvable.firstIndex { $0.id == right.id } ?? .max
                     return leftIndex < rightIndex
                 }
             }
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
             roots = loaded
+            collections = loadedCollections
             catalogs = loadedCatalogs
             errorMessage = nil
         } catch {
@@ -184,8 +205,17 @@ final class MediaLibrary: ObservableObject {
         saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
     }
 
-    var availableShelves: [MediaItem] {
-        roots.filter { root in !catalogs.contains(where: { $0.id == root.id }) }
+    var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }
+
+    /// The server's own libraries that are not already a shelf.
+    var availableLibraries: [MediaItem] { unshelved(roots) }
+
+    /// The addon catalogs, and any hand-made collection, that are not already a
+    /// shelf. On a Nullfin server this is the list the viewer came for.
+    var availableCatalogs: [MediaItem] { unshelved(collections) }
+
+    private func unshelved(_ items: [MediaItem]) -> [MediaItem] {
+        items.filter { item in !catalogs.contains(where: { $0.id == item.id }) }
     }
 
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {

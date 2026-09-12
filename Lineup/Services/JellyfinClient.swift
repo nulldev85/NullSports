@@ -52,6 +52,32 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    /// Every collection on the server, whether or not it is promoted.
+    ///
+    /// A Nullfin addon catalog is imported as a collection and left unpromoted,
+    /// and the views route filters on exactly that flag -- so an addon catalog
+    /// is a BoxSet that `views` structurally cannot return, however many addons
+    /// are attached. Asking for BoxSets is how a client reaches them. The flag
+    /// itself is server-side only and no query of ours can set it either way.
+    ///
+    /// A stock Jellyfin server answers the same request with its own
+    /// collections, which belong in the same list.
+    func collections(userID: String, limit: Int = 200) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "IncludeItemTypes", value: "BoxSet"),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "SortBy", value: "SortName"),
+            URLQueryItem(name: "SortOrder", value: "Ascending")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        return response.items
+    }
+
     func item(userID: String, itemID: String) async throws -> MediaItem {
         try await send(try request(path: "users/\(userID)/items/\(itemID)"))
     }

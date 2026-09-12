@@ -224,29 +224,21 @@ private struct MediaCatalogsScreen: View {
                         .padding(.horizontal, 16).frame(height: searchHeight)
                         .modifier(MediaChromeSurface(radius: 13))
                 }
-                .confirmationDialog("Add Shelf", isPresented: $choosingShelf, titleVisibility: .visible) {
-                    ForEach(media.availableShelves) { root in
-                        Button(root.name) { Task { await media.addShelf(root) } }
-                    }
-                    Button("Cancel", role: .cancel) { }
-                }
+                // A dialog of buttons was fine for the handful of libraries a
+                // server reports. A Nullfin server with addons attached can
+                // offer dozens of catalogs, which wants a list that scrolls.
+                .fullScreenCover(isPresented: $choosingShelf) { MediaShelfPicker() }
                 #else
-                Menu {
-                    if media.availableShelves.isEmpty {
-                        Button("All available shelves are visible") { }.disabled(true)
-                    } else {
-                        ForEach(media.availableShelves) { root in
-                            Button(root.name, systemImage: "plus") { Task { await media.addShelf(root) } }
-                        }
-                    }
-                } label: {
+                Button { choosingShelf = true } label: {
                     Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
                         .font(.system(size: 16, weight: .semibold))
                         .padding(.horizontal, 16).frame(height: searchHeight)
                         .modifier(MediaChromeSurface(focused: addShelfFocused, radius: 13))
                 }
+                .lineupFlatButton()
                 .focused($addShelfFocused)
                 .focusEffectDisabled()
+                .sheet(isPresented: $choosingShelf) { MediaShelfPicker() }
                 #endif
             }
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
@@ -581,6 +573,165 @@ private struct FullBleedHeader: ViewModifier {
             .toolbarBackground(.hidden, for: .navigationBar)
         #endif
     }
+}
+
+/// Which shelves to show, in two groups: the server's own libraries, and the
+/// collections -- which on a Nullfin server is where an enabled addon catalog
+/// lands, one collection per catalog.
+///
+/// Lineup only ever asked `/views` for this list, and that route answers with
+/// promoted collections alone. An addon catalog is imported unpromoted, so no
+/// number of attached addons could put one in front of the viewer. The second
+/// group is the part that was missing.
+private struct MediaShelfPicker: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var adding: Set<String> = []
+
+    private struct Group: Identifiable {
+        let id: String
+        let detail: String
+        let items: [MediaItem]
+    }
+
+    private var groups: [Group] {
+        [Group(id: "LIBRARIES", detail: "Folders this server keeps itself",
+               items: media.availableLibraries),
+         Group(id: "ADDON CATALOGS", detail: "Catalogs enabled on your server's addons",
+               items: media.availableCatalogs)]
+            .filter { !$0.items.isEmpty }
+    }
+
+    var body: some View {
+        #if os(tvOS)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ADD A SHELF").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("Pick a row for the Media Servers tab")
+                    .font(.system(size: 22, weight: .semibold)).lineLimit(1)
+            }
+            .padding(.horizontal, 28).padding(.top, 36).padding(.bottom, 18)
+            list
+        }
+        .frame(maxWidth: 1180, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .onExitCommand { dismiss() }
+        #else
+        NavigationStack {
+            list
+                .navigationTitle("Add Shelf")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done", action: dismiss.callAsFunction)
+                    }
+                }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if groups.isEmpty {
+            ContentUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
+                description: Text("This server offers no other library or catalog. Enable a catalog on one of your addons to see it here."))
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(group.id).font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text(group.detail).font(.system(size: 13))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                        }
+                        .padding(.top, 18).padding(.bottom, 6)
+                        ForEach(group.items) { item in
+                            #if os(tvOS)
+                            TVSelectable(scale: 1.02, fill: LineupStyle.focused,
+                                fillRadius: 14, action: { add(item) }) {
+                                MediaShelfRow(item: item, busy: adding.contains(item.id))
+                            }
+                            #else
+                            Button { add(item) } label: {
+                                MediaShelfRow(item: item, busy: adding.contains(item.id))
+                            }
+                            .lineupFlatButton()
+                            #endif
+                        }
+                    }
+                }
+                .padding(.horizontal, rowPadding).padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(LineupStyle.background.ignoresSafeArea())
+            .foregroundStyle(LineupStyle.lightPurple)
+        }
+    }
+
+    /// The picker stays up: a row leaves the list as its shelf appears behind,
+    /// so several can be added without reopening this each time.
+    private func add(_ item: MediaItem) {
+        guard !adding.contains(item.id) else { return }
+        adding.insert(item.id)
+        Task { @MainActor in
+            await media.addShelf(item)
+            adding.remove(item.id)
+        }
+    }
+
+    private var rowPadding: CGFloat {
+        #if os(tvOS)
+        28
+        #else
+        16
+        #endif
+    }
+}
+
+private struct MediaShelfRow: View {
+    let item: MediaItem
+    let busy: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name).font(.system(size: nameSize, weight: .semibold))
+                    .lineLimit(2).multilineTextAlignment(.leading)
+                if let count = item.childCount, count > 0 {
+                    Text("\(count) titles").font(.system(size: detailSize))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                }
+            }
+            Spacer(minLength: 16)
+            if busy {
+                ProgressView()
+            } else {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: nameSize, weight: .semibold))
+                    .foregroundStyle(LineupStyle.highlight)
+            }
+        }
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(.horizontal, 20).padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LineupStyle.surface.opacity(0.5),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Add " + item.name)
+    }
+
+    #if os(tvOS)
+    private var nameSize: CGFloat { 22 }
+    private var detailSize: CGFloat { 14 }
+    #else
+    private var nameSize: CGFloat { 17 }
+    private var detailSize: CGFloat { 13 }
+    #endif
 }
 
 /// The page a series opens to: its art, what to play next, and the season the
