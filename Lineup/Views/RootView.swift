@@ -16,7 +16,7 @@ struct RootView: View {
             }
         }
         .foregroundStyle(LineupStyle.text)
-        .tint(LineupStyle.lightPurple)
+        .tint(LineupStyle.highlight)
         .background(LineupStyle.background.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         #if os(tvOS)
@@ -73,7 +73,7 @@ struct MainView: View {
                 .tag(3)
         }
         .ignoresSafeArea(.container, edges: .bottom)
-        .tint(LineupStyle.field)
+        .tint(LineupStyle.highlight)
     }
 }
 #endif

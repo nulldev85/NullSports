@@ -7,6 +7,7 @@ struct LineupApp: App {
     @StateObject private var media = MediaLibrary()
 
     init() {
+        retireRemovedThemes()
         #if os(tvOS)
         applyLineupTabBarTheme()
         #endif
@@ -20,6 +21,18 @@ struct LineupApp: App {
                 .preferredColorScheme(.dark)
         }
     }
+}
+
+/// Lineup used to offer five themes and now offers two. A device that still
+/// has one of the retired names stored would render in Velvet -- the fallback
+/// for a name that no longer parses -- while the settings screen showed
+/// nothing selected, because the stored string matches no row. Rewriting the
+/// name at launch keeps the two in agreement.
+private func retireRemovedThemes() {
+    let defaults = UserDefaults.standard
+    guard let stored = defaults.string(forKey: LineupTheme.storageKey),
+          LineupTheme(rawValue: stored) == nil else { return }
+    defaults.set(LineupTheme.velvet.rawValue, forKey: LineupTheme.storageKey)
 }
 
 #if os(tvOS)

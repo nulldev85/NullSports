@@ -299,7 +299,7 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
 struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
-    private let red = Color(red: 0.98, green: 0.28, blue: 0.34)
+    private var red: Color { LineupStyle.liveDot }
 
     var body: some View {
         ZStack {

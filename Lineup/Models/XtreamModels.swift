@@ -214,15 +214,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .mlb: "Baseball"
         }
     }
-    var color: Color {
-        switch self {
-        case .nfl: Color(red: 0.61, green: 0.43, blue: 0.31)
-        case .ncaaf: Color(red: 0.62, green: 0.46, blue: 0.30)
-        case .nba: Color(red: 0.70, green: 0.39, blue: 0.28)
-        case .nhl: Color(red: 0.45, green: 0.55, blue: 0.59)
-        case .mlb: Color(red: 0.42, green: 0.49, blue: 0.66)
-        }
-    }
+    /// The theme owns the set. These were five literals mixed against one
+    /// background, which is why a second theme could not have its own.
+    var color: Color { LineupStyle.leagueColor(self) }
 
     func matches(_ text: String) -> Bool {
         let value = text.lowercased()

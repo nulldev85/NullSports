@@ -170,7 +170,7 @@ struct MobileGuideView: View {
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
                     .environmentObject(library)
-                    .tint(LineupStyle.lightPurple)
+                    .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
         }

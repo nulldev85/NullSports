@@ -21,7 +21,7 @@ struct MainView: View {
             MobileAccountView()
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
-        .tint(LineupStyle.lightPurple)
+        .tint(LineupStyle.highlight)
         .lineupTabBarBackground(LineupStyle.background)
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
@@ -229,13 +229,13 @@ private struct MobileAccountView: View {
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)
                     .environmentObject(library)
-                    .tint(LineupStyle.lightPurple)
+                    .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView()
                     .environmentObject(media)
-                    .tint(LineupStyle.lightPurple)
+                    .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
             .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",

@@ -2,8 +2,7 @@ import SwiftUI
 
 enum LineupTheme: String, CaseIterable, Identifiable {
     case velvet
-    case grandstand
-    case pitLane
+    case signal
 
     static let storageKey = "lineup.appearance.theme"
     var id: String { rawValue }
@@ -11,16 +10,14 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .velvet: "Velvet"
-        case .grandstand: "Grandstand"
-        case .pitLane: "Pit Lane"
+        case .signal: "Signal"
         }
     }
 
     var detail: String {
         switch self {
         case .velvet: "Plum & lilac"
-        case .grandstand: "Ink & champagne"
-        case .pitLane: "Graphite & copper"
+        case .signal: "Carbon & electric"
         }
     }
 
@@ -30,22 +27,46 @@ enum LineupTheme: String, CaseIterable, Identifiable {
             LineupPalette(
                 accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
                 raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
-                focused: rgb(0x3D3444), warning: rgb(0xC78259)
+                focused: rgb(0x3D3444), warning: rgb(0xC78259),
+                // Velvet has never had a colour of its own apart from its text
+                // tint, so its highlight is that tint: nothing about the theme
+                // changes by giving the slot a value.
+                highlight: rgb(0xD4C7E1), selectionBorder: rgb(0xFFFFFF),
+                liveDot: rgb(0xFA4757), positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
+                leagues: LeagueColors(
+                    football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
+                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8)
+                )
             )
-        case .grandstand:
+        case .signal:
+            // Carbon and electric. Velvet is warm, soft and low-contrast: plum
+            // ground, lilac text, nothing saturated anywhere. This is the
+            // opposite on every axis -- a cool near-black ground, crisp cool
+            // white type, and one saturated cyan that carries every live and
+            // active state in the app.
             LineupPalette(
-                accent: rgb(0xE8D9B5), background: rgb(0x07131D), surface: rgb(0x0D1C28),
-                raised: rgb(0x152938), sidebar: rgb(0x0A1823), selected: rgb(0x132633),
-                focused: rgb(0x203A4B), warning: rgb(0xD89A56)
-            )
-        case .pitLane:
-            LineupPalette(
-                accent: rgb(0xE8A66A), background: rgb(0x101112), surface: rgb(0x181A1C),
-                raised: rgb(0x24272A), sidebar: rgb(0x141618), selected: rgb(0x202326),
-                focused: rgb(0x32363A), warning: rgb(0xE0B15B)
+                accent: rgb(0xE7ECF5), background: rgb(0x07090C), surface: rgb(0x0E1117),
+                raised: rgb(0x171B23), sidebar: rgb(0x0A0D11), selected: rgb(0x131821),
+                focused: rgb(0x1F2732), warning: rgb(0xFFB224),
+                highlight: rgb(0x22D3EE), selectionBorder: rgb(0x22D3EE),
+                liveDot: rgb(0xFF2D55), positive: rgb(0x3DDC84), logoPlate: rgb(0xDCE3EE),
+                leagues: LeagueColors(
+                    football: rgb(0x3E6BFF), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
+                    hockey: rgb(0x8B5CF6), baseball: rgb(0x3DDC84)
+                )
             )
         }
     }
+}
+
+/// One colour per league, so a theme decides the whole set rather than each
+/// league carrying a literal that was picked against one background.
+fileprivate struct LeagueColors {
+    let football: Color
+    let college: Color
+    let basketball: Color
+    let hockey: Color
+    let baseball: Color
 }
 
 fileprivate struct LineupPalette {
@@ -57,6 +78,17 @@ fileprivate struct LineupPalette {
     let selected: Color
     let focused: Color
     let warning: Color
+    /// The theme's own colour, as opposed to its text tint. Live borders, the
+    /// active chip, a progress fill -- anything meant to be the sharpest thing
+    /// on screen reads from here.
+    let highlight: Color
+    let selectionBorder: Color
+    let liveDot: Color
+    let positive: Color
+    /// A team badge arrives as artwork drawn for a light background, so it sits
+    /// on a plate. Which light is the theme's call.
+    let logoPlate: Color
+    let leagues: LeagueColors
 }
 
 private func rgb(_ value: UInt32) -> Color {
@@ -68,19 +100,20 @@ private func rgb(_ value: UInt32) -> Color {
 }
 
 enum LineupStyle {
+    /// Both platforms read the same stored choice. The television used to be
+    /// pinned to Velvet because the themes it could have picked were not
+    /// finished for it; the two that remain are, and each has its own settings
+    /// entry to choose from.
     static var theme: LineupTheme {
-        // The TV app ships Velvet only, so a palette chosen on a phone cannot
-        // follow the same account onto a television and restyle it there.
-        #if os(tvOS)
-        return .velvet
-        #else
-        return LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
-        #endif
+        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .velvet
     }
     private static var palette: LineupPalette { theme.palette }
+    /// The theme's text tint. Named for Velvet's lilac, which is no longer the
+    /// only thing it can be.
     static var lightPurple: Color { palette.accent }
-    // White is reserved for selected Live card frames.
-    static let liveSelectionBorder = Color.white
+    /// The frame on a selected Live card: the one place a theme is allowed its
+    /// brightest edge.
+    static var liveSelectionBorder: Color { palette.selectionBorder }
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
     static var raised: Color { palette.raised }
@@ -88,13 +121,30 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
-    static var liveBorder: Color { lightPurple.opacity(0.72) }
+    static var highlight: Color { palette.highlight }
+    static var liveBorder: Color { palette.highlight.opacity(0.72) }
     static var line: Color { lightPurple.opacity(0.11) }
     static var text: Color { lightPurple }
     static var secondary: Color { lightPurple }
     static var field: Color { lightPurple }
-    static var live: Color { lightPurple }
+    static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
+    /// The pulsing dot that marks something as on air.
+    static var liveDot: Color { palette.liveDot }
+    /// Confirmation -- a channel was found, a server answered.
+    static var positive: Color { palette.positive }
+    static var logoPlate: Color { palette.logoPlate }
+
+    static func leagueColor(_ league: SportsLeague) -> Color {
+        let leagues = palette.leagues
+        switch league {
+        case .nfl: return leagues.football
+        case .ncaaf: return leagues.college
+        case .nba: return leagues.basketball
+        case .nhl: return leagues.hockey
+        case .mlb: return leagues.baseball
+        }
+    }
 }
 
 struct LineupThemeSwatch: View {
@@ -105,10 +155,11 @@ struct LineupThemeSwatch: View {
             theme.palette.background
             theme.palette.surface
             theme.palette.accent
+            theme.palette.highlight
         }
-        .frame(width: 54, height: 24)
+        .frame(width: 64, height: 24)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+        .overlay(Capsule().stroke(theme.palette.accent.opacity(0.18), lineWidth: 1))
         .accessibilityHidden(true)
     }
 }

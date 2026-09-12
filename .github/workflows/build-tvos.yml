@@ -51,10 +51,13 @@ jobs:
           swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
           /tmp/lineup-provider-refresh-checks
 
+      # The icon layers are committed artwork. They used to be rebuilt here from
+      # a source bitmap on every run, which meant a new icon was overwritten by
+      # the old one before it ever reached a build. BuildAssets/generate-icons.py
+      # draws them when the mark itself changes.
       - name: Generate project
         run: |
           set -euo pipefail
-          bash BuildAssets/generate-icons.sh
           xcodegen generate
 
       - name: Build unsigned app

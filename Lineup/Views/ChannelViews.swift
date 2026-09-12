@@ -464,10 +464,10 @@ private struct LiveTVStandbyLight: View {
 
     var body: some View {
         Circle()
-            .fill(Color(red: 0.95, green: 0.16, blue: 0.12))
+            .fill(LineupStyle.liveDot)
             .frame(width: 4, height: 4)
             .opacity(reduceMotion || glowing ? 0.85 : 0.3)
-            .shadow(color: .red.opacity(reduceMotion || glowing ? 0.35 : 0.1), radius: 3)
+            .shadow(color: LineupStyle.liveDot.opacity(reduceMotion || glowing ? 0.35 : 0.1), radius: 3)
             .animation(reduceMotion ? nil : .easeInOut(duration: 2).repeatForever(autoreverses: true), value: glowing)
             .onAppear { glowing = true }
             .accessibilityHidden(true)
@@ -912,7 +912,7 @@ private struct GameEventCard: View {
                 Rectangle().fill(LineupStyle.line).frame(height: 1)
                 HStack(spacing: 12) {
                     Image(systemName: stream == nil ? "tv.slash" : "checkmark.circle.fill")
-                        .foregroundStyle(stream == nil ? LineupStyle.warning : Color(red: 0.42, green: 0.78, blue: 0.48))
+                        .foregroundStyle(stream == nil ? LineupStyle.warning : LineupStyle.positive)
                     Text(stream?.name ?? (event.broadcast.isEmpty ? "No matching channel" : event.broadcast)).foregroundColor(LineupStyle.lightPurple)
                         .font(.callout.weight(.medium)).foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
                     Spacer()
@@ -1013,7 +1013,7 @@ private struct TeamLogo: View {
     let fallback: String
     var body: some View {
         ZStack {
-            Circle().fill(Color.white.opacity(0.96))
+            Circle().fill(LineupStyle.logoPlate.opacity(0.96))
             AsyncImage(url: URL(string: url)) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFit().padding(4)
@@ -1027,7 +1027,7 @@ private struct TeamLogo: View {
             .transaction { $0.animation = nil }
         }
         .clipShape(Circle())
-        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.75))
+        .overlay(Circle().stroke(LineupStyle.logoPlate.opacity(0.2), lineWidth: 0.75))
     }
 }
 
@@ -1045,6 +1045,11 @@ private struct ChannelLogo: View {
 }
 
 // Theme surfaces shared across the Guide.
+/// The guide's own names for the theme's colours. The four that used to be
+/// called purple, pink, green and yellow were all the text tint, because
+/// Velvet has no colour of its own -- so the names described nothing and a
+/// theme that did have one could not reach them. They say what they mark now,
+/// and the marks read from the theme's highlight.
 private enum GuidePalette {
     static var background: Color { LineupStyle.background }
     static var panel: Color { LineupStyle.surface.opacity(0.74) }
@@ -1054,10 +1059,15 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.lightPurple.opacity(0.08) }
     static var text: Color { LineupStyle.lightPurple }
     static var secondary: Color { LineupStyle.lightPurple }
-    static var purple: Color { LineupStyle.lightPurple }
-    static var pink: Color { LineupStyle.lightPurple }
-    static var green: Color { LineupStyle.lightPurple }
-    static var yellow: Color { LineupStyle.lightPurple }
+    /// A progress fill, an eyebrow over a panel: the theme speaking.
+    static var highlight: Color { LineupStyle.highlight }
+    /// The on-air badge.
+    static var liveMark: Color { LineupStyle.highlight }
+    /// The edge and glow on whatever the remote is sitting on.
+    static var focusRing: Color { LineupStyle.highlight }
+    /// A badge for something that has not started, which must not be mistaken
+    /// for the on-air one, so it stays the quiet text tint.
+    static var upcomingMark: Color { LineupStyle.lightPurple }
 }
 
 struct GuideView: View {
@@ -1207,8 +1217,8 @@ struct GuideView: View {
                 .background(
                     ZStack {
                         GuidePalette.background
-                        RadialGradient(colors: [GuidePalette.purple.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
-                        RadialGradient(colors: [GuidePalette.pink.opacity(0.06), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
+                        RadialGradient(colors: [GuidePalette.highlight.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
+                        RadialGradient(colors: [GuidePalette.liveMark.opacity(0.06), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
                     }.ignoresSafeArea()
                 )
                 .fullScreenCover(item: $selectedStream, onDismiss: { previewHidden = false }) { stream in
@@ -1401,7 +1411,7 @@ private struct GuidePreviewPanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) {
                     Text("‹ \(categoryName.uppercased())  ·  \(item.stream.name.uppercased())").foregroundColor(LineupStyle.lightPurple)
-                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(GuidePalette.purple).lineLimit(1)
+                        .font(.caption2.weight(.bold)).tracking(1.15).foregroundStyle(GuidePalette.highlight).lineLimit(1)
                     if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     if item.program.isLive { GuideTinyBadge(title: "LIVE", color: GuidePalette.raised) }
                 }
@@ -1415,7 +1425,7 @@ private struct GuidePreviewPanel: View {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             Capsule().fill(GuidePalette.raised)
-                            Capsule().fill(GuidePalette.purple).frame(width: proxy.size.width * progress)
+                            Capsule().fill(GuidePalette.highlight).frame(width: proxy.size.width * progress)
                         }
                     }.frame(width: 170, height: 4)
                 }
@@ -1428,7 +1438,7 @@ private struct GuidePreviewPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(LinearGradient(colors: [GuidePalette.purple.opacity(0.06), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
+        .background(LinearGradient(colors: [GuidePalette.highlight.opacity(0.06), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
         .shadow(color: Color.black.opacity(0.35), radius: 24, y: 12)
@@ -1509,7 +1519,7 @@ private struct GuideSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.purple)
+                Text("CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
                 Spacer()
 
             }
@@ -1520,7 +1530,7 @@ private struct GuideSidebar: View {
             GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly, focus: focus, focusID: "favorites") {
                 selectedCategoryID = nil; favoritesOnly = true
             }
-            Text("CATEGORIES").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.purple)
+            Text("CATEGORIES").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
                 .lineLimit(1).padding(.leading, 14).padding(.top, 8).frame(height: 30)
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -1567,10 +1577,10 @@ private struct GuideSidebarButton: View {
         .frame(minHeight: 46)
         .background(isFocused ? GuidePalette.raised : (selected ? GuidePalette.text.opacity(0.075) : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isFocused ? GuidePalette.green.opacity(0.85) : Color.clear, lineWidth: 1.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isFocused ? GuidePalette.focusRing.opacity(0.85) : Color.clear, lineWidth: 1.5))
         .nullGlass(cornerRadius: 12)
         .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
-        .shadow(color: isFocused ? GuidePalette.green.opacity(0.32) : .clear, radius: 18, y: 8)
+        .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.32) : .clear, radius: 18, y: 8)
         .scaleEffect(isFocused ? 1.03 : 1)
         .offset(y: isFocused ? -2 : 0)
         .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isFocused)
@@ -1605,7 +1615,7 @@ private struct GuideTimelineHeader: View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 Text("TODAY").foregroundColor(LineupStyle.lightPurple)
-                    .foregroundStyle(GuidePalette.purple)
+                    .foregroundStyle(GuidePalette.highlight)
                     .frame(width: layout.channelWidth, alignment: .leading)
                 ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                     Text(anchor.addingTimeInterval(Double(step) * 1800).formatted(date: .omitted, time: .shortened)).foregroundColor(LineupStyle.lightPurple)
@@ -1740,7 +1750,7 @@ private struct GuideChannelRow: View {
             .stroke(GuidePalette.line.opacity(0.72), lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream.id {
-                RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.green.opacity(0.9), lineWidth: 2)
+                RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
             }
         }
         .shadow(color: Color.black.opacity(0.18), radius: 12, y: 6)
@@ -2095,10 +2105,10 @@ private struct GuideProgramCell: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(
-            isFocused ? GuidePalette.green.opacity(0.9) : GuidePalette.line.opacity(0.55),
+            isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
             lineWidth: isFocused ? 2 : 0.5
         ))
-        .shadow(color: isFocused ? GuidePalette.green.opacity(0.14) : .clear, radius: 12, y: 5)
+        .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.14) : .clear, radius: 12, y: 5)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
@@ -2108,7 +2118,7 @@ private struct GuideProgramCell: View {
 
 private struct GuideInlineStatus: View {
     let title: String
-    private var accent: Color { title == "LIVE" ? GuidePalette.pink : GuidePalette.yellow }
+    private var accent: Color { title == "LIVE" ? GuidePalette.liveMark : GuidePalette.upcomingMark }
     var body: some View {
         Text(title).foregroundColor(LineupStyle.lightPurple)
             .font(.system(size: 8, weight: .bold)).tracking(1.4)
@@ -2123,53 +2133,100 @@ struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingMediaServer = false
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 30) {
-                ScreenHeading(title: "Account", detail: "Provider and app details")
-                if let profile = library.activeProfile {
-                    DetailPanel(title: "PROVIDER") {
-                        AccountRow(label: "Profile", value: profile.name)
-                        Divider().overlay(LineupStyle.line)
-                        AccountRow(label: "Server", value: profile.serverURL)
-                        Divider().overlay(LineupStyle.line)
-                        AccountRow(label: "Username", value: profile.username)
-                    }
-                    Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
-                        .lineupButtonStyle()
-                }
-                DetailPanel(title: "MEDIA SERVERS") {
-                    if media.profiles.isEmpty {
-                        AccountRow(label: "Status", value: "Not connected")
-                    } else {
-                        ForEach(media.profiles) { profile in
-                            HStack(spacing: 20) {
-                                Button {
-                                    Task { await media.select(profile) }
-                                } label: {
-                                    AccountRow(label: profile.name,
-                                        value: media.activeProfile?.id == profile.id ? "Active" : "Select")
+            // Scrolling, because the panels already filled the screen before
+            // appearance was one of them.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                    ScreenHeading(title: "Account", detail: "Provider and app details")
+                    DetailPanel(title: "APPEARANCE") {
+                        HStack(spacing: 20) {
+                            ForEach(LineupTheme.allCases) { theme in
+                                TVSelectable(scale: 1.03, fill: LineupStyle.focused, fillRadius: 14,
+                                    action: { selectedTheme = theme.rawValue }) {
+                                    ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
                                 }
-                                .lineupFlatButton()
-                                Button("Remove", role: .destructive) { media.remove(profile) }
                             }
                         }
                     }
+                    if let profile = library.activeProfile {
+                        DetailPanel(title: "PROVIDER") {
+                            AccountRow(label: "Profile", value: profile.name)
+                            Divider().overlay(LineupStyle.line)
+                            AccountRow(label: "Server", value: profile.serverURL)
+                            Divider().overlay(LineupStyle.line)
+                            AccountRow(label: "Username", value: profile.username)
+                        }
+                        Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
+                            .lineupButtonStyle()
+                    }
+                    DetailPanel(title: "MEDIA SERVERS") {
+                        if media.profiles.isEmpty {
+                            AccountRow(label: "Status", value: "Not connected")
+                        } else {
+                            ForEach(media.profiles) { profile in
+                                HStack(spacing: 20) {
+                                    Button {
+                                        Task { await media.select(profile) }
+                                    } label: {
+                                        AccountRow(label: profile.name,
+                                            value: media.activeProfile?.id == profile.id ? "Active" : "Select")
+                                    }
+                                    .lineupFlatButton()
+                                    Button("Remove", role: .destructive) { media.remove(profile) }
+                                }
+                            }
+                        }
+                    }
+                    Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
+                        .lineupButtonStyle()
+                    NavigationLink("Channel matching") { MatchDiagnosticsView() }
+                        .lineupButtonStyle()
+                    DetailPanel(title: "ABOUT") {
+                        AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
+                    }
                 }
-                Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
-                    .lineupButtonStyle()
-                NavigationLink("Channel matching") { MatchDiagnosticsView() }
-                    .lineupButtonStyle()
-                DetailPanel(title: "ABOUT") {
-                    AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
-                }
-                Spacer()
+                .padding(.horizontal, 120).padding(.vertical, 48)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(.horizontal, 120).padding(.vertical, 48).background(LineupStyle.background)
+            .background(LineupStyle.background)
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
             }
         }
+    }
+}
+
+/// A theme is a set of colours, so the card is painted in them rather than
+/// named in the current one: the choice looks like what it does.
+private struct ThemeCard: View {
+    let theme: LineupTheme
+    let active: Bool
+
+    var body: some View {
+        HStack(spacing: 16) {
+            LineupThemeSwatch(theme: theme)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(theme.name).font(.system(size: 21, weight: .semibold))
+                Text(theme.detail).font(.system(size: 14)).opacity(0.6)
+            }
+            Spacer(minLength: 12)
+            Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(active ? LineupStyle.highlight : LineupStyle.lightPurple.opacity(0.28))
+        }
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(.horizontal, 22).padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(active ? LineupStyle.raised : LineupStyle.surface,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14)
+            .stroke(active ? LineupStyle.highlight.opacity(0.55) : LineupStyle.line, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(theme.name + ", " + theme.detail)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
