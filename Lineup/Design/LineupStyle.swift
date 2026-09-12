@@ -53,12 +53,18 @@ enum LineupTheme: String, CaseIterable, Identifiable {
             // always drawn it, and white at two thirds is a light grey -- so
             // the four colours asked for are four, not five.
             LineupPalette(
-                accent: rgb(0xFFFFFF), background: rgb(0x191C22), surface: rgb(0x22262E),
-                raised: rgb(0x2F3540), sidebar: rgb(0x14171C), selected: rgb(0x282D36),
-                // Focus leans towards the theme's own colour rather than just
-                // sitting a shade lighter. On a television, where something is
-                // always focused, that one step does more than any other.
-                focused: rgb(0x33404F), warning: rgb(0xFFB224),
+                // Neutral greys, not cool ones. These leaned towards blue by a
+                // dozen levels and more, which is invisible in a swatch and
+                // reads as navy on a television -- most sets run a cool picture
+                // and a dark grey with any blue in it is where that shows. The
+                // blue in this theme is the accent's job and nothing else's.
+                accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
+                raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
+                // Focus is a step up in the same grey. It used to lean towards
+                // the accent, which is a good idea on paper and another source
+                // of navy in a room; the blue border and glow around a focused
+                // thing say it far more clearly than its fill ever did.
+                focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
                 highlight: rgb(0x5B9DFF), selectionBorder: rgb(0x5B9DFF),
                 liveDot: rgb(0xFF4A63), positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
                 // A charcoal ground is lighter than carbon, so a hairline needs

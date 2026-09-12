@@ -360,9 +360,11 @@ struct MobileGuideView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(live ? LineupStyle.selected : LineupStyle.surface)
                         if program != nil {
-                            // Played, in the theme's own colour, so the wash
-                            // and the line down the grid read as one thing.
-                            Rectangle().fill(LineupStyle.highlight.opacity(0.1))
+                            // Played, in the text tint rather than the accent.
+                            // A programme that began an hour ago is mostly
+                            // elapsed, so an accent wash here is not a detail on
+                            // a card -- it is a film over the entire guide.
+                            Rectangle().fill(LineupStyle.lightPurple.opacity(0.07))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
                         VStack(alignment: .leading, spacing: 5) {

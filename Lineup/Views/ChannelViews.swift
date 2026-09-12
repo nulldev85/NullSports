@@ -2193,13 +2193,18 @@ private struct GuideProgramCell: View {
                 LinearGradient(
                     colors: isFocused ? [GuidePalette.raised, GuidePalette.raised.opacity(0.82)] : [GuidePalette.surface, GuidePalette.surface.opacity(0.82)],
                     startPoint: .top, endPoint: .bottom)
+                // The played wash is the text tint, not the accent. A
+                // programme that began an hour ago is mostly elapsed, so an
+                // accent wash here is not a detail on one card -- it is a film
+                // over the entire guide. The line down the grid carries the
+                // colour instead, and it only has to be one line wide.
                 if let program {
                     let elapsedWidth = GuideProgress.playedWidth(
                         start: program.start, end: program.end, now: now,
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(layout.slotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    GuidePalette.highlight.opacity(0.1)
+                    GuidePalette.text.opacity(0.07)
                         .frame(width: CGFloat(elapsedWidth))
                 }
             }
