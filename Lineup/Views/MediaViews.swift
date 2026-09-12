@@ -141,7 +141,7 @@ private struct TVMediaEmptyState: View {
         }
         .padding(42)
         .background(LineupStyle.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26).stroke(LineupStyle.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 90).padding(.bottom, 80)
     }
@@ -1227,7 +1227,7 @@ private struct MediaEpisodeCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
                     if episode.isPlayed {
@@ -1485,7 +1485,7 @@ private struct MediaChromeSurface: ViewModifier {
             .background(filled ? LineupStyle.lightPurple
                 : (focused ? LineupStyle.focused : LineupStyle.surface),
                 in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .stroke(border, lineWidth: 1))
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
@@ -1616,7 +1616,7 @@ private struct MediaSourceRow: View {
         #if !os(tvOS)
         RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill(LineupStyle.surface)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LineupStyle.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         #endif
     }
 
@@ -1756,7 +1756,7 @@ private struct MediaItemCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.

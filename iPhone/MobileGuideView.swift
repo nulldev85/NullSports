@@ -116,7 +116,7 @@ struct MobileGuideView: View {
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(LineupStyle.background)
                 }
@@ -356,7 +356,7 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
                         if program != nil {
                             // Filled in behind the line, in a lighter shade of
@@ -393,12 +393,12 @@ struct MobileGuideView: View {
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(LineupStyle.lightPurple.opacity(live ? 0.15 : 0.04), lineWidth: 0.5)
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")

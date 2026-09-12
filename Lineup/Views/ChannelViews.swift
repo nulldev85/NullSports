@@ -270,12 +270,12 @@ private struct LiveBoardLeagueButton: View {
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 12).frame(height: 49)
             .background(focused ? LiveBoardStyle.leagueFocus : (selected ? LineupStyle.lightPurple.opacity(0.07) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(alignment: .leading) {
                 if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture(perform: action)
         .accessibilityAddTraits(.isButton)
@@ -412,7 +412,7 @@ private struct LiveEmptySlateDashboard: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .padding(44)
-                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 22))
+                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
             .frame(maxHeight: .infinity)
         }
@@ -471,14 +471,14 @@ private struct LiveSlateDashboard: View {
                         }
                         .frame(width: screenHeight(in: geometry.size) * 16 / 9,
                                height: screenHeight(in: geometry.size))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .padding(4)
                         .background(
                             LinearGradient(colors: [LineupStyle.focused, LineupStyle.surface],
                                 startPoint: .top, endPoint: .bottom),
-                            in: RoundedRectangle(cornerRadius: 14))
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 14)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .strokeBorder(LineupStyle.lightPurple.opacity(0.08), lineWidth: 1)
                         }
                         .overlay(alignment: .bottomTrailing) {
@@ -675,14 +675,14 @@ private struct LiveSlateRow: View {
             .padding(18)
             .frame(maxWidth: .infinity)
             .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
-                        in: RoundedRectangle(cornerRadius: 16))
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
         .accessibilityAddTraits(.isButton)
@@ -1005,10 +1005,10 @@ private struct GameEventCard: View {
         }
         .background(isFocused ? LineupStyle.focused : (event.isLive ? LineupStyle.selected : LineupStyle.surface))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? LineupStyle.text.opacity(0.28) : LineupStyle.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 1).stroke(event.isLive ? LineupStyle.text.opacity(0.28) : LineupStyle.line, lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream?.id {
-                RoundedRectangle(cornerRadius: 14).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
+                RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
             }
         }
         .contentShape(Rectangle()).focusable(stream != nil).focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
@@ -1050,7 +1050,7 @@ private struct MatchupArtwork: View {
     let event: SportsGame
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(LineupStyle.raised)
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LineupStyle.raised)
             HStack(spacing: 16) {
                 TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
                 Text("VS").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).foregroundStyle(LineupStyle.secondary)
@@ -1426,7 +1426,7 @@ private struct GuideControlBar: View {
                     .textFieldStyle(.plain).focusEffectDisabled()
                     .font(.system(size: 22, weight: .medium))
                     .padding(.horizontal, 14).frame(maxWidth: 520, minHeight: 40)
-                    .background(GuidePalette.raised).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(GuidePalette.raised).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
                 Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 24, weight: .semibold)).lineLimit(1)
             }
@@ -1481,7 +1481,7 @@ private struct GuidePreviewPanel: View {
                         .frame(height: 46)
                         .allowsHitTesting(false)
                 }
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(GuidePalette.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(GuidePalette.line, lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) {
@@ -1515,7 +1515,7 @@ private struct GuidePreviewPanel: View {
         .padding(.vertical, 12)
         .background(LinearGradient(colors: [GuidePalette.text.opacity(0.05), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
         .shadow(color: Color.black.opacity(0.35), radius: 24, y: 12)
     }
 }
@@ -1863,7 +1863,7 @@ private struct GuideChannelRow: View {
             .stroke(GuidePalette.line.opacity(0.72), lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream.id {
-                RoundedRectangle(cornerRadius: 12).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
+                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
             }
         }
         .shadow(color: Color.black.opacity(0.18), radius: 12, y: 6)
@@ -2081,7 +2081,7 @@ private struct TVFavoritesOrderView: View {
                 startPoint: .leading, endPoint: .trailing),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(
             isPicked ? LineupStyle.lightPurple.opacity(0.92) : (isFocused ? LineupStyle.lightPurple.opacity(0.42) : LineupStyle.line),
             lineWidth: isPicked ? 2 : 1
         ))
@@ -2224,7 +2224,7 @@ private struct GuideProgramCell: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(
             isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
             lineWidth: isFocused ? 2 : 0.5
         ))
@@ -2343,7 +2343,7 @@ private struct ThemeCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(active ? LineupStyle.raised : LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14)
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .stroke(active ? LineupStyle.highlight.opacity(0.55) : LineupStyle.line, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(theme.name + ", " + theme.detail)
@@ -2417,8 +2417,8 @@ private struct MatchDiagnosticsRow: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(focused ? LineupStyle.focused : LineupStyle.surface,
-                    in: RoundedRectangle(cornerRadius: 14))
-        .contentShape(RoundedRectangle(cornerRadius: 14))
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .accessibilityElement(children: .combine)
     }
@@ -2522,7 +2522,7 @@ private struct MultiviewPane: View {
         .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
         .overlay {
             if !expanded {
-                RoundedRectangle(cornerRadius: 0)
+                RoundedRectangle(cornerRadius: 0, style: .continuous)
                     .stroke(audible ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.lightPurple.opacity(0.18), lineWidth: audible ? 3 : 1)
             }
         }
@@ -2798,7 +2798,7 @@ private struct TVPlayerButton: View {
             .padding(.horizontal, 18).frame(height: 52)
             .background(selected || prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 13)
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
             .shadow(color: .black.opacity(0.28), radius: 10, y: 7)
             .scaleEffect(selected ? 1.06 : 1)
@@ -2824,7 +2824,7 @@ private struct TVPlayerMenuLabel: View {
         .padding(.horizontal, 18).frame(height: 52)
         .background(focused ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13)
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
             .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
         .scaleEffect(focused ? 1.06 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)

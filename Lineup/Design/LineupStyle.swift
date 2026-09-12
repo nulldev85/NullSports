@@ -253,7 +253,7 @@ struct LineupButtonStyle: ButtonStyle {
                 .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .background(focused ? LineupStyle.focused : LineupStyle.raised,
-                            in: RoundedRectangle(cornerRadius: 12))
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
     }

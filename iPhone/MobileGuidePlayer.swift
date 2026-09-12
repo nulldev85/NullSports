@@ -72,7 +72,7 @@ struct MobileGuidePlayer: View {
             .frame(height: videoHeight).background(.black).clipped()
             if !expanded && showsMetadata {
                 HStack(alignment: .top, spacing: 12) {
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
                         .fill(LineupStyle.lightPurple.opacity(0.7))
                         .frame(width: 3, height: 72)
                         .accessibilityHidden(true)
@@ -86,7 +86,7 @@ struct MobileGuidePlayer: View {
                                 Text("NEW")
                                     .font(.system(size: 9, weight: .bold))
                                     .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 4))
+                                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                             }
                             Spacer(minLength: 4)
                             if let program {

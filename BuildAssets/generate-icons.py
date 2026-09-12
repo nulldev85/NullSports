@@ -118,6 +118,26 @@ def flat(size, unit):
     return canvas.convert("RGB")
 
 
+def top_shelf(size):
+    """The banner across the top of the Apple TV home screen.
+
+    tvOS shows this when Lineup is the selected app, at the full width of the
+    television, and the App Store will not take a tvOS app without one. The
+    mark is the same guide, laid out for a shape four times wider than it is
+    tall: the same lanes and the same line, centred, at a size that carries
+    across a room without crowding the edges a television may overscan.
+    """
+    _, height = size
+    # The stack is 0.404 of a unit tall, so this puts it at a little under
+    # half the banner's height -- enough to read across a room, far enough
+    # from the edges that nothing is clipped by a television's overscan.
+    unit = height * 1.16
+    canvas = ground(size).convert("RGBA")
+    canvas.alpha_composite(down(lanes_layer(size, unit), size))
+    canvas.alpha_composite(down(now_layer(size, unit), size))
+    return canvas.convert("RGB")
+
+
 def main():
     phone = "iPhone/Assets.xcassets/AppIcon.appiconset"
     write(flat((1024, 1024), 1024), phone, "AppIcon.png")
@@ -126,6 +146,15 @@ def main():
     # to the backing and the now-line to the front, so tilting the icon slides
     # the line across the guide instead of moving the whole mark as one slab.
     tv = "Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets"
+    for folder, size, suffix in [
+        ("Top Shelf Image.imageset", (1920, 720), ""),
+        ("Top Shelf Image.imageset", (3840, 1440), "@2x"),
+        ("Top Shelf Image Wide.imageset", (2320, 720), ""),
+        ("Top Shelf Image Wide.imageset", (4640, 1440), "@2x"),
+    ]:
+        name = folder.split(".")[0].replace(" ", "")
+        write(top_shelf(size), tv, folder, f"{name}{suffix}.png")
+
     for stack, size, suffix in [
         ("App Icon - Small.imagestack", (400, 240), ""),
         ("App Icon - Small.imagestack", (800, 480), "@2x"),

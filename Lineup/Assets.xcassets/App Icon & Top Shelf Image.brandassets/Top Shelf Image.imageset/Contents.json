@@ -1,0 +1,18 @@
+{
+  "images": [
+    {
+      "filename": "TopShelfImage.png",
+      "idiom": "tv",
+      "scale": "1x"
+    },
+    {
+      "filename": "TopShelfImage@2x.png",
+      "idiom": "tv",
+      "scale": "2x"
+    }
+  ],
+  "info": {
+    "author": "com.nulldev85.NullSports",
+    "version": 1
+  }
+}
