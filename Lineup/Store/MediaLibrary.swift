@@ -10,6 +10,15 @@ final class MediaLibrary: ObservableObject {
     /// lands. Kept apart from `roots` only so the shelf picker can say which is
     /// which; a shelf made from either behaves the same way.
     @Published private(set) var collections: [MediaItem] = []
+    /// Collections named by the addons themselves, resolved one id at a time.
+    ///
+    /// The list of every collection is a broad query with a lot of assumptions
+    /// in it. An addon says outright which catalogs it has switched on and what
+    /// each one's collection is, and asking for one item by its id is the
+    /// narrowest question there is. Where the two disagree this one is right,
+    /// so both are merged and this one is the reason a catalog appears at all
+    /// when the broad query comes back short.
+    @Published private(set) var importedCatalogs: [MediaItem] = []
     @Published private(set) var catalogs: [MediaCatalog] = []
     /// Catalogs each addon offers that the server is not importing yet. Loaded
     /// on demand, because the routes behind it are administrator-only and a
@@ -20,6 +29,7 @@ final class MediaLibrary: ObservableObject {
     /// Set when the server will not discuss addons with this account, so the
     /// screen can say why rather than showing an empty list.
     @Published private(set) var addonsUnavailable = false
+    private var importTasks: [String: Task<Void, Never>] = [:]
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -150,6 +160,9 @@ final class MediaLibrary: ObservableObject {
             errorMessage = error.localizedDescription
         }
         if loadID == requestID { isLoading = false }
+        // After the libraries, not before: this is one request per enabled
+        // catalog and the shelves should not wait behind it.
+        if loadID == requestID { await loadAddonCatalogs() }
     }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
@@ -226,7 +239,11 @@ final class MediaLibrary: ObservableObject {
 
     /// The addon catalogs, and any hand-made collection, that are not already a
     /// shelf. On a Nullfin server this is the list the viewer came for.
-    var availableCatalogs: [MediaItem] { unshelved(collections) }
+    var availableCatalogs: [MediaItem] {
+        var seen: Set<String> = []
+        return unshelved(importedCatalogs + collections)
+            .filter { seen.insert($0.id).inserted }
+    }
 
     private func unshelved(_ items: [MediaItem]) -> [MediaItem] {
         items.filter { item in !catalogs.contains(where: { $0.id == item.id }) }
@@ -246,18 +263,30 @@ final class MediaLibrary: ObservableObject {
         do {
             let addons = try await source.addons().filter(\.enabled)
             var groups: [AddonCatalogGroup] = []
+            var imported: [MediaItem] = []
             for addon in addons {
                 let offered = (try? await source.addonCatalogs(addonID: addon.id)) ?? []
                 let available = offered.filter { !$0.enabled }
-                guard !available.isEmpty else { continue }
-                groups.append(AddonCatalogGroup(id: addon.id, name: addon.name, catalogs: available))
+                if !available.isEmpty {
+                    groups.append(AddonCatalogGroup(id: addon.id, name: addon.name, catalogs: available))
+                }
+                // A catalog already switched on has a collection waiting, and
+                // the addon has just named it. Ask for that one item rather
+                // than hoping it turns up in a list of everything.
+                for enabled in offered where enabled.enabled {
+                    guard let id = enabled.collectionId else { continue }
+                    guard let item = try? await source.item(userID: profile.userID, itemID: id) else { continue }
+                    imported.append(item)
+                }
             }
             guard activeProfile?.id == profile.id else { return }
             addonGroups = groups
+            importedCatalogs = imported
             addonsUnavailable = false
         } catch {
             guard activeProfile?.id == profile.id else { return }
             addonGroups = []
+            importedCatalogs = []
             // Anything but a refusal is worth reporting; a refusal is the
             // ordinary answer from a plain Jellyfin server or a member account.
             addonsUnavailable = isRefusal(error)
@@ -270,26 +299,42 @@ final class MediaLibrary: ObservableObject {
     /// Three steps, because the server needs all three: record the choice, ask
     /// it to import, then wait for the collection to exist. Nothing is
     /// browsable in between, and the import is the server walking a catalog,
-    /// so this can take a while.
-    /// Switch a catalog on and put it on screen as a shelf.
+    /// so this is minutes rather than seconds.
     ///
     /// The catalog stays in the list it was chosen from for as long as this
     /// runs. It used to be taken out the moment the server accepted the
     /// switch, on the reasoning that it was enabled now whatever happened
-    /// next -- but what happened next could be the import taking longer than
-    /// anyone waited, and then the catalog was gone from the list without ever
-    /// becoming a shelf. Vanishing is the worst answer of the three. It leaves
-    /// when it becomes a shelf, and not before.
-    func enableCatalog(_ catalog: NullfinCatalog, addonID: String) async {
-        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
-        guard !importing.contains(catalog.catalogId) else { return }
+    /// next -- but what happened next could be a wait nobody sat through, and
+    /// then the catalog was gone from the list without ever becoming a shelf.
+    /// Vanishing is the worst of the answers. It leaves when it becomes a
+    /// shelf, and not before.
+    ///
+    /// The waiting is owned here rather than by the screen that started it, so
+    /// it survives the screen closing -- and so a second press can call it off.
+    func enableCatalog(_ catalog: NullfinCatalog, addonID: String) {
+        guard activeProfile != nil, importTasks[catalog.catalogId] == nil else { return }
         importing.insert(catalog.catalogId)
+        importTasks[catalog.catalogId] = Task { @MainActor [weak self] in
+            await self?.runImport(of: catalog, addonID: addonID)
+            self?.importTasks[catalog.catalogId] = nil
+            self?.importing.remove(catalog.catalogId)
+        }
+    }
+
+    /// Stop waiting on an import. The server keeps going: this only gives up
+    /// watching for it, which is the difference between a screen that can be
+    /// left and one that holds someone there.
+    func stopWaiting(for catalog: NullfinCatalog) {
+        importTasks[catalog.catalogId]?.cancel()
+    }
+
+    private func runImport(of catalog: NullfinCatalog, addonID: String) async {
+        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
         do {
             try await source.setCatalog(addonID: addonID, catalogID: catalog.catalogId, enabled: true)
             try await source.refreshLibrary()
         } catch {
             errorMessage = error.localizedDescription
-            importing.remove(catalog.catalogId)
             return
         }
         await waitForImport(of: catalog, profile: profile)
@@ -309,24 +354,31 @@ final class MediaLibrary: ObservableObject {
     /// waiting forever; the shelf can still be added by hand once the import
     /// finishes.
     private func waitForImport(of catalog: NullfinCatalog, profile: MediaServerProfile) async {
-        defer { importing.remove(catalog.catalogId) }
         guard let source = try? client(for: profile) else { return }
-        guard let wanted = catalog.collectionId.map(Self.normalizedID) else {
+        guard let wanted = catalog.collectionId else {
             // Without an id there is nothing to watch for. It is switched on
             // either way, so say so rather than leaving the choice looking
             // like it did nothing.
             errorMessage = "\(catalog.name) is switched on, but this server did not say which collection it becomes. It will appear under imported catalogs once the server finishes."
             return
         }
+        // Ask for the one collection by the id the addon just named, rather
+        // than scanning a list of every collection for it. A list is a broad
+        // query with assumptions in it and it only has to be wrong once to
+        // leave this waiting forever; an item by its id either exists or does
+        // not. The first look happens before any waiting, because a catalog
+        // the server already holds should not cost ten seconds.
+        //
         // A full library refresh re-imports every enabled catalog, not just
         // this one, so on a server with several addons it is minutes of work.
-        // Ten of them, checked twice a minute.
-        for _ in 0..<60 {
-            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+        // Ten of them.
+        for attempt in 0..<61 {
+            if attempt > 0 {
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            }
             guard activeProfile?.id == profile.id else { return }
-            let found = (try? await source.collections(userID: profile.userID))?
-                .first { Self.normalizedID($0.id) == wanted }
-            guard let found else { continue }
+            guard let found = try? await source.item(userID: profile.userID, itemID: wanted)
+            else { continue }
             await addShelf(found)
             drop(catalog)
             await reload()
@@ -334,15 +386,9 @@ final class MediaLibrary: ObservableObject {
         }
         // Out of patience, not out of luck: the server is still working and
         // the catalog is still enabled. Put it where it will turn up.
+        guard !Task.isCancelled else { return }
         errorMessage = "\(catalog.name) is still importing on the server. It will appear under imported catalogs when that finishes — refresh then to add it."
         await reload()
-        await loadAddonCatalogs()
-    }
-
-    /// Two servers spell the same identifier differently often enough that
-    /// comparing them literally is not worth the risk.
-    private static func normalizedID(_ value: String) -> String {
-        value.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     /// A server that will not answer, as opposed to one that answered badly.

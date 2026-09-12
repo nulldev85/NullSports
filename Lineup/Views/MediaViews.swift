@@ -696,12 +696,14 @@ private struct MediaShelfPicker: View {
                             TVSelectable(scale: 1.02, fill: LineupStyle.focused, fillRadius: 14,
                                 action: { enable(catalog, in: group.id) }) {
                                 MediaShelfRow(title: catalog.name,
-                                    detail: busy ? "Importing…" : nil, busy: busy)
+                                    detail: busy ? "Importing… select again to stop waiting" : nil,
+                                    busy: busy)
                             }
                             #else
                             Button { enable(catalog, in: group.id) } label: {
                                 MediaShelfRow(title: catalog.name,
-                                    detail: busy ? "Importing…" : nil, busy: busy)
+                                    detail: busy ? "Importing… tap again to stop waiting" : nil,
+                                    busy: busy)
                             }
                             .lineupFlatButton()
                             #endif
@@ -731,9 +733,15 @@ private struct MediaShelfPicker: View {
     /// Switching a catalog on is the server's work, not this screen's: it can
     /// run for minutes, so it is left with the library and the row simply
     /// reports it. Closing this screen does not cancel it.
+    ///
+    /// Pressing a row that is already working calls the waiting off, so nobody
+    /// is held by a spinner they cannot get out of. The server carries on.
     private func enable(_ catalog: NullfinCatalog, in addonID: String) {
-        guard !media.importing.contains(catalog.catalogId) else { return }
-        Task { @MainActor in await media.enableCatalog(catalog, addonID: addonID) }
+        if media.importing.contains(catalog.catalogId) {
+            media.stopWaiting(for: catalog)
+        } else {
+            media.enableCatalog(catalog, addonID: addonID)
+        }
     }
 
     private func countText(_ item: MediaItem) -> String? {
