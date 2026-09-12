@@ -84,7 +84,11 @@ final class GameReminders: ObservableObject {
 
     private func requestPermissionAndReschedule() async {
         do {
+            #if os(tvOS)
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.badge])
+            #else
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            #endif
             authorizationMessage = granted ? nil : "Enable Lineup notifications in device settings to receive reminders."
         } catch {
             authorizationMessage = "Notification permission could not be requested."
@@ -112,10 +116,14 @@ final class GameReminders: ObservableObject {
             let fireDate = game.start.addingTimeInterval(-15 * 60)
             guard fireDate > now else { continue }
             let content = UNMutableNotificationContent()
+            #if os(tvOS)
+            content.badge = 1
+            #else
             content.title = "\(game.awayTeam) at \(game.homeTeam)"
             content.body = "Starts at \(game.start.formatted(date: .omitted, time: .shortened)) in Lineup."
             content.sound = .default
             content.userInfo = ["gameID": game.id]
+            #endif
             let trigger = UNCalendarNotificationTrigger(dateMatching: Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute], from: fireDate), repeats: false)
             try? await center.add(UNNotificationRequest(identifier: notificationPrefix + game.id,
