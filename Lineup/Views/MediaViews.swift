@@ -655,18 +655,30 @@ private struct MediaShowScreen: View {
             .overlay(alignment: .bottom) {
                 LinearGradient(colors: [.clear, LineupStyle.background],
                     startPoint: .top, endPoint: .bottom)
-                    .frame(height: 160)
+                    .frame(height: fadeHeight)
             }
-            .overlay(alignment: .bottom) {
-                if show.hasLogo {
-                    AsyncImage(url: media.logoURL(for: show)) { phase in
-                        if let image = phase.image { image.resizable().scaledToFit() }
-                    }
-                    .frame(height: logoHeight)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.bottom, 6)
-                }
+            .overlay(alignment: .bottom) { heroLogo }
+    }
+
+    /// The series logo, laid over the foot of the art.
+    ///
+    /// Only on a television, where the art is a wide backdrop crop that
+    /// carries no lettering of its own. A phone shows the poster, and a poster
+    /// already has the title designed into it -- so the logo landed on top of
+    /// the title it was repeating, and the page read the name twice in two
+    /// typefaces. The poster says it better than an overlay can.
+    @ViewBuilder
+    private var heroLogo: some View {
+        #if os(tvOS)
+        if show.hasLogo {
+            AsyncImage(url: media.logoURL(for: show)) { phase in
+                if let image = phase.image { image.resizable().scaledToFit() }
             }
+            .frame(height: logoHeight)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, 6)
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -927,11 +939,15 @@ private struct MediaShowScreen: View {
         2 / 3
         #endif
     }
-    private var logoHeight: CGFloat {
+    private var logoHeight: CGFloat { 110 }
+    /// How far the art is feathered into the page at its foot. A phone keeps
+    /// this short: the fade used to run 160 points up a poster and take the
+    /// artwork's own title into shadow with it.
+    private var fadeHeight: CGFloat {
         #if os(tvOS)
-        110
+        160
         #else
-        76
+        80
         #endif
     }
     private var horizontalPadding: CGFloat {
