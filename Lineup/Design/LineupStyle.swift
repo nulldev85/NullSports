@@ -302,6 +302,30 @@ extension View {
         id(theme)
     }
 
+    /// A region the remote can land in as a whole.
+    ///
+    /// tvOS moves focus geometrically: pressing up looks for something focusable
+    /// directly above what is focused now, and if the search comes up empty
+    /// nothing happens. In a screen of shelves that is easy to arrange by
+    /// accident -- a card scrolled far to the right with only empty margin
+    /// above it, a row of controls the next row does not line up with -- and
+    /// the press is simply swallowed, which is the "stuck" feeling.
+    ///
+    /// Marking a region tells the engine it may hand focus to that region
+    /// rather than to a particular view inside it, so a direction that finds no
+    /// neighbour still arrives somewhere sensible instead of nowhere. And
+    /// nowhere is not harmless on this platform: focus with no home falls back
+    /// to the tab bar, where the next press changes tab.
+    ///
+    /// A no-op off tvOS, which has no such engine.
+    func lineupFocusRegion() -> some View {
+        #if os(tvOS)
+        focusSection()
+        #else
+        self
+        #endif
+    }
+
     /// The app's button style, with tvOS's own focus effect switched off.
     ///
     /// `LineupButtonStyle` already draws focus -- a filled background and a

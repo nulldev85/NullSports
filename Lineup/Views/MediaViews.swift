@@ -116,6 +116,7 @@ private struct TVMediaServersHome: View {
                 .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
             }
             .padding(.horizontal, 54).padding(.top, 18)
+            .lineupFocusRegion()
 
             if !media.hasAnySource {
                 TVMediaEmptyState(addServer: { addingServer = true },
@@ -277,6 +278,7 @@ private struct MediaCatalogsScreen: View {
                 #endif
             }
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
+            .lineupFocusRegion()
 
             if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if searching && results.isEmpty {
@@ -332,6 +334,7 @@ private struct MediaCatalogsScreen: View {
                                     #endif
                                 }
                                 .padding(.horizontal, horizontalPadding)
+                                .lineupFocusRegion()
                                 if catalog.items.isEmpty {
                                     Text("No titles in this catalog.").font(.inter(.callout))
                                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
@@ -360,6 +363,10 @@ private struct MediaCatalogsScreen: View {
                                         .padding(.vertical, 8)
                                     }
                                     .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+                                    // Each shelf is its own region: a card
+                                    // scrolled far along a row has nothing
+                                    // above it but the margin of the row above.
+                                    .lineupFocusRegion()
                                 }
                             }
                         }
@@ -500,6 +507,7 @@ private struct MediaGridScreen: View {
             }
             .padding(.horizontal, horizontalPadding).padding(.vertical, 28)
         }
+        .lineupFocusRegion()
     }
 
     @ViewBuilder
@@ -566,13 +574,14 @@ private struct MediaFolderScreen: View {
 
     var body: some View {
         Group {
-            if loading { ProgressView("Loading \(folder.name)…") }
-            else if let error {
+            if loading {
+                ProgressView("Loading \(folder.name)…").mediaFocusAnchor()
+            } else if let error {
                 ContentUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
-                    description: Text(error))
+                    description: Text(error)).mediaFocusAnchor()
             } else if items.isEmpty {
                 ContentUnavailableView("Nothing Here", systemImage: "film.stack",
-                    description: Text("This library did not return any playable items."))
+                    description: Text("This library did not return any playable items.")).mediaFocusAnchor()
             } else {
                 MediaGridScreen(title: folder.name, items: items)
             }
@@ -681,6 +690,7 @@ private struct MediaShelfPicker: View {
                 description: Text(media.addonsUnavailable
                     ? "This server offers no other library or catalog, and it does not let this account browse addons -- sign in as an administrator to switch catalogs on from here."
                     : "This server offers no other library or catalog."))
+                .mediaFocusAnchor()
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -782,6 +792,7 @@ private struct MediaShelfPicker: View {
                 .padding(.horizontal, rowPadding).padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .lineupFocusRegion()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LineupStyle.background.ignoresSafeArea())
             .foregroundStyle(LineupStyle.lightPurple)
@@ -1038,6 +1049,7 @@ private struct MediaShowScreen: View {
             iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
                 .disabled(episodes.isEmpty)
         }
+        .lineupFocusRegion()
     }
 
     /// The play button.
@@ -1162,17 +1174,22 @@ private struct MediaShowScreen: View {
     @ViewBuilder
     private var episodesSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            seasonHeading.padding(.horizontal, horizontalPadding)
+            seasonHeading.padding(.horizontal, horizontalPadding).lineupFocusRegion()
             if loading {
+                // Play and shuffle are both disabled until an episode is known,
+                // so until then this page has nothing focusable on it at all.
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+                    .mediaFocusAnchor()
             } else if let error {
                 Text(error).font(.inter(.footnote))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
+                    .mediaFocusAnchor()
             } else if episodes.isEmpty {
                 Text("No episodes here yet.").font(.inter(.footnote))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     .padding(.horizontal, horizontalPadding)
+                    .mediaFocusAnchor()
             } else {
                 LazyVGrid(columns: episodeColumns, spacing: 22) {
                     ForEach(episodes) { episode in
@@ -1181,6 +1198,7 @@ private struct MediaShowScreen: View {
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
+                .lineupFocusRegion()
             }
         }
     }
@@ -1498,11 +1516,14 @@ private struct MediaSourcePicker: View {
                         Text("Connected addons are ranking results for \(item.name).")
                             .font(.inter(.subheadline)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     }
+                    .mediaFocusAnchor()
                 } else if let error {
                     ContentUnavailableView("Streams Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+                        .mediaFocusAnchor()
                 } else if sources.isEmpty {
                     ContentUnavailableView("No Streams Found", systemImage: "play.slash",
                         description: Text("None of the connected streaming addons returned a playable result."))
+                        .mediaFocusAnchor()
                 } else {
                     VStack(spacing: 0) {
                         // Results arrive interleaved from every connected addon, and
@@ -1519,6 +1540,7 @@ private struct MediaSourcePicker: View {
                                 }
                                 .padding(.horizontal, horizontalPadding).padding(.vertical, 12)
                             }
+                            .lineupFocusRegion()
                         }
                         ScrollView {
                             // Leading, because a row is as wide as its text
@@ -1542,6 +1564,7 @@ private struct MediaSourcePicker: View {
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .lineupFocusRegion()
                     }
                 }
             }
@@ -1618,6 +1641,30 @@ private struct MediaSourcePicker: View {
 /// well, and white belongs to no part of this palette. Every focusable thing in
 /// these screens turns that effect off and draws its own focus instead: the
 /// cards and rows already did, and this is what the chrome around them uses.
+/// Something for the remote to hold on to while a screen has nothing else.
+///
+/// tvOS cannot leave focus nowhere. A pushed screen that is still loading -- or
+/// one showing "nothing here" -- contains no focusable view at all, so the
+/// engine hands focus back to the tab bar: the bar the viewer cannot see
+/// appears to have swallowed their press, and the next press moves them to
+/// another tab entirely. That is the whole of the bug where browsing the media
+/// tab would suddenly land somewhere else.
+///
+/// This draws nothing and does nothing. It exists so focus has a home on a
+/// screen that is between states, and it goes away with the state that needed
+/// it, by which time there is real content to take focus.
+extension View {
+    func mediaFocusAnchor() -> some View {
+        #if os(tvOS)
+        overlay(alignment: .center) {
+            Color.clear.frame(width: 1, height: 1).focusable()
+        }
+        #else
+        self
+        #endif
+    }
+}
+
 private struct MediaChromeSurface: ViewModifier {
     var focused = false
     var prominent = false
@@ -2096,6 +2143,7 @@ struct AddonSetupView: View {
                 Spacer(minLength: 0)
             }
             .padding(.bottom, 26)
+            .lineupFocusRegion()
 
             if media.addons.isEmpty {
                 Text("No addons yet.")
@@ -2115,6 +2163,7 @@ struct AddonSetupView: View {
                     }
                     .padding(.bottom, 40)
                 }
+                .lineupFocusRegion()
             }
         }
         .padding(.horizontal, 60).padding(.top, 44)
