@@ -349,7 +349,7 @@ private struct MediaCatalogsScreen: View {
                                         LazyHStack(alignment: .top, spacing: itemSpacing) {
                                             ForEach(catalog.items) { item in
                                                 Group {
-                                                    if item.isFolder {
+                                                    if item.opensPage {
                                                         #if os(tvOS)
                                                         TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
                                                         #else
@@ -493,7 +493,7 @@ private struct MediaGridScreen: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: gridSpacing) {
                 ForEach(items) { item in
-                    if item.isFolder {
+                    if item.opensPage {
                         #if os(tvOS)
                         TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
                         #else
@@ -550,15 +550,15 @@ private struct MediaGridScreen: View {
     }
 }
 
-/// A series opens to its own page; anything else is still a grid of what is
-/// inside it. Both destinations are registered under one item type, so the
+/// A series or a film opens to its own page; anything else is still a grid of
+/// what is inside it. All of it is registered under one item type, so the
 /// choice has to be made here rather than at the link.
 private struct MediaBrowseDestination: View {
     let item: MediaItem
 
     var body: some View {
-        if item.isSeries {
-            MediaShowScreen(series: item)
+        if item.hasDetailPage {
+            MediaDetailScreen(item: item)
         } else {
             MediaFolderScreen(folder: item)
         }
@@ -892,12 +892,17 @@ private struct MediaShelfRow: View {
     #endif
 }
 
-/// The page a series opens to: its art, what to play next, and the season the
-/// viewer is on with every episode in it. A season used to be one more grid of
-/// unlabelled cards, which said nothing about the episode being picked.
-private struct MediaShowScreen: View {
+/// The page a series or a film opens to: its art, what it is, and what to play
+/// -- for a series, the episode the viewer is up to, with every episode of that
+/// season under it; for a film, the film.
+///
+/// A film used to go from its poster straight to a list of streams, which
+/// skipped the part where somebody decides whether to watch it: no
+/// description, no year, no running time, no rating. It gets this page too now,
+/// minus the parts a film has no answer for.
+private struct MediaDetailScreen: View {
     @EnvironmentObject private var media: MediaLibrary
-    let series: MediaItem
+    let item: MediaItem
 
     @State private var detail: MediaItem?
     @State private var seasons: [MediaItem] = []
@@ -913,14 +918,14 @@ private struct MediaShowScreen: View {
     @FocusState private var seasonFocused: Bool
     @State private var choosingSeason = false
 
-    private var show: MediaItem { detail ?? series }
+    private var subject: MediaItem { detail ?? item }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
-                    if !show.hasLogo { Text(show.name).font(titleFont) }
+                    if !subject.hasLogo { Text(subject.name).font(titleFont) }
                     metaLine
                     actions
                     overview
@@ -939,7 +944,7 @@ private struct MediaShowScreen: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
         .modifier(FullBleedHeader())
-        .task(id: series.id) { await load() }
+        .task(id: item.id) { await load() }
         #if os(tvOS)
         .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #else
@@ -983,7 +988,7 @@ private struct MediaShowScreen: View {
             .overlay(alignment: .bottom) { heroLogo }
     }
 
-    /// The series logo, laid over the foot of the art.
+    /// The item logo, laid over the foot of the art.
     ///
     /// Only on a television, where the art is a wide backdrop crop that
     /// carries no lettering of its own. A phone shows the poster, and a poster
@@ -993,8 +998,8 @@ private struct MediaShowScreen: View {
     @ViewBuilder
     private var heroLogo: some View {
         #if os(tvOS)
-        if show.hasLogo {
-            AsyncImage(url: media.logoURL(for: show)) { phase in
+        if subject.hasLogo {
+            AsyncImage(url: media.logoURL(for: subject)) { phase in
                 if let image = phase.image { image.resizable().scaledToFit() }
             }
             .frame(height: logoHeight)
@@ -1016,18 +1021,23 @@ private struct MediaShowScreen: View {
     }
 
     private var metaParts: [String] {
-        [show.productionYear.map(String.init),
-         show.genres?.prefix(2).joined(separator: ", "),
-         show.officialRating]
+        [subject.productionYear.map(String.init),
+         // Worth saying on a film, where a server reports one; a series has no
+         // single running time and leaves this out.
+         subject.formattedRuntime,
+         subject.genres?.prefix(2).joined(separator: ", "),
+         subject.officialRating]
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
 
     // MARK: - Actions
 
-    /// What the play button starts: the server's own next-up answer, else the
-    /// first unwatched episode on screen, else the season from the top.
+    /// What the play button starts: for a film, the film. For a series, the
+    /// server's own next-up answer, else the first unwatched episode on
+    /// screen, else the season from the top.
     private var playTarget: MediaItem? {
-        nextUp ?? episodes.first { !$0.isPlayed } ?? episodes.first
+        guard subject.isSeries else { return subject }
+        return nextUp ?? episodes.first { !$0.isPlayed } ?? episodes.first
     }
 
     private var actions: some View {
@@ -1040,14 +1050,17 @@ private struct MediaShowScreen: View {
             // Only where there is somewhere to keep it. An addon holds no
             // account of the viewer's, so a bookmark there would be a button
             // that appears to work and remembers nothing.
-            if !show.isAddonItem {
+            if !subject.isAddonItem {
                 iconButton(favorite ? "bookmark.fill" : "bookmark") {
                     favorite.toggle()
-                    Task { await media.setFavorite(favorite, for: show) }
+                    Task { await media.setFavorite(favorite, for: subject) }
                 }
             }
-            iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
-                .disabled(episodes.isEmpty)
+            // Nothing to shuffle through on a film.
+            if subject.isSeries {
+                iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
+                    .disabled(episodes.isEmpty)
+            }
         }
         .lineupFocusRegion()
     }
@@ -1104,7 +1117,7 @@ private struct MediaShowScreen: View {
 
     @ViewBuilder
     private var overview: some View {
-        if let text = show.overview, !text.isEmpty {
+        if let text = subject.overview, !text.isEmpty {
             Text(text)
                 .font(.inter(.subheadline))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.76))
@@ -1137,11 +1150,11 @@ private struct MediaShowScreen: View {
             }
         }
         var values: [Rating] = []
-        if let community = show.communityRating, community > 0 {
+        if let community = subject.communityRating, community > 0 {
             values.append(Rating(id: "community", source: "IMDb",
                 value: String(format: "%.1f", community)))
         }
-        if let critic = show.criticRating, critic > 0 {
+        if let critic = subject.criticRating, critic > 0 {
             values.append(Rating(id: "critic", source: "Critics",
                 value: "\(Int(critic.rounded()))%"))
         }
@@ -1173,6 +1186,14 @@ private struct MediaShowScreen: View {
 
     @ViewBuilder
     private var episodesSection: some View {
+        // A film has none, and an empty section would still cost the spacing
+        // above it.
+        if subject.isSeries {
+            episodeList
+        }
+    }
+
+    private var episodeList: some View {
         VStack(alignment: .leading, spacing: 14) {
             seasonHeading.padding(.horizontal, horizontalPadding).lineupFocusRegion()
             if loading {
@@ -1249,15 +1270,17 @@ private struct MediaShowScreen: View {
     private func load() async {
         loading = true
         error = nil
-        let loaded = try? await media.details(of: series)
-        detail = loaded ?? series
-        favorite = (loaded ?? series).isFavorite
-        metrics = await media.metrics(for: series)
+        let loaded = try? await media.details(of: item)
+        detail = loaded ?? item
+        favorite = (loaded ?? item).isFavorite
+        metrics = await media.metrics(for: item)
+        // A film is the whole of itself: nothing underneath to go and get.
+        guard subject.isSeries else { loading = false; return }
         do {
-            let children = try await media.numberedChildren(of: series)
+            let children = try await media.numberedChildren(of: item)
             let seasonList = children.filter { $0.type == "Season" }
             guard !seasonList.isEmpty else {
-                // Some addon catalogs hang episodes straight off the series.
+                // Some addon catalogs hang episodes straight off the item.
                 seasons = []
                 selectedSeason = nil
                 episodes = children.filter(\.isPlayable)
@@ -1265,7 +1288,7 @@ private struct MediaShowScreen: View {
                 return
             }
             seasons = seasonList
-            let up = await media.nextUp(in: series)
+            let up = await media.nextUp(in: item)
             nextUp = up
             await loadSeason(seasonList.first { $0.indexNumber == up?.parentIndexNumber } ?? seasonList[0])
         } catch {
@@ -1287,9 +1310,9 @@ private struct MediaShowScreen: View {
 
     private var heroURL: URL? {
         #if os(tvOS)
-        media.backdropURL(for: show) ?? media.imageURL(for: show, width: 1280)
+        media.backdropURL(for: subject) ?? media.imageURL(for: subject, width: 1280)
         #else
-        media.imageURL(for: show, width: 900)
+        media.imageURL(for: subject, width: 900)
         #endif
     }
     private var heroRatio: CGFloat {
@@ -1314,7 +1337,7 @@ private struct MediaShowScreen: View {
         0
         #endif
     }
-    /// Where the series logo sits above the foot of the art, clear of the text
+    /// Where the item logo sits above the foot of the art, clear of the text
     /// that now overlaps it.
     private var logoBottomInset: CGFloat {
         #if os(tvOS)

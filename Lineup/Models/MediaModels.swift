@@ -128,6 +128,16 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
 
     var isSeries: Bool { type == "Series" }
 
+    /// Whether this has a page of its own: art, description, facts, and a play
+    /// button. A series has always had one; a film has one too, because the
+    /// decision to watch a film is made from exactly those things.
+    var hasDetailPage: Bool { isSeries || type == "Movie" }
+
+    /// Whether choosing this on a shelf opens a page rather than going
+    /// straight to a list of streams. An episode goes straight there: it was
+    /// chosen from the page its series already gave.
+    var opensPage: Bool { isFolder || hasDetailPage }
+
     var isPlayed: Bool { userData?.played == true }
 
     var isFavorite: Bool { userData?.isFavorite == true }
