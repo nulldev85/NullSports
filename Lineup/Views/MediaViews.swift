@@ -1156,11 +1156,14 @@ private struct MediaSourcePicker: View {
                             }
                         }
                         ScrollView {
-                            LazyVStack(spacing: rowSpacing) {
+                            // Leading, because a row is as wide as its text
+                            // now: centred, the ragged edge would be on both
+                            // sides instead of neither.
+                            LazyVStack(alignment: .leading, spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
                                     #if os(tvOS)
                                     TVSelectable(scale: 1.02, fill: LineupStyle.focused,
-                                        fillRadius: 12, action: { selectedSource = source }) {
+                                        fillRadius: 14, action: { selectedSource = source }) {
                                         MediaSourceRow(source: source)
                                     }
                                     #else
@@ -1172,6 +1175,7 @@ private struct MediaSourcePicker: View {
                                 }
                             }
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -1217,7 +1221,7 @@ private struct MediaSourcePicker: View {
 
     private var rowSpacing: CGFloat {
         #if os(tvOS)
-        12
+        14
         #else
         10
         #endif
@@ -1235,7 +1239,7 @@ private struct MediaSourcePicker: View {
     /// this is further than the eye tracks comfortably from a couch.
     private var columnWidth: CGFloat {
         #if os(tvOS)
-        1020
+        1180
         #else
         .infinity
         #endif
@@ -1350,7 +1354,6 @@ private struct MediaSourceRow: View {
                     .font(.system(size: titleSize, weight: .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
             }
             // One quiet line each. Pills inside a pill inside a card was the
             // cheap part; the words carry themselves.
@@ -1380,7 +1383,10 @@ private struct MediaSourceRow: View {
             .foregroundStyle(accent.opacity(0.5))
         }
         .padding(.horizontal, insetH).padding(.vertical, insetV)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // A television row is as wide as the words in it. Held to the column
+        // width it ran on past the end of a release name -- half an empty card
+        // on every row, and the whole of it lit when the row took focus.
+        .frame(maxWidth: rowWidth, alignment: .leading)
         .background { plate }
         .foregroundStyle(accent)
         .accessibilityElement(children: .combine)
@@ -1398,16 +1404,19 @@ private struct MediaSourceRow: View {
     }
 
     #if os(tvOS)
-    private var lineSpacing: CGFloat { 9 }
-    private var titleSize: CGFloat { 20 }
-    private var badgeSize: CGFloat { 14 }
-    private var factSize: CGFloat { 12 }
-    private var qualitySize: CGFloat { 14 }
-    private var qualityWidth: CGFloat { 66 }
-    private var qualityHeight: CGFloat { 28 }
-    private var insetH: CGFloat { 20 }
-    private var insetV: CGFloat { 16 }
+    /// nil lets the row size to its content; a phone card still spans its list.
+    private var rowWidth: CGFloat? { nil }
+    private var lineSpacing: CGFloat { 11 }
+    private var titleSize: CGFloat { 26 }
+    private var badgeSize: CGFloat { 17 }
+    private var factSize: CGFloat { 15 }
+    private var qualitySize: CGFloat { 16 }
+    private var qualityWidth: CGFloat { 76 }
+    private var qualityHeight: CGFloat { 34 }
+    private var insetH: CGFloat { 26 }
+    private var insetV: CGFloat { 24 }
     #else
+    private var rowWidth: CGFloat? { .infinity }
     private var lineSpacing: CGFloat { 8 }
     private var titleSize: CGFloat { 16 }
     private var badgeSize: CGFloat { 12 }
