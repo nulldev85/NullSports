@@ -1111,8 +1111,16 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.lightPurple }
     static var secondary: Color { LineupStyle.lightPurple }
-    /// A progress fill, an eyebrow over a panel: the theme speaking.
+    /// An eyebrow over a panel, the line down the grid: the theme speaking.
     static var highlight: Color { LineupStyle.highlight }
+    /// How far a programme has run, filled in behind the line. Lighter than
+    /// the line, because it covers area and the line is one line wide.
+    static var progressFill: Color { LineupStyle.highlightSoft }
+    /// A programme's card, and the same card with the remote on it. Both are
+    /// a step up from the row they sit in, so a card reads as a card and the
+    /// blue over it has something to read against.
+    static var card: Color { LineupStyle.raised }
+    static var cardFocused: Color { LineupStyle.focused }
     /// The on-air badge.
     static var liveMark: Color { LineupStyle.highlight }
     /// The edge and glow on whatever the remote is sitting on.
@@ -1729,19 +1737,17 @@ private struct GuideNowLine: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Circle().fill(GuidePalette.highlight).frame(width: 7, height: 7)
-            Rectangle()
-                .fill(LinearGradient(
-                    colors: [GuidePalette.highlight.opacity(0.9), GuidePalette.highlight.opacity(0.16)],
-                    startPoint: .top, endPoint: .bottom))
-                .frame(width: 2)
-        }
-        .frame(width: 7)
-        .shadow(color: GuidePalette.highlight.opacity(0.45), radius: 7)
-        .offset(x: x - 3.5)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        // No cap on top. A dot there was a handle on something nobody drags,
+        // and it drew the eye to the ceiling of the grid rather than down it.
+        Rectangle()
+            .fill(LinearGradient(
+                colors: [GuidePalette.highlight.opacity(0.9), GuidePalette.highlight.opacity(0.16)],
+                startPoint: .top, endPoint: .bottom))
+            .frame(width: 2)
+            .shadow(color: GuidePalette.highlight.opacity(0.45), radius: 7)
+            .offset(x: x - 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -2197,20 +2203,22 @@ private struct GuideProgramCell: View {
         .background {
             GeometryReader { geometry in
                 LinearGradient(
-                    colors: isFocused ? [GuidePalette.raised, GuidePalette.raised.opacity(0.82)] : [GuidePalette.surface, GuidePalette.surface.opacity(0.82)],
+                    colors: isFocused
+                        ? [GuidePalette.cardFocused, GuidePalette.cardFocused.opacity(0.88)]
+                        : [GuidePalette.card, GuidePalette.card.opacity(0.88)],
                     startPoint: .top, endPoint: .bottom)
-                // The played wash is the text tint, not the accent. A
-                // programme that began an hour ago is mostly elapsed, so an
-                // accent wash here is not a detail on one card -- it is a film
-                // over the entire guide. The line down the grid carries the
-                // colour instead, and it only has to be one line wide.
+                // Filled in behind the line, in a lighter shade of it. The
+                // accent itself was tried here and covers most of every cell
+                // in an evening, which read as the ground having gone blue.
+                // Lighter, and over a card that is itself a step lighter, the
+                // same colour reads as fill.
                 if let program {
                     let elapsedWidth = GuideProgress.playedWidth(
                         start: program.start, end: program.end, now: now,
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(layout.slotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    GuidePalette.text.opacity(0.07)
+                    GuidePalette.progressFill.opacity(0.16)
                         .frame(width: CGFloat(elapsedWidth))
                 }
             }

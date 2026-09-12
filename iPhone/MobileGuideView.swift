@@ -242,20 +242,19 @@ struct MobileGuideView: View {
                 // timeline as it scrolls, because that is what it marks; the
                 // channel column is drawn above it and covers it as it passes.
                 .overlay(alignment: .topLeading) {
-                    VStack(spacing: 0) {
-                        Circle().fill(LineupStyle.highlight).frame(width: 6, height: 6)
-                        Rectangle()
-                            .fill(LinearGradient(
-                                colors: [LineupStyle.highlight.opacity(0.9),
-                                         LineupStyle.highlight.opacity(0.14)],
-                                startPoint: .top, endPoint: .bottom))
-                            .frame(width: 1.5)
-                    }
-                    .frame(width: 6)
-                    .padding(.top, 34)
-                    .offset(x: logoWidth + window.x(now) - 3)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    // No cap on top: a dot there is a handle on something
+                    // nobody drags, and it pulls the eye to the ceiling of the
+                    // grid rather than down it.
+                    Rectangle()
+                        .fill(LinearGradient(
+                            colors: [LineupStyle.highlight.opacity(0.9),
+                                     LineupStyle.highlight.opacity(0.14)],
+                            startPoint: .top, endPoint: .bottom))
+                        .frame(width: 1.5)
+                        .padding(.top, 34)
+                        .offset(x: logoWidth + window.x(now) - 0.75)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
                 .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
@@ -358,13 +357,13 @@ struct MobileGuideView: View {
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(live ? LineupStyle.selected : LineupStyle.surface)
+                            .fill(live ? LineupStyle.focused : LineupStyle.raised)
                         if program != nil {
-                            // Played, in the text tint rather than the accent.
-                            // A programme that began an hour ago is mostly
-                            // elapsed, so an accent wash here is not a detail on
-                            // a card -- it is a film over the entire guide.
-                            Rectangle().fill(LineupStyle.lightPurple.opacity(0.07))
+                            // Filled in behind the line, in a lighter shade of
+                            // it. The accent itself covers most of every cell
+                            // over an evening, which reads as the ground having
+                            // gone blue; lighter, it reads as fill.
+                            Rectangle().fill(LineupStyle.highlightSoft.opacity(0.16))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
                         VStack(alignment: .leading, spacing: 5) {

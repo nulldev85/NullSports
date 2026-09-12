@@ -33,7 +33,8 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 // Velvet has never had a colour of its own apart from its text
                 // tint, so its highlight is that tint: nothing about the theme
                 // changes by giving the slot a value.
-                highlight: rgb(0xD4C7E1), selectionBorder: rgb(0xFFFFFF),
+                highlight: rgb(0xD4C7E1), highlightSoft: rgb(0xE6DEEE),
+                selectionBorder: rgb(0xFFFFFF),
                 liveDot: rgb(0xFA4757), positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
                 line: rgb(0xD4C7E1).opacity(0.11),
                 leagues: LeagueColors(
@@ -65,7 +66,8 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 // of navy in a room; the blue border and glow around a focused
                 // thing say it far more clearly than its fill ever did.
                 focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
-                highlight: rgb(0x5B9DFF), selectionBorder: rgb(0x5B9DFF),
+                highlight: rgb(0x5B9DFF), highlightSoft: rgb(0xA6C8FF),
+                selectionBorder: rgb(0x5B9DFF),
                 liveDot: rgb(0xFF4A63), positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
                 // A charcoal ground is lighter than carbon, so a hairline needs
                 // a little more to draw on it than it did on near-black.
@@ -102,9 +104,14 @@ fileprivate struct LineupPalette {
     let focused: Color
     let warning: Color
     /// The theme's own colour, as opposed to its text tint. Live borders, the
-    /// active chip, a progress fill -- anything meant to be the sharpest thing
-    /// on screen reads from here.
+    /// active chip, the line down the guide -- anything meant to be the
+    /// sharpest thing on screen reads from here.
     let highlight: Color
+    /// The same colour, lighter. A fill that covers area cannot be the sharp
+    /// one: at the strength a mark wants, a wash across half of every cell in
+    /// the guide reads as the ground having changed colour. Lighter and it
+    /// reads as fill, which is what it is.
+    let highlightSoft: Color
     let selectionBorder: Color
     let liveDot: Color
     let positive: Color
@@ -153,6 +160,7 @@ enum LineupStyle {
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
     static var highlight: Color { palette.highlight }
+    static var highlightSoft: Color { palette.highlightSoft }
     static var liveBorder: Color { palette.highlight.opacity(0.72) }
     static var line: Color { palette.line }
     static var text: Color { lightPurple }
