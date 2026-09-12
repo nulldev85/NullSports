@@ -1806,6 +1806,7 @@ struct MediaServerSetupView: View {
                                 username: username, password: password) { dismiss() }
                         }
                     }
+                        .lineupButtonStyle()
                     // A password is not required. Jellyfin-compatible servers
                     // allow passwordless users, and some ship that way until an
                     // operator sets one -- refusing to try left those servers

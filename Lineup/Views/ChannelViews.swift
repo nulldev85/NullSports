@@ -2277,6 +2277,7 @@ struct AccountView: View {
                                     }
                                     .lineupFlatButton()
                                     Button("Remove", role: .destructive) { media.remove(profile) }
+                                        .lineupButtonStyle()
                                 }
                             }
                         }

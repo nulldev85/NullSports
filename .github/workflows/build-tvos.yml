@@ -51,6 +51,11 @@ jobs:
           swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
           /tmp/lineup-provider-refresh-checks
 
+      - name: Check tvOS focus styling
+        run: |
+          set -euo pipefail
+          python3 Tools/check-tv-focus.py
+
       # The icon layers are committed artwork. They used to be rebuilt here from
       # a source bitmap on every run, which meant a new icon was overwritten by
       # the old one before it ever reached a build. BuildAssets/generate-icons.py
