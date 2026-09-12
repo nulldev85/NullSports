@@ -165,6 +165,28 @@ struct LineupThemeSwatch: View {
 }
 
 extension View {
+    /// Rebuilds this subtree whenever the theme changes.
+    ///
+    /// Every colour in the app is read from `LineupStyle`, which answers from
+    /// stored state rather than from anything SwiftUI watches. A view is only
+    /// asked for its body again when one of its own inputs changes, and a theme
+    /// is not an input to any of them -- so on a switch the screens that
+    /// happened to re-render took the new palette and the rest kept the old
+    /// one, which is the half-repainted screen this fixes.
+    ///
+    /// Observing the stored value higher up does not help, because the same
+    /// rule applies one level down: a panel whose title and rows have not
+    /// changed is not rebuilt just because its parent was. Nothing short of
+    /// threading the theme through every view's inputs makes the dependency
+    /// real, so the subtree is re-identified instead and drawn again from
+    /// scratch in the new palette.
+    ///
+    /// Apply it below whatever holds state worth keeping -- the selected tab
+    /// sits above this, so switching a theme does not also move the viewer.
+    func lineupThemeScope(_ theme: String) -> some View {
+        id(theme)
+    }
+
     /// The app's button style, with tvOS's own focus effect switched off.
     ///
     /// `LineupButtonStyle` already draws focus -- a filled background and a

@@ -10,15 +10,23 @@ struct MainView: View {
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
+        // Each tab's content is scoped to the theme, not the TabView: the bar
+        // and the selected tab survive a switch, and only what is painted is
+        // redrawn. The guide keeps its own identity on the active profile,
+        // which the theme scope sits outside of.
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0) { playing = $0 }
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
                 .id(library.activeProfile?.id)
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Media Servers", systemImage: "play.square.stack") }.tag(2)
             MobileAccountView()
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         .tint(LineupStyle.highlight)
@@ -132,6 +140,10 @@ private struct MobileAccountView: View {
         NavigationStack {
             Form {
                 Section {
+                    // Inline, not a pushed screen. Choosing a theme rebuilds
+                    // this screen so it repaints in the new palette, which
+                    // would pull a pushed picker out from under the tap. With
+                    // two themes there is nothing to push for anyway.
                     Picker("Theme", selection: $selectedTheme) {
                         ForEach(LineupTheme.allCases) { theme in
                             HStack {
@@ -144,7 +156,7 @@ private struct MobileAccountView: View {
                             .tag(theme.rawValue)
                         }
                     }
-                    .pickerStyle(.navigationLink)
+                    .pickerStyle(.inline)
                 } header: {
                     Text("Appearance")
                 } footer: {

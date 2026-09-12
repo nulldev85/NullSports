@@ -10,9 +10,13 @@ struct RootView: View {
     var body: some View {
         Group {
             if library.hasProfile || media.hasProfile {
+                // MainView holds the selected tab, so the theme scope goes
+                // inside it, around each tab's content. Re-identifying from
+                // here would take the tab with it and move the viewer off the
+                // settings screen they just used.
                 MainView()
             } else {
-                InitialSourceSetupView()
+                InitialSourceSetupView().lineupThemeScope(selectedTheme)
             }
         }
         .foregroundStyle(LineupStyle.text)
@@ -56,19 +60,26 @@ struct RootView: View {
 #if os(tvOS)
 struct MainView: View {
     @State private var selectedTab = 0
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
+        // Each tab's content is scoped, not the TabView: the bar and the
+        // selection survive a switch, and only what is painted is redrawn.
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", systemImage: "play.rectangle.fill") }
                 .tag(0)
             GuideView()
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Media Servers", systemImage: "play.square.stack") }
                 .tag(2)
             AccountView()
+                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
                 .tag(3)
         }
