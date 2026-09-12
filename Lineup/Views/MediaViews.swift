@@ -1588,12 +1588,12 @@ private struct MediaSourceRow: View {
             }
             HStack(spacing: 8) {
                 Text(source.provider.uppercased())
-                    .font(.system(size: factSize, weight: .heavy)).tracking(1.1)
+                    .font(.system(size: markSize, weight: .heavy)).tracking(1.1)
                     .lineLimit(1)
                 if let score = source.score {
-                    Text("\u{00B7}").font(.system(size: factSize, weight: .heavy))
+                    Text("\u{00B7}").font(.system(size: markSize, weight: .heavy))
                     Text("RANK " + (score >= 0 ? "+\(score)" : "\(score)"))
-                        .font(.system(size: factSize, weight: .heavy)).tracking(1.1)
+                        .font(.system(size: markSize, weight: .heavy)).tracking(1.1)
                         .monospacedDigit()
                 }
             }
@@ -1623,13 +1623,18 @@ private struct MediaSourceRow: View {
     #if os(tvOS)
     /// nil lets the row size to its content; a phone card still spans its list.
     private var rowWidth: CGFloat? { nil }
-    private var lineSpacing: CGFloat { 11 }
+    private var lineSpacing: CGFloat { 12 }
     private var titleSize: CGFloat { 26 }
-    private var badgeSize: CGFloat { 17 }
-    private var factSize: CGFloat { 15 }
-    private var qualitySize: CGFloat { 16 }
-    private var qualityWidth: CGFloat { 76 }
-    private var qualityHeight: CGFloat { 34 }
+    // The three lines under the release carry the detail somebody is actually
+    // choosing between -- codec, size, indexer -- and at a footnote's size a
+    // television turns them into texture. They keep their order below the
+    // title without being small enough to squint at.
+    private var badgeSize: CGFloat { 20 }
+    private var factSize: CGFloat { 18 }
+    private var markSize: CGFloat { 17 }
+    private var qualitySize: CGFloat { 18 }
+    private var qualityWidth: CGFloat { 82 }
+    private var qualityHeight: CGFloat { 36 }
     private var insetH: CGFloat { 26 }
     private var insetV: CGFloat { 24 }
     #else
@@ -1638,6 +1643,7 @@ private struct MediaSourceRow: View {
     private var titleSize: CGFloat { 16 }
     private var badgeSize: CGFloat { 12 }
     private var factSize: CGFloat { 11 }
+    private var markSize: CGFloat { 11 }
     private var qualitySize: CGFloat { 13 }
     private var qualityWidth: CGFloat { 62 }
     private var qualityHeight: CGFloat { 26 }
