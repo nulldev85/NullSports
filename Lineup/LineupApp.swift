@@ -51,6 +51,14 @@ func applyLineupTabBarTheme() {
     UITabBar.appearance().standardAppearance = appearance
     UITabBar.appearance().scrollEdgeAppearance = appearance
     UITabBar.appearance().unselectedItemTintColor = accent
+    // The appearance proxy above only reaches bars built after this point, and
+    // the tab bar is the one piece of chrome that outlives a theme switch --
+    // it sits above the part of the tree that is rebuilt, so nothing else is
+    // going to repaint it. Assigning an appearance to a bar already on screen
+    // does not redraw it either; it is picked up at the next layout pass, so
+    // one is asked for here rather than waiting for something else to cause
+    // it. Without this the bar keeps the old palette until the view is
+    // disturbed for an unrelated reason.
     UIApplication.shared.connectedScenes
         .compactMap { $0 as? UIWindowScene }
         .flatMap(\.windows)
@@ -59,6 +67,8 @@ func applyLineupTabBarTheme() {
             $0.standardAppearance = appearance
             $0.scrollEdgeAppearance = appearance
             $0.unselectedItemTintColor = accent
+            $0.setNeedsLayout()
+            $0.layoutIfNeeded()
         }
 }
 
