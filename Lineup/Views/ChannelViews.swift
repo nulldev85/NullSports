@@ -285,24 +285,15 @@ private struct LiveBoardLeagueButton: View {
     }
 }
 
+/// The date, and nothing else. Refreshing used to sit out at the right of it,
+/// which is the far corner of a television from where anyone is looking.
 private struct LiveBoardHeading: View {
-    @EnvironmentObject private var library: SportsLibrary
-
-    // Matching keeps running after the schedule and library finish, and every
-    // game reads as unmatched until it lands. Cover that window too, so it is
-    // not mistaken for a settled answer of "no channel".
-    private var isPreparingStreams: Bool {
-        library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady
-    }
-
     var body: some View {
         HStack(alignment: .center) {
-            HStack(alignment: .firstTextBaseline, spacing: 18) {
-                Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day())).foregroundColor(LineupStyle.lightPurple)
-                    .font(.system(size: 16, weight: .medium)).foregroundStyle(LiveBoardStyle.muted)
-            }
+            Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(LiveBoardStyle.muted)
             Spacer()
-            if isPreparingStreams { RefreshingStreamsLabel() }
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .frame(height: 28)
@@ -312,15 +303,26 @@ private struct LiveBoardHeading: View {
 /// Matches are unavailable while channels, guide or matching are in flight, so
 /// the board says so rather than showing every game as having no channel.
 private struct RefreshingStreamsLabel: View {
+    /// Where it is standing. In a heading it is a footnote beside other text;
+    /// alone in the middle of a dark screen it is the only thing there, and a
+    /// footnote sized for a heading reads as a fault rather than an answer.
+    enum Size { case inline, screen }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dimmed = false
+    var size: Size = .inline
+
+    private var dot: CGFloat { size == .screen ? 11 : 7 }
+    private var type: CGFloat { size == .screen ? 19 : 13 }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(LineupStyle.live).frame(width: 7, height: 7)
-            Text("REFRESHING STREAMS").font(.system(size: 13, weight: .bold)).tracking(2)
+        HStack(spacing: size == .screen ? 14 : 10) {
+            Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
+                .shadow(color: LineupStyle.live.opacity(size == .screen ? 0.55 : 0), radius: 8)
+            Text("REFRESHING STREAMS")
+                .font(.system(size: type, weight: .bold)).tracking(size == .screen ? 3 : 2)
         }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
+        .foregroundStyle(LineupStyle.lightPurple.opacity(size == .screen ? 0.9 : 0.75))
         .opacity(reduceMotion || !dimmed ? 1 : 0.32)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
         .onAppear { dimmed = true }
@@ -363,6 +365,7 @@ private struct LiveEmptySlateDashboard: View {
 }
 
 private struct LiveSlateDashboard: View {
+    @EnvironmentObject private var library: SportsLibrary
     @State private var gameFocusRequest: UUID?
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
@@ -398,6 +401,14 @@ private struct LiveSlateDashboard: View {
                             } else {
                                 LinearGradient(colors: [LineupStyle.lightPurple.opacity(0.025), .clear, .black],
                                     startPoint: .topLeading, endPoint: .bottomTrailing)
+                                // Waiting is what this screen is for while it
+                                // is dark, and the dark screen is the one place
+                                // the viewer is already looking. Tucked into
+                                // the corner of the heading it was easy to miss
+                                // and easier to mistake for nothing happening.
+                                if isPreparingStreams {
+                                    RefreshingStreamsLabel(size: .screen)
+                                }
                             }
                         }
                         .frame(width: screenHeight(in: geometry.size) * 16 / 9,
@@ -413,7 +424,7 @@ private struct LiveSlateDashboard: View {
                                 .strokeBorder(LineupStyle.lightPurple.opacity(0.08), lineWidth: 1)
                         }
                         .overlay(alignment: .bottomTrailing) {
-                            if previewStream == nil {
+                            if previewStream == nil && !isPreparingStreams {
                                 LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
                             }
                         }
@@ -447,6 +458,13 @@ private struct LiveSlateDashboard: View {
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
+    }
+
+    // Matching keeps running after the schedule and library finish, and every
+    // game reads as unmatched until it lands. Cover that window too, so it is
+    // not mistaken for a settled answer of "no channel".
+    private var isPreparingStreams: Bool {
+        library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady
     }
 
     private func screenHeight(in size: CGSize) -> CGFloat {
