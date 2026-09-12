@@ -3,31 +3,36 @@ import SwiftUI
 struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingServer = false
+    @State private var addingAddon = false
 
     var body: some View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer)
+            TVMediaServersHome(addingServer: $addingServer, addingAddon: $addingAddon)
             #else
             Group {
-                if media.activeProfile == nil {
+                if !media.hasAnySource {
                     ContentUnavailableView {
-                        Label("Connect a Media Server", systemImage: "play.square.stack")
+                        Label("Add a Source", systemImage: "play.square.stack")
                     } description: {
-                        Text("Browse your Jellyfin library or connect Nullfin for addon-powered catalogs and streams.")
+                        Text("Connect a Jellyfin or Nullfin server for your own library, or add an addon to browse its catalogs and play its streams directly.")
                     } actions: {
+                        Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
-                } else if media.roots.isEmpty && media.isLoading {
+                } else if media.shelves.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
                 } else {
-                    MediaCatalogsScreen(catalogs: media.catalogs)
+                    MediaCatalogsScreen(catalogs: media.shelves)
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
             .navigationTitle("Media Servers")
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Server", systemImage: "plus") { addingServer = true }
                 }
@@ -39,8 +44,20 @@ struct MediaServersView: View {
                     .environmentObject(media)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $addingAddon) {
+                AddonSetupView()
+                    .environmentObject(media)
+                    .preferredColorScheme(.dark)
+            }
             .task {
-                if media.activeProfile != nil && media.roots.isEmpty { await media.reload() }
+                if media.activeProfile != nil && media.roots.isEmpty {
+                    await media.reload()
+                } else if media.addonShelves.isEmpty {
+                    // A row from an addon is fetched rather than stored, so at
+                    // launch there are none however many were chosen. Only
+                    // when the server reload above did not already do it.
+                    await media.refreshAddonShelves()
+                }
             }
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
@@ -56,6 +73,7 @@ struct MediaServersView: View {
 private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary
     @Binding var addingServer: Bool
+    @Binding var addingAddon: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -64,7 +82,7 @@ private struct TVMediaServersHome: View {
                     Text("MEDIA SERVERS")
                         .font(.system(size: 13, weight: .bold)).tracking(2.2)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
-                    Text(media.activeProfile?.name ?? "Your library")
+                    Text(media.activeProfile?.name ?? (media.addons.isEmpty ? "Your library" : "Your addons"))
                         .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .foregroundStyle(LineupStyle.lightPurple)
                 }
@@ -76,10 +94,22 @@ private struct TVMediaServersHome: View {
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(LineupStyle.surface, in: Capsule())
                 }
+                if !media.addons.isEmpty {
+                    Label("\(media.addons.count) addon\(media.addons.count == 1 ? "" : "s")",
+                        systemImage: "puzzlepiece.extension.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+                        .padding(.horizontal, 14).frame(height: 38)
+                        .background(LineupStyle.surface, in: Capsule())
+                }
                 Button { Task { await media.reload() } } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 42, height: 42)
                 }
-                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled().disabled(media.isLoading || media.activeProfile == nil)
+                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled().disabled(media.isLoading || !media.hasAnySource)
+                Button { addingAddon = true } label: {
+                    Label("Addons", systemImage: "puzzlepiece.extension").padding(.horizontal, 4).frame(height: 42)
+                }
+                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
                 Button { addingServer = true } label: {
                     Label("Add Server", systemImage: "plus").padding(.horizontal, 4).frame(height: 42)
                 }
@@ -87,16 +117,17 @@ private struct TVMediaServersHome: View {
             }
             .padding(.horizontal, 54).padding(.top, 18)
 
-            if media.activeProfile == nil {
-                TVMediaEmptyState { addingServer = true }
-            } else if media.roots.isEmpty && media.isLoading {
+            if !media.hasAnySource {
+                TVMediaEmptyState(addServer: { addingServer = true },
+                    addAddon: { addingAddon = true })
+            } else if media.shelves.isEmpty && media.isLoading {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
                     Text("Loading your libraries…").font(.headline)
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if media.roots.isEmpty {
+            } else if media.roots.isEmpty && media.addons.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
                     Text("No libraries found").font(.title2.weight(.semibold))
@@ -106,7 +137,7 @@ private struct TVMediaServersHome: View {
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MediaCatalogsScreen(catalogs: media.catalogs)
+                MediaCatalogsScreen(catalogs: media.shelves)
             }
         }
         .background(
@@ -120,7 +151,8 @@ private struct TVMediaServersHome: View {
 }
 
 private struct TVMediaEmptyState: View {
-    let add: () -> Void
+    let addServer: () -> Void
+    let addAddon: () -> Void
     var body: some View {
         HStack(spacing: 34) {
             ZStack {
@@ -132,10 +164,13 @@ private struct TVMediaEmptyState: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.system(size: 32, weight: .semibold, design: .rounded))
-                Text("Connect Jellyfin or Nullfin to browse libraries, addon catalogs, and streams.")
+                Text("Add an addon to browse its catalogs and play its streams, or connect a Jellyfin or Nullfin server for a library of your own. Both can be on at once.")
                     .font(.system(size: 18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
-                Button("Connect a Server", systemImage: "plus", action: add)
-                    .lineupButtonStyle().padding(.top, 6)
+                HStack(spacing: 16) {
+                    Button("Add an Addon", systemImage: "puzzlepiece.extension", action: addAddon)
+                    Button("Connect a Server", systemImage: "plus", action: addServer)
+                }
+                .lineupButtonStyle().padding(.top, 6)
             }
             .foregroundStyle(LineupStyle.lightPurple)
         }
@@ -602,7 +637,9 @@ private struct MediaShelfPicker: View {
             .filter { !$0.items.isEmpty }
     }
 
-    private var hasAnything: Bool { !groups.isEmpty || !media.addonGroups.isEmpty }
+    private var hasAnything: Bool {
+        !groups.isEmpty || !media.addonGroups.isEmpty || !media.availableAddonCatalogs.isEmpty
+    }
 
     var body: some View {
         #if os(tvOS)
@@ -671,10 +708,42 @@ private struct MediaShelfPicker: View {
                             #endif
                         }
                     }
-                    // Catalogs the addons offer that the server is not
-                    // importing yet. Choosing one switches it on and asks the
-                    // server to fetch it, which is what an addon needs before
-                    // anything of its own can be shelved.
+                    // Catalogs from the addons Lineup talks to itself. One
+                    // request each and they are a row, so there is nothing to
+                    // wait for and nothing to switch on first.
+                    ForEach(media.availableAddonCatalogs, id: \.addon.id) { entry in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(entry.addon.name.uppercased())
+                                .font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("Added addon — rows appear as soon as you pick one")
+                                .font(.system(size: 13))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                        }
+                        .padding(.top, 18).padding(.bottom, 6)
+                        ForEach(entry.catalogs) { catalog in
+                            let key = StremioID.shelf(addon: entry.addon.id, catalog: catalog)
+                            #if os(tvOS)
+                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                                fillRadius: 14,
+                                action: { addAddonCatalog(catalog, from: entry.addon) }) {
+                                MediaShelfRow(title: catalog.title, detail: catalog.type.capitalized,
+                                    busy: adding.contains(key))
+                            }
+                            #else
+                            Button { addAddonCatalog(catalog, from: entry.addon) } label: {
+                                MediaShelfRow(title: catalog.title, detail: catalog.type.capitalized,
+                                    busy: adding.contains(key))
+                            }
+                            .lineupFlatButton()
+                            #endif
+                        }
+                    }
+                    // Catalogs the addons on a Nullfin *server* offer that it is
+                    // not importing yet. Choosing one switches it on and asks
+                    // the server to fetch it, which is the slower road to the
+                    // same place -- kept for the catalogs a server holds that
+                    // no addon here is attached to.
                     ForEach(media.addonGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(group.name.uppercased())
@@ -741,6 +810,18 @@ private struct MediaShelfPicker: View {
             media.stopWaiting(for: catalog)
         } else {
             media.enableCatalog(catalog, addonID: addonID)
+        }
+    }
+
+    /// A row from an addon Lineup talks to directly. No import, no waiting:
+    /// the catalog is fetched and it is on screen.
+    private func addAddonCatalog(_ catalog: StremioCatalogSpec, from addon: StremioAddon) {
+        let key = StremioID.shelf(addon: addon.id, catalog: catalog)
+        guard !adding.contains(key) else { return }
+        adding.insert(key)
+        Task { @MainActor in
+            await media.addAddonShelf(catalog, addon: addon)
+            adding.remove(key)
         }
     }
 
@@ -940,9 +1021,14 @@ private struct MediaShowScreen: View {
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            iconButton(favorite ? "bookmark.fill" : "bookmark") {
-                favorite.toggle()
-                Task { await media.setFavorite(favorite, for: show) }
+            // Only where there is somewhere to keep it. An addon holds no
+            // account of the viewer's, so a bookmark there would be a button
+            // that appears to work and remembers nothing.
+            if !show.isAddonItem {
+                iconButton(favorite ? "bookmark.fill" : "bookmark") {
+                    favorite.toggle()
+                    Task { await media.setFavorite(favorite, for: show) }
+                }
             }
             iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
                 .disabled(episodes.isEmpty)
@@ -1886,4 +1972,211 @@ struct InitialSourceSetupView: View {
         24
         #endif
     }
+}
+
+/// Where addons are added and taken off.
+///
+/// An addon is a link, and that is the whole setup: no account, no import, no
+/// waiting. What it offers shows up in Add Shelf the moment it is added, and
+/// its first rows go up by themselves so the screen behind this one is not
+/// empty afterwards.
+struct AddonSetupView: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var address = ""
+    /// The addon a row was pressed on, held while the removal is confirmed. A
+    /// row that deletes on one press is a row nobody can safely browse with a
+    /// remote.
+    @State private var pendingRemoval: StremioAddon?
+
+    private var canAdd: Bool {
+        !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !media.addonBusy
+    }
+
+    private let explanation = "Paste an addon's link — the one ending in /manifest.json. Catalog addons fill the rows on this tab; streaming addons supply the links Lineup plays. Both kinds can be added, and Lineup asks every streaming addon whenever you pick something to watch."
+
+    var body: some View {
+        #if os(tvOS)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ADDONS").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("Add a catalog or streaming addon")
+                    .font(.system(size: 26, weight: .semibold))
+            }
+            .padding(.bottom, 10)
+            Text(explanation)
+                .font(.system(size: 16)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .frame(maxWidth: 820, alignment: .leading)
+                .padding(.bottom, 22)
+
+            TextField("https://addon.example.com/manifest.json", text: $address)
+                .textFieldStyle(.plain)
+                .font(.system(size: 20, design: .monospaced))
+                .padding(.bottom, 18)
+
+            HStack(spacing: 14) {
+                TVSelectable(scale: LineupStyle.controlLift, action: add) {
+                    HStack(spacing: 10) {
+                        if media.addonBusy { ProgressView().controlSize(.small) }
+                        Text(media.addonBusy ? "Reading manifest…" : "Add Addon")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .padding(.horizontal, 22).frame(height: 52)
+                    .modifier(MediaChromeSurface(prominent: true, radius: 12))
+                }
+                .disabled(!canAdd)
+                TVSelectable(scale: LineupStyle.controlLift, action: { dismiss() }) {
+                    Text("Done").font(.system(size: 17, weight: .semibold))
+                        .padding(.horizontal, 22).frame(height: 52)
+                        .modifier(MediaChromeSurface(radius: 12))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.bottom, 26)
+
+            if media.addons.isEmpty {
+                Text("No addons yet.")
+                    .font(.system(size: 17)).foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+            } else {
+                Text("INSTALLED").font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                    .padding(.bottom, 8)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(media.addons) { addon in
+                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                                fillRadius: 14, action: { pendingRemoval = addon }) {
+                                AddonRow(addon: addon)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 40)
+                }
+            }
+        }
+        .padding(.horizontal, 60).padding(.top, 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .onExitCommand { dismiss() }
+        .confirmationDialog("Remove this addon?", isPresented: Binding(
+            get: { pendingRemoval != nil },
+            set: { if !$0 { pendingRemoval = nil } }
+        ), titleVisibility: .visible, presenting: pendingRemoval) { addon in
+            Button("Remove \(addon.name)", role: .destructive) {
+                media.removeAddon(addon)
+                pendingRemoval = nil
+            }
+            Button("Keep", role: .cancel) { pendingRemoval = nil }
+        } message: { addon in
+            Text("Its rows come off this tab. \(addon.name) can be added again at any time.")
+        }
+        #else
+        NavigationStack {
+            Form {
+                Section("Addon Link") {
+                    TextField("https://addon.example.com/manifest.json", text: $address)
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(.body, design: .monospaced))
+                    Button(media.addonBusy ? "Reading manifest…" : "Add Addon", action: add)
+                        .lineupButtonStyle()
+                        .disabled(!canAdd)
+                } footer: {
+                    Text(explanation)
+                }
+                if !media.addons.isEmpty {
+                    Section("Installed") {
+                        ForEach(media.addons) { addon in
+                            AddonRow(addon: addon)
+                        }
+                        .onDelete { offsets in
+                            offsets.map { media.addons[$0] }.forEach(media.removeAddon)
+                        }
+                    }
+                }
+                if let error = media.errorMessage {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Addons")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                if !media.addons.isEmpty {
+                    ToolbarItem(placement: .primaryAction) { EditButton() }
+                }
+            }
+        }
+        #endif
+    }
+
+    private func add() {
+        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !media.addonBusy else { return }
+        Task { @MainActor in
+            if await media.addAddon(address: value) { address = "" }
+        }
+    }
+}
+
+/// One installed addon: what it is called, and what it actually does. The
+/// second line is the useful half -- an addon that provides no catalogs will
+/// never appear in Add Shelf, and knowing that from here saves looking.
+private struct AddonRow: View {
+    let addon: StremioAddon
+
+    private var roles: String {
+        var parts: [String] = []
+        if !addon.catalogs.isEmpty {
+            parts.append("\(addon.catalogs.count) catalog\(addon.catalogs.count == 1 ? "" : "s")")
+        }
+        if addon.providesStreams { parts.append("streams") }
+        if addon.providesMeta { parts.append("details") }
+        return parts.isEmpty ? "No rows or streams offered" : parts.joined(separator: " · ")
+    }
+
+    private var host: String {
+        URL(string: addon.address)?.host ?? addon.address
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(addon.name).font(.system(size: nameSize, weight: .semibold))
+                    .lineLimit(1)
+                Text(roles).font(.system(size: detailSize))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                Text(host).font(.system(size: detailSize, design: .monospaced))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.38))
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 16)
+            #if os(tvOS)
+            Image(systemName: "trash")
+                .font(.system(size: nameSize, weight: .semibold))
+                .foregroundStyle(LineupStyle.warning)
+                .accessibilityLabel("Remove " + addon.name)
+            #endif
+        }
+        .padding(.horizontal, rowInset).padding(.vertical, rowInset * 0.8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // A television row is a card of its own; in a Form the section already
+        // draws one, and a second behind it reads as a box inside a box.
+        .background(rowFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    #if os(tvOS)
+    private var nameSize: CGFloat { 22 }
+    private var detailSize: CGFloat { 14 }
+    private var rowInset: CGFloat { 20 }
+    private var rowFill: Color { LineupStyle.surface.opacity(0.5) }
+    #else
+    private var nameSize: CGFloat { 16 }
+    private var detailSize: CGFloat { 12 }
+    private var rowInset: CGFloat { 0 }
+    private var rowFill: Color { .clear }
+    #endif
 }

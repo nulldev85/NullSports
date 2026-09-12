@@ -30,10 +30,32 @@ final class MediaLibrary: ObservableObject {
     /// screen can say why rather than showing an empty list.
     @Published private(set) var addonsUnavailable = false
     private var importTasks: [String: Task<Void, Never>] = [:]
+
+    // MARK: Addons talked to directly
+    //
+    // Set only by the addon half of this library, which lives in
+    // MediaLibrary+Addons.swift -- an extension in another file, so these
+    // cannot be closed to it the way the server state above is.
+    /// The Stremio-type addons the viewer has installed.
+    @Published var addons: [StremioAddon] = []
+    /// Their chosen catalogs, already fetched, as rows.
+    @Published var addonShelves: [MediaCatalog] = []
+    /// Set while an addon's manifest is being read.
+    @Published var addonBusy = false
+    /// Which rows were chosen, in the order they were chosen.
+    var addonShelfIDs: [String] = []
+    /// Addon records kept after their first fetch. A show page asks for the
+    /// same meta three times over -- details, seasons, then episodes.
+    var addonMetas: [String: StremioMeta] = [:]
+    let addonsKey = "Lineup.stremioAddons"
+    let addonShelvesKey = "Lineup.stremioShelves"
+
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
-    private let defaults: UserDefaults
+    // Not private: the addon extension in MediaLibrary+Addons.swift stores its
+    // own list here, and `private` is file-scoped.
+    let defaults: UserDefaults
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
     private let profilesKey = "NullSports.mediaServers"
@@ -50,9 +72,19 @@ final class MediaLibrary: ObservableObject {
         }
         let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
         activeProfile = profiles.first { $0.id == activeID } ?? profiles.first
+        addonShelfIDs = defaults.stringArray(forKey: addonShelvesKey) ?? []
+        restoreAddons()
     }
 
     var hasProfile: Bool { activeProfile != nil }
+
+    /// Whether there is anything to show at all. An addon is a source in its
+    /// own right, so the tab has content with no server connected.
+    var hasAnySource: Bool { activeProfile != nil || !addons.isEmpty }
+
+    /// Every row on the Media Servers tab: the server's, then the addons'.
+    /// One list, because a shelf from either is browsed and played the same way.
+    var shelves: [MediaCatalog] { catalogs + addonShelves }
 
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -114,7 +146,11 @@ final class MediaLibrary: ObservableObject {
 
     func reload() async {
         guard let profile = activeProfile else {
-            roots = []; collections = []; catalogs = []; isLoading = false; return
+            roots = []; collections = []; catalogs = []; isLoading = false
+            // Addons are a source of their own: with no server connected there
+            // is still a tab full of rows to refill.
+            await refreshAddonShelves()
+            return
         }
         let requestID = UUID()
         loadID = requestID
@@ -163,9 +199,11 @@ final class MediaLibrary: ObservableObject {
         // After the libraries, not before: this is one request per enabled
         // catalog and the shelves should not wait behind it.
         if loadID == requestID { await loadAddonCatalogs() }
+        if loadID == requestID { await refreshAddonShelves() }
     }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
+        if parent.isAddonItem { return try await addonItems(in: parent) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
     }
@@ -173,6 +211,7 @@ final class MediaLibrary: ObservableObject {
     // Seasons and episodes are numbered, not named: "Season 10" sorts before
     // "Season 2" by name. A season can also run long past the shelf's limit.
     func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
+        if parent.isAddonItem { return try await addonChildren(of: parent) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
             parentID: parent.id, sortBy: "IndexNumber", limit: 500)
@@ -180,11 +219,14 @@ final class MediaLibrary: ObservableObject {
 
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
+        if item.isAddonItem { return try await addonDetails(of: item) }
         guard let profile = activeProfile else { return item }
         return try await client(for: profile).item(userID: profile.userID, itemID: item.id)
     }
 
     func nextUp(in series: MediaItem) async -> MediaItem? {
+        // An addon keeps no watch history, so there is no next episode to name.
+        if series.isAddonItem { return nil }
         guard let profile = activeProfile else { return nil }
         return try? await client(for: profile)
             .nextUp(userID: profile.userID, seriesID: series.id).first
@@ -193,11 +235,15 @@ final class MediaLibrary: ObservableObject {
     /// Per-source scores, when the server keeps them. A Jellyfin server does
     /// not, so a failure here means "show what the item itself carries".
     func metrics(for item: MediaItem) async -> [MediaMetric] {
+        // The addon's own rating already rides along on the item itself.
+        if item.isAddonItem { return [] }
         guard let profile = activeProfile else { return [] }
         return (try? await client(for: profile).itemMetrics(itemID: item.id)) ?? []
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
+        // Nothing to mark it on: an addon holds no account of the viewer's.
+        if item.isAddonItem { return }
         guard let profile = activeProfile else { return }
         do {
             try await client(for: profile)
@@ -207,9 +253,25 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    /// Search the server and every addon that takes a search term, as one list.
+    ///
+    /// The server's own results come first, because those are titles the viewer
+    /// actually holds. A failure on either side is not allowed to cost the
+    /// other: with no server connected this is the addons alone, and with an
+    /// addon down it is the server alone.
     func search(_ query: String) async throws -> [MediaItem] {
-        guard let profile = activeProfile else { return [] }
-        return try await client(for: profile).search(userID: profile.userID, query: query)
+        var results: [MediaItem] = []
+        var serverError: Error?
+        if let profile = activeProfile {
+            do {
+                results = try await client(for: profile)
+                    .search(userID: profile.userID, query: query)
+            } catch { serverError = error }
+        }
+        // Every addon that takes a search term, asked at once inside.
+        results += await searchAddons(query)
+        if results.isEmpty, let serverError { throw serverError }
+        return results
     }
 
     /// Add a shelf for a library or collection.
@@ -227,6 +289,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
+        if catalog.root.isAddonItem { removeAddonShelf(catalog); return }
         guard let profile = activeProfile else { return }
         catalogs.removeAll { $0.id == catalog.id }
         saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
@@ -405,6 +468,9 @@ final class MediaLibrary: ObservableObject {
     }
 
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
+        // An addon names its artwork outright rather than hosting it, so the
+        // card asks for that address and never reaches the server at all.
+        if let poster = item.posterURL { return URL(string: poster) }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
     }
@@ -412,16 +478,21 @@ final class MediaLibrary: ObservableObject {
     // Asking for art the server did not report leaves a request to 404 behind
     // every hero, so each of these answers nil unless the item claims one.
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
+        if item.isAddonItem { return item.backdropURL.flatMap(URL.init(string:)) }
         guard item.hasBackdrop, let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "backdrop", maxWidth: width)
     }
 
     func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
+        // Addons carry no separate logo art; the hero shows its title instead.
+        if item.isAddonItem { return nil }
         guard item.hasLogo, let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
     }
 
     func playbackURL(for item: MediaItem) -> URL? {
+        // An addon item is only ever played through a chosen stream.
+        if item.isAddonItem { return nil }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id)
     }
@@ -441,12 +512,16 @@ final class MediaLibrary: ObservableObject {
     }
 
     func playbackSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
+        if item.isAddonItem { return try await addonSources(for: item) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).playbackInfo(itemID: item.id).mediaSources
             .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
     }
 
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
+        // The addon handed back the address itself, and it is already in the
+        // source the viewer picked.
+        if item.isAddonItem { return source.path.flatMap(URL.init(string:)) }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: source.id)
     }
