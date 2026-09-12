@@ -200,6 +200,68 @@ enum LineupStyle {
     }
 }
 
+/// How high something sits, in steps.
+///
+/// Depth was eight different shadows: radius ten, twelve, eighteen, twenty-four,
+/// twenty-eight and thirty-six, dropped five, six, seven, twelve or eighteen
+/// points, at five opacities. A shadow's offset and blur are what tell the eye
+/// where the light is and how far the thing is off the surface, so eight of
+/// them read as eight different rooms.
+///
+/// Four steps, and a shadow now says how high something is rather than how
+/// whoever wrote it felt that afternoon. Coloured glows are a separate matter
+/// and keep their own values: a pulsing dot or the line down the guide is not
+/// casting a shadow, it is giving off light.
+enum LineupDepth {
+    /// A card resting on the surface behind it.
+    case resting
+    /// The same height, for something that repeats many times on one screen.
+    /// Ten rows each casting a full shadow is not depth, it is soot.
+    case restingQuiet
+    /// Raised, because the remote is on it.
+    case lifted
+    /// A panel over the screen.
+    case overlay
+    /// A panel that slid in from an edge, so it casts sideways rather than down.
+    case overlayFromEdge
+
+    var radius: CGFloat {
+        switch self {
+        case .resting, .restingQuiet: 12
+        case .lifted: 18
+        case .overlay, .overlayFromEdge: 28
+        }
+    }
+
+    var offset: (x: CGFloat, y: CGFloat) {
+        switch self {
+        case .resting, .restingQuiet: (0, 6)
+        case .lifted: (0, 12)
+        case .overlay: (0, 16)
+        case .overlayFromEdge: (10, 0)
+        }
+    }
+
+    var opacity: Double {
+        switch self {
+        case .resting: 0.38
+        case .restingQuiet: 0.18
+        case .lifted: 0.55
+        case .overlay, .overlayFromEdge: 0.42
+        }
+    }
+}
+
+extension View {
+    /// A black shadow at one of the four heights. `on` is for the ones that
+    /// only cast while focused, so the height is stated in one place and the
+    /// call site only decides when.
+    func lineupShadow(_ depth: LineupDepth, on: Bool = true) -> some View {
+        shadow(color: .black.opacity(on ? depth.opacity : 0),
+               radius: depth.radius, x: depth.offset.x, y: depth.offset.y)
+    }
+}
+
 struct LineupThemeSwatch: View {
     let theme: LineupTheme
 
@@ -346,7 +408,7 @@ struct TVSelectable<Content: View>: View {
             // show no feedback at all. A lift and a dark shadow say where you
             // are without painting anything pale over the control.
             .scaleEffect(focused ? scale : 1)
-            .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 18, y: 12)
+            .lineupShadow(.lifted, on: focused)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
@@ -392,7 +454,7 @@ extension View {
             // a light slab sitting behind the control. At this radius it spread
             // around the whole card and washed out the title under the art. A
             // dark shadow lifts the card without painting anything behind it.
-            .shadow(color: focused ? .black.opacity(0.5) : .clear, radius: 18, y: 12)
+            .lineupShadow(.lifted, on: focused)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.25, dampingFraction: 0.78), value: focused)
     }

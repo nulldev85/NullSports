@@ -486,7 +486,7 @@ private struct LiveSlateDashboard: View {
                                 LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
                             }
                         }
-                        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+                        .lineupShadow(.resting)
                         .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
                         Spacer(minLength: 0)
                     }
@@ -1274,7 +1274,7 @@ struct GuideView: View {
                                     .fill(LinearGradient(colors: [GuidePalette.text.opacity(0.14), GuidePalette.text.opacity(0.02)], startPoint: .top, endPoint: .bottom))
                                     .frame(width: 1)
                             }
-                            .shadow(color: Color.black.opacity(0.45), radius: 28, x: 10)
+                            .lineupShadow(.overlayFromEdge)
                             .transition(.move(edge: .leading).combined(with: .opacity))
                             .focusSection()
                         }
@@ -1516,7 +1516,7 @@ private struct GuidePreviewPanel: View {
         .background(LinearGradient(colors: [GuidePalette.text.opacity(0.05), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
-        .shadow(color: Color.black.opacity(0.35), radius: 24, y: 12)
+        .lineupShadow(.overlay)
     }
 }
 
@@ -1866,7 +1866,7 @@ private struct GuideChannelRow: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
             }
         }
-        .shadow(color: Color.black.opacity(0.18), radius: 12, y: 6)
+        .lineupShadow(.restingQuiet)
         .contentShape(Rectangle())
         .contextMenu {
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
@@ -2009,7 +2009,7 @@ private struct TVFavoritesOrderView: View {
                 .background(GuidePalette.panel.opacity(0.82), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .stroke(LineupStyle.lightPurple.opacity(0.1), lineWidth: 1))
-                .shadow(color: .black.opacity(0.38), radius: 36, y: 18)
+                .lineupShadow(.overlay)
             }
             .padding(.horizontal, 86).padding(.vertical, 58)
         }
@@ -2100,8 +2100,13 @@ private struct TVFavoritesOrderView: View {
         // one over its neighbours rather than above them.
         .scaleEffect(isPicked ? 1.025 : (isFocused ? 1.012 : 1))
         .offset(y: isPicked ? -3 : 0)
-        .shadow(color: isPicked ? LineupStyle.lightPurple.opacity(0.2) : (isFocused ? .black.opacity(0.28) : .clear),
-            radius: isPicked ? 24 : 14, y: 8)
+        // Two cues, so two shadows: a pale one while a row is being carried,
+        // and the standard lifted step while the remote is merely on it. As
+        // one ternary they shared a radius, so the carried row's glow and the
+        // focused row's depth had to meet in the middle at fourteen and
+        // neither got what it wanted.
+        .shadow(color: isPicked ? LineupStyle.lightPurple.opacity(0.2) : .clear, radius: 24, y: 8)
+        .lineupShadow(.lifted, on: isFocused && !isPicked)
         .zIndex(isPicked ? 2 : (isFocused ? 1 : 0))
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isPicked)
@@ -2803,7 +2808,7 @@ private struct TVPlayerButton: View {
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
-            .shadow(color: .black.opacity(0.28), radius: 10, y: 7)
+            .lineupShadow(.resting)
             .scaleEffect(selected ? LineupStyle.controlLift : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
         }
