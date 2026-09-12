@@ -597,10 +597,12 @@ private struct MediaShelfPicker: View {
     private var groups: [Group] {
         [Group(id: "LIBRARIES", detail: "Folders this server keeps itself",
                items: media.availableLibraries),
-         Group(id: "ADDON CATALOGS", detail: "Catalogs enabled on your server's addons",
+         Group(id: "IMPORTED CATALOGS", detail: "Already on your server, ready to shelve",
                items: media.availableCatalogs)]
             .filter { !$0.items.isEmpty }
     }
+
+    private var hasAnything: Bool { !groups.isEmpty || !media.addonGroups.isEmpty }
 
     var body: some View {
         #if os(tvOS)
@@ -619,6 +621,7 @@ private struct MediaShelfPicker: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
         .onExitCommand { dismiss() }
+        .task { await media.loadAddonCatalogs() }
         #else
         NavigationStack {
             list
@@ -630,14 +633,17 @@ private struct MediaShelfPicker: View {
                     }
                 }
         }
+        .task { await media.loadAddonCatalogs() }
         #endif
     }
 
     @ViewBuilder
     private var list: some View {
-        if groups.isEmpty {
+        if !hasAnything {
             ContentUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
-                description: Text("This server offers no other library or catalog. Enable a catalog on one of your addons to see it here."))
+                description: Text(media.addonsUnavailable
+                    ? "This server offers no other library or catalog, and it does not let this account browse addons -- sign in as an administrator to switch catalogs on from here."
+                    : "This server offers no other library or catalog."))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -653,11 +659,44 @@ private struct MediaShelfPicker: View {
                             #if os(tvOS)
                             TVSelectable(scale: 1.02, fill: LineupStyle.focused,
                                 fillRadius: 14, action: { add(item) }) {
-                                MediaShelfRow(item: item, busy: adding.contains(item.id))
+                                MediaShelfRow(title: item.name, detail: countText(item),
+                                    busy: adding.contains(item.id))
                             }
                             #else
                             Button { add(item) } label: {
-                                MediaShelfRow(item: item, busy: adding.contains(item.id))
+                                MediaShelfRow(title: item.name, detail: countText(item),
+                                    busy: adding.contains(item.id))
+                            }
+                            .lineupFlatButton()
+                            #endif
+                        }
+                    }
+                    // Catalogs the addons offer that the server is not
+                    // importing yet. Choosing one switches it on and asks the
+                    // server to fetch it, which is what an addon needs before
+                    // anything of its own can be shelved.
+                    ForEach(media.addonGroups) { group in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(group.name.uppercased())
+                                .font(.system(size: 12, weight: .heavy)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("Not imported yet — choosing one starts the import")
+                                .font(.system(size: 13))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                        }
+                        .padding(.top, 18).padding(.bottom, 6)
+                        ForEach(group.catalogs) { catalog in
+                            let busy = media.importing.contains(catalog.catalogId)
+                            #if os(tvOS)
+                            TVSelectable(scale: 1.02, fill: LineupStyle.focused, fillRadius: 14,
+                                action: { enable(catalog, in: group.id) }) {
+                                MediaShelfRow(title: catalog.name,
+                                    detail: busy ? "Importing…" : nil, busy: busy)
+                            }
+                            #else
+                            Button { enable(catalog, in: group.id) } label: {
+                                MediaShelfRow(title: catalog.name,
+                                    detail: busy ? "Importing…" : nil, busy: busy)
                             }
                             .lineupFlatButton()
                             #endif
@@ -684,6 +723,19 @@ private struct MediaShelfPicker: View {
         }
     }
 
+    /// Switching a catalog on is the server's work, not this screen's: it can
+    /// run for minutes, so it is left with the library and the row simply
+    /// reports it. Closing this screen does not cancel it.
+    private func enable(_ catalog: NullfinCatalog, in addonID: String) {
+        guard !media.importing.contains(catalog.catalogId) else { return }
+        Task { @MainActor in await media.enableCatalog(catalog, addonID: addonID) }
+    }
+
+    private func countText(_ item: MediaItem) -> String? {
+        guard let count = item.childCount, count > 0 else { return nil }
+        return "\(count) titles"
+    }
+
     private var rowPadding: CGFloat {
         #if os(tvOS)
         28
@@ -694,16 +746,17 @@ private struct MediaShelfPicker: View {
 }
 
 private struct MediaShelfRow: View {
-    let item: MediaItem
+    let title: String
+    var detail: String?
     let busy: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.name).font(.system(size: nameSize, weight: .semibold))
+                Text(title).font(.system(size: nameSize, weight: .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
-                if let count = item.childCount, count > 0 {
-                    Text("\(count) titles").font(.system(size: detailSize))
+                if let detail {
+                    Text(detail).font(.system(size: detailSize))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }
             }
@@ -722,7 +775,7 @@ private struct MediaShelfRow: View {
         .background(LineupStyle.surface.opacity(0.5),
             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Add " + item.name)
+        .accessibilityLabel("Add " + title)
     }
 
     #if os(tvOS)

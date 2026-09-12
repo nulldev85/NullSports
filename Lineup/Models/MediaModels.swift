@@ -16,6 +16,31 @@ struct MediaServerProfile: Codable, Identifiable, Equatable {
     }
 }
 
+/// An addon registered on a Nullfin server, as `GET /addons` returns it.
+///
+/// Only the fields Lineup needs are declared: the route answers with a good
+/// deal more, and an unknown key is simply not decoded, so a server that adds
+/// or drops one elsewhere does not break this.
+struct NullfinAddon: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let enabled: Bool
+}
+
+/// One catalog an addon offers, as `GET /addons/{id}/catalogs` returns it.
+struct NullfinCatalog: Codable, Identifiable, Hashable, Sendable {
+    /// `addon:{addon id}:{the addon's own id for it}`.
+    let catalogId: String
+    let name: String
+    /// Whether the server imports this catalog. Catalogs arrive switched off.
+    let enabled: Bool
+    /// The collection this catalog becomes once imported. Absent until the
+    /// server can resolve one.
+    let collectionId: String?
+
+    var id: String { catalogId }
+}
+
 struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String

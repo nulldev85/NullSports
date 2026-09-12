@@ -78,6 +78,38 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    // MARK: - Nullfin addons
+    //
+    // These four routes are Nullfin's own and are administrator-only -- the
+    // server asks for nothing more than the account's admin flag, which the
+    // person who set the server up has. A stock Jellyfin server answers 404
+    // and a non-admin account 401, and either way the caller falls back to
+    // offering only what is already imported.
+
+    func addons() async throws -> [NullfinAddon] {
+        try await send(try request(path: "addons"))
+    }
+
+    func addonCatalogs(addonID: String) async throws -> [NullfinCatalog] {
+        try await send(try request(path: "addons/\(addonID)/catalogs"))
+    }
+
+    /// Switch a catalog on or off for import. The route takes a batch; this
+    /// sends the one catalog, and leaves max items and tags alone by omitting
+    /// them, which the server reads as "keep what is there".
+    func setCatalog(addonID: String, catalogID: String, enabled: Bool) async throws {
+        var request = try request(path: "addons/\(addonID)/catalogs", method: "POST")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: [["catalogId": catalogID, "enabled": enabled]])
+        try await sendIgnoringBody(request)
+    }
+
+    /// Ask the server to import every enabled catalog. Switching a catalog on
+    /// only records the choice; nothing exists to browse until this has run.
+    func refreshLibrary() async throws {
+        try await sendIgnoringBody(try request(path: "library/refresh", method: "POST"))
+    }
+
     func item(userID: String, itemID: String) async throws -> MediaItem {
         try await send(try request(path: "users/\(userID)/items/\(itemID)"))
     }

@@ -11,6 +11,15 @@ final class MediaLibrary: ObservableObject {
     /// which; a shelf made from either behaves the same way.
     @Published private(set) var collections: [MediaItem] = []
     @Published private(set) var catalogs: [MediaCatalog] = []
+    /// Catalogs each addon offers that the server is not importing yet. Loaded
+    /// on demand, because the routes behind it are administrator-only and a
+    /// server may refuse them.
+    @Published private(set) var addonGroups: [AddonCatalogGroup] = []
+    /// Catalogs switched on and waiting for the server to finish importing.
+    @Published private(set) var importing: Set<String> = []
+    /// Set when the server will not discuss addons with this account, so the
+    /// screen can say why rather than showing an empty list.
+    @Published private(set) var addonsUnavailable = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -218,6 +227,106 @@ final class MediaLibrary: ObservableObject {
         items.filter { item in !catalogs.contains(where: { $0.id == item.id }) }
     }
 
+    // MARK: - Addon catalogs
+
+    /// What each addon offers that the server is not importing yet.
+    ///
+    /// A catalog arrives switched off, and the server only imports the ones
+    /// switched on -- so adding an addon puts nothing in the library by
+    /// itself, which is why a newly added addon appeared to do nothing here.
+    /// Already-enabled catalogs are left out: those are collections, and the
+    /// shelf list above already offers them.
+    func loadAddonCatalogs() async {
+        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
+        do {
+            let addons = try await source.addons().filter(\.enabled)
+            var groups: [AddonCatalogGroup] = []
+            for addon in addons {
+                let offered = (try? await source.addonCatalogs(addonID: addon.id)) ?? []
+                let available = offered.filter { !$0.enabled }
+                guard !available.isEmpty else { continue }
+                groups.append(AddonCatalogGroup(id: addon.id, name: addon.name, catalogs: available))
+            }
+            guard activeProfile?.id == profile.id else { return }
+            addonGroups = groups
+            addonsUnavailable = false
+        } catch {
+            guard activeProfile?.id == profile.id else { return }
+            addonGroups = []
+            // Anything but a refusal is worth reporting; a refusal is the
+            // ordinary answer from a plain Jellyfin server or a member account.
+            addonsUnavailable = isRefusal(error)
+            if !addonsUnavailable { errorMessage = error.localizedDescription }
+        }
+    }
+
+    /// Switch a catalog on and put it on screen as a shelf.
+    ///
+    /// Three steps, because the server needs all three: record the choice, ask
+    /// it to import, then wait for the collection to exist. Nothing is
+    /// browsable in between, and the import is the server walking a catalog,
+    /// so this can take a while.
+    func enableCatalog(_ catalog: NullfinCatalog, addonID: String) async {
+        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
+        importing.insert(catalog.catalogId)
+        do {
+            try await source.setCatalog(addonID: addonID, catalogID: catalog.catalogId, enabled: true)
+            try await source.refreshLibrary()
+        } catch {
+            errorMessage = error.localizedDescription
+            importing.remove(catalog.catalogId)
+            return
+        }
+        // It is enabled now whatever the import does next, so it stops being
+        // something to offer.
+        addonGroups = addonGroups.compactMap { group in
+            let rest = group.catalogs.filter { $0.catalogId != catalog.catalogId }
+            return rest.isEmpty ? nil : AddonCatalogGroup(id: group.id, name: group.name, catalogs: rest)
+        }
+        await waitForImport(of: catalog, profile: profile)
+    }
+
+    /// Poll until the catalog's collection turns up, then shelve it.
+    ///
+    /// The server gives no signal when one catalog is done, so the collection
+    /// appearing is the signal. It gives up after a few minutes rather than
+    /// waiting forever; the shelf can still be added by hand once the import
+    /// finishes.
+    private func waitForImport(of catalog: NullfinCatalog, profile: MediaServerProfile) async {
+        defer { importing.remove(catalog.catalogId) }
+        guard let wanted = catalog.collectionId.map(Self.normalizedID),
+              let source = try? client(for: profile) else { return }
+        for _ in 0..<36 {
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard activeProfile?.id == profile.id else { return }
+            let found = (try? await source.collections(userID: profile.userID))?
+                .first { Self.normalizedID($0.id) == wanted }
+            guard let found else { continue }
+            await addShelf(found)
+            await reload()
+            return
+        }
+    }
+
+    /// Two servers spell the same identifier differently often enough that
+    /// comparing them literally is not worth the risk.
+    private static func normalizedID(_ value: String) -> String {
+        value.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// A server that will not answer, as opposed to one that answered badly.
+    /// A plain Jellyfin server does not have these routes and a member account
+    /// is not allowed them; neither is worth putting in front of the viewer as
+    /// an error.
+    private func isRefusal(_ error: Error) -> Bool {
+        guard let error = error as? JellyfinError else { return false }
+        switch error {
+        case .authenticationFailed: return true
+        case .server(let status): return status == 403 || status == 404
+        default: return false
+        }
+    }
+
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
@@ -263,6 +372,13 @@ final class MediaLibrary: ObservableObject {
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: source.id)
+    }
+
+    /// One addon and the catalogs it offers that are not switched on yet.
+    struct AddonCatalogGroup: Identifiable, Hashable, Sendable {
+        let id: String
+        let name: String
+        let catalogs: [NullfinCatalog]
     }
 
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
