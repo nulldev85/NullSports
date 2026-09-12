@@ -94,18 +94,25 @@ extension MediaLibrary {
             }
             var result: [(Int, MediaCatalog)] = []
             for await value in group { result.append(value) }
-            return result.sorted { $0.0 < $1.0 }.map(\.1)
+            return result.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
         addonShelves = loaded
     }
 
+    /// One addon and the rows it offers that are not on screen yet.
+    struct AddonCatalogOffer: Identifiable, Hashable, Sendable {
+        let addon: StremioAddon
+        let catalogs: [StremioCatalogSpec]
+        var id: String { addon.id }
+    }
+
     /// The catalogs every installed addon offers that are not already a row.
-    var availableAddonCatalogs: [(addon: StremioAddon, catalogs: [StremioCatalogSpec])] {
+    var availableAddonCatalogs: [AddonCatalogOffer] {
         addons.compactMap { addon in
             let free = addon.catalogs.filter {
                 !addonShelfIDs.contains(StremioID.shelf(addon: addon.id, catalog: $0))
             }
-            return free.isEmpty ? nil : (addon: addon, catalogs: free)
+            return free.isEmpty ? nil : AddonCatalogOffer(addon: addon, catalogs: free)
         }
     }
 
@@ -252,7 +259,7 @@ extension MediaLibrary {
             }
             var result: [(Int, [MediaItem])] = []
             for await value in group { result.append(value) }
-            return result.sorted { $0.0 < $1.0 }.flatMap(\.1)
+            return result.sorted { $0.0 < $1.0 }.flatMap { $0.1 }
         }
         var seen: Set<String> = []
         return found.filter { seen.insert($0.id).inserted }

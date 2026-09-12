@@ -711,7 +711,7 @@ private struct MediaShelfPicker: View {
                     // Catalogs from the addons Lineup talks to itself. One
                     // request each and they are a row, so there is nothing to
                     // wait for and nothing to switch on first.
-                    ForEach(media.availableAddonCatalogs, id: \.addon.id) { entry in
+                    ForEach(media.availableAddonCatalogs) { entry in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(entry.addon.name.uppercased())
                                 .font(.system(size: 12, weight: .heavy)).tracking(1.6)
@@ -2075,7 +2075,9 @@ struct AddonSetupView: View {
         #else
         NavigationStack {
             Form {
-                Section("Addon Link") {
+                // Header and footer both, which the title-plus-footer
+                // shorthand does not offer.
+                Section {
                     TextField("https://addon.example.com/manifest.json", text: $address)
                         .textContentType(.URL)
                         .keyboardType(.URL)
@@ -2085,6 +2087,8 @@ struct AddonSetupView: View {
                     Button(media.addonBusy ? "Reading manifest…" : "Add Addon", action: add)
                         .lineupButtonStyle()
                         .disabled(!canAdd)
+                } header: {
+                    Text("Addon Link")
                 } footer: {
                     Text(explanation)
                 }
@@ -2094,7 +2098,9 @@ struct AddonSetupView: View {
                             AddonRow(addon: addon)
                         }
                         .onDelete { offsets in
-                            offsets.map { media.addons[$0] }.forEach(media.removeAddon)
+                            for addon in offsets.map({ media.addons[$0] }) {
+                                media.removeAddon(addon)
+                            }
                         }
                     }
                 }
