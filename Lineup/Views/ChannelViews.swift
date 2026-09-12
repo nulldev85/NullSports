@@ -1330,7 +1330,12 @@ struct GuideView: View {
                 }
                 .onExitCommand {
                     if playbackTransitionID != nil {
+                        // Menu during the handover: full screen never opens, so
+                        // there is nothing to come back from and nothing to
+                        // keep. Left set, this would hold a channel that was
+                        // never handed anywhere.
                         playbackTransitionID = nil
+                        resumeAfterFullscreen = nil
                     } else if previewPlaybackStream != nil {
                         previewPlaybackStream = nil
                         pinnedPreviewItem = nil
