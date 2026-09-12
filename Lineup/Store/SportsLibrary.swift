@@ -834,6 +834,7 @@ final class SportsLibrary: ObservableObject {
         guideListCache = nil
         guard let profile = activeProfile else { return }
         profileDefaults.set(favoriteStreamOrder, forKey: favoritesKey + "." + profile.id.uuidString)
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
@@ -950,5 +951,23 @@ final class SportsLibrary: ObservableObject {
             profileDefaults.set(data, forKey: profilesKey)
         }
         profileDefaults.set(activeProfile?.id.uuidString, forKey: activeKey)
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    func restoreCloudSettings() async {
+        guard let data = profileDefaults.data(forKey: profilesKey),
+              let saved = try? JSONDecoder().decode([XtreamProfile].self, from: data) else { return }
+        let activeID = profileDefaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
+        profiles = saved
+        let selected = saved.first { $0.id == activeID } ?? saved.first
+        if selected?.id != activeProfile?.id {
+            resetProviderState()
+            activeProfile = selected
+            restoreFavorites()
+            if selected != nil { await bootstrap() }
+        } else {
+            activeProfile = selected
+            restoreFavorites()
+        }
     }
 }

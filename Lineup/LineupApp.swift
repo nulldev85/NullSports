@@ -5,6 +5,9 @@ import UIKit
 struct LineupApp: App {
     @StateObject private var library = SportsLibrary()
     @StateObject private var media = MediaLibrary()
+    @StateObject private var cloud = CloudSettingsSync.shared
+    @StateObject private var reminders = GameReminders.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         #if os(tvOS)
@@ -17,7 +20,27 @@ struct LineupApp: App {
             RootView()
                 .environmentObject(library)
                 .environmentObject(media)
+                .environmentObject(reminders)
+                .environmentObject(cloud)
                 .preferredColorScheme(.dark)
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    await cloud.sync()
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(90)) } catch { return }
+                        await cloud.sync()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: CloudSettingsSync.imported)) { _ in
+                    Task {
+                        await library.restoreCloudSettings()
+                        await media.restoreCloudSettings()
+                        reminders.restore()
+                    }
+                }
+                .onReceive(library.$gamesByLeague) { games in
+                    reminders.updateGames(games.values.flatMap { $0 })
+                }
         }
     }
 }

@@ -878,6 +878,7 @@ private struct EmptySchedule: View {
 
 private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var reminders: GameReminders
     @FocusState private var isFocused: Bool
     let event: SportsGame
     let multiviewPrimaryID: Int?
@@ -936,8 +937,14 @@ private struct GameEventCard: View {
                 RoundedRectangle(cornerRadius: 14).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
             }
         }
-        .contentShape(Rectangle()).focusable(stream != nil).focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
         .contextMenu {
+            if event.isUpcoming {
+                Button(reminders.reminds(event) ? "Remove Reminder" : "Remind Me",
+                       systemImage: reminders.reminds(event) ? "bell.slash" : "bell") {
+                    reminders.toggleGame(event)
+                }
+            }
             if stream != nil {
                 Button(multiviewPrimaryID == stream?.id ? "First Multiview Game" : "Start Multiview", systemImage: "rectangle.split.2x1") {
                     onStartMultiview()
@@ -2122,12 +2129,31 @@ private struct GuideInlineStatus: View {
 struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
+    @EnvironmentObject private var reminders: GameReminders
+    @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingMediaServer = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 30) {
                 ScreenHeading(title: "Account", detail: "Provider and app details")
+                DetailPanel(title: "FOLLOW TEAMS") {
+                    if reminders.availableTeams(in: library.games(for: nil)).isEmpty {
+                        AccountRow(label: "Teams", value: "Teams appear when a schedule is available")
+                    }
+                    ForEach(reminders.availableTeams(in: library.games(for: nil))) { team in
+                        Button {
+                            reminders.toggleTeam(team)
+                        } label: {
+                            AccountRow(label: "\(team.name) · \(team.league.shortName)",
+                                       value: reminders.follows(team) ? "Following" : "Follow")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let message = reminders.authorizationMessage {
+                        AccountRow(label: "Notifications", value: message)
+                    }
+                }
                 DetailPanel(title: "APPEARANCE") {
                     HStack(spacing: 14) {
                         ForEach(LineupTheme.allCases) { theme in
@@ -2190,11 +2216,13 @@ struct AccountView: View {
                 NavigationLink("Channel matching") { MatchDiagnosticsView() }
                     .lineupButtonStyle()
                 DetailPanel(title: "ABOUT") {
+                    AccountRow(label: "iCloud", value: cloud.status)
                     AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
                 }
                 Spacer()
             }
             .padding(.horizontal, 120).padding(.vertical, 48).background(LineupStyle.background)
+            .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
             }

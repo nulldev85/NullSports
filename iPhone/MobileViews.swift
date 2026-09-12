@@ -123,6 +123,8 @@ struct ProfileSetupView: View {
 private struct MobileAccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
+    @EnvironmentObject private var reminders: GameReminders
+    @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
     @State private var addingMediaServer = false
     @State private var removingProfile: XtreamProfile?
@@ -132,6 +134,28 @@ private struct MobileAccountView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    ForEach(reminders.availableTeams(in: library.games(for: nil))) { team in
+                        Button {
+                            reminders.toggleTeam(team)
+                        } label: {
+                            HStack {
+                                Text("\(team.name) · \(team.league.shortName)")
+                                Spacer()
+                                Image(systemName: reminders.follows(team) ? "checkmark.circle.fill" : "circle")
+                            }
+                        }
+                    }
+                    if reminders.availableTeams(in: library.games(for: nil)).isEmpty {
+                        Text("Teams appear when a schedule is available.")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let message = reminders.authorizationMessage { Text(message).foregroundStyle(.secondary) }
+                } header: {
+                    Text("Follow Teams")
+                } footer: {
+                    Text("Lineup reminds you 15 minutes before each followed team's game. Choices sync through iCloud; each device schedules its own alerts.")
+                }.listRowBackground(LineupStyle.surface)
                 Section {
                     Picker("Theme", selection: $selectedTheme) {
                         ForEach(LineupTheme.allCases) { theme in
@@ -149,7 +173,7 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Appearance")
                 } footer: {
-                    Text("A complete color treatment for Lineup. Your choice stays on this device.")
+                    Text("A complete color treatment for Lineup. Your choice syncs through iCloud.")
                 }
                 .listRowBackground(LineupStyle.surface)
                 Section {
@@ -189,6 +213,7 @@ private struct MobileAccountView: View {
                     Text("Select a provider to use its channels and guide. Each provider keeps its own favorites.")
                 }.listRowBackground(LineupStyle.surface)
                 Section("Current library") {
+                    LabeledContent("iCloud", value: cloud.status)
                     LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     LabeledContent("Channels", value: "\(library.streams.count)")
                     NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
@@ -227,6 +252,7 @@ private struct MobileAccountView: View {
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
+            .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)
                     .environmentObject(library)
