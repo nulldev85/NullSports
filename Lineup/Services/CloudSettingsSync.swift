@@ -16,7 +16,7 @@ final class CloudSettingsSync: ObservableObject {
     private let syncedKeys = [
         "NullSports.profiles", "NullSports.activeProfile", "NullSports.mediaServers",
         "NullSports.activeMediaServer", "NullSports.mediaShelves", "NullSports.favoriteStreams",
-        "lineup.appearance.theme", "Lineup.followedTeams", "Lineup.manualGameReminders",
+        "lineup.appearance.theme", "Lineup.manualGameReminders",
         "Lineup.reminderLeadMinutes", "Lineup.morningDigest"
     ]
     private var isApplying = false
@@ -111,7 +111,8 @@ final class CloudSettingsSync: ObservableObject {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("NullSports.favoriteStreams.") && snapshot.values[key] == nil {
             defaults.removeObject(forKey: key)
         }
-        for (key, data) in snapshot.values {
+        defaults.removeObject(forKey: "Lineup.followedTeams")
+        for (key, data) in snapshot.values where key != "Lineup.followedTeams" {
             guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else { continue }
             defaults.set(value, forKey: key)
         }

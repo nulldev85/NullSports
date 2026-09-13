@@ -16,16 +16,16 @@ authorized to watch; Lineup does not include or sell content.
 
 ## iCloud sync and game reminders
 
-Lineup saves followed teams and one-off game reminders locally and schedules a
+Lineup saves per-game reminders locally and schedules a
 notification 15 minutes before a known upcoming game. The app refreshes the
 today-and-tomorrow schedule while open; after it schedules a reminder, the device
 can deliver it while Lineup is closed. Notification permission is requested when
-the first team or game reminder is selected. Each device schedules its own alerts.
+the first game reminder is selected. Each device schedules its own alerts.
 
 The iPhone and Apple TV targets share the private CloudKit container
 `iCloud.com.nulldev85.Lineup`. It synchronizes provider and media-server profiles,
 their Keychain credentials or tokens, channel favorites, media shelves, theme,
-followed teams, and one-off reminder choices. The payload is stored in a CloudKit
+and game reminder choices. The payload is stored in a CloudKit
 encrypted field. Schedule, guide, and stream caches stay local and are refetched.
 Sync needs both devices signed into the same Apple Account and a signed build with
 the iCloud/CloudKit entitlement. In the Apple Developer portal, enable iCloud and

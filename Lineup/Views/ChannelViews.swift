@@ -2339,7 +2339,6 @@ private struct GuideInlineStatus: View {
 struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
-    @EnvironmentObject private var reminders: GameReminders
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingMediaServer = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
@@ -2350,23 +2349,6 @@ struct AccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     ScreenHeading(title: "Account", detail: "Provider and app details")
-                    DetailPanel(title: "FOLLOW TEAMS") {
-                        if reminders.availableTeams(in: library.games(for: nil)).isEmpty {
-                            AccountRow(label: "Teams", value: "Teams appear when a schedule is available")
-                        }
-                        ForEach(reminders.availableTeams(in: library.games(for: nil))) { team in
-                            Button {
-                                reminders.toggleTeam(team)
-                            } label: {
-                                AccountRow(label: "\(team.name) · \(team.league.shortName)",
-                                           value: reminders.follows(team) ? "Following" : "Follow")
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if let message = reminders.authorizationMessage {
-                            AccountRow(label: "Notifications", value: message)
-                        }
-                    }
                     DetailPanel(title: "APPEARANCE") {
                         HStack(spacing: 20) {
                             ForEach(LineupTheme.allCases) { theme in
