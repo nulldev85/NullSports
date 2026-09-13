@@ -25,7 +25,7 @@ struct MainView: View {
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Media Servers", systemImage: "play.square.stack") }.tag(2)
-            MobileAccountView()
+            MobileAccountView(selectedTab: $tab)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
@@ -128,6 +128,7 @@ struct ProfileSetupView: View {
 }
 
 private struct MobileAccountView: View {
+    @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
@@ -140,30 +141,6 @@ private struct MobileAccountView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    // Inline, not a pushed screen. Choosing a theme rebuilds
-                    // this screen so it repaints in the new palette, which
-                    // would pull a pushed picker out from under the tap. With
-                    // two themes there is nothing to push for anyway.
-                    Picker("Theme", selection: $selectedTheme) {
-                        ForEach(LineupTheme.allCases) { theme in
-                            HStack {
-                                LineupThemeSwatch(theme: theme)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(theme.name)
-                                    Text(theme.detail).font(.inter(.caption)).foregroundStyle(.secondary)
-                                }
-                            }
-                            .tag(theme.rawValue)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } header: {
-                    Text("Appearance")
-                } footer: {
-                    Text("A complete color treatment for Lineup. Your choice syncs through iCloud.")
-                }
-                .listRowBackground(LineupStyle.surface)
                 Section {
                     ForEach(library.profiles) { profile in
                         HStack(spacing: 12) {
@@ -200,17 +177,11 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Select a provider to use its channels and guide. Each provider keeps its own favorites.")
                 }.listRowBackground(LineupStyle.surface)
-                Section("Current library") {
-                    LabeledContent("iCloud", value: cloud.status)
-                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
-                    LabeledContent("Channels", value: "\(library.streams.count)")
-                    NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
-                    Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
-                        Task { await library.reload() }
-                    }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-                    if library.channelsAreSyncing { ProgressView("Updating…") }
-                }.listRowBackground(LineupStyle.surface)
                 Section {
+                    if let profile = media.activeProfile {
+                        MediaServerAccountCard(profile: profile) { selectedTab = 2 }
+                            .listRowBackground(LineupStyle.background)
+                    }
                     ForEach(media.profiles) { profile in
                         HStack {
                             Button {
@@ -237,9 +208,46 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Jellyfin and Nullfin servers. Nullfin libraries include the addon catalogs configured on your server.")
                 }.listRowBackground(LineupStyle.surface)
+                Section {
+                    // Keep the picker inline so changing the palette does not
+                    // dismiss a pushed theme screen during its own redraw.
+                    Picker("Theme", selection: $selectedTheme) {
+                        ForEach(LineupTheme.allCases) { theme in
+                            HStack {
+                                LineupThemeSwatch(theme: theme)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(theme.name)
+                                    Text(theme.detail).font(.inter(.caption)).foregroundStyle(.secondary)
+                                }
+                            }
+                            .tag(theme.rawValue)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } header: {
+                    Text("Theme")
+                } footer: {
+                    Text("A complete color treatment for Lineup. Your choice syncs through iCloud.")
+                }
+                .listRowBackground(LineupStyle.surface)
+                Section("Current library") {
+                    LabeledContent("iCloud", value: cloud.status)
+                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
+                    LabeledContent("Channels", value: "\(library.streams.count)")
+                    NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
+                    Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
+                        Task { await library.reload() }
+                    }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
+                    if library.channelsAreSyncing { ProgressView("Updating…") }
+                }.listRowBackground(LineupStyle.surface)
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
+            .task {
+                if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
+                    await media.reload()
+                }
+            }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)

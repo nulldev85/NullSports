@@ -69,6 +69,127 @@ struct MediaServersView: View {
     }
 }
 
+/// A compact account summary of the selected server. Counts come from the
+/// server's total-record queries, never from the first page of shelf cards.
+struct MediaServerAccountCard: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let profile: MediaServerProfile
+    let browse: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.square.stack.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 42, height: 42)
+                    .background(LineupStyle.raised, in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(profile.name).font(.inter(.headline, .bold)).lineLimit(1)
+                        MediaServerPulseDot(connected: media.isConnected)
+                    }
+                    Text("\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)")
+                        .font(.inter(.caption)).lineLimit(1)
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                }
+                Spacer(minLength: 4)
+                Text(media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"))
+                    .font(.inter(.caption2, .semibold))
+                    .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                statistic(media.libraryCounts?.movies, label: "Movies")
+                statistic(media.libraryCounts?.shows, label: "Shows")
+                statistic(media.libraryCounts?.episodes, label: "Episodes")
+            }
+            HStack(spacing: 10) {
+                cardButton("Reload", symbol: "arrow.clockwise") {
+                    Task { await media.reload() }
+                }
+                .disabled(media.isLoading)
+                cardButton("Browse", symbol: "square.grid.2x2", action: browse)
+            }
+            if let refreshed = media.lastRefreshedAt {
+                Text("Updated \(refreshed, style: .relative)")
+                    .font(.inter(.caption2))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.48))
+            }
+        }
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(16)
+        .frame(maxWidth: 720, alignment: .leading)
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(LineupStyle.line, lineWidth: 1))
+    }
+
+    private func statistic(_ count: Int?, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(count.map { $0.formatted() } ?? "—")
+                .font(.interDigits(.headline, .semibold))
+            Text(label).font(.inter(.caption2))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func cardButton(_ title: String, symbol: String,
+                            action: @escaping () -> Void) -> some View {
+        MediaServerCardAction(title: title, symbol: symbol, action: action)
+    }
+}
+
+private struct MediaServerCardAction: View {
+    @Environment(\.isFocused) private var focused
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.inter(.subheadline, .semibold))
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background(focused ? LineupStyle.focused : LineupStyle.raised, in: Capsule())
+                .overlay(Capsule().stroke(LineupStyle.line, lineWidth: 1))
+                .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        }
+        .lineupFlatButton()
+    }
+}
+
+private struct MediaServerPulseDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let connected: Bool
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(connected ? Color.green : Color.gray)
+            .frame(width: 8, height: 8)
+            .overlay {
+                if connected && !reduceMotion {
+                    Circle().stroke(Color.green.opacity(0.7), lineWidth: 1.5)
+                        .frame(width: 15, height: 15)
+                        .scaleEffect(pulsing ? 1.5 : 0.7)
+                        .opacity(pulsing ? 0 : 1)
+                }
+            }
+            .onAppear { startPulse() }
+            .onChange(of: connected) { _, _ in startPulse() }
+            .accessibilityLabel(connected ? "Connected" : "Not connected")
+    }
+
+    private func startPulse() {
+        pulsing = false
+        guard connected && !reduceMotion else { return }
+        withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+            pulsing = true
+        }
+    }
+}
+
 #if os(tvOS)
 private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary

@@ -20,6 +20,9 @@ final class MediaLibrary: ObservableObject {
     /// when the broad query comes back short.
     @Published private(set) var importedCatalogs: [MediaItem] = []
     @Published private(set) var catalogs: [MediaCatalog] = []
+    @Published private(set) var libraryCounts: MediaLibraryCounts?
+    @Published private(set) var lastRefreshedAt: Date?
+    @Published private(set) var isConnected = false
     /// Catalogs each addon offers that the server is not importing yet. Loaded
     /// on demand, because the routes behind it are administrator-only and a
     /// server may refuse them.
@@ -125,6 +128,9 @@ final class MediaLibrary: ObservableObject {
         roots = []
         collections = []
         catalogs = []
+        libraryCounts = nil
+        lastRefreshedAt = nil
+        isConnected = false
         persist()
         await reload()
     }
@@ -138,6 +144,9 @@ final class MediaLibrary: ObservableObject {
             roots = []
             collections = []
             catalogs = []
+            libraryCounts = nil
+            lastRefreshedAt = nil
+            isConnected = false
         }
         isLoading = false
         persist()
@@ -147,6 +156,7 @@ final class MediaLibrary: ObservableObject {
     func reload() async {
         guard let profile = activeProfile else {
             roots = []; collections = []; catalogs = []; isLoading = false
+            libraryCounts = nil; lastRefreshedAt = nil; isConnected = false
             // Addons are a source of their own: with no server connected there
             // is still a tab full of rows to refill.
             await refreshAddonShelves()
@@ -155,6 +165,8 @@ final class MediaLibrary: ObservableObject {
         let requestID = UUID()
         loadID = requestID
         isLoading = true
+        isConnected = false
+        libraryCounts = nil
         errorMessage = nil
         do {
             let source = try client(for: profile)
@@ -190,9 +202,17 @@ final class MediaLibrary: ObservableObject {
             roots = loaded
             collections = loadedCollections
             catalogs = loadedCatalogs
+            isConnected = true
+            lastRefreshedAt = Date()
             errorMessage = nil
+            Task {
+                let counts = try? await source.libraryCounts(userID: profile.userID)
+                guard loadID == requestID, activeProfile?.id == profile.id else { return }
+                libraryCounts = counts
+            }
         } catch {
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
+            isConnected = false
             errorMessage = error.localizedDescription
         }
         if loadID == requestID { isLoading = false }

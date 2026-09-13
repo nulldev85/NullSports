@@ -10,6 +10,14 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(response.items.map(\.name), ["Owned Movie", "Addon Series"])
         XCTAssertTrue(response.items[0].isPlayable)
         XCTAssertTrue(response.items[1].isFolder)
+        XCTAssertNil(response.totalRecordCount)
+    }
+
+    func testReadsServerTotalInsteadOfCountingOneReturnedItem() throws {
+        let data = Data(#"{"Items":[{"Id":"first","Name":"First","Type":"Movie"}],"TotalRecordCount":1589}"#.utf8)
+        let response = try JSONDecoder().decode(JellyfinItemsResponse.self, from: data)
+        XCTAssertEqual(response.items.count, 1)
+        XCTAssertEqual(response.totalRecordCount, 1589)
     }
 
     func testDetailMetadataDecodesWithoutBreakingSparseItems() throws {

@@ -2337,6 +2337,7 @@ private struct GuideInlineStatus: View {
 }
 
 struct AccountView: View {
+    @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
@@ -2349,24 +2350,18 @@ struct AccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     ScreenHeading(title: "Account", detail: "Provider and app details")
-                    DetailPanel(title: "APPEARANCE") {
-                        HStack(spacing: 20) {
-                            ForEach(LineupTheme.allCases) { theme in
-                                TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
-                                    action: { selectedTheme = theme.rawValue }) {
-                                    ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
-                                }
-                            }
-                        }
-                    }
-                    if let profile = library.activeProfile {
-                        DetailPanel(title: "PROVIDER") {
+                    DetailPanel(title: "PROVIDERS") {
+                        if let profile = library.activeProfile {
                             AccountRow(label: "Profile", value: profile.name)
                             Divider().overlay(LineupStyle.line)
                             AccountRow(label: "Server", value: profile.serverURL)
                             Divider().overlay(LineupStyle.line)
                             AccountRow(label: "Username", value: profile.username)
+                        } else {
+                            AccountRow(label: "Status", value: "Not connected")
                         }
+                    }
+                    if library.activeProfile != nil {
                         Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
                             .lineupButtonStyle()
                     }
@@ -2374,6 +2369,10 @@ struct AccountView: View {
                         if media.profiles.isEmpty {
                             AccountRow(label: "Status", value: "Not connected")
                         } else {
+                            if let profile = media.activeProfile {
+                                MediaServerAccountCard(profile: profile) { selectedTab = 2 }
+                                    .padding(.bottom, 12)
+                            }
                             ForEach(media.profiles) { profile in
                                 HStack(spacing: 20) {
                                     Button {
@@ -2391,6 +2390,16 @@ struct AccountView: View {
                     }
                     Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
                         .lineupButtonStyle()
+                    DetailPanel(title: "THEME") {
+                        HStack(spacing: 20) {
+                            ForEach(LineupTheme.allCases) { theme in
+                                TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
+                                    action: { selectedTheme = theme.rawValue }) {
+                                    ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
+                                }
+                            }
+                        }
+                    }
                     NavigationLink("Channel matching") { MatchDiagnosticsView() }
                         .lineupButtonStyle()
                     DetailPanel(title: "ABOUT") {
@@ -2402,6 +2411,11 @@ struct AccountView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(LineupStyle.background)
+            .task {
+                if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
+                    await media.reload()
+                }
+            }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)

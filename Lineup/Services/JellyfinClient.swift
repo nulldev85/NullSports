@@ -126,6 +126,31 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    func libraryCounts(userID: String) async throws -> MediaLibraryCounts {
+        async let movies = itemCount(userID: userID, type: "Movie")
+        async let shows = itemCount(userID: userID, type: "Series")
+        async let episodes = itemCount(userID: userID, type: "Episode")
+        let movieCount = try await movies
+        let showCount = try await shows
+        let episodeCount = try await episodes
+        return MediaLibraryCounts(movies: movieCount, shows: showCount,
+            episodes: episodeCount)
+    }
+
+    private func itemCount(userID: String, type: String) async throws -> Int {
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: type),
+            URLQueryItem(name: "EnableTotalRecordCount", value: "true"),
+            URLQueryItem(name: "Limit", value: "1")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        guard let count = response.totalRecordCount else { throw JellyfinError.invalidResponse }
+        return count
+    }
+
     // The server already knows where a viewer is up to in a series, and it is a
     // better answer than any guess made from which episodes are marked played.
     func nextUp(userID: String, seriesID: String) async throws -> [MediaItem] {

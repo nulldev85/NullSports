@@ -82,7 +82,7 @@ struct MainView: View {
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Media Servers", systemImage: "play.square.stack") }
                 .tag(2)
-            AccountView()
+            AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
                 .tag(3)

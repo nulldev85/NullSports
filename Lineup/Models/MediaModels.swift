@@ -345,10 +345,19 @@ struct MediaCatalog: Identifiable, Hashable, Sendable {
     var title: String { root.name }
 }
 
+struct MediaLibraryCounts: Equatable, Sendable {
+    let movies: Int
+    let shows: Int
+    let episodes: Int
+}
+
 struct JellyfinItemsResponse: Codable, Sendable {
     let items: [MediaItem]
+    let totalRecordCount: Int?
 
-    enum CodingKeys: String, CodingKey { case items = "Items" }
+    enum CodingKeys: String, CodingKey {
+        case items = "Items", totalRecordCount = "TotalRecordCount"
+    }
 }
 
 struct JellyfinAuthenticationResponse: Codable, Sendable {
