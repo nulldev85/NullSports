@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(tvOS)
+import UIKit
+#endif
 
 struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
@@ -331,6 +334,10 @@ private struct MediaCatalogsScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let catalogs: [MediaCatalog]
     @State private var query = ""
+    // On tvOS the sheet edits a draft. Search only the submitted value: remote
+    // typing otherwise launches and cancels a network search for every letter.
+    @State private var submittedQuery = ""
+    @State private var searchRequestID = UUID()
     @State private var results: [MediaItem] = []
     @State private var searching = false
     @State private var searchError: String?
@@ -401,7 +408,7 @@ private struct MediaCatalogsScreen: View {
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
             .lineupFocusRegion()
 
-            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if searching && results.isEmpty {
                     ProgressView("Searching connected addons…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let searchError {
@@ -499,11 +506,21 @@ private struct MediaCatalogsScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        .task(id: query) {
-            let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if !os(tvOS)
+        .onChange(of: query) { _, value in
+            submittedQuery = value
+            searchRequestID = UUID()
+        }
+        #endif
+        .task(id: searchRequestID) {
+            let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { results = []; searching = false; searchError = nil; return }
             searching = true
+            searchError = nil
+            results = []
+            #if !os(tvOS)
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            #endif
             guard !Task.isCancelled else { return }
             do {
                 let found = try await media.search(value)
@@ -527,13 +544,19 @@ private struct MediaCatalogsScreen: View {
             TextField("Movies, shows, and addon catalogs", text: $query)
                 .textFieldStyle(.plain)
                 .font(.inter(24))
+                .onSubmit { submitSearch() }
             HStack(spacing: 14) {
-                TVSelectable(scale: LineupStyle.controlLift, action: { editingQuery = false }) {
+                TVSelectable(scale: LineupStyle.controlLift, action: {
+                    submitSearch()
+                }) {
                     Text("Done").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(prominent: true, radius: 12))
                 }
-                TVSelectable(scale: LineupStyle.controlLift, action: { query = ""; results = [] }) {
+                TVSelectable(scale: LineupStyle.controlLift, action: {
+                    query = ""; submittedQuery = ""; results = []
+                    searchRequestID = UUID()
+                }) {
                     Text("Clear").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
                         .modifier(MediaChromeSurface(radius: 12))
@@ -545,6 +568,14 @@ private struct MediaCatalogsScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
+    }
+
+    private func submitSearch() {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        searching = !value.isEmpty
+        submittedQuery = value
+        searchRequestID = UUID()
+        editingQuery = false
     }
     #endif
 
@@ -1031,6 +1062,10 @@ private struct MediaDetailScreen: View {
     @State private var episodes: [MediaItem] = []
     @State private var nextUp: MediaItem?
     @State private var related: [MediaItem] = []
+    @State private var pageReady = false
+    #if os(tvOS)
+    @State private var preparedHero: UIImage?
+    #endif
     @State private var favorite = false
     @State private var watched = false
     @State private var expandedOverview = false
@@ -1043,11 +1078,36 @@ private struct MediaDetailScreen: View {
     private var subject: MediaItem { detail ?? item }
 
     var body: some View {
+        Group {
+            #if os(tvOS)
+            if pageReady {
+                detailContent
+            } else {
+                ProgressView("Loading \(item.name)…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mediaFocusAnchor()
+            }
+            #else
+            detailContent
+            #endif
+        }
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .modifier(FullBleedHeader())
+        .task(id: item.id) { await load() }
+        #if os(tvOS)
+        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        #else
+        .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        #endif
+    }
+
+    private var detailContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
-                    if !subject.hasLogo { Text(subject.name).font(titleFont) }
+                    Text(subject.name).font(titleFont)
                     metaLine
                     actions
                     overview
@@ -1066,15 +1126,6 @@ private struct MediaDetailScreen: View {
             .padding(.bottom, 44)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
-        .modifier(FullBleedHeader())
-        .task(id: item.id) { await load() }
-        #if os(tvOS)
-        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
-        #else
-        .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
-        #endif
     }
 
     // MARK: - Header
@@ -1092,9 +1143,15 @@ private struct MediaDetailScreen: View {
                 ZStack(alignment: .top) {
                     LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                         startPoint: .topLeading, endPoint: .bottomTrailing)
+                    #if os(tvOS)
+                    if let preparedHero {
+                        Image(uiImage: preparedHero).resizable().scaledToFill()
+                    }
+                    #else
                     AsyncImage(url: heroURL) { phase in
                         if let image = phase.image { image.resizable().scaledToFill() }
                     }
+                    #endif
                 }
             }
             .clipped()
@@ -1110,30 +1167,6 @@ private struct MediaDetailScreen: View {
                 ], startPoint: .top, endPoint: .bottom)
                     .frame(height: fadeHeight)
             }
-            .overlay(alignment: .bottom) { heroLogo }
-    }
-
-    /// The item logo, laid over the foot of the art.
-    ///
-    /// Only on a television, where the art is a wide backdrop crop that
-    /// carries no lettering of its own. A phone shows the poster, and a poster
-    /// already has the title designed into it -- so the logo landed on top of
-    /// the title it was repeating, and the page read the name twice in two
-    /// typefaces. The poster says it better than an overlay can.
-    @ViewBuilder
-    private var heroLogo: some View {
-        #if os(tvOS)
-        if subject.hasLogo {
-            AsyncImage(url: media.logoURL(for: subject)) { phase in
-                if let image = phase.image { image.resizable().scaledToFit() }
-            }
-            .frame(height: logoHeight)
-            .padding(.horizontal, horizontalPadding)
-            // Clear of the page's own text, which now sits over the foot of
-            // the art rather than below it.
-            .padding(.bottom, logoBottomInset)
-        }
-        #endif
     }
 
     @ViewBuilder
@@ -1526,14 +1559,29 @@ private struct MediaDetailScreen: View {
         loading = true
         error = nil
         related = []
+        pageReady = false
+        #if os(tvOS)
+        preparedHero = nil
+        #endif
         let loaded = try? await media.details(of: item)
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite
         watched = (loaded ?? item).isPlayed
         let detailedItem = subject
-        Task { related = await media.related(to: detailedItem) }
+        #if os(tvOS)
+        // Build the complete first frame before focus enters the page. The
+        // artwork is decoded once, rather than popping in through AsyncImage.
+        async let relatedItems = media.related(to: detailedItem)
+        let heroURLs = [media.backdropURL(for: detailedItem),
+                        media.imageURL(for: detailedItem, width: 1280)].compactMap { $0 }
+        async let heroData = Self.fetchHeroData(from: heroURLs)
+        related = await relatedItems
+        preparedHero = (await heroData).flatMap(UIImage.init(data:))
+        #else
+        related = await media.related(to: detailedItem)
+        #endif
         // A film is the whole of itself: nothing underneath to go and get.
-        guard subject.isSeries else { loading = false; return }
+        guard subject.isSeries else { loading = false; pageReady = true; return }
         do {
             let children = try await media.numberedChildren(of: item)
             let seasonList = children.filter { $0.type == "Season" }
@@ -1543,15 +1591,18 @@ private struct MediaDetailScreen: View {
                 selectedSeason = nil
                 episodes = children.filter(\.isPlayable)
                 loading = false
+                pageReady = true
                 return
             }
             seasons = seasonList
             let up = await media.nextUp(in: item)
             nextUp = up
             await loadSeason(seasonList.first { $0.indexNumber == up?.parentIndexNumber } ?? seasonList[0])
+            pageReady = true
         } catch {
             self.error = error.localizedDescription
             loading = false
+            pageReady = true
         }
     }
 
@@ -1573,6 +1624,18 @@ private struct MediaDetailScreen: View {
         media.imageURL(for: subject, width: 900)
         #endif
     }
+    #if os(tvOS)
+    nonisolated private static func fetchHeroData(from urls: [URL]) async -> Data? {
+        for url in urls {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 12
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode), !data.isEmpty { return data }
+        }
+        return nil
+    }
+    #endif
     private var heroRatio: CGFloat {
         #if os(tvOS)
         // Leave the first action inside the initial focus viewport. At 20:9
@@ -1583,7 +1646,6 @@ private struct MediaDetailScreen: View {
         2 / 3
         #endif
     }
-    private var logoHeight: CGFloat { 110 }
     /// How far the page's text reaches up into the fading art. Negative: it is
     /// closing the gap the stack would otherwise leave.
     private var contentRise: CGFloat {
@@ -1591,15 +1653,6 @@ private struct MediaDetailScreen: View {
         -110
         #else
         0
-        #endif
-    }
-    /// Where the item logo sits above the foot of the art, clear of the text
-    /// that now overlaps it.
-    private var logoBottomInset: CGFloat {
-        #if os(tvOS)
-        128
-        #else
-        6
         #endif
     }
     /// How far the art is feathered into the page at its foot. A phone keeps

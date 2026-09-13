@@ -248,30 +248,31 @@ final class MediaLibrary: ObservableObject {
     }
 
     func related(to item: MediaItem) async -> [MediaItem] {
-        if item.isAddonItem {
-            let genres = Set((item.genres ?? []).map { $0.lowercased() })
-            guard !genres.isEmpty else { return [] }
-            var seen: Set<String> = []
-            return addonShelves.flatMap(\.items)
-                .filter { candidate in
-                    candidate.type == item.type && candidate.stremioID != item.stremioID
-                        && !genres.isDisjoint(with: Set((candidate.genres ?? [])
-                            .map { $0.lowercased() }))
-                        && seen.insert(candidate.stremioID ?? candidate.id).inserted
-                }
-                .sorted { left, right in
-                    let leftMatch = genres.intersection(Set((left.genres ?? [])
-                        .map { $0.lowercased() })).count
-                    let rightMatch = genres.intersection(Set((right.genres ?? [])
-                        .map { $0.lowercased() })).count
-                    return leftMatch > rightMatch
-                }
-                .prefix(16).map { $0 }
+        let genres = Set((item.genres ?? []).map { $0.lowercased() })
+        let local = shelves.flatMap(\.items).filter { candidate in
+            candidate.hasDetailPage && candidate.type == item.type
+                && candidate.id != item.id
+                && (item.stremioID == nil || candidate.stremioID != item.stremioID)
+                && !genres.isEmpty
+                && !genres.isDisjoint(with: Set((candidate.genres ?? []).map { $0.lowercased() }))
+        }.sorted { left, right in
+            let leftMatch = genres.intersection(Set((left.genres ?? []).map { $0.lowercased() })).count
+            let rightMatch = genres.intersection(Set((right.genres ?? []).map { $0.lowercased() })).count
+            return leftMatch > rightMatch
         }
-        guard let profile = activeProfile else { return [] }
-        return (try? await client(for: profile)
-            .similarItems(userID: profile.userID, itemID: item.id))?
-            .filter { $0.id != item.id && $0.hasDetailPage } ?? []
+        var remote: [MediaItem] = []
+        if !item.isAddonItem, let profile = activeProfile {
+            remote = (try? await client(for: profile)
+                .similarItems(userID: profile.userID, itemID: item.id))?
+                .filter { $0.id != item.id && $0.hasDetailPage } ?? []
+        }
+        // Server recommendations can be empty or unavailable. Shelved movies
+        // of matching genres keep the Related row useful on either platform.
+        var seen: Set<String> = []
+        return (remote + local).filter { candidate in
+            let key = "\(candidate.name.lowercased())|\(candidate.productionYear ?? 0)"
+            return seen.insert(key).inserted
+        }.prefix(16).map { $0 }
     }
 
     func personImageURL(for person: MediaPerson, width: Int = 300) -> URL? {
