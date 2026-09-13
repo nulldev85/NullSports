@@ -33,10 +33,10 @@ final class CloudSettingsSync: ObservableObject {
     private init() {}
 
     func sync() async {
-        guard cloudKitEnabled else {
-            status = "iCloud sync requires a signed build with CloudKit enabled"
-            return
-        }
+        #if LINEUP_UNSIGNED_BUILD
+        status = "iCloud sync requires a signed build with CloudKit enabled"
+        return
+        #endif
         #if targetEnvironment(simulator)
         status = "iCloud sync requires a signed device build"
         return
@@ -69,11 +69,6 @@ final class CloudSettingsSync: ObservableObject {
             if let cloudError = error as? CKError, cloudError.code == .serverRecordChanged { needsSync = true }
             status = "Sync unavailable: \(error.localizedDescription)"
         }
-    }
-
-    private var cloudKitEnabled: Bool {
-        let value = Bundle.main.object(forInfoDictionaryKey: "LineupCloudKitEnabled")
-        return (value as? NSNumber)?.boolValue == true || (value as? String)?.uppercased() == "YES"
     }
 
     func localSettingsChanged() {
