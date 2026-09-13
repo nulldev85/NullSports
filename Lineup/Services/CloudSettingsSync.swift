@@ -11,7 +11,7 @@ final class CloudSettingsSync: ObservableObject {
     @Published private(set) var status = "Not synced"
 
     private let defaults = UserDefaults.standard
-    private let database = CKContainer(identifier: "iCloud.com.nulldev85.Lineup").privateCloudDatabase
+    private var database: CKDatabase { CKContainer(identifier: "iCloud.com.nulldev85.Lineup").privateCloudDatabase }
     private let recordID = CKRecord.ID(recordName: "lineup-settings-v1")
     private let syncedKeys = [
         "NullSports.profiles", "NullSports.activeProfile", "NullSports.mediaServers",
@@ -33,6 +33,10 @@ final class CloudSettingsSync: ObservableObject {
     private init() {}
 
     func sync() async {
+        #if targetEnvironment(simulator)
+        status = "iCloud sync requires a signed device build"
+        return
+        #endif
         guard !isApplying else { return }
         if syncInFlight { needsSync = true; return }
         syncInFlight = true
