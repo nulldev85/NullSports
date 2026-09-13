@@ -50,6 +50,9 @@ final class MediaLibrary: ObservableObject {
     /// Addon records kept after their first fetch. A show page asks for the
     /// same meta three times over -- details, seasons, then episodes.
     var addonMetas: [String: StremioMeta] = [:]
+    /// Full manifest search catalogs, including search-only entries that are
+    /// deliberately absent from the browsable shelf list.
+    var addonSearchCatalogs: [String: [StremioCatalogSpec]] = [:]
     let addonsKey = "Lineup.stremioAddons"
     let addonShelvesKey = "Lineup.stremioShelves"
 
@@ -245,7 +248,27 @@ final class MediaLibrary: ObservableObject {
     }
 
     func related(to item: MediaItem) async -> [MediaItem] {
-        guard !item.isAddonItem, let profile = activeProfile else { return [] }
+        if item.isAddonItem {
+            let genres = Set((item.genres ?? []).map { $0.lowercased() })
+            guard !genres.isEmpty else { return [] }
+            var seen: Set<String> = []
+            return addonShelves.flatMap(\.items)
+                .filter { candidate in
+                    candidate.type == item.type && candidate.stremioID != item.stremioID
+                        && !genres.isDisjoint(with: Set((candidate.genres ?? [])
+                            .map { $0.lowercased() }))
+                        && seen.insert(candidate.stremioID ?? candidate.id).inserted
+                }
+                .sorted { left, right in
+                    let leftMatch = genres.intersection(Set((left.genres ?? [])
+                        .map { $0.lowercased() })).count
+                    let rightMatch = genres.intersection(Set((right.genres ?? [])
+                        .map { $0.lowercased() })).count
+                    return leftMatch > rightMatch
+                }
+                .prefix(16).map { $0 }
+        }
+        guard let profile = activeProfile else { return [] }
         return (try? await client(for: profile)
             .similarItems(userID: profile.userID, itemID: item.id))?
             .filter { $0.id != item.id && $0.hasDetailPage } ?? []
@@ -305,16 +328,25 @@ final class MediaLibrary: ObservableObject {
     /// other: with no server connected this is the addons alone, and with an
     /// addon down it is the server alone.
     func search(_ query: String) async throws -> [MediaItem] {
-        var results: [MediaItem] = []
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        // A loaded shelf remains searchable even when its addon publishes no
+        // search endpoint. The server and search-capable addons expand beyond
+        // those first-page cards.
+        var results = shelves.flatMap(\.items).filter {
+            $0.hasDetailPage && $0.name.localizedStandardContains(term)
+        }
         var serverError: Error?
         if let profile = activeProfile {
             do {
                 results = try await client(for: profile)
-                    .search(userID: profile.userID, query: query)
+                    .search(userID: profile.userID, query: term) + results
             } catch { serverError = error }
         }
         // Every addon that takes a search term, asked at once inside.
-        results += await searchAddons(query)
+        results += await searchAddons(term)
+        var seen: Set<String> = []
+        results = results.filter { seen.insert($0.id).inserted }
         if results.isEmpty, let serverError { throw serverError }
         return results
     }
@@ -529,8 +561,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
-        // Addons carry no separate logo art; the hero shows its title instead.
-        if item.isAddonItem { return nil }
+        if item.isAddonItem { return item.logoArtworkURL.flatMap(URL.init(string:)) }
         guard item.hasLogo, let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
     }

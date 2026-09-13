@@ -43,6 +43,8 @@ extension MediaLibrary {
             let addon = StremioAddon(manifest: manifest, address: base.absoluteString)
             addons.removeAll { $0.id == addon.id }
             addons.append(addon)
+            addonMetas.removeAll()
+            addonSearchCatalogs[addon.id] = manifest.catalogs.filter(\.supportsSearch)
             persistAddons()
             // An addon that is added and then shows nothing looks broken. Its
             // first rows go up by themselves, and any of them can be taken off
@@ -67,7 +69,8 @@ extension MediaLibrary {
         addons.removeAll { $0.id == addon.id }
         addonShelfIDs.removeAll { $0.hasPrefix("addon:\(addon.id)|") }
         addonShelves.removeAll { $0.root.addonID == addon.id }
-        addonMetas = addonMetas.filter { !$0.key.hasPrefix("\(addon.id)|") }
+        addonMetas.removeAll()
+        addonSearchCatalogs.removeValue(forKey: addon.id)
         persistAddons()
         persistAddonShelves()
     }
@@ -239,12 +242,29 @@ extension MediaLibrary {
 
     // MARK: - Search
 
-    /// Ask every addon that takes a search term. Two catalogs each at most:
-    /// a metadata addon offers one per type and this should stay one round of
-    /// requests rather than a dozen.
+    /// Search-only catalogs were excluded from the stored browsable shelf list.
+    /// Read the full manifest once for older installs so those endpoints can
+    /// actually be used, then cache the discovery for subsequent keystrokes.
     func searchAddons(_ query: String) async -> [MediaItem] {
+        let undiscovered = addons.filter { addonSearchCatalogs[$0.id] == nil }
+        let discovered = await withTaskGroup(of: (String, [StremioCatalogSpec]?).self) { group in
+            for addon in undiscovered {
+                group.addTask {
+                    let manifest = try? await StremioClient(address: addon.address).manifest()
+                    return (addon.id, manifest?.catalogs.filter(\.supportsSearch))
+                }
+            }
+            var answers: [(String, [StremioCatalogSpec]?)] = []
+            for await answer in group { answers.append(answer) }
+            return answers
+        }
+        for (id, catalogs) in discovered {
+            if let catalogs { addonSearchCatalogs[id] = catalogs }
+        }
         let asked = addons.flatMap { addon in
-            addon.searchable.prefix(2).map { (addon, $0) }
+            (addonSearchCatalogs[addon.id] ?? addon.searchable)
+                .filter { ["movie", "series"].contains($0.type.lowercased()) }
+                .prefix(4).map { (addon, $0) }
         }
         guard !asked.isEmpty else { return [] }
         let found = await withTaskGroup(of: (Int, [MediaItem]).self) { group in
@@ -274,10 +294,9 @@ extension MediaLibrary {
 
     /// The addon's own record for an item, kept once fetched.
     ///
-    /// The addon that supplied the row is asked first and anything else that
-    /// answers about this kind of thing after it, because plenty of catalog
-    /// addons hand out ids they cannot describe -- they are imdb ids, and a
-    /// metadata addon is what describes those.
+    /// The addon that supplied the row is asked first, then other metadata
+    /// addons fill fields it omitted. A sparse catalog's own meta may answer
+    /// successfully but still lack cast, trailers or episode descriptions.
     private func meta(for item: MediaItem) async -> StremioMeta? {
         guard let addonID = item.addonID, let type = item.stremioType,
               let id = item.stremioID else { return nil }
@@ -288,13 +307,27 @@ extension MediaLibrary {
         order += addons.filter {
             $0.id != addonID && $0.providesMeta && ($0.types.isEmpty || $0.types.contains(type))
         }
-        for source in order {
-            guard let client = try? StremioClient(address: source.address),
-                  let meta = try? await client.meta(type: type, id: id) else { continue }
-            addonMetas[key] = meta
-            return meta
+        let replies = await withTaskGroup(of: (Int, StremioMeta?).self) { group in
+            for (index, source) in order.enumerated() {
+                group.addTask {
+                    guard let client = try? StremioClient(address: source.address) else {
+                        return (index, nil)
+                    }
+                    return (index, try? await client.meta(type: type, id: id))
+                }
+            }
+            var results: [(Int, StremioMeta?)] = []
+            for await result in group { results.append(result) }
+            return results.sorted { $0.0 < $1.0 }
         }
-        return nil
+        var combined: StremioMeta?
+        for (_, answer) in replies {
+            guard let meta = answer else { continue }
+            if combined == nil { combined = meta }
+            else { combined?.fillMissing(from: meta) }
+        }
+        if let combined { addonMetas[key] = combined }
+        return combined
     }
 
     private func resolveShelf(_ id: String) -> (addon: StremioAddon, catalog: StremioCatalogSpec)? {

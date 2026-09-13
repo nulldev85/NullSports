@@ -1030,7 +1030,6 @@ private struct MediaDetailScreen: View {
     @State private var selectedSeason: MediaItem?
     @State private var episodes: [MediaItem] = []
     @State private var nextUp: MediaItem?
-    @State private var metrics: [MediaMetric] = []
     @State private var related: [MediaItem] = []
     @State private var favorite = false
     @State private var watched = false
@@ -1052,7 +1051,6 @@ private struct MediaDetailScreen: View {
                     metaLine
                     actions
                     overview
-                    ratings
                 }
                 .padding(.horizontal, horizontalPadding)
                 // Up into the fade. The art running down the screen and the
@@ -1148,7 +1146,7 @@ private struct MediaDetailScreen: View {
     }
 
     private var metaParts: [String] {
-        [subject.communityRating.map { String(format: "%.1f", $0) },
+        [subject.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
          subject.productionYear.map(String.init),
          // Worth saying on a film, where a server reports one; a series has no
          // single running time and leaves this out.
@@ -1258,59 +1256,6 @@ private struct MediaDetailScreen: View {
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.2)) { expandedOverview.toggle() }
                 }
-        }
-    }
-
-    private struct Rating: Identifiable {
-        let id: String
-        let source: String
-        let value: String
-    }
-
-    // Only what the server actually reports. An empty row beats an invented one.
-    //
-    // A Nullfin server keeps a score per metrics addon, and naming the source
-    // beside each one is the whole point of showing them. Where it has none --
-    // any Jellyfin server, or an item no addon has scored -- the item's own two
-    // ratings stand in, and the community score is named too: Nullfin fills it
-    // from the metadata addon's IMDb rating, and an unlabelled star said
-    // nothing about where the number came from.
-    private var ratingValues: [Rating] {
-        guard metrics.isEmpty else {
-            return metrics.map {
-                Rating(id: $0.source, source: $0.displayName, value: $0.formattedValue)
-            }
-        }
-        var values: [Rating] = []
-        if let community = subject.communityRating, community > 0 {
-            values.append(Rating(id: "community", source: "IMDb",
-                value: String(format: "%.1f", community)))
-        }
-        if let critic = subject.criticRating, critic > 0 {
-            values.append(Rating(id: "critic", source: "Critics",
-                value: "\(Int(critic.rounded()))%"))
-        }
-        return values
-    }
-
-    @ViewBuilder
-    private var ratings: some View {
-        if !ratingValues.isEmpty {
-            // Six sources do not fit across a phone, so they wrap rather than
-            // squeeze, the same way the stream badges do.
-            BadgeFlow(spacing: 16) {
-                ForEach(ratingValues) { rating in
-                    HStack(spacing: 6) {
-                        Text(rating.source)
-                            .font(.inter(.caption2, .heavy))
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-                        Text(rating.value)
-                            .font(.interDigits(.subheadline, .semibold))
-                    }
-                    .fixedSize()
-                }
-            }
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.82))
         }
     }
 
@@ -1459,9 +1404,10 @@ private struct MediaDetailScreen: View {
     @ViewBuilder
     private var aboutSection: some View {
         let hasFacts = subject.formattedAirDate != nil || subject.status != nil
-            || subject.officialRating != nil || subject.communityRating != nil
+            || subject.officialRating != nil
             || subject.genres?.isEmpty == false || subject.tags?.isEmpty == false
             || subject.studios?.isEmpty == false || subject.productionLocations?.isEmpty == false
+            || subject.people?.contains(where: { $0.type?.lowercased() == "director" }) == true
         if hasFacts {
             VStack(alignment: .leading, spacing: 0) {
                 Text("About").font(sectionTitleFont).padding(.bottom, 8)
@@ -1473,9 +1419,6 @@ private struct MediaDetailScreen: View {
                 }
                 if let status = subject.status { factRow("Status", status) }
                 if let rating = subject.officialRating { factRow("Rated", rating) }
-                if let score = subject.communityRating {
-                    factRow("Rating", String(format: "%.1f / 10", score))
-                }
                 if let genres = subject.genres, !genres.isEmpty {
                     factRow("Genres", genres.joined(separator: ", "))
                 }
@@ -1485,6 +1428,13 @@ private struct MediaDetailScreen: View {
                 if let studios = subject.studios, !studios.isEmpty {
                     factRow(subject.isSeries ? "Network" : "Studio",
                         studios.map(\.name).joined(separator: ", "))
+                }
+                let directors = (subject.people ?? []).filter {
+                    $0.type?.lowercased() == "director"
+                }.map(\.name)
+                if !directors.isEmpty {
+                    factRow(directors.count == 1 ? "Director" : "Directors",
+                        directors.joined(separator: ", "))
                 }
                 if let countries = subject.productionLocations, !countries.isEmpty {
                     factRow("Country", countries.joined(separator: ", "))
@@ -1580,8 +1530,8 @@ private struct MediaDetailScreen: View {
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite
         watched = (loaded ?? item).isPlayed
-        metrics = await media.metrics(for: item)
-        Task { related = await media.related(to: item) }
+        let detailedItem = subject
+        Task { related = await media.related(to: detailedItem) }
         // A film is the whole of itself: nothing underneath to go and get.
         guard subject.isSeries else { loading = false; return }
         do {
@@ -1625,12 +1575,10 @@ private struct MediaDetailScreen: View {
     }
     private var heroRatio: CGFloat {
         #if os(tvOS)
-        // Most of the screen, not half of it. A full 16:9 hero is exactly one
-        // screen and leaves the title and episodes below the fold; half a
-        // screen left the art finishing in the middle of the picture. This runs
-        // the art most of the way down and hands the last of it to the fade,
-        // with the title reaching up into it.
-        20 / 9
+        // Leave the first action inside the initial focus viewport. At 20:9
+        // the focused Play button was below the fold, so tvOS auto-scrolled
+        // the whole page on entry and clipped the tab/navigation chrome.
+        3
         #else
         2 / 3
         #endif
@@ -1640,7 +1588,7 @@ private struct MediaDetailScreen: View {
     /// closing the gap the stack would otherwise leave.
     private var contentRise: CGFloat {
         #if os(tvOS)
-        -150
+        -110
         #else
         0
         #endif
@@ -1649,7 +1597,7 @@ private struct MediaDetailScreen: View {
     /// that now overlaps it.
     private var logoBottomInset: CGFloat {
         #if os(tvOS)
-        168
+        128
         #else
         6
         #endif
@@ -1659,7 +1607,7 @@ private struct MediaDetailScreen: View {
     /// artwork's own title into shadow with it.
     private var fadeHeight: CGFloat {
         #if os(tvOS)
-        380
+        250
         #else
         80
         #endif

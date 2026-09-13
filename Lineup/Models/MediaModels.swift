@@ -84,6 +84,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let stremioID: String?
     let posterURL: String?
     let backdropURL: String?
+    let logoArtworkURL: String?
 
     // An optional `let` gets no implicit default, so the added fields are given
     // one here and every existing caller keeps the call it already makes.
@@ -99,7 +100,8 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
          people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
          addonID: String? = nil, stremioType: String? = nil, stremioID: String? = nil,
-         posterURL: String? = nil, backdropURL: String? = nil) {
+         posterURL: String? = nil, backdropURL: String? = nil,
+         logoArtworkURL: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -131,6 +133,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.stremioID = stremioID
         self.posterURL = posterURL
         self.backdropURL = backdropURL
+        self.logoArtworkURL = logoArtworkURL
     }
 
     /// Whether this item is an addon's rather than a server's, which is the
@@ -159,7 +162,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
 
     var isFavorite: Bool { userData?.isFavorite == true }
 
-    var hasLogo: Bool { imageTags?["Logo"] != nil }
+    var hasLogo: Bool { imageTags?["Logo"] != nil || logoArtworkURL != nil }
 
     var hasBackdrop: Bool { backdropImageTags?.isEmpty == false }
 
@@ -240,6 +243,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case stremioID = "LineupAddonItemId"
         case posterURL = "LineupPoster"
         case backdropURL = "LineupBackdrop"
+        case logoArtworkURL = "LineupLogo"
     }
 }
 

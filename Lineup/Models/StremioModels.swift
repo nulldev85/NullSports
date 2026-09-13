@@ -103,6 +103,9 @@ struct StremioCatalogSpec: Codable, Identifiable, Hashable, Sendable {
     let required: [String]
 
     var title: String { name ?? id.capitalized }
+    var supportsSearch: Bool {
+        (extra + required).contains { $0.caseInsensitiveCompare("search") == .orderedSame }
+    }
     /// A catalogue that cannot be listed without a search term is not a row;
     /// it is a search box, and asking it for a row returns an error.
     var isBrowsable: Bool { !required.contains("search") }
@@ -164,20 +167,29 @@ struct StremioMeta: Decodable, Sendable {
     let id: String
     let type: String
     let name: String
-    let poster: String?
-    let background: String?
-    let description: String?
+    var poster: String?
+    var background: String?
+    var logo: String?
+    var description: String?
     /// A year, a range, or an open range: "2019", "2019-2024", "2019-".
-    let releaseInfo: String?
-    let genres: [String]?
-    let imdbRating: String?
-    let runtime: String?
+    var releaseInfo: String?
+    var released: String?
+    var genres: [String]?
+    var imdbRating: String?
+    var runtime: String?
+    var country: String?
+    var status: String?
+    var cast: [String]?
+    var director: [String]?
+    var links: [StremioMetaLink]
+    var trailers: [StremioMetaTrailer]
     /// Series only: the episodes, which an addon may call either of two things.
-    let videos: [StremioVideo]?
+    var videos: [StremioVideo]?
 
     enum CodingKeys: String, CodingKey {
-        case id, type, name, poster, background, description
-        case releaseInfo, genres, genre, imdbRating, runtime, videos
+        case id, type, name, poster, background, logo, description
+        case releaseInfo, released, genres, genre, imdbRating, runtime, videos
+        case country, status, cast, director, links, trailers
     }
 
     init(from decoder: Decoder) throws {
@@ -187,8 +199,16 @@ struct StremioMeta: Decodable, Sendable {
         name = (try? box.decode(String.self, forKey: .name)) ?? "Untitled"
         poster = try? box.decode(String.self, forKey: .poster)
         background = try? box.decode(String.self, forKey: .background)
+        logo = try? box.decode(String.self, forKey: .logo)
         description = try? box.decode(String.self, forKey: .description)
         releaseInfo = try? box.decode(String.self, forKey: .releaseInfo)
+        released = try? box.decode(String.self, forKey: .released)
+        country = try? box.decode(String.self, forKey: .country)
+        status = try? box.decode(String.self, forKey: .status)
+        cast = try? box.decode([String].self, forKey: .cast)
+        director = try? box.decode([String].self, forKey: .director)
+        links = .lossy(box, .links)
+        trailers = .lossy(box, .trailers)
         // Some addons send a single genre string where the rest send a list.
         if let list = try? box.decode([String].self, forKey: .genres) {
             genres = list
@@ -218,6 +238,67 @@ struct StremioMeta: Decodable, Sendable {
         guard let releaseInfo else { return nil }
         let digits = releaseInfo.prefix { $0.isNumber }
         return digits.count == 4 ? Int(digits) : nil
+    }
+
+    /// Catalog previews are often sparse. Keep the owning addon's identity and
+    /// episode list while filling absent detail fields from metadata addons.
+    mutating func fillMissing(from other: StremioMeta) {
+        if poster == nil { poster = other.poster }
+        if background == nil { background = other.background }
+        if logo == nil { logo = other.logo }
+        if description == nil { description = other.description }
+        if releaseInfo == nil { releaseInfo = other.releaseInfo }
+        if released == nil { released = other.released }
+        if genres?.isEmpty != false { genres = other.genres }
+        if imdbRating == nil { imdbRating = other.imdbRating }
+        if runtime == nil { runtime = other.runtime }
+        if country == nil { country = other.country }
+        if status == nil { status = other.status }
+        if cast?.isEmpty != false { cast = other.cast }
+        if director?.isEmpty != false { director = other.director }
+        var knownLinks = Set(links.map { "\($0.category)|\($0.name)" })
+        links += other.links.filter { knownLinks.insert("\($0.category)|\($0.name)").inserted }
+        var knownTrailers = Set(trailers.compactMap(\.webURL))
+        trailers += other.trailers.filter {
+            guard let url = $0.webURL else { return false }
+            return knownTrailers.insert(url).inserted
+        }
+        if videos?.isEmpty != false { videos = other.videos }
+    }
+
+    var actorNames: [String] {
+        if let cast, !cast.isEmpty { return cast }
+        return links.filter {
+            $0.category.lowercased() == "actor"
+        }.map(\.name)
+    }
+
+    var directorNames: [String] {
+        if let director, !director.isEmpty { return director }
+        return links.filter {
+            $0.category.lowercased() == "director"
+        }.map(\.name)
+    }
+}
+
+struct StremioMetaLink: Decodable, Sendable {
+    let name: String
+    let category: String
+}
+
+struct StremioMetaTrailer: Decodable, Sendable {
+    let source: String?
+    let type: String?
+    let url: String?
+    let ytId: String?
+
+    var webURL: String? {
+        if let url { return url }
+        let videoID = ytId ?? source
+        guard let videoID,
+              videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil
+        else { return nil }
+        return "https://www.youtube.com/watch?v=\(videoID)"
     }
 }
 
@@ -335,7 +416,7 @@ struct StremioAddon: Codable, Identifiable, Hashable, Sendable {
     /// The catalogs that take a search term, which is a different question
     /// from the rows this addon offers.
     var searchable: [StremioCatalogSpec] {
-        catalogs.filter { $0.extra.contains("search") }
+        catalogs.filter(\.supportsSearch)
     }
 }
 
@@ -379,6 +460,16 @@ extension MediaItem {
     }
 
     init(meta: StremioMeta, addonID: String) {
+        var seenActors: Set<String> = []
+        let actors = meta.actorNames.filter { seenActors.insert($0).inserted }.map {
+            MediaPerson(personID: nil, name: $0, role: nil,
+                type: "Actor", primaryImageTag: nil)
+        }
+        var seenDirectors: Set<String> = []
+        let directors = meta.directorNames.filter { seenDirectors.insert($0).inserted }.map {
+            MediaPerson(personID: nil, name: $0, role: nil,
+                type: "Director", primaryImageTag: nil)
+        }
         self.init(
             id: StremioID.item(addon: addonID, type: meta.type, id: meta.id),
             name: meta.name,
@@ -390,11 +481,19 @@ extension MediaItem {
             genres: meta.genres,
             communityRating: meta.imdbRating.flatMap { Double($0) },
             runTimeTicks: MediaItem.ticks(fromRuntime: meta.runtime),
+            premiereDate: meta.released,
+            status: meta.status,
+            productionLocations: meta.country.map { [$0] },
+            people: actors + directors,
+            remoteTrailers: meta.trailers.compactMap { trailer in
+                trailer.webURL.map { MediaTrailer(name: trailer.type ?? "Trailer", url: $0) }
+            },
             addonID: addonID,
             stremioType: meta.type,
             stremioID: meta.id,
             posterURL: meta.poster,
-            backdropURL: meta.background
+            backdropURL: meta.background,
+            logoArtworkURL: meta.logo
         )
     }
 
@@ -474,11 +573,25 @@ extension MediaItem {
         )
     }
 
-    /// "142 min" in the units a server would have reported it in.
+    /// Addons use "142 min", "1h 38m", or "1 hour 38 minutes". Read both
+    /// units before converting to the ticks a server would have reported.
     static func ticks(fromRuntime runtime: String?) -> Int64? {
         guard let runtime else { return nil }
-        let digits = runtime.prefix { $0.isNumber }
-        guard let minutes = Int64(digits), minutes > 0 else { return nil }
+        let pattern = #"(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)"#
+        let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        let range = NSRange(runtime.startIndex..<runtime.endIndex, in: runtime)
+        let matches = expression?.matches(in: runtime, range: range) ?? []
+        var minutes: Int64 = 0
+        for match in matches {
+            guard let numberRange = Range(match.range(at: 1), in: runtime),
+                  let unitRange = Range(match.range(at: 2), in: runtime),
+                  let value = Int64(runtime[numberRange]) else { continue }
+            minutes += runtime[unitRange].lowercased().hasPrefix("h") ? value * 60 : value
+        }
+        if matches.isEmpty {
+            minutes = Int64(runtime.prefix { $0.isNumber }) ?? 0
+        }
+        guard minutes > 0 else { return nil }
         return minutes * 600_000_000
     }
 }
