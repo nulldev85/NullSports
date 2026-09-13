@@ -74,7 +74,8 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            INFOPLIST_KEY_LineupCloudKitEnabled=NO
 
       - name: Check Inter is bundled
         run: |
@@ -85,6 +86,7 @@ jobs:
           # to check, not the code.
           app="build/Build/Products/Release-appletvos/Lineup.app"
           test -d "$app"
+          python3 -c 'import plistlib,sys; p=plistlib.load(open(sys.argv[1], "rb")); assert p.get("LineupCloudKitEnabled") in (False, "NO"), "unsigned IPA must not initialize CloudKit"' "$app/Info.plist"
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
@@ -104,6 +106,7 @@ jobs:
             -destination 'platform=tvOS Simulator,name=Apple TV' \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
+            INFOPLIST_KEY_LineupCloudKitEnabled=NO \
             build
 
       - name: Smoke test app launch in tvOS Simulator

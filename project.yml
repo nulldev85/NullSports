@@ -36,6 +36,7 @@ targets:
         PRODUCT_NAME: Lineup
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Lineup
+        INFOPLIST_KEY_LineupCloudKitEnabled: YES
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Lineup/Lineup.entitlements
@@ -69,6 +70,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Lineup
+        INFOPLIST_KEY_LineupCloudKitEnabled: YES
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to IPTV providers, Jellyfin, and Nullfin media servers on your local network.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
