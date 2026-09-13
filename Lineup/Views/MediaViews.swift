@@ -1054,6 +1054,7 @@ private struct MediaShelfRow: View {
 /// minus the parts a film has no answer for.
 private struct MediaDetailScreen: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.dismiss) private var dismiss
     let item: MediaItem
 
     @State private var detail: MediaItem?
@@ -1073,6 +1074,9 @@ private struct MediaDetailScreen: View {
     @State private var error: String?
     @State private var chosen: MediaItem?
     @FocusState private var seasonFocused: Bool
+    #if os(tvOS)
+    @FocusState private var backFocused: Bool
+    #endif
     @State private var choosingSeason = false
 
     private var subject: MediaItem { detail ?? item }
@@ -1096,6 +1100,7 @@ private struct MediaDetailScreen: View {
         .modifier(FullBleedHeader())
         .task(id: item.id) { await load() }
         #if os(tvOS)
+        .onExitCommand { dismiss() }
         .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #else
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
@@ -1167,6 +1172,23 @@ private struct MediaDetailScreen: View {
                 ], startPoint: .top, endPoint: .bottom)
                     .frame(height: fadeHeight)
             }
+            #if os(tvOS)
+            // Focus needs a home at the top of the scroll view. Otherwise
+            // tvOS chooses Play below the hero and scrolls the whole page on
+            // entry, dragging the navigation/tab chrome off the screen.
+            .overlay(alignment: .topLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 24, weight: .bold))
+                        .frame(width: 56, height: 56)
+                        .background(LineupStyle.background.opacity(0.72), in: Circle())
+                }
+                .lineupFlatButton()
+                .focused($backFocused)
+                .padding(.leading, horizontalPadding).padding(.top, 24)
+                .onAppear { backFocused = true }
+            }
+            #endif
     }
 
     @ViewBuilder
