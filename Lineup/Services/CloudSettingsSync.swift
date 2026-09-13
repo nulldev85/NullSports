@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import Security
 
 /// Syncs user-authored Lineup settings through the user's private iCloud database.
 /// Schedule, guide, and stream caches remain local because they are fetched again.
@@ -33,6 +34,10 @@ final class CloudSettingsSync: ObservableObject {
     private init() {}
 
     func sync() async {
+        guard hasCloudKitEntitlement else {
+            status = "iCloud sync requires a signed build with CloudKit enabled"
+            return
+        }
         #if targetEnvironment(simulator)
         status = "iCloud sync requires a signed device build"
         return
@@ -65,6 +70,13 @@ final class CloudSettingsSync: ObservableObject {
             if let cloudError = error as? CKError, cloudError.code == .serverRecordChanged { needsSync = true }
             status = "Sync unavailable: \(error.localizedDescription)"
         }
+    }
+
+    private var hasCloudKitEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let services = SecTaskCopyValueForEntitlement(task,
+                  "com.apple.developer.icloud-services" as CFString, nil) as? [String] else { return false }
+        return services.contains("CloudKit")
     }
 
     func localSettingsChanged() {
