@@ -34,7 +34,8 @@ struct JellyfinClient: Sendable {
     // Everything a shelf card, a show page and an episode card between them need.
     // Asked for once, so no screen has to go back for a second round.
     static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"
-        + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount"
+        + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount,"
+        + "People,Studios,ProductionLocations,Tags,RemoteTrailers"
 
     func items(userID: String, parentID: String,
                sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {
@@ -114,6 +115,17 @@ struct JellyfinClient: Sendable {
         try await send(try request(path: "users/\(userID)/items/\(itemID)"))
     }
 
+    func similarItems(userID: String, itemID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "Limit", value: "16")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "items/\(itemID)/similar", query: query))
+        return response.items
+    }
+
     // The server already knows where a viewer is up to in a series, and it is a
     // better answer than any guess made from which episodes are marked played.
     func nextUp(userID: String, seriesID: String) async throws -> [MediaItem] {
@@ -140,6 +152,12 @@ struct JellyfinClient: Sendable {
         try await sendIgnoringBody(
             try request(path: "users/\(userID)/favoriteitems/\(itemID)",
                 method: isFavorite ? "POST" : "DELETE"))
+    }
+
+    func setPlayed(userID: String, itemID: String, isPlayed: Bool) async throws {
+        try await sendIgnoringBody(
+            try request(path: "users/\(userID)/playeditems/\(itemID)",
+                method: isPlayed ? "POST" : "DELETE"))
     }
 
     func search(userID: String, query: String) async throws -> [MediaItem] {

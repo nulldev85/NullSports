@@ -224,6 +224,20 @@ final class MediaLibrary: ObservableObject {
         return try await client(for: profile).item(userID: profile.userID, itemID: item.id)
     }
 
+    func related(to item: MediaItem) async -> [MediaItem] {
+        guard !item.isAddonItem, let profile = activeProfile else { return [] }
+        return (try? await client(for: profile)
+            .similarItems(userID: profile.userID, itemID: item.id))?
+            .filter { $0.id != item.id && $0.hasDetailPage } ?? []
+    }
+
+    func personImageURL(for person: MediaPerson, width: Int = 300) -> URL? {
+        guard person.primaryImageTag != nil, let personID = person.personID,
+              let profile = activeProfile else { return nil }
+        return try? client(for: profile)
+            .imageURL(itemID: personID, type: "primary", maxWidth: width)
+    }
+
     func nextUp(in series: MediaItem) async -> MediaItem? {
         // An addon keeps no watch history, so there is no next episode to name.
         if series.isAddonItem { return nil }
@@ -248,6 +262,17 @@ final class MediaLibrary: ObservableObject {
         do {
             try await client(for: profile)
                 .setFavorite(userID: profile.userID, itemID: item.id, isFavorite: isFavorite)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func setPlayed(_ isPlayed: Bool, for item: MediaItem) async {
+        if item.isAddonItem { return }
+        guard let profile = activeProfile else { return }
+        do {
+            try await client(for: profile)
+                .setPlayed(userID: profile.userID, itemID: item.id, isPlayed: isPlayed)
         } catch {
             errorMessage = error.localizedDescription
         }

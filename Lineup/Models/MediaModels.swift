@@ -63,6 +63,13 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let userData: MediaUserData?
     let imageTags: [String: String]?
     let backdropImageTags: [String]?
+    let status: String?
+    let endDate: String?
+    let tags: [String]?
+    let studios: [MediaNamedInfo]?
+    let productionLocations: [String]?
+    let people: [MediaPerson]?
+    let remoteTrailers: [MediaTrailer]?
 
     // Set only on an item that came from a Stremio addon rather than a media
     // server. An addon names its own artwork outright and answers about its own
@@ -88,6 +95,9 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          indexNumber: Int? = nil, parentIndexNumber: Int? = nil,
          seriesName: String? = nil, userData: MediaUserData? = nil,
          imageTags: [String: String]? = nil, backdropImageTags: [String]? = nil,
+         status: String? = nil, endDate: String? = nil, tags: [String]? = nil,
+         studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
+         people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
          addonID: String? = nil, stremioType: String? = nil, stremioID: String? = nil,
          posterURL: String? = nil, backdropURL: String? = nil) {
         self.id = id
@@ -109,6 +119,13 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.userData = userData
         self.imageTags = imageTags
         self.backdropImageTags = backdropImageTags
+        self.status = status
+        self.endDate = endDate
+        self.tags = tags
+        self.studios = studios
+        self.productionLocations = productionLocations
+        self.people = people
+        self.remoteTrailers = remoteTrailers
         self.addonID = addonID
         self.stremioType = stremioType
         self.stremioID = stremioID
@@ -162,9 +179,12 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     // A premiere arrives as "2026-08-11T00:00:00.0000000Z", whose seven fractional
     // digits defeat the ISO parser, and only the day is ever shown. Reading the
     // date part directly avoids both the parser and a cached formatter.
-    var formattedAirDate: String? {
-        guard let premiereDate, premiereDate.count >= 10 else { return nil }
-        let parts = premiereDate.prefix(10).split(separator: "-")
+    var formattedAirDate: String? { Self.formattedDate(premiereDate) }
+    var formattedEndDate: String? { Self.formattedDate(endDate) }
+
+    private static func formattedDate(_ raw: String?) -> String? {
+        guard let raw, raw.count >= 10 else { return nil }
+        let parts = raw.prefix(10).split(separator: "-")
         guard parts.count == 3, let year = Int(parts[0]),
               let month = Int(parts[1]), let day = Int(parts[2]) else { return nil }
         var components = DateComponents()
@@ -206,6 +226,13 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case userData = "UserData"
         case imageTags = "ImageTags"
         case backdropImageTags = "BackdropImageTags"
+        case status = "Status"
+        case endDate = "EndDate"
+        case tags = "Tags"
+        case studios = "Studios"
+        case productionLocations = "ProductionLocations"
+        case people = "People"
+        case remoteTrailers = "RemoteTrailers"
         // Lineup's own, never sent by a server: an absent key decodes to nil,
         // so a server's answer is unaffected by their existence.
         case addonID = "LineupAddonId"
@@ -213,6 +240,48 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case stremioID = "LineupAddonItemId"
         case posterURL = "LineupPoster"
         case backdropURL = "LineupBackdrop"
+    }
+}
+
+struct MediaNamedInfo: Codable, Hashable, Sendable {
+    let name: String
+    enum CodingKeys: String, CodingKey { case name = "Name" }
+}
+
+struct MediaPerson: Codable, Hashable, Sendable, Identifiable {
+    let personID: String?
+    let name: String
+    let role: String?
+    let type: String?
+    let primaryImageTag: String?
+    var id: String { personID ?? "\(name)|\(role ?? "")" }
+    enum CodingKeys: String, CodingKey {
+        case personID = "Id", name = "Name", role = "Role", type = "Type"
+        case primaryImageTag = "PrimaryImageTag"
+    }
+}
+
+struct MediaTrailer: Codable, Hashable, Sendable {
+    let name: String?
+    let url: String?
+    enum CodingKeys: String, CodingKey { case name = "Name", url = "Url" }
+
+    var thumbnailURL: URL? {
+        guard let url, let address = URLComponents(string: url),
+              let host = address.host?.lowercased() else { return nil }
+        let videoID: String?
+        if host == "youtu.be" || host == "www.youtu.be" {
+            videoID = address.path.split(separator: "/").first.map(String.init)
+        } else if host == "youtube.com" || host == "www.youtube.com"
+                    || host == "m.youtube.com" {
+            videoID = address.queryItems?.first { $0.name == "v" }?.value
+        } else {
+            videoID = nil
+        }
+        guard let videoID,
+              videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil
+        else { return nil }
+        return URL(string: "https://img.youtube.com/vi/\(videoID)/hqdefault.jpg")
     }
 }
 

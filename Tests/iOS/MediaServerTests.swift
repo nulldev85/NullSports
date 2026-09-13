@@ -12,6 +12,23 @@ final class MediaServerTests: XCTestCase {
         XCTAssertTrue(response.items[1].isFolder)
     }
 
+    func testDetailMetadataDecodesWithoutBreakingSparseItems() throws {
+        let data = Data(#"{"Items":[{"Id":"show","Name":"Show","Type":"Series","Status":"Ended","PremiereDate":"2012-09-29T00:00:00Z","EndDate":"2017-11-13T00:00:00Z","Tags":["Adventure"],"Studios":[{"Name":"Studio"}],"ProductionLocations":["United States"],"People":[{"Id":"person","Name":"Actor","Role":"Hero","Type":"Actor","PrimaryImageTag":"portrait"}],"RemoteTrailers":[{"Name":"Trailer","Url":"https://example.test/trailer"}]},{"Id":"movie","Name":"Movie","Type":"Movie"}]}"#.utf8)
+        let items = try JSONDecoder().decode(JellyfinItemsResponse.self, from: data).items
+
+        XCTAssertEqual(items[0].status, "Ended")
+        XCTAssertNotNil(items[0].formattedEndDate)
+        XCTAssertEqual(items[0].studios?.first?.name, "Studio")
+        XCTAssertEqual(items[0].people?.first?.role, "Hero")
+        XCTAssertEqual(items[0].remoteTrailers?.first?.url, "https://example.test/trailer")
+        let youtube = try JSONDecoder().decode(MediaTrailer.self,
+            from: Data(#"{"Url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}"#.utf8))
+        XCTAssertEqual(youtube.thumbnailURL?.absoluteString,
+            "https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+        XCTAssertNil(items[1].people)
+        XCTAssertNil(items[1].remoteTrailers)
+    }
+
     func testMediaURLsUseNullfinCompatibleLowercaseRoutes() throws {
         let client = try JellyfinClient(
             serverURL: "https://media.example.test/base/",

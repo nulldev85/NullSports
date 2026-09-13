@@ -910,7 +910,9 @@ private struct MediaDetailScreen: View {
     @State private var episodes: [MediaItem] = []
     @State private var nextUp: MediaItem?
     @State private var metrics: [MediaMetric] = []
+    @State private var related: [MediaItem] = []
     @State private var favorite = false
+    @State private var watched = false
     @State private var expandedOverview = false
     @State private var loading = true
     @State private var error: String?
@@ -937,6 +939,10 @@ private struct MediaDetailScreen: View {
                 // waiting below a finished band of artwork is two.
                 .padding(.top, contentRise)
                 episodesSection
+                trailersSection
+                castSection
+                aboutSection
+                relatedSection
             }
             .padding(.bottom, 44)
         }
@@ -1021,7 +1027,8 @@ private struct MediaDetailScreen: View {
     }
 
     private var metaParts: [String] {
-        [subject.productionYear.map(String.init),
+        [subject.communityRating.map { String(format: "%.1f", $0) },
+         subject.productionYear.map(String.init),
          // Worth saying on a film, where a server reports one; a series has no
          // single running time and leaves this out.
          subject.formattedRuntime,
@@ -1051,9 +1058,13 @@ private struct MediaDetailScreen: View {
             // account of the viewer's, so a bookmark there would be a button
             // that appears to work and remembers nothing.
             if !subject.isAddonItem {
-                iconButton(favorite ? "bookmark.fill" : "bookmark") {
+                iconButton(favorite ? "heart.fill" : "heart") {
                     favorite.toggle()
                     Task { await media.setFavorite(favorite, for: subject) }
+                }
+                iconButton(watched ? "eye.fill" : "eye") {
+                    watched.toggle()
+                    Task { await media.setPlayed(watched, for: subject) }
                 }
             }
             // Nothing to shuffle through on a film.
@@ -1212,6 +1223,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                     .mediaFocusAnchor()
             } else {
+                #if os(tvOS)
                 LazyVGrid(columns: episodeColumns, spacing: 22) {
                     ForEach(episodes) { episode in
                         Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
@@ -1220,6 +1232,178 @@ private struct MediaDetailScreen: View {
                 }
                 .padding(.horizontal, horizontalPadding)
                 .lineupFocusRegion()
+                #else
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(episodes) { episode in
+                            Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
+                                .lineupFlatButton()
+                                .frame(width: 265)
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                }
+                #endif
+            }
+        }
+    }
+
+    // MARK: - More about this title
+
+    @ViewBuilder
+    private var trailersSection: some View {
+        let trailers = (subject.remoteTrailers ?? []).compactMap { trailer -> (String, URL, URL?)? in
+            guard let address = trailer.url, let url = URL(string: address),
+                  ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+            return (trailer.name ?? "Trailer", url, trailer.thumbnailURL)
+        }
+        if !trailers.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Trailers").font(sectionTitleFont)
+                    .padding(.horizontal, horizontalPadding)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(trailers.indices, id: \.self) { index in
+                            Link(destination: trailers[index].1) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(LineupStyle.surface)
+                                        AsyncImage(url: trailers[index].2
+                                            ?? media.backdropURL(for: subject)) { phase in
+                                            if let image = phase.image {
+                                                image.resizable().scaledToFill()
+                                            }
+                                        }
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 24, weight: .bold))
+                                            .shadow(radius: 8)
+                                    }
+                                    .frame(width: 260, height: 146)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    Text(trailers[index].0).font(.inter(.subheadline, .semibold))
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 260, alignment: .leading)
+                            }
+                            .lineupFlatButton()
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var castSection: some View {
+        let cast = (subject.people ?? []).filter { $0.type?.lowercased() == "actor" }
+        if !cast.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Cast").font(sectionTitleFont)
+                    .padding(.horizontal, horizontalPadding)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(cast) { person in
+                            VStack(alignment: .leading, spacing: 6) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
+                                    AsyncImage(url: media.personImageURL(for: person)) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFill()
+                                        } else {
+                                            Image(systemName: "person.fill")
+                                                .font(.largeTitle)
+                                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.35))
+                                        }
+                                    }
+                                }
+                                .frame(width: 112, height: 150)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                Text(person.name).font(.inter(.caption, .semibold)).lineLimit(2)
+                                if let role = person.role, !role.isEmpty {
+                                    Text(role).font(.inter(.caption2)).lineLimit(2)
+                                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                                }
+                            }
+                            .frame(width: 112, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var aboutSection: some View {
+        let hasFacts = subject.formattedAirDate != nil || subject.status != nil
+            || subject.officialRating != nil || subject.communityRating != nil
+            || subject.genres?.isEmpty == false || subject.tags?.isEmpty == false
+            || subject.studios?.isEmpty == false || subject.productionLocations?.isEmpty == false
+        if hasFacts {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("About").font(sectionTitleFont).padding(.bottom, 8)
+                if let date = subject.formattedAirDate {
+                    let aired = subject.isSeries
+                        ? [date, subject.formattedEndDate].compactMap { $0 }.joined(separator: " – ")
+                        : date
+                    factRow(subject.isSeries ? "Aired" : "Released", aired)
+                }
+                if let status = subject.status { factRow("Status", status) }
+                if let rating = subject.officialRating { factRow("Rated", rating) }
+                if let score = subject.communityRating {
+                    factRow("Rating", String(format: "%.1f / 10", score))
+                }
+                if let genres = subject.genres, !genres.isEmpty {
+                    factRow("Genres", genres.joined(separator: ", "))
+                }
+                if let tags = subject.tags, !tags.isEmpty {
+                    factRow("Tags", tags.joined(separator: ", "))
+                }
+                if let studios = subject.studios, !studios.isEmpty {
+                    factRow(subject.isSeries ? "Network" : "Studio",
+                        studios.map(\.name).joined(separator: ", "))
+                }
+                if let countries = subject.productionLocations, !countries.isEmpty {
+                    factRow("Country", countries.joined(separator: ", "))
+                }
+            }
+            .padding(.horizontal, horizontalPadding)
+        }
+    }
+
+    private func factRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Text(title).font(.inter(.subheadline, .semibold))
+            Spacer(minLength: 12)
+            Text(value).font(.inter(.subheadline))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.64))
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 360, alignment: .trailing)
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { LineupStyle.line.frame(height: 1) }
+    }
+
+    @ViewBuilder
+    private var relatedSection: some View {
+        if !related.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Related").font(sectionTitleFont)
+                    .padding(.horizontal, horizontalPadding)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(related) { title in
+                            NavigationLink(destination: MediaBrowseDestination(item: title)) {
+                                MediaItemCard(item: title, shape: .poster)
+                                    .frame(width: 145)
+                            }
+                            .lineupFlatButton()
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                }
             }
         }
     }
@@ -1270,10 +1454,13 @@ private struct MediaDetailScreen: View {
     private func load() async {
         loading = true
         error = nil
+        related = []
         let loaded = try? await media.details(of: item)
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite
+        watched = (loaded ?? item).isPlayed
         metrics = await media.metrics(for: item)
+        Task { related = await media.related(to: item) }
         // A film is the whole of itself: nothing underneath to go and get.
         guard subject.isSeries else { loading = false; return }
         do {
