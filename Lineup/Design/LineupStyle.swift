@@ -163,8 +163,8 @@ enum LineupStyle {
     static var highlightSoft: Color { palette.highlightSoft }
     static var liveBorder: Color { palette.highlight.opacity(0.72) }
     static var line: Color { palette.line }
-    static var text: Color { lightPurple }
-    static var secondary: Color { lightPurple }
+    static var text: Color { theme == .velvet ? rgb(0xF6F2F8) : lightPurple }
+    static var secondary: Color { theme == .velvet ? rgb(0xA9A1AE) : lightPurple.opacity(0.66) }
     static var field: Color { lightPurple }
     static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
@@ -173,6 +173,8 @@ enum LineupStyle {
     /// Confirmation -- a channel was found, a server answered.
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
+    static let compactRadius: CGFloat = 8
+    static let panelRadius: CGFloat = 12
 
     /// How far a focused thing rises, in two steps.
     ///

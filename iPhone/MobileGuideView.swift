@@ -116,7 +116,8 @@ struct MobileGuideView: View {
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: LineupStyle.compactRadius).stroke(LineupStyle.line, lineWidth: 1))
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(LineupStyle.background)
                 }
@@ -356,7 +357,7 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
                         if program != nil {
                             // Filled in behind the line, in a lighter shade of
@@ -369,12 +370,12 @@ struct MobileGuideView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(program == nil ? 0.5 : 1))
+                                .foregroundStyle(program == nil ? LineupStyle.secondary : LineupStyle.text)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
                                     if live {
-                                        Circle().fill(LineupStyle.highlight)
+                                        Circle().fill(LineupStyle.liveDot)
                                             .frame(width: 4, height: 4)
                                             .accessibilityHidden(true)
                                         Text("LIVE")
@@ -393,12 +394,12 @@ struct MobileGuideView: View {
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(LineupStyle.lightPurple.opacity(live ? 0.15 : 0.04), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line, lineWidth: live ? 1 : 0.5)
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")

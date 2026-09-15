@@ -67,7 +67,7 @@ struct LiveView: View {
             .background(
                 ZStack {
                     LineupStyle.background
-                    RadialGradient(colors: [LineupStyle.lightPurple.opacity(0.055), .clear], center: .topTrailing, startRadius: 20, endRadius: 720)
+                    LinearGradient(colors: [LineupStyle.raised.opacity(0.28), .clear], startPoint: .topTrailing, endPoint: .center)
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream) { stream in
@@ -267,15 +267,15 @@ private struct LiveBoardLeagueButton: View {
                 Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(17, .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(LineupStyle.lightPurple)
+            .foregroundStyle(selected || focused ? LineupStyle.text : LineupStyle.secondary)
             .padding(.horizontal, 12).frame(height: 49)
             .background(focused ? LiveBoardStyle.leagueFocus : (selected ? LineupStyle.lightPurple.opacity(0.07) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .overlay(alignment: .leading) {
-                if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
+                if selected && !focused { Rectangle().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture(perform: action)
         .accessibilityAddTraits(.isButton)
@@ -680,14 +680,14 @@ private struct LiveSlateRow: View {
             .padding(18)
             .frame(maxWidth: .infinity)
             .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
                     .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
         .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
         .accessibilityAddTraits(.isButton)
@@ -941,9 +941,10 @@ private struct ScreenHeading: View {
     let title: String
     let detail: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(42, .semibold)).foregroundStyle(LineupStyle.text)
-            Text(detail).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(LineupStyle.secondary)
+        VStack(alignment: .leading, spacing: 7) {
+            Rectangle().fill(LineupStyle.highlight).frame(width: 42, height: 4)
+            Text(title).font(.inter(44, .bold)).tracking(-1).foregroundStyle(LineupStyle.text)
+            Text(detail).font(.inter(.callout, .medium)).foregroundStyle(LineupStyle.secondary)
         }
     }
 }
