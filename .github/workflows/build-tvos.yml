@@ -120,7 +120,11 @@ jobs:
           # Give the app a few seconds to finish launching, then confirm it's
           # still alive rather than having crashed on a VLCKit link/runtime error.
           sleep 6
-          if ! xcrun simctl spawn "$device" launchctl list | grep -q com.nulldev85.NullSports; then
+          # Capture the complete list before searching it. With pipefail enabled,
+          # grep -q exits as soon as it finds the app and can leave launchctl with
+          # SIGPIPE, incorrectly failing an otherwise successful smoke test.
+          processes=$(xcrun simctl spawn "$device" launchctl list)
+          if ! grep -q com.nulldev85.NullSports <<< "$processes"; then
             echo "App did not stay running after launch — collecting crash logs"
             xcrun simctl spawn "$device" log show --predicate 'process == "Lineup"' --last 2m || true
             exit 1
