@@ -1132,9 +1132,9 @@ private enum GuidePalette {
     static var secondary: Color { LineupStyle.lightPurple }
     /// An eyebrow over a panel, the line down the grid: the theme speaking.
     static var highlight: Color { LineupStyle.highlight }
-    /// How far a programme has run, filled in behind the line. Lighter than
-    /// the line, because it covers area and the line is one line wide.
-    static var progressFill: Color { LineupStyle.highlightSoft }
+    /// How far a programme has run, kept neutral so schedule progress does not
+    /// compete with focus and live-state accents.
+    static var progressFill: Color { LineupStyle.text }
     /// A programme's card, and the same card with the remote on it. Both are
     /// a step up from the row they sit in, so a card reads as a card and the
     /// blue over it has something to read against.
@@ -1279,11 +1279,6 @@ struct GuideView: View {
                         // one mark rather than a mark per row. The sidebar
                         // covers the channel column when it is out, and the line
                         // would stand on top of it saying nothing.
-                        .overlay(alignment: .topLeading) {
-                            if !(sidebarVisible && !searchActive), !filtered.isEmpty {
-                                GuideNowLine(now: guideNow).padding(.top, 52)
-                            }
-                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -1766,43 +1761,6 @@ private struct GuideTimelineHeader: View {
     }
 }
 
-/// The line marking this moment, standing across the grid.
-///
-/// The guide shaded each programme up to now inside its own cell, which says
-/// how far along one programme is but never where the hour itself has got to.
-/// A single line down the whole grid does, and it is the one thing every guide
-/// worth reading has.
-///
-/// It fades as it descends rather than running at full strength to the bottom:
-/// the top of the grid is where the eye is, and a hard bar the height of the
-/// screen would compete with the programme that is actually focused.
-private struct GuideNowLine: View {
-    @Environment(\.guideLayout) private var layout
-    let now: Date
-
-    /// The row and the header lay out identically -- fourteen points of
-    /// padding, then the channel column, then half-hour slots -- so the line
-    /// can be placed from the same three numbers and stay true to both.
-    private var x: CGFloat {
-        let elapsed = now.timeIntervalSince(guideTimelineAnchor(now))
-        return 14 + layout.channelWidth + CGFloat(elapsed / 1800) * layout.slotWidth
-    }
-
-    var body: some View {
-        // No cap on top. A dot there was a handle on something nobody drags,
-        // and it drew the eye to the ceiling of the grid rather than down it.
-        Rectangle()
-            .fill(LinearGradient(
-                colors: [GuidePalette.highlight.opacity(0.9), GuidePalette.highlight.opacity(0.16)],
-                startPoint: .top, endPoint: .bottom))
-            .frame(width: 2)
-            .shadow(color: GuidePalette.highlight.opacity(0.45), radius: 7)
-            .offset(x: x - 1)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
 private let guideVisibleSlotCount = 6
 
 // Grow the grid cells in both dimensions without scaling typography or artwork.
@@ -2278,7 +2236,7 @@ private struct GuideProgramCell: View {
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(layout.slotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    GuidePalette.progressFill.opacity(0.16)
+                    GuidePalette.progressFill.opacity(0.10)
                         .frame(width: CGFloat(elapsedWidth))
                 }
             }

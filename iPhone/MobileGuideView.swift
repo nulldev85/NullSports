@@ -126,27 +126,26 @@ struct MobileGuideView: View {
                 if game != nil {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button("Now", systemImage: "clock.arrow.circlepath") { returnToNow() }
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        Button("Return to Now", systemImage: "clock.arrow.circlepath") { returnToNow() }
+                        Button(showsSearch ? "Close Search" : "Search Channels",
+                               systemImage: showsSearch ? "xmark" : "magnifyingglass") {
+                            if showsSearch { closeSearch() }
+                            else { showsSearch = true }
+                        }
+                        Divider()
                         Toggle("Favorites only", isOn: $favorites)
                         Picker("Category", selection: $category) {
                             Text("All channels").tag(nil as String?)
                             ForEach(library.categories) { Text($0.categoryName).tag(Optional($0.id)) }
                         }
+                        Divider()
                         Button("Refresh guide", systemImage: "arrow.clockwise") {
                             Task { await library.reload() }
                         }.disabled(library.channelsAreSyncing)
-                    } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
-                    .accessibilityLabel("Guide filters")
-                    Button {
-                        if showsSearch { closeSearch() }
-                        else { showsSearch = true }
-                    } label: {
-                        Image(systemName: showsSearch ? "xmark" : "magnifyingglass")
-                    }
-                    .accessibilityLabel(showsSearch ? "Close search" : "Search channels")
-                    .accessibilityValue(showsSearch ? "Expanded" : "Collapsed")
+                    } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel("Guide options")
                 }
             }
             .toolbar(expanded ? .hidden : .visible, for: .navigationBar)
@@ -360,11 +359,9 @@ struct MobileGuideView: View {
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
                         if program != nil {
-                            // Filled in behind the line, in a lighter shade of
-                            // it. The accent itself covers most of every cell
-                            // over an evening, which reads as the ground having
-                            // gone blue; lighter, it reads as fill.
-                            Rectangle().fill(LineupStyle.highlightSoft.opacity(0.16))
+                            // A quiet elapsed-state wash without tying progress
+                            // to the theme accent.
+                            Rectangle().fill(LineupStyle.text.opacity(0.10))
                                 .frame(width: min(width, max(0, window.x(now) - cellX)))
                         }
                         VStack(alignment: .leading, spacing: 5) {
