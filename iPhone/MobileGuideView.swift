@@ -236,26 +236,6 @@ struct MobileGuideView: View {
                     .refreshable { await library.reload() }
                 }
                 .frame(width: logoWidth + window.width, height: viewport.size.height, alignment: .topLeading)
-                // This moment, drawn down the grid. Each card already shades
-                // itself up to now, which says how far one programme has run
-                // but never where the hour has got to. The line rides with the
-                // timeline as it scrolls, because that is what it marks; the
-                // channel column is drawn above it and covers it as it passes.
-                .overlay(alignment: .topLeading) {
-                    // No cap on top: a dot there is a handle on something
-                    // nobody drags, and it pulls the eye to the ceiling of the
-                    // grid rather than down it.
-                    Rectangle()
-                        .fill(LinearGradient(
-                            colors: [LineupStyle.highlight.opacity(0.9),
-                                     LineupStyle.highlight.opacity(0.14)],
-                            startPoint: .top, endPoint: .bottom))
-                        .frame(width: 1.5)
-                        .padding(.top, 34)
-                        .offset(x: logoWidth + window.x(now) - 0.75)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
                 .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
                     GeometryReader { position in

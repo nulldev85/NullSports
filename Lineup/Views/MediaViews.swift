@@ -7,12 +7,14 @@ struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingServer = false
     @State private var addingAddon = false
+    @State private var choosingShelf = false
 
     var body: some View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer, addingAddon: $addingAddon)
+            TVMediaServersHome(addingServer: $addingServer, addingAddon: $addingAddon,
+                choosingShelf: $choosingShelf)
             #else
             Group {
                 if !media.hasAnySource {
@@ -34,10 +36,7 @@ struct MediaServersView: View {
             .navigationTitle("Media Servers")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Add Server", systemImage: "plus") { addingServer = true }
+                    mediaOptionsMenu
                 }
             }
             #endif
@@ -51,6 +50,9 @@ struct MediaServersView: View {
                 AddonSetupView()
                     .environmentObject(media)
                     .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $choosingShelf) {
+                MediaShelfPicker().environmentObject(media)
             }
             .task {
                 if media.activeProfile != nil && media.roots.isEmpty {
@@ -69,6 +71,27 @@ struct MediaServersView: View {
                 Button("OK", role: .cancel) {}
             } message: { Text(media.errorMessage ?? "Unknown error") }
         }
+    }
+
+    private var mediaOptionsMenu: some View {
+        Menu {
+            Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
+                .disabled(!media.hasAnySource)
+            Menu("Remove Shelf", systemImage: "minus.rectangle") {
+                ForEach(media.shelves) { shelf in
+                    Button(shelf.title, role: .destructive) { media.removeShelf(shelf) }
+                }
+            }
+            .disabled(media.shelves.isEmpty)
+            Divider()
+            Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
+                .disabled(media.isLoading || !media.hasAnySource)
+            Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
+            Button("Add Server", systemImage: "plus") { addingServer = true }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Media options")
     }
 }
 
@@ -100,7 +123,6 @@ struct MediaServerAccountCard: View {
                     .font(.inter(.caption2, .semibold))
                     .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
             }
-
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 statistic(media.libraryCounts?.movies, label: "Movies")
                 statistic(media.libraryCounts?.shows, label: "Shows")
@@ -141,6 +163,7 @@ struct MediaServerAccountCard: View {
                             action: @escaping () -> Void) -> some View {
         MediaServerCardAction(title: title, symbol: symbol, action: action)
     }
+
 }
 
 private struct MediaServerCardAction: View {
@@ -198,6 +221,7 @@ private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary
     @Binding var addingServer: Bool
     @Binding var addingAddon: Bool
+    @Binding var choosingShelf: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -226,16 +250,22 @@ private struct TVMediaServersHome: View {
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(LineupStyle.surface, in: Capsule())
                 }
-                Button { Task { await media.reload() } } label: {
-                    Image(systemName: "arrow.clockwise").frame(width: 42, height: 42)
-                }
-                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled().disabled(media.isLoading || !media.hasAnySource)
-                Button { addingAddon = true } label: {
-                    Label("Addons", systemImage: "puzzlepiece.extension").padding(.horizontal, 4).frame(height: 42)
-                }
-                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
-                Button { addingServer = true } label: {
-                    Label("Add Server", systemImage: "plus").padding(.horizontal, 4).frame(height: 42)
+                Menu {
+                    Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
+                        .disabled(!media.hasAnySource)
+                    Menu("Remove Shelf", systemImage: "minus.rectangle") {
+                        ForEach(media.shelves) { shelf in
+                            Button(shelf.title, role: .destructive) { media.removeShelf(shelf) }
+                        }
+                    }
+                    .disabled(media.shelves.isEmpty)
+                    Divider()
+                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
+                        .disabled(media.isLoading || !media.hasAnySource)
+                    Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
+                    Button("Add Server", systemImage: "plus") { addingServer = true }
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 42, height: 42)
                 }
                 .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
             }
@@ -342,10 +372,8 @@ private struct MediaCatalogsScreen: View {
     @State private var searching = false
     @State private var searchError: String?
     @FocusState private var searchFocused: Bool
-    @FocusState private var addShelfFocused: Bool
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
-    @State private var choosingShelf = false
     @State private var editingQuery = false
 
     var body: some View {
@@ -381,29 +409,6 @@ private struct MediaCatalogsScreen: View {
                 .focused($searchFocused)
                 .focusEffectDisabled()
                 #endif
-                #if os(tvOS)
-                TVSelectable(scale: LineupStyle.controlLift, action: { choosingShelf = true }) {
-                    Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.inter(16, .semibold))
-                        .padding(.horizontal, 16).frame(height: searchHeight)
-                        .modifier(MediaChromeSurface(radius: 13))
-                }
-                // A dialog of buttons was fine for the handful of libraries a
-                // server reports. A Nullfin server with addons attached can
-                // offer dozens of catalogs, which wants a list that scrolls.
-                .fullScreenCover(isPresented: $choosingShelf) { MediaShelfPicker() }
-                #else
-                Button { choosingShelf = true } label: {
-                    Label("Add Shelf", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.inter(16, .semibold))
-                        .padding(.horizontal, 16).frame(height: searchHeight)
-                        .modifier(MediaChromeSurface(focused: addShelfFocused, radius: 13))
-                }
-                .lineupFlatButton()
-                .focused($addShelfFocused)
-                .focusEffectDisabled()
-                .sheet(isPresented: $choosingShelf) { MediaShelfPicker() }
-                #endif
             }
             .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
             .lineupFocusRegion()
@@ -430,21 +435,6 @@ private struct MediaCatalogsScreen: View {
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(catalog.title).font(sectionTitleFont)
                                     Spacer()
-                                    #if os(tvOS)
-                                    TVSelectable(scale: LineupStyle.controlLift, action: { media.removeShelf(catalog) }) {
-                                        MediaChromeLabel {
-                                            Image(systemName: "minus.circle")
-                                                .accessibilityLabel("Remove \(catalog.title) shelf")
-                                        }
-                                    }
-                                    #else
-                                    Button { media.removeShelf(catalog) } label: {
-                                        MediaChromeLabel {
-                                            Image(systemName: "minus.circle")
-                                                .accessibilityLabel("Remove \(catalog.title) shelf")
-                                        }
-                                    }.lineupFlatButton()
-                                    #endif
                                     #if os(tvOS)
                                     TVSelectable(scale: LineupStyle.controlLift, action: { pushed = catalog.root }) {
                                         MediaChromeLabel {
