@@ -73,6 +73,7 @@ struct MediaServersView: View {
         }
     }
 
+    #if !os(tvOS)
     private var mediaOptionsMenu: some View {
         Menu {
             Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
@@ -93,6 +94,7 @@ struct MediaServersView: View {
         }
         .accessibilityLabel("Media options")
     }
+    #endif
 }
 
 /// A compact account summary of the selected server. Counts come from the
@@ -222,6 +224,7 @@ private struct TVMediaServersHome: View {
     @Binding var addingServer: Bool
     @Binding var addingAddon: Bool
     @Binding var choosingShelf: Bool
+    @State private var optionsVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -250,27 +253,25 @@ private struct TVMediaServersHome: View {
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(LineupStyle.surface, in: Capsule())
                 }
-                Menu {
-                    Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                        .disabled(!media.hasAnySource)
-                    Menu("Remove Shelf", systemImage: "minus.rectangle") {
-                        ForEach(media.shelves) { shelf in
-                            Button(shelf.title, role: .destructive) { media.removeShelf(shelf) }
-                        }
-                    }
-                    .disabled(media.shelves.isEmpty)
-                    Divider()
-                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                        .disabled(media.isLoading || !media.hasAnySource)
-                    Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
-                    Button("Add Server", systemImage: "plus") { addingServer = true }
-                } label: {
+                TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
                     Image(systemName: "ellipsis.circle").frame(width: 42, height: 42)
+                        .modifier(MediaChromeSurface(radius: 11))
                 }
-                .buttonStyle(TVMediaHeaderButtonStyle()).focusEffectDisabled()
             }
             .padding(.horizontal, 54).padding(.top, 18)
             .lineupFocusRegion()
+            .confirmationDialog("Media Options", isPresented: $optionsVisible, titleVisibility: .visible) {
+                Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
+                    .disabled(!media.hasAnySource)
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
+                    .disabled(media.isLoading || !media.hasAnySource)
+                Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
+                Button("Add Server", systemImage: "plus") { addingServer = true }
+                ForEach(media.shelves) { shelf in
+                    Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
 
             if !media.hasAnySource {
                 TVMediaEmptyState(addServer: { addingServer = true },
