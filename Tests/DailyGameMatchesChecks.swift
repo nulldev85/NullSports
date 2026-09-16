@@ -44,6 +44,15 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: false), "A previously failed MLB lookup must retry")
         precondition(DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: true), "Successful same-game match still opens without rematching")
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "old-broadcast", currentSignature: "new-broadcast", hasMatch: true), "Broadcast change requires rematching")
+        precondition(DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "NCAAF SMU vs FSU", freshName: "NCAAF SMU vs FSU",
+            cachedEPG: "event-42", freshEPG: "event-42"), "An unchanged fresh channel can reuse today's guide evidence")
+        precondition(!DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "NCAAF SMU vs FSU", freshName: "NCAAF Alabama vs Georgia",
+            cachedEPG: "event-42", freshEPG: "event-42"), "A recycled event ID cannot inherit the previous matchup")
+        precondition(!DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "ESPN", freshName: "ESPN", cachedEPG: "espn-us", freshEPG: "espn-ca"),
+            "A channel moved to another guide slot must wait for fresh guide evidence")
         let genA = UUID()
         let genB = UUID()
         let profileA = UUID()
@@ -52,6 +61,6 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
-        print("23 daily schedule and match persistence checks passed")
+        print("26 daily schedule and match persistence checks passed")
     }
 }

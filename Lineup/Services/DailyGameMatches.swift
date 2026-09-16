@@ -9,6 +9,14 @@ enum DailyCachePolicy {
         hasMatch && savedSignature == currentSignature
     }
 
+    // A provider can recycle a numeric stream ID for a different event. Cached
+    // guide evidence is only safe to reuse after the fresh channel response says
+    // that the ID still describes the same named EPG slot.
+    static func isSameChannelSlot(cachedID: Int, freshID: Int, cachedName: String, freshName: String,
+                                  cachedEPG: String?, freshEPG: String?) -> Bool {
+        cachedID == freshID && cachedName == freshName && cachedEPG == freshEPG
+    }
+
     // Shared by every generation-tokened background rebuild (professional index,
     // game/channel matching). A rebuild that finishes after a newer one has already
     // started, or after the active profile has changed, must not publish its result.
