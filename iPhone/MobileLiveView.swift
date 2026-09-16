@@ -8,6 +8,7 @@ struct MobileLiveView: View {
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var upcomingGame: SportsGame?
+    @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var playback = MobilePlaybackController()
     @Namespace private var selection
@@ -100,6 +101,11 @@ struct MobileLiveView: View {
                 if let game = upcomingGame {
                     Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
                 }
+            }
+            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Please wait for channel syncing to finish, then select the game again.")
             }
             .sheet(item: $choosingChannel, onDismiss: {
                 if let stream = pendingStream {
@@ -198,8 +204,13 @@ struct MobileLiveView: View {
                 upcomingGame = game
                 return
             }
-            if let stream = library.verifiedStream(for: game) { showPreview(stream) }
-            else { choosingChannel = game }
+            if let stream = library.verifiedStream(for: game) {
+                showPreview(stream)
+            } else if library.channelsAreSyncing && !library.automaticMatchingReady {
+                showsChannelSyncMessage = true
+            } else {
+                choosingChannel = game
+            }
         } label: { MobileMatchupRow(game: game) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
