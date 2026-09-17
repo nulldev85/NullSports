@@ -958,24 +958,28 @@ final class SportsLibrary: ObservableObject {
             return
         }
         let currentKey = favoritesKey + "." + profile.id.uuidString
-        if let saved = profileDefaults.array(forKey: currentKey) as? [Int] {
+        if let saved = profileDefaults.array(forKey: currentKey) as? [Int], !saved.isEmpty {
             favoriteStreamOrder = saved
             return
         }
 
         // Re-entering a provider creates a new UUID. If only the provider record
         // disappeared, its per-profile favorites remain under the old UUID and
-        // look empty from the new one. Recover only the unambiguous case: this
-        // profile has never saved favorites and exactly one non-empty list is
-        // orphaned from every provider that still exists. Keep the old key as a
-        // backup rather than deleting the only surviving copy.
+        // look empty from the new one. When this profile has no favorites yet,
+        // merge every surviving orphan list in stable order; stale stream IDs
+        // simply do not resolve against the current provider. Keep the old keys
+        // as backups rather than deleting the only surviving copies.
         let knownKeys = Set(profiles.map { favoritesKey + "." + $0.id.uuidString })
-        let orphaned = profileDefaults.dictionaryRepresentation().compactMap { key, value -> [Int]? in
-            guard key.hasPrefix(favoritesKey + "."), !knownKeys.contains(key),
-                  let ids = value as? [Int], !ids.isEmpty else { return nil }
-            return ids
+        let orphaned = profileDefaults.dictionaryRepresentation().sorted { $0.key < $1.key }.compactMap { key, value -> [Int]? in
+            guard key.hasPrefix(favoritesKey + "."), !knownKeys.contains(key) else { return nil }
+            if let ids = value as? [Int], !ids.isEmpty { return ids }
+            guard let values = value as? [Any] else { return nil }
+            let ids = values.compactMap { ($0 as? NSNumber)?.intValue }
+            return ids.isEmpty ? nil : ids
         }
-        guard orphaned.count == 1, let recovered = orphaned.first else {
+        var seen = Set<Int>()
+        let recovered = orphaned.flatMap { $0 }.filter { seen.insert($0).inserted }
+        guard !recovered.isEmpty else {
             favoriteStreamOrder = []
             return
         }

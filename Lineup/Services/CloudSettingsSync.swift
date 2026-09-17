@@ -107,10 +107,10 @@ final class CloudSettingsSync: ObservableObject {
     private func apply(_ snapshot: Snapshot) {
         isApplying = true
         defer { isApplying = false }
-        for key in syncedKeys where snapshot.values[key] == nil { defaults.removeObject(forKey: key) }
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("NullSports.favoriteStreams.") && snapshot.values[key] == nil {
-            defaults.removeObject(forKey: key)
-        }
+        // A snapshot is a set of values known to another device, not a deletion
+        // manifest. Treating an absent key as a tombstone erased a local IPTV
+        // profile and every per-profile favorite while unrelated addon keys
+        // survived. Only overwrite values the snapshot actually carries.
         defaults.removeObject(forKey: "Lineup.followedTeams")
         for (key, data) in snapshot.values where key != "Lineup.followedTeams" {
             guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else { continue }
