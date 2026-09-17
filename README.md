@@ -128,9 +128,11 @@ whole session, so resizing, expanding, rotating and entering PiP never open a
 second connection.
 
 The same release adds preferred channels by team. Tapping a game uses your saved
-channel when the provider carries it, asks which feed when both teams have
-different saved channels, and otherwise opens a picker with Lineup's own match
-listed first and labelled Recommended. Choosing a channel offers to remember it
+channel when evidence says that channel is carrying the game, asks which feed
+when both teams' saved channels are carrying it and differ, and otherwise opens a
+picker with Lineup's own match listed first and labelled Recommended. A saved
+channel that exists but is not showing a particular game — a regional network on
+a nationally exclusive night — yields to Lineup's verified feed for that game. Choosing a channel offers to remember it
 for the home or away team. A saved channel that the provider drops falls back to
 Lineup's match without the preference being deleted. Preferences, favorites and
 recently watched channels each belong to one provider and never cross between
@@ -139,9 +141,9 @@ them. Account lists and clears saved preferences and recent channels.
 Repeat launches restore the cached channel list, guide, game matches, favorites,
 recent channels and team preferences immediately, then refresh behind the screen
 instead of blocking Live. The first sync of a new provider still explains itself
-while it runs. Channel matching accuracy is unchanged: a saved preference is your
-own choice and needs no matching evidence, while Lineup's own match still waits
-for a fresh pass.
+while it runs. Channel matching accuracy is unchanged: a saved preference is a
+preference among the channels carrying a game, not an override, so it waits for
+the same per-game evidence an automatic match does.
 
 Playback recovery now retries the current channel's alternate URLs first and only
 then moves to another channel verified for the same game, preferring your saved

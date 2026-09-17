@@ -666,19 +666,49 @@ final class SportsLibrary: ObservableObject {
         guard matchIsReady(game), scheduleValidatedLeagues.contains(game.league),
               let stream = gameStreamCache[game.id],
               matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
-        if game.league == .ncaaf {
-            // Revalidate at selection time even if a score refresh had no changes.
-            // The network a game is scheduled on is not evidence that a channel is
-            // carrying it, so it cannot authorize playback on its own; a game left
-            // unmatched opens the channel picker instead of playing a guess.
-            guard CollegeChannelMatcher.score(channel: stream.name,
-                listings: Self.collegeListings(programs(for: stream)),
-                game: Self.collegeMatchup(game), now: Date(),
-                allowNetworkFallback: false) != nil else { return nil }
-        } else {
-            guard Self.professionalScore(stream, game: game, listings: programs(for: stream), now: Date()) != nil else { return nil }
-        }
+        guard Self.carriesGame(stream, game: game, listings: programs(for: stream), now: Date()) else { return nil }
         return stream
+    }
+
+    /// Does current evidence say this channel is carrying this game?
+    ///
+    /// The single question behind every automatic playback decision. Lineup's
+    /// own match asks it through `verifiedStream(for:)`, a saved team preference
+    /// asks it before being honoured, and failover asks it before adding a
+    /// channel to its plan — all with the same rules, so a preference can never
+    /// take a weaker path to playback than an automatic match would.
+    func isStream(_ stream: XtreamStream, verifiedFor game: SportsGame) -> Bool {
+        guard matchIsReady(game), scheduleValidatedLeagues.contains(game.league) else { return false }
+        return Self.carriesGame(stream, game: game, listings: programs(for: stream), now: Date())
+    }
+
+    /// The viewer's saved channel for either team, but only when evidence says
+    /// it is carrying this game. A regional network that exists all season is
+    /// not thereby showing tonight's nationally exclusive game.
+    func verifiedPreferredStream(for game: SportsGame) -> XtreamStream? {
+        for side in preferenceSides(for: game) {
+            guard let saved = teamPreferences.preference(for: side.key),
+                  let stream = stream(withID: saved.streamID),
+                  isStream(stream, verifiedFor: game) else { continue }
+            return stream
+        }
+        return nil
+    }
+
+    // Revalidated at selection time even if a score refresh had no changes. The
+    // network a game is scheduled on is not evidence that a channel is carrying
+    // it, so it cannot authorize playback on its own; a game left unmatched
+    // opens the channel picker instead of playing a guess. College keeps its
+    // own stricter policy, including the network-fallback refusal.
+    nonisolated private static func carriesGame(_ stream: XtreamStream, game: SportsGame,
+                                                listings: [CurrentProgram], now: Date) -> Bool {
+        if game.league == .ncaaf {
+            return CollegeChannelMatcher.score(channel: stream.name,
+                listings: Self.collegeListings(listings),
+                game: Self.collegeMatchup(game), now: now,
+                allowNetworkFallback: false) != nil
+        }
+        return Self.professionalScore(stream, game: game, listings: listings, now: now) != nil
     }
 
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
@@ -1005,14 +1035,26 @@ final class SportsLibrary: ObservableObject {
     /// `TeamChannelPreferences.resolve`; this only supplies the provider's
     /// current reality — which channels exist, and whether matching has settled.
     func preferredChannel(for game: SportsGame) -> PreferredChannel {
-        teamPreferences.resolve(Self.preferenceGame(game),
-                                // Unfinished *and* still working means wait. Matching
-                                // that has stopped without settling is as good as it
-                                // will get, so the picker opens rather than a message
-                                // that would never clear.
-                                matchingReady: matchIsReady(game) || !channelsAreSyncing,
-                                availableStreamIDs: Set(streams.map(\.id)),
-                                verifiedStreamID: verifiedStream(for: game)?.id)
+        let teams = Self.preferenceGame(game)
+        // Only the two saved channels are tested here; failover does its own,
+        // wider search. Each is judged by `isStream(_:verifiedFor:)` — the same
+        // evidence that authorizes an automatic match.
+        var verified: Set<Int> = []
+        for key in [teams.homeKey, teams.awayKey] {
+            guard let saved = teamPreferences.preference(for: key),
+                  let stream = stream(withID: saved.streamID),
+                  isStream(stream, verifiedFor: game) else { continue }
+            verified.insert(stream.id)
+        }
+        return teamPreferences.resolve(teams,
+                                       // Unfinished *and* still working means wait.
+                                       // Matching that has stopped without settling is
+                                       // as good as it will get, so the picker opens
+                                       // rather than a message that would never clear.
+                                       matchingReady: matchIsReady(game) || !channelsAreSyncing,
+                                       availableStreamIDs: Set(streams.map(\.id)),
+                                       verifiedStreamIDs: verified,
+                                       verifiedStreamID: verifiedStream(for: game)?.id)
     }
 
     func stream(withID id: Int) -> XtreamStream? {
@@ -1110,16 +1152,9 @@ final class SportsLibrary: ObservableObject {
         let now = Date()
         let alternates = streams(for: game.league)
             .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
-            .filter { stream in
-                let programs = stream.epgChannelID.flatMap { listings[$0] } ?? []
-                if game.league == .ncaaf {
-                    return CollegeChannelMatcher.score(channel: stream.name,
-                        listings: Self.collegeListings(programs),
-                        game: Self.collegeMatchup(game), now: now,
-                        allowNetworkFallback: false) != nil
-                }
-                return Self.professionalScore(stream, game: game, listings: programs, now: now) != nil
-            }
+            .filter { Self.carriesGame($0, game: game,
+                                       listings: $0.epgChannelID.flatMap { listings[$0] } ?? [],
+                                       now: now) }
             .prefix(limit)
             .map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .alternate) }
         return FailoverPlanner.plan(
@@ -1128,14 +1163,12 @@ final class SportsLibrary: ObservableObject {
             alternates: Array(alternates))
     }
 
-    /// The viewer's saved channel for either team, when the provider carries it.
+    /// The viewer's saved channel, and only when it is verified for this game.
+    /// Failing over to the regional network during a nationally exclusive game
+    /// would be switching to a feed that is not showing it.
     private func preferredFailoverChannel(for game: SportsGame) -> FailoverChannel? {
-        for side in preferenceSides(for: game) {
-            guard let saved = teamPreferences.preference(for: side.key),
-                  let stream = stream(withID: saved.streamID) else { continue }
-            return FailoverChannel(streamID: stream.id, name: stream.name, reason: .preference)
-        }
-        return nil
+        verifiedPreferredStream(for: game)
+            .map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .preference) }
     }
 
     private func persistTeamPreferences() {

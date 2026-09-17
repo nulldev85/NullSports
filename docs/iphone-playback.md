@@ -111,7 +111,18 @@ A stream no longer always starts from Lineup's own match. `TeamChannelPreference
 (`Lineup/Services/TeamChannelPreferences.swift`, pure and checked by
 `Tests/TeamChannelPreferenceChecks.swift`) decides what tapping a game does:
 play a saved per-team channel, ask which feed when both teams disagree, fall
-back to the verified match when a saved channel is gone, or open the picker.
+back to the verified match, or open the picker.
+
+The resolver separates two things that are easy to conflate. **Available** means
+the provider still carries the channel. **Verified** means current guide evidence
+says it is carrying *this* game. A saved preference needs both: a regional
+network is carried all season and only shows some of the schedule, so treating
+its mere presence as permission would open it during a nationally exclusive
+game. `SportsLibrary.isStream(_:verifiedFor:)` answers the verified question for
+Lineup's own match, for a saved preference, and for every failover candidate —
+one rule, so a preference can never reach playback by a weaker route than an
+automatic match. Neither condition failing ever deletes the preference; it
+decides the next game, not this one.
 Playback itself is unchanged by this — whatever is chosen arrives at
 `start(urls:)` exactly as before, and the engine, PiP and recovery behaviour
 below apply identically.
@@ -126,6 +137,10 @@ the same as failover *within* one stream, which must reuse the players it has.
 The candidate list is the seam. Everything below already funnels through it, so
 failover work should extend these rather than adding a parallel path:
 
+- **`SportsLibrary.isStream(_:verifiedFor:)`** — the single evidence question.
+  Anything that widens or narrows what counts as "carrying this game" belongs
+  here, and is then picked up by the automatic match, the preference resolver
+  and the failover plan together.
 - **`MobileEngineSelection.ordered(_:)`** — the ordering policy. Pure, testable,
   and the right place for provider-aware or quality-aware preference. Anything
   added here is picked up by both the initial open and recovery, because both

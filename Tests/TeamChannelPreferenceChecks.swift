@@ -44,80 +44,87 @@ struct TeamChannelPreferenceChecks {
         unusable.set(pref(espn, "ESPN", ""), for: TeamChannelKey(league: "nfl", abbreviation: "", name: ""))
         check(unusable.isEmpty, "An unusable key is never stored")
 
-        // Automatic use ----------------------------------------------------
-        check(store.resolve(game, matchingReady: true, availableStreamIDs: carried,
-                            verifiedStreamID: verified) == .play(streamID: espn, source: .homePreference),
-              "A saved, available preference is used without asking")
-        // A saved preference is the viewer's own choice and needs no matching
-        // evidence, so it plays straight from restored cache — this is what
-        // makes a repeat launch usable before the network pass finishes.
-        check(store.resolve(game, matchingReady: false, availableStreamIDs: carried,
-                            verifiedStreamID: verified) == .play(streamID: espn, source: .homePreference),
-              "A saved preference does not wait for channel matching")
-        check(store.resolve(game, matchingReady: false, availableStreamIDs: withoutESPNEarly,
-                            verifiedStreamID: verified) == .syncing,
-              "With no usable preference, an unfinished index still reports syncing")
-        check(TeamChannelPreferences().resolve(game, matchingReady: true, availableStreamIDs: carried,
-                                               verifiedStreamID: verified) == .pick,
-              "With nothing saved the viewer picks, even when Lineup has a match")
-        check(TeamChannelPreferences().resolve(game, matchingReady: false, availableStreamIDs: carried,
-                                               verifiedStreamID: nil) == .syncing,
-              "Syncing outranks everything else")
+        // A preference is a preference among channels CARRYING this game.
+        // Availability and verification are different questions: the regional
+        // network exists all season and only carries some of the games.
+        func resolve(_ store: TeamChannelPreferences, ready: Bool = true,
+                     available: Set<Int> = carried, verified: Set<Int> = [],
+                     match: Int? = nil) -> PreferredChannel {
+            store.resolve(game, matchingReady: ready, availableStreamIDs: available,
+                          verifiedStreamIDs: verified, verifiedStreamID: match)
+        }
 
-        // Opposing teams ---------------------------------------------------
+        // 1. Preferred channel exists and carries the game.
+        check(resolve(store, verified: [espn], match: espn) == .play(streamID: espn, source: .homePreference),
+              "A verified saved preference plays automatically")
+
+        // 2. Preferred channel exists but is NOT carrying this game. The Cubs
+        // preference is Marquee; tonight's game is national. Marquee is in the
+        // lineup and must not be chosen.
+        check(resolve(store, verified: [regional], match: regional) == .play(streamID: regional, source: .verified),
+              "An available but unverified preference yields to the verified feed")
+        check(store.preference(for: game.homeKey)?.streamID == espn,
+              "Yielding does not delete the preference")
+
+        // 3. Matching still running: nothing is verified yet, so nothing plays.
+        check(resolve(store, ready: false, verified: []) == .syncing,
+              "An unverified preference does not play from restored cache")
+        check(resolve(store, ready: false, verified: [espn], match: espn) == .syncing,
+              "Not even a verified-looking preference outranks an unsettled index")
+
+        // 4. Preferred channel missing from the lineup entirely.
+        check(resolve(store, available: withoutESPNEarly, verified: [regional],
+                      match: regional) == .play(streamID: regional, source: .verified),
+              "A missing preference falls back to the verified feed")
+        check(store.preference(for: game.homeKey)?.streamID == espn, "…and is still saved")
+
+        // 5. Nothing verified at all.
+        check(resolve(store, verified: []) == .pick, "With no verified feed the viewer picks")
+        check(resolve(TeamChannelPreferences(), verified: [], match: nil) == .pick,
+              "No preference and no match also picks")
+        check(resolve(store, verified: [espn], match: nil) == .play(streamID: espn, source: .homePreference),
+              "A verified preference does not need Lineup to have its own match")
+        // A match Lineup holds but the provider no longer carries is not played.
+        check(resolve(store, available: [fox], verified: [], match: verified) == .pick,
+              "A verified match the provider dropped is not played")
+
+        // 6. Both teams have preferences, only one is carrying the game.
         var conflict = store
         conflict.set(pref(fox, "FOX", "Buffalo Bills"), for: game.awayKey)
-        let resolved = conflict.resolve(game, matchingReady: true, availableStreamIDs: carried,
-                                        verifiedStreamID: verified)
-        check(resolved == .chooseFeed(home: TeamFeedOption(team: "Kansas City Chiefs", streamID: espn, channelName: "ESPN"),
-                                      away: TeamFeedOption(team: "Buffalo Bills", streamID: fox, channelName: "FOX")),
-              "Two different preferences ask which feed to use")
+        check(resolve(conflict, verified: [fox], match: fox) == .play(streamID: fox, source: .awayPreference),
+              "One verified side plays without raising a conflict")
+        check(resolve(conflict, verified: [espn], match: espn) == .play(streamID: espn, source: .homePreference),
+              "…either side")
+
+        // 7. Both verified and disagreeing.
+        check(resolve(conflict, verified: [espn, fox], match: espn)
+              == .chooseFeed(home: TeamFeedOption(team: "Kansas City Chiefs", streamID: espn, channelName: "ESPN"),
+                             away: TeamFeedOption(team: "Buffalo Bills", streamID: fox, channelName: "FOX")),
+              "Two verified, disagreeing preferences ask which feed")
 
         var agree = store
         agree.set(pref(espn, "ESPN", "Buffalo Bills"), for: game.awayKey)
-        check(agree.resolve(game, matchingReady: true, availableStreamIDs: carried,
-                            verifiedStreamID: verified) == .play(streamID: espn, source: .homePreference),
-              "Two preferences naming the same channel do not ask")
+        check(resolve(agree, verified: [espn], match: espn) == .play(streamID: espn, source: .homePreference),
+              "Two preferences naming the same verified channel do not ask")
 
-        // Away-only preference.
-        var awayOnly = TeamChannelPreferences()
-        awayOnly.set(pref(fox, "FOX", "Buffalo Bills"), for: game.awayKey)
-        check(awayOnly.resolve(game, matchingReady: true, availableStreamIDs: carried,
-                               verifiedStreamID: verified) == .play(streamID: fox, source: .awayPreference),
-              "The away team's preference applies when the home team has none")
+        // 9. The exclusive-national case, end to end: the regional preference is
+        // carried by the provider but is not showing the game, and the national
+        // feed is. The regional channel must never be the answer.
+        var cubs = TeamChannelPreferences()
+        let marquee = regional, appleFeed = fox
+        cubs.set(pref(marquee, "Marquee Sports Network", "Chicago Cubs"), for: game.homeKey)
+        let exclusive = resolve(cubs, available: [marquee, appleFeed], verified: [appleFeed], match: appleFeed)
+        check(exclusive == .play(streamID: appleFeed, source: .verified),
+              "An exclusive national game opens the verified national feed")
+        if case let .play(id, _) = exclusive { check(id != marquee, "…and never the regional preference") }
+        check(cubs.preference(for: game.homeKey)?.streamID == marquee,
+              "The regional preference survives for the next game")
 
-        // Unavailable / removed channels -----------------------------------
-        let withoutESPN: Set<Int> = [fox, regional, verified]
-        check(store.resolve(game, matchingReady: true, availableStreamIDs: withoutESPN,
-                            verifiedStreamID: verified) == .play(streamID: verified, source: .verified),
-              "An unavailable preference falls back to Lineup's verified match")
-        check(store.preference(for: game.homeKey)?.streamID == espn,
-              "Falling back must not delete the preference")
-        check(store.resolve(game, matchingReady: true, availableStreamIDs: withoutESPN,
-                            verifiedStreamID: nil) == .pick,
-              "With no preference available and no verified match, the viewer picks")
-        check(store.resolve(game, matchingReady: true, availableStreamIDs: [],
-                            verifiedStreamID: nil) == .pick,
-              "A provider carrying nothing yet still ends at the picker, not a crash")
-        // A match can outlive the channel list it was built from, so the
-        // fallback is only a fallback while the provider still carries it.
-        check(store.resolve(game, matchingReady: true, availableStreamIDs: [fox],
-                            verifiedStreamID: verified) == .pick,
-              "A verified match the provider no longer carries is not played")
-
-        // Conflict where only one side's channel survives: no question to ask.
-        check(conflict.resolve(game, matchingReady: true, availableStreamIDs: withoutESPN,
-                               verifiedStreamID: verified) == .play(streamID: fox, source: .awayPreference),
-              "A conflict resolves itself when one channel is gone")
-
-        // Provider scoping -------------------------------------------------
-        // A store belongs to one provider; another provider starts empty and a
-        // channel identifier never leaks across.
-        let otherProvider = TeamChannelPreferences()
-        check(otherProvider.preference(for: game.homeKey) == nil, "A different provider starts with no preferences")
-        check(otherProvider.resolve(game, matchingReady: true, availableStreamIDs: carried,
-                                    verifiedStreamID: verified) == .pick,
-              "Switching providers does not inherit the previous provider's channel")
+        // Provider scoping is unchanged by any of this.
+        check(TeamChannelPreferences().resolve(game, matchingReady: true, availableStreamIDs: carried,
+                                               verifiedStreamIDs: [espn], verifiedStreamID: espn)
+              == .play(streamID: espn, source: .verified),
+              "Another provider inherits no preference and uses the verified feed")
 
         // Listing and removal ----------------------------------------------
         var listing = TeamChannelPreferences()

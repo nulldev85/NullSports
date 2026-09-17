@@ -166,24 +166,35 @@ struct TeamChannelPreferences: Codable, Equatable, Sendable {
     /// The whole decision, in one pure function.
     ///
     /// - Parameters:
-    ///   - availableStreamIDs: channels the active provider currently carries. A
-    ///     preference pointing outside this set is stale, not wrong: the channel
-    ///     may come back, so it is never deleted here.
+    ///   - matchingReady: whether per-game matching has settled. Nothing below
+    ///     can be answered without it, saved preference included.
+    ///   - availableStreamIDs: channels the active provider currently carries.
+    ///   - verifiedStreamIDs: channels that current guide evidence says are
+    ///     carrying *this* game, tested with the same rules that authorize
+    ///     normal playback. A channel can be available and not verified — the
+    ///     regional network exists all season but only carries some of the
+    ///     games — and that difference is the whole point of this type.
     ///   - verifiedStreamID: Lineup's own match for the game, if it has one.
     func resolve(_ game: TeamChannelGame,
                  matchingReady: Bool,
                  availableStreamIDs: Set<Int>,
+                 verifiedStreamIDs: Set<Int>,
                  verifiedStreamID: Int?) -> PreferredChannel {
-        // A saved preference is the viewer's own choice, so it needs no matching
-        // evidence — only Lineup's *own* match does. Resolving it before the
-        // readiness gate is what makes a repeat launch usable straight from
-        // cache: the channel list is restored from disk, the preference points
-        // into it, and playback starts without waiting for the network pass
-        // that re-verifies matching.
-        let home = usable(preference(for: game.homeKey), team: game.homeTeam, in: availableStreamIDs)
-        let away = usable(preference(for: game.awayKey), team: game.awayTeam, in: availableStreamIDs)
+        // Every branch below rests on per-game evidence, and an incomplete index
+        // has none: it makes every game look unmatched, so a preference, a
+        // fallback, a picker or a "no channel" message built on it would be a
+        // guess presented as an answer. A saved preference is not an exception —
+        // it is a preference *among channels carrying this game*, never an
+        // override of the evidence that decides which those are.
+        guard matchingReady else { return .syncing }
+
+        let home = usable(preference(for: game.homeKey), team: game.homeTeam,
+                          available: availableStreamIDs, verified: verifiedStreamIDs)
+        let away = usable(preference(for: game.awayKey), team: game.awayTeam,
+                          available: availableStreamIDs, verified: verifiedStreamIDs)
         switch (home, away) {
         case let (home?, away?) where home.streamID != away.streamID:
+            // Both saved channels are carrying this game and they disagree.
             return .chooseFeed(home: home, away: away)
         case let (home?, _?):
             // Both teams point at the same channel: nothing to ask about.
@@ -191,33 +202,31 @@ struct TeamChannelPreferences: Codable, Equatable, Sendable {
         case let (home?, nil):
             return .play(streamID: home.streamID, source: .homePreference)
         case let (nil, away?):
+            // Only one side's preference is carrying the game, so there is no
+            // conflict to raise even when the other team also has one saved.
             return .play(streamID: away.streamID, source: .awayPreference)
         case (nil, nil):
             break
         }
 
-        // Nothing saved applies, so everything from here needs Lineup's own
-        // matching — and an incomplete index makes every game look unmatched, so
-        // a picker, a fallback or a "no channel" message built on it would be a
-        // guess presented as an answer.
-        guard matchingReady else { return .syncing }
-
-        // A saved preference whose channel the provider dropped falls back to
-        // Lineup's match rather than interrogating the viewer again. The
-        // preference stays saved for when the channel returns.
-        let hasStalePreference = preference(for: game.homeKey) != nil || preference(for: game.awayKey) != nil
-        // The verified match has to be carried too: `gameStreamCache` can
-        // outlive a channel-list refresh, so a match is not by itself proof that
-        // the provider still has the channel.
-        if hasStalePreference, let verifiedStreamID, availableStreamIDs.contains(verifiedStreamID) {
+        // The saved channel is not carrying this game — the regional network on
+        // a night the game is national, or a channel the provider has dropped.
+        // Lineup's own verified feed takes it from here, and the preference is
+        // kept either way: it decides the next game, not this one.
+        if let verifiedStreamID, availableStreamIDs.contains(verifiedStreamID) {
             return .play(streamID: verifiedStreamID, source: .verified)
         }
         return .pick
     }
 
+    /// A saved preference is usable only when the provider still carries the
+    /// channel *and* evidence says it is carrying this game. Both conditions
+    /// are required; neither one deletes the preference when it fails.
     private func usable(_ preference: TeamChannelPreference?, team: String,
-                        in available: Set<Int>) -> TeamFeedOption? {
-        guard let preference, available.contains(preference.streamID) else { return nil }
+                        available: Set<Int>, verified: Set<Int>) -> TeamFeedOption? {
+        guard let preference,
+              available.contains(preference.streamID),
+              verified.contains(preference.streamID) else { return nil }
         return TeamFeedOption(team: team, streamID: preference.streamID,
                               channelName: preference.channelName)
     }
