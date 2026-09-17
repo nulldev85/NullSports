@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum LineupTheme: String, CaseIterable, Identifiable {
+    case graphiteIce
     case velvet
     case grandstand
     case pitLane
@@ -10,6 +11,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
+        case .graphiteIce: "Graphite Ice"
         case .velvet: "Velvet"
         case .grandstand: "Grandstand"
         case .pitLane: "Pit Lane"
@@ -18,6 +20,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .graphiteIce: "Graphite & ice blue"
         case .velvet: "Plum & lilac"
         case .grandstand: "Ink & champagne"
         case .pitLane: "Graphite & copper"
@@ -26,23 +29,29 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
     fileprivate var palette: LineupPalette {
         switch self {
+        case .graphiteIce:
+            LineupPalette(
+                accent: rgb(0x38BDF8), ink: rgb(0xF1F5F9), mutedInk: rgb(0x8491A3),
+                background: rgb(0x080B10), surface: rgb(0x121720), raised: rgb(0x1A2230),
+                sidebar: rgb(0x0D1219), selected: rgb(0x172435), focused: rgb(0x20364D), warning: rgb(0xF2B35D)
+            )
         case .velvet:
             LineupPalette(
-                accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
-                raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
-                focused: rgb(0x3D3444), warning: rgb(0xC78259)
+                accent: rgb(0xC7A7FF), ink: rgb(0xF6F2F8), mutedInk: rgb(0xA9A1AE),
+                background: rgb(0x151217), surface: rgb(0x1C181F), raised: rgb(0x27212B),
+                sidebar: rgb(0x18141A), selected: rgb(0x241D29), focused: rgb(0x33283A), warning: rgb(0xE49A63)
             )
         case .grandstand:
             LineupPalette(
-                accent: rgb(0xE8D9B5), background: rgb(0x07131D), surface: rgb(0x0D1C28),
-                raised: rgb(0x152938), sidebar: rgb(0x0A1823), selected: rgb(0x132633),
-                focused: rgb(0x203A4B), warning: rgb(0xD89A56)
+                accent: rgb(0xE3C77A), ink: rgb(0xF3F1EA), mutedInk: rgb(0x9DA6AA),
+                background: rgb(0x081116), surface: rgb(0x0D191F), raised: rgb(0x17262D),
+                sidebar: rgb(0x0A151A), selected: rgb(0x132229), focused: rgb(0x20343D), warning: rgb(0xE2A157)
             )
         case .pitLane:
             LineupPalette(
-                accent: rgb(0xE8A66A), background: rgb(0x101112), surface: rgb(0x181A1C),
-                raised: rgb(0x24272A), sidebar: rgb(0x141618), selected: rgb(0x202326),
-                focused: rgb(0x32363A), warning: rgb(0xE0B15B)
+                accent: rgb(0xF08B4A), ink: rgb(0xF2F2EF), mutedInk: rgb(0x9C9D99),
+                background: rgb(0x0E0F0F), surface: rgb(0x171818), raised: rgb(0x232525),
+                sidebar: rgb(0x121313), selected: rgb(0x202222), focused: rgb(0x303333), warning: rgb(0xE7B65D)
             )
         }
     }
@@ -50,6 +59,8 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
 fileprivate struct LineupPalette {
     let accent: Color
+    let ink: Color
+    let mutedInk: Color
     let background: Color
     let surface: Color
     let raised: Color
@@ -83,13 +94,15 @@ enum LineupStyle {
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
     static var liveBorder: Color { lightPurple.opacity(0.72) }
-    static var line: Color { lightPurple.opacity(0.11) }
-    static var text: Color { lightPurple }
-    static var secondary: Color { lightPurple }
+    static var line: Color { palette.mutedInk.opacity(0.18) }
+    static var text: Color { palette.ink }
+    static var secondary: Color { palette.mutedInk }
     static var field: Color { lightPurple }
-    static var live: Color { lightPurple }
+    static let live = Color(red: 0.98, green: 0.25, blue: 0.30)
     static var focusGlow: Color { lightPurple }
     static var warning: Color { palette.warning }
+    static let compactRadius: CGFloat = 8
+    static let panelRadius: CGFloat = 12
 }
 
 struct LineupThemeSwatch: View {
@@ -171,11 +184,12 @@ struct PageTitle: View {
                 .font(.caption.weight(.bold))
                 .tracking(1.8)
                 .foregroundStyle(LineupStyle.field)
-            Text(title).foregroundColor(LineupStyle.lightPurple)
-                .font(.system(size: 50, weight: .semibold))
+            Text(title).foregroundColor(LineupStyle.text)
+                .font(.system(size: 50, weight: .bold, design: .default))
+                .tracking(-1.2)
                 .foregroundStyle(LineupStyle.text)
             if let detail {
-                Text(detail).foregroundColor(LineupStyle.lightPurple)
+                Text(detail).foregroundColor(LineupStyle.secondary)
                     .font(.title3)
                     .foregroundStyle(LineupStyle.secondary)
             }
