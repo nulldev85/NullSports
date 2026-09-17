@@ -1941,14 +1941,14 @@ private struct GuideChannelArtwork: View {
                 AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit()
-                            .frame(width: max(1, proxy.size.width - 22),
-                                   height: max(1, proxy.size.height - 45))
+                            .frame(width: max(1, proxy.size.width - 44),
+                                   height: max(1, proxy.size.height - 56))
                     } else {
                         Image(systemName: "tv")
                             .font(.inter(24, .light))
                             .foregroundStyle(GuidePalette.secondary)
-                            .frame(width: max(1, proxy.size.width - 22),
-                                   height: max(1, proxy.size.height - 45))
+                            .frame(width: max(1, proxy.size.width - 44),
+                                   height: max(1, proxy.size.height - 56))
                     }
                 }
                 .transaction { $0.animation = nil }
