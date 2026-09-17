@@ -35,6 +35,8 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var professionalStreams: [XtreamStream] = []
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var favoriteStreamOrder: [Int] = []
+    @Published private(set) var teamPreferences = TeamChannelPreferences()
+    @Published private(set) var recentStreamOrder: [Int] = []
     @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
     @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
     @Published private(set) var scheduleErrorMessage: String?
@@ -48,6 +50,8 @@ final class SportsLibrary: ObservableObject {
     private let profilesKey = "NullSports.profiles"
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
+    private let teamPreferencesKey = "NullSports.teamChannelPreferences"
+    private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
     private var streamSearchText: [Int: String] = [:]
@@ -67,13 +71,18 @@ final class SportsLibrary: ObservableObject {
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
     private var matchGeneration = UUID()
-    private var guideListCache: (category: String?, favorites: Bool, query: String, streams: [XtreamStream])?
+    private var guideListCache: (category: String?, favorites: Bool, recents: Bool, query: String, streams: [XtreamStream])?
     private var didRestoreSchedule = false
     private var scheduleDay: Date?
     private var bootstrapInFlight = false
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
+    /// Set while a provider refresh is running *behind* restored cache. The
+    /// screen stays usable, so this deliberately does not feed
+    /// `channelsAreSyncing`, which gates playback and the picker.
+    @Published private(set) var isRefreshingInBackground = false
+    private var backgroundRefresh: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
     private var lastSavedMatchIdentities: [String: [String]] = [:]
@@ -107,6 +116,8 @@ final class SportsLibrary: ObservableObject {
             profileDefaults.removeObject(forKey: favoritesKey)
         }
         restoreFavorites()
+        restoreTeamPreferences()
+        restoreRecentChannels()
     }
 
     var hasProfile: Bool { activeProfile != nil }
@@ -164,6 +175,17 @@ final class SportsLibrary: ObservableObject {
         bootstrapInFlight || libraryRefreshInFlight || isGuideLoading || channelMatchingWorkCount > 0
             || (scheduleRefreshInFlight && scheduleValidatedLeagues.isEmpty)
     }
+
+    /// True only for the first sync of a provider that has nothing cached — the
+    /// one wait a viewer genuinely has to sit through. Repeat launches restore
+    /// from disk and refresh behind the screen instead, which is the difference
+    /// between "still syncing" and "already usable".
+    var isInitialProviderSync: Bool {
+        hasProfile && streams.isEmpty && channelsAreSyncing
+    }
+
+    /// Something usable came back from disk, so the screen need not wait.
+    var hasRestoredCache: Bool { !streams.isEmpty }
 
     private func rebuildProfessionalStreams() async {
         sportsIndexReady = false
@@ -228,7 +250,12 @@ final class SportsLibrary: ObservableObject {
             profiles.append(profile)
             // Additional providers are saved without interrupting the current one.
             let isFirstProfile = activeProfile == nil
-            if isFirstProfile { activeProfile = profile; restoreFavorites() }
+            if isFirstProfile {
+                activeProfile = profile
+                restoreFavorites()
+                restoreTeamPreferences()
+                restoreRecentChannels()
+            }
             persistProfiles()
             if isFirstProfile { await reload() }
             return true
@@ -299,7 +326,27 @@ final class SportsLibrary: ObservableObject {
         // Providers recycle numbered event stream IDs. Same-day disk data is
         // useful for browsing, but cannot authorize playback before a fresh fetch.
         if channelsValidatedThisSession && guideValidatedThisSession && isLibraryFresh && isGuideFresh { return }
+        // With nothing restored there is nothing to show, so the first sync is
+        // awaited and reported. With cache on screen the same refresh runs
+        // behind it: the Live screen, the Guide, favorites, recent channels and
+        // saved preferences are all usable while it runs, and matching
+        // re-verifies itself when it lands — accuracy unchanged, wait removed.
+        guard streams.isEmpty else {
+            refreshInBackground()
+            return
+        }
         await refreshLibrary(forceGuide: true, refreshChannels: true)
+    }
+
+    private func refreshInBackground() {
+        guard backgroundRefresh == nil, let profileID = activeProfile?.id else { return }
+        isRefreshingInBackground = true
+        backgroundRefresh = Task { [weak self] in
+            await self?.refreshLibrary(forceGuide: true, refreshChannels: true)
+            guard let self, self.activeProfile?.id == profileID else { return }
+            self.isRefreshingInBackground = false
+            self.backgroundRefresh = nil
+        }
     }
 
     func reload() async {
@@ -862,13 +909,18 @@ final class SportsLibrary: ObservableObject {
         programs(for: stream)
     }
 
-    func guideStreams(categoryID: String?, favoritesOnly: Bool, query: String) -> [XtreamStream] {
+    /// `recentsOnly` is defaulted so the Apple TV call sites are unaffected.
+    func guideStreams(categoryID: String?, favoritesOnly: Bool, query: String,
+                      recentsOnly: Bool = false) -> [XtreamStream] {
         if let cached = guideListCache, cached.category == categoryID,
-           cached.favorites == favoritesOnly, cached.query == query { return cached.streams }
+           cached.favorites == favoritesOnly, cached.recents == recentsOnly,
+           cached.query == query { return cached.streams }
+        let recentIDs = recentsOnly ? Set(recentStreamOrder) : []
         let filtered = streams.filter { stream in
             guard stream.streamType?.lowercased() != "radio_streams",
                   stream.streamType?.lowercased() != "radio" else { return false }
             if favoritesOnly && !isFavorite(stream) { return false }
+            if recentsOnly && !recentIDs.contains(stream.id) { return false }
             if let categoryID, stream.categoryID != categoryID { return false }
             return query.isEmpty || stream.name.localizedCaseInsensitiveContains(query)
         }
@@ -876,13 +928,17 @@ final class SportsLibrary: ObservableObject {
         if favoritesOnly {
             let streamsByID = Dictionary(grouping: filtered, by: \.id).compactMapValues { $0.first }
             result = favoriteStreamOrder.compactMap { streamsByID[$0] }
+        } else if recentsOnly {
+            // Most recently watched first — the order is the whole point.
+            let streamsByID = Dictionary(grouping: filtered, by: \.id).compactMapValues { $0.first }
+            result = recentStreamOrder.compactMap { streamsByID[$0] }
         } else {
             result = filtered.sorted {
                 if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }
                 return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
         }
-        guideListCache = (categoryID, favoritesOnly, query, result)
+        guideListCache = (categoryID, favoritesOnly, recentsOnly, query, result)
         return result
     }
 
@@ -934,6 +990,171 @@ final class SportsLibrary: ObservableObject {
         guard let profile = activeProfile else { return }
         profileDefaults.set(favoriteStreamOrder, forKey: favoritesKey + "." + profile.id.uuidString)
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    // MARK: - Preferred channels by team
+
+    /// The teams in a game, in the form the pure preference model works with.
+    nonisolated private static func preferenceGame(_ game: SportsGame) -> TeamChannelGame {
+        TeamChannelGame(league: game.league.rawValue,
+                        homeTeam: game.homeTeam, homeAbbreviation: game.homeAbbreviation,
+                        awayTeam: game.awayTeam, awayAbbreviation: game.awayAbbreviation)
+    }
+
+    /// What tapping this game should do. The decision itself lives in
+    /// `TeamChannelPreferences.resolve`; this only supplies the provider's
+    /// current reality — which channels exist, and whether matching has settled.
+    func preferredChannel(for game: SportsGame) -> PreferredChannel {
+        teamPreferences.resolve(Self.preferenceGame(game),
+                                // Unfinished *and* still working means wait. Matching
+                                // that has stopped without settling is as good as it
+                                // will get, so the picker opens rather than a message
+                                // that would never clear.
+                                matchingReady: matchIsReady(game) || !channelsAreSyncing,
+                                availableStreamIDs: Set(streams.map(\.id)),
+                                verifiedStreamID: verifiedStream(for: game)?.id)
+    }
+
+    func stream(withID id: Int) -> XtreamStream? {
+        streams.first { $0.id == id }
+    }
+
+    /// Which sides of this game a preference can be saved for, home first.
+    func preferenceSides(for game: SportsGame) -> [TeamChannelSide] {
+        let teams = Self.preferenceGame(game)
+        return [TeamChannelSide(key: teams.homeKey, team: game.homeTeam, isHome: true),
+                TeamChannelSide(key: teams.awayKey, team: game.awayTeam, isHome: false)]
+            .filter { $0.key.isUsable }
+    }
+
+    func savePreference(_ stream: XtreamStream, for key: TeamChannelKey, teamName: String) {
+        teamPreferences.set(TeamChannelPreference(streamID: stream.id, channelName: stream.name,
+                                                  teamName: teamName), for: key)
+        persistTeamPreferences()
+    }
+
+    func removePreference(for key: TeamChannelKey) {
+        teamPreferences.remove(for: key)
+        persistTeamPreferences()
+    }
+
+    func removeAllPreferences() {
+        teamPreferences.removeAll()
+        persistTeamPreferences()
+    }
+
+    /// True when the provider no longer carries a saved preference's channel.
+    /// Settings says so rather than hiding the row: the channel may come back,
+    /// and deleting the preference is the viewer's call.
+    func preferenceChannelIsAvailable(_ preference: TeamChannelPreference) -> Bool {
+        streams.contains { $0.id == preference.streamID }
+    }
+
+    // MARK: - Recently watched
+
+    /// Recorded only once a stream is genuinely playing — see the call site in
+    /// the player surfaces. Opening a channel that never decodes must not push
+    /// a dead feed to the top of the list.
+    func recordRecentChannel(_ stream: XtreamStream) {
+        let updated = RecentChannels.updated(recentStreamOrder, watching: stream.id)
+        guard updated != recentStreamOrder else { return }
+        recentStreamOrder = updated
+        guideListCache = nil
+        persistRecentChannels()
+    }
+
+    /// Most recent first, with anything the provider no longer carries dropped.
+    /// Filtering on read rather than on write means a channel that vanishes from
+    /// one refresh and returns in the next keeps its place, while never being
+    /// playable from a stale entry in between.
+    var recentStreams: [XtreamStream] {
+        let byID = Dictionary(grouping: streams, by: \.id).compactMapValues(\.first)
+        return RecentChannels.resolved(recentStreamOrder, available: Set(byID.keys))
+            .compactMap { byID[$0] }
+    }
+
+    func clearRecentChannels() {
+        guard !recentStreamOrder.isEmpty else { return }
+        recentStreamOrder = []
+        guideListCache = nil
+        persistRecentChannels()
+    }
+
+    private func persistRecentChannels() {
+        guard let profile = activeProfile else { return }
+        profileDefaults.set(recentStreamOrder, forKey: recentsKey + "." + profile.id.uuidString)
+    }
+
+    private func restoreRecentChannels() {
+        guard let profile = activeProfile,
+              let saved = profileDefaults.array(forKey: recentsKey + "." + profile.id.uuidString) as? [Int] else {
+            recentStreamOrder = []
+            return
+        }
+        recentStreamOrder = saved
+    }
+
+    // MARK: - Failover
+
+    /// Channels Lineup may move to when the current feed stops working.
+    ///
+    /// Every entry is either the viewer's own saved channel or one the same
+    /// matcher that authorizes normal playback verified for *this* game, so
+    /// failover can never wander onto an unrelated feed. Bounded to the league's
+    /// own channel index and to a handful of alternates, since this runs at the
+    /// moment a stream is already failing.
+    func failoverPlan(for game: SportsGame, limit: Int = 4) -> [FailoverChannel] {
+        let verified = verifiedStream(for: game)
+        let preferred = preferredFailoverChannel(for: game)
+        let listings = programsByChannel
+        let now = Date()
+        let alternates = streams(for: game.league)
+            .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
+            .filter { stream in
+                let programs = stream.epgChannelID.flatMap { listings[$0] } ?? []
+                if game.league == .ncaaf {
+                    return CollegeChannelMatcher.score(channel: stream.name,
+                        listings: Self.collegeListings(programs),
+                        game: Self.collegeMatchup(game), now: now,
+                        allowNetworkFallback: false) != nil
+                }
+                return Self.professionalScore(stream, game: game, listings: programs, now: now) != nil
+            }
+            .prefix(limit)
+            .map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .alternate) }
+        return FailoverPlanner.plan(
+            preference: preferred,
+            verified: verified.map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .verified) },
+            alternates: Array(alternates))
+    }
+
+    /// The viewer's saved channel for either team, when the provider carries it.
+    private func preferredFailoverChannel(for game: SportsGame) -> FailoverChannel? {
+        for side in preferenceSides(for: game) {
+            guard let saved = teamPreferences.preference(for: side.key),
+                  let stream = stream(withID: saved.streamID) else { continue }
+            return FailoverChannel(streamID: stream.id, name: stream.name, reason: .preference)
+        }
+        return nil
+    }
+
+    private func persistTeamPreferences() {
+        // Strictly per provider, and never merged across them the way favorites
+        // are: a channel identifier only means something inside the provider
+        // that issued it.
+        guard let profile = activeProfile,
+              let data = try? JSONEncoder().encode(teamPreferences) else { return }
+        profileDefaults.set(data, forKey: teamPreferencesKey + "." + profile.id.uuidString)
+    }
+
+    private func restoreTeamPreferences() {
+        guard let profile = activeProfile,
+              let data = profileDefaults.data(forKey: teamPreferencesKey + "." + profile.id.uuidString),
+              let saved = try? JSONDecoder().decode(TeamChannelPreferences.self, from: data) else {
+            teamPreferences = TeamChannelPreferences()
+            return
+        }
+        teamPreferences = saved
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
@@ -1008,6 +1229,8 @@ final class SportsLibrary: ObservableObject {
         resetProviderState()
         activeProfile = profile
         restoreFavorites()
+        restoreTeamPreferences()
+        restoreRecentChannels()
         persistProfiles()
         isSwitchingProfile = false
         await bootstrap()
@@ -1026,10 +1249,14 @@ final class SportsLibrary: ObservableObject {
         KeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
         profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)
+        profileDefaults.removeObject(forKey: teamPreferencesKey + "." + profile.id.uuidString)
+        profileDefaults.removeObject(forKey: recentsKey + "." + profile.id.uuidString)
         if removingActive {
             resetProviderState()
             activeProfile = profiles.first
             restoreFavorites()
+            restoreTeamPreferences()
+            restoreRecentChannels()
         }
         // Finish an already queued cache write before deleting this cache.
         await cacheWriteTask?.value
@@ -1040,6 +1267,13 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func resetProviderState() {
+        // A refresh started for the previous provider must never land in the
+        // next one's state. Everything provider-scoped — cached matches,
+        // favorites, recent channels, preferences — is re-read from that
+        // provider's own keys afterwards.
+        backgroundRefresh?.cancel()
+        backgroundRefresh = nil
+        isRefreshingInBackground = false
         errorMessage = nil
         indexGeneration = UUID()
         matchGeneration = UUID()

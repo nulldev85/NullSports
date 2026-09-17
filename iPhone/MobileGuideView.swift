@@ -10,6 +10,7 @@ struct MobileGuideView: View {
     @FocusState private var searchFocused: Bool
     @State private var category: String?
     @State private var favorites = false
+    @State private var recents = false
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
     @State private var resetPosition = UUID()
@@ -17,6 +18,10 @@ struct MobileGuideView: View {
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
     @State private var reorderingFavorites = false
+    /// Lineup's own match for the game being picked for. Resolved once when the
+    /// picker appears: `verifiedStream` revalidates against the guide, which is
+    /// far too costly to run per row on every redraw.
+    @State private var recommendedStreamID: Int?
     @ScaledMetric(relativeTo: .caption) private var rowHeight = 68.0
     var game: SportsGame? = nil
     var isActive = true
@@ -26,11 +31,20 @@ struct MobileGuideView: View {
     private var cardHeight: CGFloat { rowHeight - 6 }
 
     private var channels: [XtreamStream] {
-        library.guideStreams(categoryID: category, favoritesOnly: favorites, query: query)
+        let listed = library.guideStreams(categoryID: category, favoritesOnly: favorites,
+                                          query: query, recentsOnly: recents)
+        // Only when picking a channel for a game. The Guide's own ordering —
+        // favorites, then the provider's order — is left exactly as it was.
+        guard game != nil, let recommendedStreamID,
+              let index = listed.firstIndex(where: { $0.id == recommendedStreamID }) else { return listed }
+        var reordered = listed
+        reordered.insert(reordered.remove(at: index), at: 0)
+        return reordered
     }
     private var title: String {
         if game != nil { return "Choose a channel" }
         if favorites { return "Favorites" }
+        if recents { return "Recent" }
         return library.categories.first { $0.id == category }?.categoryName ?? "Guide"
     }
 
@@ -48,8 +62,10 @@ struct MobileGuideView: View {
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.inter(.subheadline, .bold))
-                                Text("Choose a channel · \(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)")
+                                Text("Select your preferred channel.")
                                     .font(.inter(.caption)).foregroundStyle(.secondary)
+                                Text(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)
+                                    .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
                         if library.isLoading || library.isGuideLoading {
@@ -79,7 +95,7 @@ struct MobileGuideView: View {
                                 expanded: expanded, showsMetadata: showsMetadata,
                                 videoHeight: expanded ? viewport.size.height : videoHeight,
                                 onClose: closePlayer, onExpand: { expanded.toggle() },
-                                onRetry: { playback.start(urls: library.playbackURLs(for: stream)) })
+                                onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) })
                                 .frame(height: expanded ? viewport.size.height : videoHeight + metadataHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
@@ -135,7 +151,13 @@ struct MobileGuideView: View {
                             else { showsSearch = true }
                         }
                         Divider()
-                        Toggle("Favorites only", isOn: $favorites)
+                        Toggle("Favorites only", isOn: Binding(
+                            get: { favorites },
+                            set: { favorites = $0; if $0 { recents = false } }))
+                        Toggle("Recently watched", isOn: Binding(
+                            get: { recents },
+                            set: { recents = $0; if $0 { favorites = false } }))
+                        .disabled(library.recentStreams.isEmpty)
                         Picker("Category", selection: $category) {
                             Text("All channels").tag(nil as String?)
                             ForEach(library.categories) { Text($0.categoryName).tag(Optional($0.id)) }
@@ -154,19 +176,31 @@ struct MobileGuideView: View {
             .persistentSystemOverlays(expanded ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { returnToNow() }
-                if selectedStream != nil {
-                    if phase == .active { playback.resume() } else { playback.suspend() }
-                }
+                // Backgrounding no longer stops the stream; MobileBackgroundPolicy
+                // decides whether this transition touches playback at all.
+                if selectedStream != nil { playback.handleScenePhase(active: phase == .active) }
+            }
+            .onChange(of: playback.isPlaying) { _, playing in
+                // Genuinely playing, not merely selected.
+                if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: expanded) { _, value in
                 if value { searchFocused = false }
                 onFullscreenChange(value)
             }
             .onChange(of: isActive) { _, active in
-                if !active { searchFocused = false; closePlayer() }
-                else { returnToNow() }
+                // Leaving the Guide tab still tears the player down — except
+                // while the PiP window is showing this stream, which the viewer
+                // asked to keep watching.
+                if !active {
+                    searchFocused = false
+                    if !playback.pictureInPictureActive { closePlayer() }
+                } else { returnToNow() }
             }
-            .onAppear { returnToNow() }
+            .onAppear {
+                returnToNow()
+                if let game { recommendedStreamID = library.verifiedStream(for: game)?.id }
+            }
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
                     .environmentObject(library)
@@ -187,7 +221,7 @@ struct MobileGuideView: View {
         playback.shutdown()
         playback = MobilePlaybackController()
         selectedStream = stream
-        playback.start(urls: library.playbackURLs(for: stream))
+        playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
     }
 
     private func closePlayer() {
@@ -277,6 +311,11 @@ struct MobileGuideView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
+    /// Lineup's verified match, shown only while picking a channel for a game.
+    private func isRecommended(_ stream: XtreamStream) -> Bool {
+        game != nil && stream.id == recommendedStreamID
+    }
+
     private func channelTile(_ stream: XtreamStream) -> some View {
         Button { selectChannel(stream) } label: {
             ZStack(alignment: .center) {
@@ -292,6 +331,17 @@ struct MobileGuideView: View {
                 }
             }
             .frame(width: logoWidth - 8, height: cardHeight)
+            .overlay(alignment: .bottom) {
+                if isRecommended(stream) {
+                    Text("RECOMMENDED")
+                        .font(.inter(7, .bold)).tracking(0.4)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                        .background(LineupStyle.highlight, in: Capsule())
+                        .foregroundStyle(LineupStyle.background)
+                        .padding(.bottom, 1)
+                }
+            }
             .overlay(alignment: .topLeading) {
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill").font(.caption2)
@@ -305,7 +355,7 @@ struct MobileGuideView: View {
             .background(LineupStyle.background)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
+        .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
         .contextMenu {
             if library.isFavorite(stream) {
                 if favorites {

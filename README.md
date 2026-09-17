@@ -120,6 +120,38 @@ the transform animation. The app icon is now a white NS monogram on black.
 Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
 fullscreen in both orientations, player close buttons, and Reduce Motion.
 
+iPhone 0.19.0 adds native Picture in Picture and background playback. HLS
+channels play through AVPlayer, which supplies system PiP and keeps audio
+running when Lineup is backgrounded; transport streams and anything AVPlayer
+cannot open still play through VLC. Both engines live in one controller for the
+whole session, so resizing, expanding, rotating and entering PiP never open a
+second connection.
+
+The same release adds preferred channels by team. Tapping a game uses your saved
+channel when the provider carries it, asks which feed when both teams have
+different saved channels, and otherwise opens a picker with Lineup's own match
+listed first and labelled Recommended. Choosing a channel offers to remember it
+for the home or away team. A saved channel that the provider drops falls back to
+Lineup's match without the preference being deleted. Preferences, favorites and
+recently watched channels each belong to one provider and never cross between
+them. Account lists and clears saved preferences and recent channels.
+
+Repeat launches restore the cached channel list, guide, game matches, favorites,
+recent channels and team preferences immediately, then refresh behind the screen
+instead of blocking Live. The first sync of a new provider still explains itself
+while it runs. Channel matching accuracy is unchanged: a saved preference is your
+own choice and needs no matching evidence, while Lineup's own match still waits
+for a fresh pass.
+
+Playback recovery now retries the current channel's alternate URLs first and only
+then moves to another channel verified for the same game, preferring your saved
+channel. It never moves to an unverified feed, retires each channel it tries so
+two broken feeds cannot ping-pong, caps the number of moves, and shows a brief
+notice when it changes feeds. Retry and Choose Another Channel remain available
+throughout. Device checks: background audio with the screen locked, PiP from both
+players, expand/collapse and rotate while playing, an HLS channel that fails over
+to VLC, a game whose channel dies mid-stream, and switching providers.
+
 iPhone 0.17.10 corrects the simulator test host path to the actual Lineup.app
 executable. It also anchors the EPG content at the top, prevents the nested guide
 scrollers from adding duplicate navigation insets, and disables horizontal

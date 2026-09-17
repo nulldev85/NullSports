@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Both compact and expanded layouts keep this same VLC surface and controller.
-/// Resizing must not open a second provider connection or restart the stream.
+/// Both compact and expanded layouts keep this same surface and controller.
+/// Resizing must not open a second provider connection or restart the stream —
+/// and neither may entering Picture in Picture, which rides on the very same
+/// `AVPlayerLayer` this surface already owns.
 struct MobileGuidePlayer: View {
     @ObservedObject var controller: MobilePlaybackController
     let stream: XtreamStream
@@ -12,6 +14,9 @@ struct MobileGuidePlayer: View {
     let onClose: () -> Void
     let onExpand: () -> Void
     let onRetry: () -> Void
+    /// Live supplies this to reopen the channel picker for the game on screen.
+    /// The Guide leaves it nil, and the control does not appear there.
+    var onChooseChannel: (() -> Void)? = nil
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
 
@@ -37,6 +42,20 @@ struct MobileGuidePlayer: View {
                 } else if controller.loading {
                     ProgressView("Opening stream…").font(.inter(.caption))
                 }
+                if let notice = controller.failoverNotice {
+                    VStack {
+                        Spacer()
+                        Text(notice)
+                            .font(.inter(.caption, .semibold))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.62))
+                            .padding(.bottom, 12)
+                    }
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.updatesFrequently)
+                }
                 if controlsVisible {
                     VStack {
                         HStack(spacing: 10) {
@@ -46,6 +65,18 @@ struct MobileGuidePlayer: View {
                                 if let quality = controller.streamQualityLabel { qualityBadge(quality) }
                             }
                             Spacer()
+                            if let onChooseChannel {
+                                control("list.bullet", label: "Choose another channel") {
+                                    showControls()
+                                    onChooseChannel()
+                                }
+                            }
+                            if controller.canOfferPictureInPicture {
+                                control("pip.enter", label: "Picture in Picture") {
+                                    showControls()
+                                    controller.togglePictureInPicture()
+                                }
+                            }
                             control(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                                     label: expanded ? "Return to guide" : "Expand player") {
                                 showControls()
@@ -69,6 +100,7 @@ struct MobileGuidePlayer: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: controlsVisible)
+            .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
             .frame(height: videoHeight).background(.black).clipped()
             if !expanded && showsMetadata {
                 HStack(alignment: .top, spacing: 12) {

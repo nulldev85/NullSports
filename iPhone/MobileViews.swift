@@ -138,6 +138,7 @@ private struct MobileAccountView: View {
     @State private var addingMediaServer = false
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
+    @State private var clearingPreferences = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
@@ -177,7 +178,58 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Providers")
                 } footer: {
-                    Text("Select a provider to use its channels and guide. Each provider keeps its own favorites.")
+                    Text("Select a provider to use its channels and guide. Each provider keeps its own favorites and preferred channels.")
+                }.listRowBackground(LineupStyle.surface)
+                Section {
+                    if library.teamPreferences.isEmpty {
+                        Text("No preferred channels yet. Choose a channel for a game and Lineup can remember it for either team.")
+                            .font(.inter(.caption)).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(library.teamPreferences.listed()) { entry in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(entry.preference.teamName.isEmpty ? entry.key.team : entry.preference.teamName)
+                                        .font(.inter(.body, .semibold))
+                                    HStack(spacing: 6) {
+                                        Text(entry.preference.channelName)
+                                            .font(.inter(.caption)).foregroundStyle(.secondary)
+                                        // A provider can drop a channel and carry
+                                        // it again later, so this is a note, not a
+                                        // reason to delete the preference.
+                                        if !library.preferenceChannelIsAvailable(entry.preference) {
+                                            Text("UNAVAILABLE")
+                                                .font(.inter(8, .bold)).tracking(0.6)
+                                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                                .background(LineupStyle.raised, in: Capsule())
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                Spacer(minLength: 8)
+                                Text(entry.key.league).font(.inter(.caption2)).foregroundStyle(.secondary)
+                                Button(role: .destructive) {
+                                    library.removePreference(for: entry.key)
+                                } label: {
+                                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove preferred channel for \(entry.preference.teamName)")
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        Button("Remove all preferred channels", systemImage: "trash", role: .destructive) {
+                            clearingPreferences = true
+                        }
+                    }
+                    if !library.recentStreams.isEmpty {
+                        LabeledContent("Recently watched", value: "\(library.recentStreams.count)")
+                        Button("Clear recent channels", systemImage: "clock.arrow.circlepath",
+                               role: .destructive) { library.clearRecentChannels() }
+                    }
+                } header: {
+                    Text("Preferred channels & recents")
+                } footer: {
+                    Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
                 }.listRowBackground(LineupStyle.surface)
                 Section {
                     if let profile = media.activeProfile {
@@ -244,6 +296,13 @@ private struct MobileAccountView: View {
                 }.listRowBackground(LineupStyle.surface)
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
+            .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
+                                titleVisibility: .visible) {
+                Button("Remove all", role: .destructive) { library.removeAllPreferences() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+            }
             .navigationTitle("Account")
             .task {
                 if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {

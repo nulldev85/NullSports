@@ -7,9 +7,17 @@ struct MobileLiveView: View {
     @State private var league: SportsLeague?
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
+    @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
+    /// The game the preview belongs to. Needed to offer "Choose another
+    /// channel" and to scope a saved preference after the picker returns.
+    @State private var previewGame: SportsGame?
+    /// Both teams have a usable preference and they disagree.
+    @State private var feedChoice: FeedChoice?
+    /// A channel was just chosen for this game; ask how long it should apply.
+    @State private var scopingSelection: PendingSelection?
     @State private var playback = MobilePlaybackController()
     @Namespace private var selection
     var isActive = true
@@ -39,7 +47,8 @@ struct MobileLiveView: View {
                             videoHeight: UIScreen.main.bounds.width * 9 / 16,
                             onClose: closePreview,
                             onExpand: { onPlay(stream) },
-                            onRetry: { playback.start(urls: library.playbackURLs(for: stream)) }
+                            onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
+                            onChooseChannel: chooseAnotherChannelAction
                         )
                         .id(ObjectIdentifier(playback))
                     }
@@ -47,11 +56,17 @@ struct MobileLiveView: View {
                 }
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        // Channel matching keeps running after the schedule and
-                        // library finish, and every game reads as unmatched until
-                        // it lands. Say so instead of showing a settled empty row.
-                        if library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady {
+                        // Three different waits, said three different ways. The
+                        // first sync of a new provider is the only one with an
+                        // empty screen behind it, so it explains itself at
+                        // length; a refresh running behind restored cache is a
+                        // quiet line, because everything below it already works.
+                        if library.isInitialProviderSync {
+                            InitialSyncBanner()
+                        } else if library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady {
                             RefreshingStreamsBanner()
+                        } else if library.isRefreshingInBackground {
+                            BackgroundRefreshBanner()
                         }
                         if let error = library.scheduleErrorMessage {
                             Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
@@ -102,28 +117,80 @@ struct MobileLiveView: View {
                     Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
                 }
             }
-            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
+            .alert("Streams are still syncing…", isPresented: $showsChannelSyncMessage) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text("Please wait for channel syncing to finish, then select the game again.")
+                Text("Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.")
             }
             .sheet(item: $choosingChannel, onDismiss: {
-                if let stream = pendingStream {
+                // The scope prompt has to wait for the sheet to be gone, or it
+                // would try to present over a dismissing sheet.
+                if let stream = pendingStream, let game = pendingGame {
                     pendingStream = nil
-                    showPreview(stream)
+                    pendingGame = nil
+                    applySelection(stream, for: game)
                 }
             }) { game in
                 MobileGuideView(game: game) { stream in
                     pendingStream = stream
+                    pendingGame = game
                     choosingChannel = nil
                 }
             }
+            // Both teams have a saved channel and they disagree — the one case
+            // where a preference cannot answer on its own.
+            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
+                                titleVisibility: .visible, presenting: feedChoice) { choice in
+                Button(choice.home.channelName) {
+                    feedChoice = nil
+                    if let stream = library.stream(withID: choice.home.streamID) {
+                        showPreview(stream, for: choice.game)
+                    }
+                }
+                Button(choice.away.channelName) {
+                    feedChoice = nil
+                    if let stream = library.stream(withID: choice.away.streamID) {
+                        showPreview(stream, for: choice.game)
+                    }
+                }
+                Button("Choose another channel") {
+                    let game = choice.game
+                    feedChoice = nil
+                    choosingChannel = game
+                }
+                Button("Cancel", role: .cancel) { feedChoice = nil }
+            } message: { choice in
+                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
+            }
+            // After a manual pick: how long should it apply?
+            .confirmationDialog("Use this channel for…", isPresented: presenting($scopingSelection),
+                                titleVisibility: .visible, presenting: scopingSelection) { selection in
+                Button("Just this game") { scopingSelection = nil }
+                ForEach(library.preferenceSides(for: selection.game)) { side in
+                    Button("Always use this channel for the \(side.role) (\(side.team))") {
+                        library.savePreference(selection.stream, for: side.key, teamName: side.team)
+                        scopingSelection = nil
+                    }
+                }
+            } message: { selection in
+                Text("\(selection.stream.name) is playing now. Lineup can remember it for one of these teams.")
+            }
             .onChange(of: isActive) { _, active in
-                if active { playback.resume() } else { closePreview() }
+                // Leaving the Live tab still closes the preview, unless it is
+                // the stream currently playing in the PiP window.
+                if active { playback.resume() }
+                else if !playback.pictureInPictureActive { closePreview() }
+            }
+            .onChange(of: playback.isPlaying) { _, playing in
+                // Genuinely playing, not merely selected: a channel that never
+                // decodes must not reach the recent list.
+                if playing, let stream = previewStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: scenePhase) { _, phase in
                 guard previewStream != nil else { return }
-                if phase == .active { playback.resume() } else { playback.suspend() }
+                // Backgrounding no longer stops the stream; MobileBackgroundPolicy
+                // decides whether this transition touches playback at all.
+                playback.handleScenePhase(active: phase == .active)
             }
         }
     }
@@ -204,29 +271,96 @@ struct MobileLiveView: View {
                 upcomingGame = game
                 return
             }
-            if let stream = library.verifiedStream(for: game) {
-                showPreview(stream)
-            } else if library.channelsAreSyncing && !library.automaticMatchingReady {
-                showsChannelSyncMessage = true
-            } else {
-                choosingChannel = game
-            }
+            open(game)
         } label: { MobileMatchupRow(game: game) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
+        .contextMenu {
+            Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+        }
     }
 
-    private func showPreview(_ stream: XtreamStream) {
+    /// One game, one decision. `PreferredChannel` is resolved entirely from
+    /// saved preferences plus what the provider currently carries — see
+    /// `TeamChannelPreferences.resolve`.
+    private func open(_ game: SportsGame) {
+        switch library.preferredChannel(for: game) {
+        case .syncing:
+            showsChannelSyncMessage = true
+        case let .play(streamID, _):
+            if let stream = library.stream(withID: streamID) { showPreview(stream, for: game) }
+            else { choosingChannel = game }
+        case let .chooseFeed(home, away):
+            feedChoice = FeedChoice(game: game, home: home, away: away)
+        case .pick:
+            choosingChannel = game
+        }
+    }
+
+    /// Offered only while the preview knows which game it belongs to.
+    private var chooseAnotherChannelAction: (() -> Void)? {
+        guard let game = previewGame else { return nil }
+        return { choosingChannel = game }
+    }
+
+    /// Drives a dialog from an optional: SwiftUI clears the optional on dismiss,
+    /// which a `.constant` binding cannot do — that strands the dialog.
+    private func presenting<T>(_ value: Binding<T?>) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue != nil },
+                set: { if !$0 { value.wrappedValue = nil } })
+    }
+
+    private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
         playback.shutdown()
         playback = MobilePlaybackController()
         previewStream = stream
-        playback.start(urls: library.playbackURLs(for: stream))
+        previewGame = game
+        // Failover only exists where there is a game to verify against. Without
+        // it the controller retries this channel's own URLs and stops, which is
+        // the right behaviour for plain channel playback.
+        if let game {
+            // Bound once, so the stored closures hold the library directly
+            // rather than a copy of this view.
+            let library = self.library
+            playback.failover = MobilePlaybackController.FailoverContext(
+                plan: { library.failoverPlan(for: game) },
+                urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
+                didSwitch: { channel in
+                    // Keep the on-screen channel in step with what is playing,
+                    // so metadata and Choose Another Channel stay truthful.
+                    if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
+                })
+        }
+        playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
     }
 
     private func closePreview() {
         playback.shutdown()
         previewStream = nil
+        previewGame = nil
+    }
+
+    /// A channel came back from the picker. Play it now, and ask whether it
+    /// should stick to either team.
+    private func applySelection(_ stream: XtreamStream, for game: SportsGame) {
+        showPreview(stream, for: game)
+        let sides = library.preferenceSides(for: game)
+        guard !sides.isEmpty else { return }
+        scopingSelection = PendingSelection(game: game, stream: stream)
+    }
+
+    struct FeedChoice: Identifiable {
+        let game: SportsGame
+        let home: TeamFeedOption
+        let away: TeamFeedOption
+        var id: String { game.id }
+    }
+
+    struct PendingSelection: Identifiable {
+        let game: SportsGame
+        let stream: XtreamStream
+        var id: String { game.id + "." + String(stream.id) }
     }
 }
 
@@ -340,6 +474,42 @@ private struct MobileLeagueLogo: View {
 /// Shown while channels, guide or matching are still in flight. Matching is what
 /// decides a game's channel, so it stays up until that settles — otherwise a game
 /// with no channel yet is indistinguishable from one with no channel at all.
+/// The one wait a viewer genuinely has to sit through: a provider with nothing
+/// cached. Names the stage and keeps moving, so it never reads as a freeze.
+private struct InitialSyncBanner: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView().controlSize(.regular)
+            Text("SETTING UP YOUR PROVIDER").font(.inter(10, .bold)).tracking(1.6)
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
+            Text("Lineup is downloading your channel list and guide, then matching channels to today's games. This happens once — later launches open straight from the last sync.")
+                .font(.inter(.caption))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(LineupStyle.secondary)
+                .padding(.horizontal, 28)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 26)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Cache is already on screen and usable; this is only a footnote.
+private struct BackgroundRefreshBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.mini)
+            Text("UPDATING IN BACKGROUND").font(.inter(10, .bold)).tracking(1.6)
+        }
+        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .accessibilityLabel("Updating in the background. Everything on screen is usable.")
+    }
+}
+
 private struct RefreshingStreamsBanner: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dimmed = false
