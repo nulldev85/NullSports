@@ -142,6 +142,8 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let status: String
     let state: String
     let broadcast: String
+    /// Event-level title for cards that contain multiple contests, such as UFC.
+    let eventName: String?
 
     // How long a game can run before an unchanged status is stale rather than late.
     static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
@@ -159,7 +161,8 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         if state == "in" { return true }
         guard state == "pre" else { return false }
         let now = Date()
-        return start <= now && now < start.addingTimeInterval(Self.longestPlausibleGame)
+        let duration = league == .ufc ? 9 * 60 * 60 : Self.longestPlausibleGame
+        return start <= now && now < start.addingTimeInterval(duration)
     }
 
     var isUpcoming: Bool { state == "pre" && start > Date() }
@@ -201,7 +204,7 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb, ncaaf
+    case nfl, nba, nhl, mlb, ncaaf, ufc
 
     var id: String { rawValue }
     var shortName: String { rawValue.uppercased() }
@@ -212,6 +215,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .nba: "Basketball"
         case .nhl: "Hockey"
         case .mlb: "Baseball"
+        case .ufc: "Mixed Martial Arts"
         }
     }
     /// The theme owns the set. These were five literals mixed against one
@@ -228,6 +232,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
                 || ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"].contains { value.contains($0) }
                 || !words.isDisjoint(with: ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"])
         }
+        if self == .ufc {
+            return ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"].contains { value.contains($0) }
+        }
         return containsLeagueToken(value) || containsAny(value, teamTerms)
     }
 
@@ -238,6 +245,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"]
         case .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"]
         case .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]
+        case .ufc: []
         }
     }
 

@@ -8,7 +8,7 @@ enum DailyGameMatchesChecks {
         let day = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7))!
         let savedAt = day.addingTimeInterval(10 * 3600)
         let reopen = day.addingTimeInterval(18 * 3600)
-        let leagues = ["nfl", "nba", "nhl", "mlb", "ncaaf"]
+        let leagues = ["nfl", "nba", "nhl", "mlb", "ncaaf", "ufc"]
         let identities = Dictionary(uniqueKeysWithValues: leagues.map { ($0, [$0, "away", "home", "ESPN", "kickoff"]) })
         let channels = Dictionary(uniqueKeysWithValues: leagues.map { ($0, "channel-" + $0) })
         let saved = DailyGameMatches(savedAt: savedAt, identities: identities, channels: channels)

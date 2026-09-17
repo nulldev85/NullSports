@@ -610,6 +610,7 @@ final class SportsLibrary: ObservableObject {
     nonisolated private static func matchIdentity(_ game: SportsGame) -> [String] {
         [game.league.rawValue, game.awayTeam, game.homeTeam,
          game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
+         game.eventName ?? "",
          String(game.start.timeIntervalSince1970)]
     }
 
@@ -646,11 +647,51 @@ final class SportsLibrary: ObservableObject {
     nonisolated private static func professionalScore(_ stream: XtreamStream, game: SportsGame,
                                                        listings: [CurrentProgram], now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
+        if game.league == .ufc {
+            return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
+        }
         return ProfessionalChannelMatcher.score(channel: stream.name,
             listings: listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) },
             game: .init(away: game.awayTeam, home: game.homeTeam,
                 awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
                 start: game.start, isLive: game.isLive), now: now)
+    }
+
+    nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
+                                              game: SportsGame, now: Date) -> Int? {
+        func normalized(_ value: String) -> String {
+            value.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+                .lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        func contains(_ text: String, _ phrase: String) -> Bool {
+            !phrase.isEmpty && (" " + text + " ").contains(" " + phrase + " ")
+        }
+        let name = normalized(channel)
+        guard !["replay", "classic", "highlights", "radio", "audio"].contains(where: { contains(name, $0) }) else { return nil }
+        let away = normalized(game.awayTeam).split(separator: " ").last.map(String.init) ?? ""
+        let home = normalized(game.homeTeam).split(separator: " ").last.map(String.init) ?? ""
+        let card = normalized(game.eventName ?? "")
+        let cardParts = card.split(separator: " ")
+        let numberedCard = cardParts.count > 1 && cardParts[0] == "ufc" && Int(cardParts[1]) != nil
+            ? "ufc " + cardParts[1] : ""
+        func identifiesCard(_ text: String) -> Bool {
+            (contains(text, away) && contains(text, home))
+                || (!numberedCard.isEmpty && contains(text, numberedCard))
+        }
+        let point = game.isLive ? now : game.start
+        let current = listings.filter { $0.start <= point && point < $0.end }
+        let listingConfirms = current.contains {
+            identifiesCard(normalized($0.title + " " + $0.detail))
+                && $0.start <= game.start.addingTimeInterval(60 * 60) && $0.end > game.start
+        }
+        let guideSilent = current.isEmpty || current.allSatisfy {
+            let title = normalized($0.title)
+            return ["", "live", "ufc", "mma", "pay per view", "ppv", "no program information"].contains(title)
+                && normalized($0.detail).isEmpty
+        }
+        if identifiesCard(name) && (listingConfirms || guideSilent) { return 400 }
+        return listingConfirms ? 300 : nil
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream],

@@ -39,7 +39,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 line: rgb(0x8491A3).opacity(0.18),
                 leagues: LeagueColors(
                     football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84)
+                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
                 )
             )
         case .velvet:
@@ -56,7 +56,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 line: rgb(0xD4C7E1).opacity(0.11),
                 leagues: LeagueColors(
                     football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
-                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8)
+                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8), combat: rgb(0xD20A0A)
                 )
             )
         case .signal:
@@ -94,7 +94,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 // the league it stands for.
                 leagues: LeagueColors(
                     football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84)
+                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
                 )
             )
         }
@@ -109,6 +109,7 @@ fileprivate struct LeagueColors {
     let basketball: Color
     let hockey: Color
     let baseball: Color
+    let combat: Color
 }
 
 fileprivate struct LineupPalette {
@@ -227,6 +228,7 @@ enum LineupStyle {
         case .nba: return leagues.basketball
         case .nhl: return leagues.hockey
         case .mlb: return leagues.baseball
+        case .ufc: return leagues.combat
         }
     }
 }

@@ -862,6 +862,7 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .nba: "basketball.fill"
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
+    case .ufc: "figure.martial.arts"
     }
 }
 
@@ -870,19 +871,25 @@ private struct LeagueLogo: View {
     let size: CGFloat
 
     private var logoURL: URL? {
-        guard league != .ncaaf else { return nil }
+        guard league != .ncaaf && league != .ufc else { return nil }
         return URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
     }
 
     var body: some View {
-        AsyncImage(url: logoURL) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
+        Group {
+            if league == .ufc {
+                Image("League-ufc").resizable().scaledToFit()
             } else {
-                Image(systemName: sportsSymbol(league))
-                    .resizable().scaledToFit()
-                    .padding(size * 0.18)
-                    .foregroundStyle(LineupStyle.secondary)
+                AsyncImage(url: logoURL) { phase in
+                    if let image = phase.image {
+                image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
+                    } else {
+                        Image(systemName: sportsSymbol(league))
+                            .resizable().scaledToFit()
+                            .padding(size * 0.18)
+                            .foregroundStyle(LineupStyle.secondary)
+                    }
+                }
             }
         }
         .transaction { $0.animation = nil }

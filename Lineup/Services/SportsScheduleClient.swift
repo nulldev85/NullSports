@@ -36,8 +36,21 @@ struct SportsScheduleClient: Sendable {
     }
 
     private func snapshot(for day: String) async -> Snapshot {
-        do { return try await combinedSchedule(for: day) }
-        catch { return Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error)) }
+        let base: Snapshot
+        do { base = try await combinedSchedule(for: day) }
+        catch { base = Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error)) }
+
+        var games = base.games
+        var loaded = base.loadedLeagues
+        var errors = [base.errorMessage].compactMap { $0 }
+        do {
+            games[.ufc] = try await ufcSchedule(for: day)
+            loaded.insert(.ufc)
+        } catch {
+            errors.append("UFC schedule unavailable.")
+        }
+        return Snapshot(games: games, loadedLeagues: loaded,
+            errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
     }
 
     private func combinedSchedule(for day: String) async throws -> Snapshot {
@@ -58,7 +71,7 @@ struct SportsScheduleClient: Sendable {
 
         var result: [SportsLeague: [SportsGame]] = [:]
         var failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:)))
-        for league in SportsLeague.allCases {
+        for league in SportsLeague.allCases where league != .ufc {
             guard let remoteGames = envelope.leagues[league.rawValue] else {
                 failed.insert(league)
                 continue
@@ -74,13 +87,82 @@ struct SportsScheduleClient: Sendable {
                     awayColor: game.awayColor, homeColor: game.homeColor,
                     awayRecord: game.awayRecord, homeRecord: game.homeRecord,
                     venue: game.venue, location: game.location,
-                    status: game.status, state: game.state, broadcast: game.broadcast
+                    status: game.status, state: game.state, broadcast: game.broadcast,
+                    eventName: nil
                 )
             }.sorted { $0.start < $1.start }
         }
-        let loaded = Set(SportsLeague.allCases).subtracting(failed)
+        let loaded = Set(SportsLeague.allCases.filter { $0 != .ufc }).subtracting(failed)
         let errorMessage = failed.isEmpty ? nil : "Temporarily unavailable: \(failed.map(\.shortName).sorted().joined(separator: ", "))."
         return Snapshot(games: result, loadedLeagues: loaded, errorMessage: errorMessage)
+    }
+
+    /// UFC cards are events rather than team games, so the shared schedule
+    /// service does not model them. ESPN's UFC scoreboard supplies every card
+    /// type (numbered PPVs, Fight Nights, prelims and special events) and the
+    /// main-event fighters fit Lineup's existing two-side presentation.
+    private func ufcSchedule(for day: String) async throws -> [SportsGame] {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=\(day)") else {
+            throw ScheduleError.invalidURL
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ScheduleError.noHTTPResponse }
+        guard http.statusCode == 200 else { throw ScheduleError.httpStatus(http.statusCode) }
+        let envelope = try JSONDecoder().decode(UFCEnvelope.self, from: data)
+        return envelope.events.compactMap { event in
+            guard let start = Self.parseDate(event.date) else { return nil }
+            // ESPN orders cards from early prelims toward the headliner. Match
+            // number 1 is the main event regardless of that array order.
+            let competition = event.competitions.min {
+                ($0.matchNumber ?? Int.max) < ($1.matchNumber ?? Int.max)
+            }
+            let ordered = (competition?.competitors ?? []).sorted {
+                ($0.homeAway == "away" ? 0 : 1) < ($1.homeAway == "away" ? 0 : 1)
+            }
+            let namesFromTitle = Self.ufcNames(from: event.shortName ?? event.name)
+            let away = ordered.first
+            let home = ordered.dropFirst().first
+            let awayName = away?.athlete?.displayName ?? namesFromTitle.0
+            let homeName = home?.athlete?.displayName ?? namesFromTitle.1
+            let status = competition?.status ?? event.status
+            let broadcast = (competition?.broadcasts ?? []).flatMap(\.names)
+                .filter { !$0.isEmpty }.joined(separator: " / ")
+            let location = competition?.venue?.address.map {
+                [$0.city, $0.state].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+            }
+            return SportsGame(
+                id: "ufc-\(event.id)", league: .ufc, start: start,
+                awayTeam: awayName, homeTeam: homeName,
+                awayAbbreviation: Self.fighterAbbreviation(awayName),
+                homeAbbreviation: Self.fighterAbbreviation(homeName),
+                awayLogo: away?.athlete?.headshot?.href ?? "",
+                homeLogo: home?.athlete?.headshot?.href ?? "",
+                awayScore: away?.score ?? "", homeScore: home?.score ?? "",
+                awayColor: nil, homeColor: nil,
+                awayRecord: away?.records?.first?.summary, homeRecord: home?.records?.first?.summary,
+                venue: competition?.venue?.fullName, location: location,
+                status: status?.type.shortDetail ?? status?.type.description ?? event.name,
+                state: status?.type.state ?? "pre", broadcast: broadcast,
+                eventName: event.name
+            )
+        }.sorted { $0.start < $1.start }
+    }
+
+    private static func ufcNames(from title: String) -> (String, String) {
+        let card = title.split(separator: ":", maxSplits: 1).last.map(String.init) ?? title
+        for separator in [" vs. ", " vs ", " v. ", " at "] {
+            let names = card.components(separatedBy: separator)
+            if names.count == 2 { return (names[0], names[1]) }
+        }
+        return (title, "UFC")
+    }
+
+    private static func fighterAbbreviation(_ name: String) -> String {
+        let parts = name.split(separator: " ")
+        guard let last = parts.last else { return "UFC" }
+        return String(last.prefix(4)).uppercased()
     }
 
     private static func describe(_ error: Error) -> String {
@@ -166,5 +248,67 @@ private struct CombinedEnvelope: Decodable {
         let status: String
         let state: String
         let broadcast: String
+    }
+}
+
+private struct UFCEnvelope: Decodable {
+    let events: [Event]
+
+    struct Event: Decodable {
+        let id: String
+        let name: String
+        let shortName: String?
+        let date: String
+        let status: Status?
+        let competitions: [Competition]
+    }
+
+    struct Competition: Decodable {
+        let competitors: [Competitor]
+        let status: Status?
+        let broadcasts: [Broadcast]
+        let venue: Venue?
+        let matchNumber: Int?
+
+        enum CodingKeys: String, CodingKey { case competitors, status, broadcasts, venue, matchNumber }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            competitors = try values.decodeIfPresent([Competitor].self, forKey: .competitors) ?? []
+            status = try values.decodeIfPresent(Status.self, forKey: .status)
+            broadcasts = try values.decodeIfPresent([Broadcast].self, forKey: .broadcasts) ?? []
+            venue = try values.decodeIfPresent(Venue.self, forKey: .venue)
+            matchNumber = try values.decodeIfPresent(Int.self, forKey: .matchNumber)
+        }
+    }
+
+    struct Competitor: Decodable {
+        let homeAway: String?
+        let athlete: Athlete?
+        let score: String?
+        let records: [Record]?
+    }
+
+    struct Athlete: Decodable {
+        let displayName: String
+        let headshot: Headshot?
+    }
+
+    struct Headshot: Decodable { let href: String? }
+    struct Record: Decodable { let summary: String? }
+    struct Broadcast: Decodable { let names: [String] }
+    struct Status: Decodable { let type: StatusType }
+    struct StatusType: Decodable {
+        let state: String
+        let description: String?
+        let shortDetail: String?
+    }
+    struct Venue: Decodable {
+        let fullName: String?
+        let address: Address?
+    }
+    struct Address: Decodable {
+        let city: String?
+        let state: String?
     }
 }
