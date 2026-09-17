@@ -79,6 +79,21 @@ jobs:
           done
           test "$missing" -eq 0
 
+      - name: Check background audio capability is in the bundle
+        run: |
+          set -euo pipefail
+          # The capability that makes background playback and Picture in Picture
+          # work at all. It is silent when missing -- the app simply stops on
+          # background -- and it lives in the built plist, not in code, so the
+          # bundle is the thing to check.
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
+          plist="$app/Info.plist"
+          test -f "$plist"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$plist" | grep -qx audio
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" != ""
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS"
+
       - name: Package IPA
         run: |
           set -euo pipefail

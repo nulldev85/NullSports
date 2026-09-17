@@ -67,17 +67,15 @@ targets:
         CURRENT_PROJECT_VERSION: "82"
         PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Lineup
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
-        # Without this the system suspends the app on background and playback
-        # stops no matter what the controller does. It is also what lets
-        # AVPictureInPictureController keep a stream running once the PiP
-        # window takes over. tvOS has neither feature and does not get the key.
-        INFOPLIST_KEY_UIBackgroundModes: audio
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to IPTV providers, Jellyfin, and Nullfin media servers on your local network.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # An explicit Info.plist, not INFOPLIST_KEY_* settings. UIBackgroundModes
+        # must be an array of strings for iOS to grant background audio and
+        # Picture in Picture; the generated plist did not produce one, so the
+        # capability was silently absent. This file carries every key the
+        # generated one used to, and is checked in CI after the build. It lives
+        # outside `sources` on purpose: an Info.plist inside the source glob is
+        # both processed and copied, which collides on Info.plist in the bundle.
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: BuildAssets/LineupiOS-Info.plist
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: iPhone/LineupiOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
