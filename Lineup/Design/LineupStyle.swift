@@ -4,6 +4,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     // Declaration order is the order the settings screens list them, and the
     // default belongs at the top.
     case signal
+    case graphiteIce
     case velvet
 
     static let storageKey = "lineup.appearance.theme"
@@ -12,6 +13,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .signal: "Signal"
+        case .graphiteIce: "Graphite Ice"
         case .velvet: "Velvet"
         }
     }
@@ -19,12 +21,27 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .signal: "Charcoal & electric blue"
+        case .graphiteIce: "Graphite & ice blue"
         case .velvet: "Plum & lilac"
         }
     }
 
     fileprivate var palette: LineupPalette {
         switch self {
+        case .graphiteIce:
+            LineupPalette(
+                accent: rgb(0xF1F5F9), background: rgb(0x080B10), surface: rgb(0x121720),
+                raised: rgb(0x1A2230), sidebar: rgb(0x0D1219), selected: rgb(0x172435),
+                focused: rgb(0x20364D), warning: rgb(0xF2B35D),
+                highlight: rgb(0x38BDF8), highlightSoft: rgb(0x7DD3FC),
+                selectionBorder: rgb(0x38BDF8),
+                liveDot: rgb(0xF43F5E), positive: rgb(0x34D399), logoPlate: rgb(0xF1F5F9),
+                line: rgb(0x8491A3).opacity(0.18),
+                leagues: LeagueColors(
+                    football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
+                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84)
+                )
+            )
         case .velvet:
             LineupPalette(
                 accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
@@ -163,8 +180,20 @@ enum LineupStyle {
     static var highlightSoft: Color { palette.highlightSoft }
     static var liveBorder: Color { palette.highlight.opacity(0.72) }
     static var line: Color { palette.line }
-    static var text: Color { theme == .velvet ? rgb(0xF6F2F8) : lightPurple }
-    static var secondary: Color { theme == .velvet ? rgb(0xA9A1AE) : lightPurple.opacity(0.66) }
+    static var text: Color {
+        switch theme {
+        case .velvet: rgb(0xF6F2F8)
+        case .graphiteIce: rgb(0xF1F5F9)
+        case .signal: lightPurple
+        }
+    }
+    static var secondary: Color {
+        switch theme {
+        case .velvet: rgb(0xA9A1AE)
+        case .graphiteIce: rgb(0x8491A3)
+        case .signal: lightPurple.opacity(0.66)
+        }
+    }
     static var field: Color { lightPurple }
     static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
