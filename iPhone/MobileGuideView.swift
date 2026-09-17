@@ -7,6 +7,10 @@ struct MobileGuideView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var query = ""
     @State private var showsSearch = false
+    /// Opening search from the menu should land on the keyboard. The picker's
+    /// always-on field must not, or the keyboard buries the channel it just
+    /// recommended before the viewer has even looked at it.
+    @State private var focusesSearchWhenShown = false
     @FocusState private var searchFocused: Bool
     @State private var category: String?
     @State private var favorites = false
@@ -108,7 +112,7 @@ struct MobileGuideView: View {
             .background(LineupStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
-                if showsSearch && !expanded {
+                if (showsSearch || game != nil) && !expanded {
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             .accessibilityHidden(true)
@@ -118,7 +122,11 @@ struct MobileGuideView: View {
                             .submitLabel(.search)
                             .focused($searchFocused)
                             .onSubmit { searchFocused = false }
-                            .task { searchFocused = true }
+                            .task {
+                                guard focusesSearchWhenShown else { return }
+                                focusesSearchWhenShown = false
+                                searchFocused = true
+                            }
                         if !query.isEmpty {
                             Button {
                                 query = ""
@@ -145,10 +153,15 @@ struct MobileGuideView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Return to Now", systemImage: "clock.arrow.circlepath") { returnToNow() }
-                        Button(showsSearch ? "Close Search" : "Search Channels",
-                               systemImage: showsSearch ? "xmark" : "magnifyingglass") {
-                            if showsSearch { closeSearch() }
-                            else { showsSearch = true }
+                        if game == nil {
+                            Button(showsSearch ? "Close Search" : "Search Channels",
+                                   systemImage: showsSearch ? "xmark" : "magnifyingglass") {
+                                if showsSearch { closeSearch() }
+                                else {
+                                    focusesSearchWhenShown = true
+                                    showsSearch = true
+                                }
+                            }
                         }
                         Divider()
                         Toggle("Favorites only", isOn: Binding(
