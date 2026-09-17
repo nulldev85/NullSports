@@ -68,7 +68,11 @@ private func retireRemovedThemes() {
 
 #if os(tvOS)
 func applyLineupTabBarTheme() {
-    let accent = UIColor(LineupStyle.lightPurple)
+    // Navigation is app chrome, not part of a content theme. Keeping it white
+    // prevents an old palette from lingering in the long-lived tab bar and
+    // lets the filled symbol carry selection without another accent competing.
+    let selectedColor = UIColor.white
+    let normalColor = UIColor.white.withAlphaComponent(0.62)
     let bars = UIApplication.shared.connectedScenes
         .compactMap { $0 as? UIWindowScene }
         .flatMap(\.windows)
@@ -83,18 +87,19 @@ func applyLineupTabBarTheme() {
     let appearance = UITabBarAppearance()
     appearance.configureWithOpaqueBackground()
     appearance.backgroundColor = UIColor(LineupStyle.background)
-    appearance.selectionIndicatorTintColor = UIColor(LineupStyle.focused)
+    appearance.selectionIndicatorTintColor = UIColor.white.withAlphaComponent(0.12)
     for item in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
-        for state in [item.normal, item.selected, item.disabled, item.focused] {
-            state.iconColor = accent
-            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: accent]
+        for (state, color) in [(item.normal, normalColor), (item.disabled, normalColor.withAlphaComponent(0.45)),
+                               (item.selected, selectedColor), (item.focused, selectedColor)] {
+            state.iconColor = color
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: color]
             if let titleFont { attributes[.font] = titleFont }
             state.titleTextAttributes = attributes
         }
     }
     UITabBar.appearance().standardAppearance = appearance
     UITabBar.appearance().scrollEdgeAppearance = appearance
-    UITabBar.appearance().unselectedItemTintColor = accent
+    UITabBar.appearance().unselectedItemTintColor = normalColor
     // The appearance proxy above only reaches bars built after this point, and
     // the tab bar is the one piece of chrome that outlives a theme switch --
     // it sits above the part of the tree that is rebuilt, so nothing else is
@@ -106,7 +111,7 @@ func applyLineupTabBarTheme() {
     bars.forEach { bar in
         bar.standardAppearance = appearance
         bar.scrollEdgeAppearance = appearance
-        bar.unselectedItemTintColor = accent
+        bar.unselectedItemTintColor = normalColor
         if let titleFont {
             for label in tabBarLabels(in: bar) {
                 label.font = titleFont.withSize(label.font.pointSize)

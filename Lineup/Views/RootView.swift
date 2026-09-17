@@ -72,23 +72,23 @@ struct MainView: View {
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Live", systemImage: "play.rectangle.fill") }
+                .tabItem { Label("Live", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView()
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Guide", systemImage: "list.bullet.rectangle") }
+                .tabItem { Label("Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Media Servers", systemImage: "play.square.stack") }
+                .tabItem { Label("Media Servers", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
                 .tag(2)
             AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                .tabItem { Label("Account", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }
         .ignoresSafeArea(.container, edges: .bottom)
-        .tint(LineupStyle.highlight)
+        .tint(.white)
     }
 }
 #endif
