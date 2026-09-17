@@ -604,21 +604,43 @@ private struct LiveGameSlate: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
+    private var rowStarts: [Int] {
+        Array(stride(from: 0, to: events.count, by: columns))
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
-                    ForEach(events) { game in
-                        LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
-                            multiviewPrimaryID: multiviewPrimaryID,
-                            onFocus: { focusedGame = game; focusRequest = nil },
-                            onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
-                        .id(game.id)
-                        .onAppear {
-                            if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
+                // Keep every row in the focus tree. LazyVGrid removes rows just
+                // outside the viewport; after scrolling back up, tvOS can then
+                // see the tab bar or league rail before it recreates the card
+                // directly above. The first press escapes and the second works
+                // only because that press caused the missing row to be loaded.
+                Grid(horizontalSpacing: 18, verticalSpacing: 18) {
+                    ForEach(rowStarts, id: \.self) { rowStart in
+                        GridRow {
+                            ForEach(0..<columns, id: \.self) { column in
+                                let index = rowStart + column
+                                if events.indices.contains(index) {
+                                    let game = events[index]
+                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
+                                        multiviewPrimaryID: multiviewPrimaryID,
+                                        onFocus: { focusedGame = game; focusRequest = nil },
+                                        onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
+                                    .id(game.id)
+                                    .onAppear {
+                                        if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
+                                    }
+                                } else {
+                                    Color.clear
+                                        .frame(maxWidth: .infinity, minHeight: 1)
+                                        .accessibilityHidden(true)
+                                }
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(5)
             }
             .focusSection()

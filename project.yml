@@ -7,7 +7,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.19.0"
-    CURRENT_PROJECT_VERSION: "65"
+    CURRENT_PROJECT_VERSION: "66"
 packages:
   # VLCKit's official Swift Package is only published on the 4.0 alpha line
   # (still at a22, undocumented in places, and the source of two build
