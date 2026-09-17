@@ -953,9 +953,35 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func restoreFavorites() {
-        favoriteStreamOrder = activeProfile.flatMap {
-            profileDefaults.array(forKey: favoritesKey + "." + $0.id.uuidString) as? [Int]
-        } ?? []
+        guard let profile = activeProfile else {
+            favoriteStreamOrder = []
+            return
+        }
+        let currentKey = favoritesKey + "." + profile.id.uuidString
+        if let saved = profileDefaults.array(forKey: currentKey) as? [Int] {
+            favoriteStreamOrder = saved
+            return
+        }
+
+        // Re-entering a provider creates a new UUID. If only the provider record
+        // disappeared, its per-profile favorites remain under the old UUID and
+        // look empty from the new one. Recover only the unambiguous case: this
+        // profile has never saved favorites and exactly one non-empty list is
+        // orphaned from every provider that still exists. Keep the old key as a
+        // backup rather than deleting the only surviving copy.
+        let knownKeys = Set(profiles.map { favoritesKey + "." + $0.id.uuidString })
+        let orphaned = profileDefaults.dictionaryRepresentation().compactMap { key, value -> [Int]? in
+            guard key.hasPrefix(favoritesKey + "."), !knownKeys.contains(key),
+                  let ids = value as? [Int], !ids.isEmpty else { return nil }
+            return ids
+        }
+        guard orphaned.count == 1, let recovered = orphaned.first else {
+            favoriteStreamOrder = []
+            return
+        }
+        favoriteStreamOrder = recovered
+        profileDefaults.set(recovered, forKey: currentKey)
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     // Let existing operations retire before replacing provider state. Their
