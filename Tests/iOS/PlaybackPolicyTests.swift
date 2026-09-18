@@ -105,6 +105,34 @@ final class PlaybackPolicyTests: XCTestCase {
         controller.shutdown()
     }
 
+    /// The regression behind "audio starts immediately, video arrives seconds
+    /// later": the surfaces are built by SwiftUI *after* `start(urls:)` runs, so
+    /// opening a stream must queue behind its video host rather than playing
+    /// blind. AVPlayer without a layer, like VLC without a drawable, produces
+    /// audio and no picture.
+    @MainActor
+    func testOpeningAStreamWaitsForItsVideoSurface() {
+        let controller = MobilePlaybackController()
+        // No host attached yet, exactly as when a channel is first selected.
+        controller.start(urls: [URL(string: "http://example.invalid/live/u/p/1.m3u8")!])
+        XCTAssertTrue(controller.isAwaitingVideoSurface,
+                      "Playback must not begin before there is somewhere to draw")
+        XCTAssertEqual(controller.systemPlayer.rate, 0,
+                       "The system engine must not be playing audio into a missing layer")
+        XCTAssertFalse(controller.isPlaying)
+        controller.shutdown()
+    }
+
+    /// The same gate for the VLC engine, which is where this discipline began.
+    @MainActor
+    func testATransportStreamAlsoWaitsForItsDrawable() {
+        let controller = MobilePlaybackController()
+        controller.start(urls: [URL(string: "http://example.invalid/live/u/p/1.ts")!])
+        XCTAssertTrue(controller.isAwaitingVideoSurface)
+        XCTAssertNil(controller.player.drawable, "VLC gets no drawable until one is mounted")
+        controller.shutdown()
+    }
+
     /// Both engines exist for the whole session, so a channel change or an
     /// engine fallback never constructs a second player.
     @MainActor
