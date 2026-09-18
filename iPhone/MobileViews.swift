@@ -270,7 +270,7 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Media Servers")
                 } footer: {
-                    Text("Jellyfin and Nullfin servers. Nullfin libraries include the addon catalogs configured on your server.")
+                    Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
                 }.listRowBackground(LineupStyle.surface)
                 Section {
                     // Keep the picker inline so changing the palette does not

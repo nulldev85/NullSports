@@ -71,17 +71,8 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let people: [MediaPerson]?
     let remoteTrailers: [MediaTrailer]?
 
-    // Set only on an item that came from a Stremio addon rather than a media
-    // server. An addon names its own artwork outright and answers about its own
-    // ids, so those four facts are all it takes for the rest of the app --
-    // cards, shelves, show pages, the stream picker -- to treat an addon item
-    // as any other item. A server item leaves every one of them nil.
-    /// Which installed addon this came from.
-    let addonID: String?
-    /// The addon's own kind: "movie", "series", "channel".
-    let stremioType: String?
-    /// The addon's own id: "tt0108778", or "tt0108778:1:1" for an episode.
-    let stremioID: String?
+    // Artwork a source names outright rather than hosting behind an image
+    // route, which is how a catalog imported from elsewhere arrives.
     let posterURL: String?
     let backdropURL: String?
     let logoArtworkURL: String?
@@ -99,7 +90,6 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          status: String? = nil, endDate: String? = nil, tags: [String]? = nil,
          studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
          people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
-         addonID: String? = nil, stremioType: String? = nil, stremioID: String? = nil,
          posterURL: String? = nil, backdropURL: String? = nil,
          logoArtworkURL: String? = nil) {
         self.id = id
@@ -128,17 +118,10 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.productionLocations = productionLocations
         self.people = people
         self.remoteTrailers = remoteTrailers
-        self.addonID = addonID
-        self.stremioType = stremioType
-        self.stremioID = stremioID
         self.posterURL = posterURL
         self.backdropURL = backdropURL
         self.logoArtworkURL = logoArtworkURL
     }
-
-    /// Whether this item is an addon's rather than a server's, which is the
-    /// one question every routed call in the library asks.
-    var isAddonItem: Bool { addonID != nil }
 
     var isPlayable: Bool {
         ["Movie", "Episode", "Video"].contains(type)
@@ -238,9 +221,6 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case remoteTrailers = "RemoteTrailers"
         // Lineup's own, never sent by a server: an absent key decodes to nil,
         // so a server's answer is unaffected by their existence.
-        case addonID = "LineupAddonId"
-        case stremioType = "LineupAddonType"
-        case stremioID = "LineupAddonItemId"
         case posterURL = "LineupPoster"
         case backdropURL = "LineupBackdrop"
         case logoArtworkURL = "LineupLogo"
