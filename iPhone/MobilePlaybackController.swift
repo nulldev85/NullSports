@@ -39,6 +39,9 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var pictureInPictureActive = false
     /// A short, self-clearing line shown when Lineup moves to a different feed.
     @Published private(set) var failoverNotice: String?
+    /// Where playback is in a title that has an end. Nil for a live stream,
+    /// which has no length to report and nothing to scrub through.
+    @Published private(set) var progress: MobilePlaybackProgress?
 
     /// How the controller reaches other channels for the game on screen. Left
     /// nil for plain Guide playback, which has no game and therefore no verified
@@ -59,6 +62,13 @@ final class MobilePlaybackController: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
+    private var isScrubbing = false
+    /// A channel runs at the live edge and is buffered for a link that may
+    /// wobble; a title is a file on a server that will be scrubbed through.
+    /// The two want opposite buffers, so the caller says which this is.
+    var isLive = true
+    /// Holds a surface teardown back long enough for a replacement to arrive.
+    private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
     private var originalURLs: [URL] = []
     private var started = Date()
@@ -193,9 +203,68 @@ final class MobilePlaybackController: ObservableObject {
     // covers what was actually asked for ("quality of channel").
     var streamQualityLabel: String? { qualityLabel }
 
+    // MARK: - Position
+
+    /// Read straight from whichever engine is running. Both report a length of
+    /// zero for a live stream, so a title with no end simply has no progress to
+    /// publish and the player shows live chrome instead of a scrubber.
+    private func sampleProgress() {
+        guard !isScrubbing else { return }
+        switch engine {
+        case .system:
+            let item = systemPlayer.currentItem
+            let duration = item?.duration.seconds ?? .nan
+            let position = systemPlayer.currentTime().seconds
+            guard duration.isFinite, duration > 0, position.isFinite else { progress = nil; return }
+            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+        case .vlc:
+            let lengthMs = player.media?.length.intValue ?? 0
+            guard lengthMs > 0 else { progress = nil; return }
+            let duration = Double(lengthMs) / 1000
+            let position = Double(player.time.intValue) / 1000
+            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+        }
+    }
+
+    /// Hold the sampled position still while a finger is on the scrubber, so
+    /// the thumb does not fight the engine's own reports on the way past.
+    func beginScrubbing() { isScrubbing = true }
+
+    func endScrubbing(at seconds: Double) {
+        isScrubbing = false
+        seek(to: seconds)
+    }
+
+    func seek(to seconds: Double) {
+        guard let current = progress, current.duration > 0 else { return }
+        let target = min(max(0, seconds), current.duration)
+        switch engine {
+        case .system:
+            // Half a second either side rather than an exact frame. An exact
+            // seek makes AVPlayer decode forward from the previous keyframe,
+            // which is most of the wait for no difference anyone can see.
+            let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+            systemPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                              toleranceBefore: tolerance, toleranceAfter: tolerance)
+        case .vlc:
+            // A fraction rather than a VLCTime: `position` is the one seek the
+            // pinned VLCKit has always exposed the same way.
+            player.position = Float(target / current.duration)
+        }
+        progress = MobilePlaybackProgress(position: target, duration: current.duration)
+        diag.record("seek to \(Int(target))s of \(Int(current.duration))s via \(engine.rawValue)")
+    }
+
+    func skip(by seconds: Double) {
+        guard let current = progress else { return }
+        seek(to: current.position + seconds)
+    }
+
     // MARK: - Surface
 
     func attachVideo(_ view: MobileVideoHost) {
+        pendingTeardown?.cancel()
+        pendingTeardown = nil
         diag.record("attachVideo \(Int(view.bounds.width))x\(Int(view.bounds.height)) window=\(view.window == nil ? "no" : "yes") engine=\(engine.rawValue) first=\(videoView !== view)")
         videoView = view
         switch engine {
@@ -218,10 +287,25 @@ final class MobilePlaybackController: ObservableObject {
             videoView = nil
             return
         }
-        stop()
         player.drawable = nil
         view.removePlayerLayer()
         videoView = nil
+        // A layout change big enough for SwiftUI to rebuild the video surface
+        // arrives here as a teardown immediately followed by a new surface.
+        // Stopping the engine on the spot turns going full screen into a visible
+        // reconnect, so hold off a moment: a replacement surface cancels this,
+        // and anything else really was a teardown.
+        pendingTeardown?.cancel()
+        pendingTeardown = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            // Re-check Picture in Picture as well as the surface: the window can
+            // take the stream over inside this window, and stopping the engine
+            // underneath it would close the very thing the viewer moved to.
+            guard let self, !Task.isCancelled,
+                  self.videoView == nil, !self.pictureInPictureActive else { return }
+            self.pendingTeardown = nil
+            self.stop()
+        }
     }
 
     /// Installs the AVPlayer layer and, the first time, the PiP controller that
@@ -312,6 +396,7 @@ final class MobilePlaybackController: ObservableObject {
                 // the rest of this loop, and a paused or backgrounded stream is
                 // exactly when some of these values matter. Observation only.
                 self.diag.update(snapshot: self.diagnosticsSnapshot)
+                self.sampleProgress()
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
                     if ProcessInfo.processInfo.systemUptime >= retryAt {
@@ -403,10 +488,21 @@ final class MobilePlaybackController: ObservableObject {
         // (the 4.0 alpha we moved off of made it failable), so no optional
         // binding here.
         let media = VLCMedia(url: url)
-        // Matches tvOS's buffer size — 3s was too tight for some providers and
-        // read as a stall/drop after several minutes on a slightly slower link.
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
+        if isLive {
+            // Matches tvOS's buffer size — 3s was too tight for some providers
+            // and read as a stall/drop after several minutes on a slightly
+            // slower link.
+            media.addOption(":network-caching=5000")
+            media.addOption(":live-caching=5000")
+        } else {
+            // Five seconds of buffer is five seconds refilled after every
+            // seek, which made scrubbing feel like it had hung; one second
+            // seeks fast but leaves nothing in hand and a real server on a
+            // real link stutters. Three is the compromise, and it is the one
+            // number to move if either complaint comes back.
+            media.addOption(":network-caching=3000")
+            media.addOption(":file-caching=3000")
+        }
         media.addOption(":http-reconnect=true")
         player.media = media
         waitingForVideo = true
@@ -698,6 +794,8 @@ final class MobilePlaybackController: ObservableObject {
     func stop() {
         monitor?.cancel()
         monitor = nil
+        pendingTeardown?.cancel()
+        pendingTeardown = nil
         retryAt = nil
         pausedByUser = false
         waitingForVideo = false
@@ -829,11 +927,19 @@ final class MobileVideoHost: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         // VLC installs its renderer as a child of this host. Keep it fitted when
-        // expanding, collapsing, or rotating without replacing the drawable.
+        // expanding, collapsing, or rotating without replacing the drawable —
+        // and, like the AVPlayer layer below, without the implicit animation the
+        // surrounding transaction would otherwise lend each frame change. Going
+        // full screen resizes this host on every frame of an animation, and a
+        // renderer easing towards each of those frames drags visibly behind its
+        // own window.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         for renderer in subviews {
             renderer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if renderer.frame != bounds { renderer.frame = bounds }
         }
+        CATransaction.commit()
         // The same for the AVPlayer layer, minus the implicit animation a layer
         // frame change would otherwise inherit from the rotation transaction.
         if let playerLayer, playerLayer.frame != bounds {

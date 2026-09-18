@@ -34,40 +34,20 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var addonsUnavailable = false
     private var importTasks: [String: Task<Void, Never>] = [:]
 
-    // MARK: Addons talked to directly
-    //
-    // Set only by the addon half of this library, which lives in
-    // MediaLibrary+Addons.swift -- an extension in another file, so these
-    // cannot be closed to it the way the server state above is.
-    /// The Stremio-type addons the viewer has installed.
-    @Published var addons: [StremioAddon] = []
-    /// Their chosen catalogs, already fetched, as rows.
-    @Published var addonShelves: [MediaCatalog] = []
-    /// Set while an addon's manifest is being read.
-    @Published var addonBusy = false
-    /// Which rows were chosen, in the order they were chosen.
-    var addonShelfIDs: [String] = []
-    /// Addon records kept after their first fetch. A show page asks for the
-    /// same meta three times over -- details, seasons, then episodes.
-    var addonMetas: [String: StremioMeta] = [:]
-    /// Full manifest search catalogs, including search-only entries that are
-    /// deliberately absent from the browsable shelf list.
-    var addonSearchCatalogs: [String: [StremioCatalogSpec]] = [:]
-    let addonsKey = "Lineup.stremioAddons"
-    let addonShelvesKey = "Lineup.stremioShelves"
-
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
-    // Not private: the addon extension in MediaLibrary+Addons.swift stores its
-    // own list here, and `private` is file-scoped.
-    let defaults: UserDefaults
+    private let defaults: UserDefaults
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
     private let profilesKey = "NullSports.mediaServers"
     private let activeKey = "NullSports.activeMediaServer"
     private let deviceKey = "NullSports.mediaDeviceID"
     private let shelvesKey = "NullSports.mediaShelves"
+    // Written by a version that could install media sources the app talked to
+    // directly. That feature is gone, so the state it left behind is cleared
+    // on the next launch rather than sitting in defaults forever.
+    private static let retiredKeys = ["Lineup.stremioAddons", "Lineup.stremioShelves"]
     private var loadID = UUID()
 
     init(defaults: UserDefaults = .standard) {
@@ -78,19 +58,18 @@ final class MediaLibrary: ObservableObject {
         }
         let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
         activeProfile = profiles.first { $0.id == activeID } ?? profiles.first
-        addonShelfIDs = defaults.stringArray(forKey: addonShelvesKey) ?? []
-        restoreAddons()
+        for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     var hasProfile: Bool { activeProfile != nil }
 
-    /// Whether there is anything to show at all. An addon is a source in its
-    /// own right, so the tab has content with no server connected.
-    var hasAnySource: Bool { activeProfile != nil || !addons.isEmpty }
+    /// Whether there is anything to show at all.
+    var hasAnySource: Bool { activeProfile != nil }
 
-    /// Every row on the Media Servers tab: the server's, then the addons'.
-    /// One list, because a shelf from either is browsed and played the same way.
-    var shelves: [MediaCatalog] { catalogs + addonShelves }
+    /// Every row on the Media Servers tab.
+    var shelves: [MediaCatalog] { catalogs }
 
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,9 +139,6 @@ final class MediaLibrary: ObservableObject {
         guard let profile = activeProfile else {
             roots = []; collections = []; catalogs = []; isLoading = false
             libraryCounts = nil; lastRefreshedAt = nil; isConnected = false
-            // Addons are a source of their own: with no server connected there
-            // is still a tab full of rows to refill.
-            await refreshAddonShelves()
             return
         }
         let requestID = UUID()
@@ -222,11 +198,9 @@ final class MediaLibrary: ObservableObject {
         // After the libraries, not before: this is one request per enabled
         // catalog and the shelves should not wait behind it.
         if loadID == requestID { await loadAddonCatalogs() }
-        if loadID == requestID { await refreshAddonShelves() }
     }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
-        if parent.isAddonItem { return try await addonItems(in: parent) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
     }
@@ -234,7 +208,6 @@ final class MediaLibrary: ObservableObject {
     // Seasons and episodes are numbered, not named: "Season 10" sorts before
     // "Season 2" by name. A season can also run long past the shelf's limit.
     func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
-        if parent.isAddonItem { return try await addonChildren(of: parent) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
             parentID: parent.id, sortBy: "IndexNumber", limit: 500)
@@ -242,7 +215,6 @@ final class MediaLibrary: ObservableObject {
 
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
-        if item.isAddonItem { return try await addonDetails(of: item) }
         guard let profile = activeProfile else { return item }
         return try await client(for: profile).item(userID: profile.userID, itemID: item.id)
     }
@@ -252,7 +224,6 @@ final class MediaLibrary: ObservableObject {
         let local = shelves.flatMap(\.items).filter { candidate in
             candidate.hasDetailPage && candidate.type == item.type
                 && candidate.id != item.id
-                && (item.stremioID == nil || candidate.stremioID != item.stremioID)
                 && !genres.isEmpty
                 && !genres.isDisjoint(with: Set((candidate.genres ?? []).map { $0.lowercased() }))
         }.sorted { left, right in
@@ -261,7 +232,7 @@ final class MediaLibrary: ObservableObject {
             return leftMatch > rightMatch
         }
         var remote: [MediaItem] = []
-        if !item.isAddonItem, let profile = activeProfile {
+        if let profile = activeProfile {
             remote = (try? await client(for: profile)
                 .similarItems(userID: profile.userID, itemID: item.id))?
                 .filter { $0.id != item.id && $0.hasDetailPage } ?? []
@@ -283,8 +254,6 @@ final class MediaLibrary: ObservableObject {
     }
 
     func nextUp(in series: MediaItem) async -> MediaItem? {
-        // An addon keeps no watch history, so there is no next episode to name.
-        if series.isAddonItem { return nil }
         guard let profile = activeProfile else { return nil }
         return try? await client(for: profile)
             .nextUp(userID: profile.userID, seriesID: series.id).first
@@ -293,15 +262,11 @@ final class MediaLibrary: ObservableObject {
     /// Per-source scores, when the server keeps them. A Jellyfin server does
     /// not, so a failure here means "show what the item itself carries".
     func metrics(for item: MediaItem) async -> [MediaMetric] {
-        // The addon's own rating already rides along on the item itself.
-        if item.isAddonItem { return [] }
         guard let profile = activeProfile else { return [] }
         return (try? await client(for: profile).itemMetrics(itemID: item.id)) ?? []
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
-        // Nothing to mark it on: an addon holds no account of the viewer's.
-        if item.isAddonItem { return }
         guard let profile = activeProfile else { return }
         do {
             try await client(for: profile)
@@ -312,7 +277,6 @@ final class MediaLibrary: ObservableObject {
     }
 
     func setPlayed(_ isPlayed: Bool, for item: MediaItem) async {
-        if item.isAddonItem { return }
         guard let profile = activeProfile else { return }
         do {
             try await client(for: profile)
@@ -322,18 +286,16 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
-    /// Search the server and every addon that takes a search term, as one list.
+    /// Search the server, with what is already shelved as the fallback.
     ///
     /// The server's own results come first, because those are titles the viewer
-    /// actually holds. A failure on either side is not allowed to cost the
-    /// other: with no server connected this is the addons alone, and with an
-    /// addon down it is the server alone.
+    /// actually holds. A server that fails still leaves the loaded shelves
+    /// searchable, and only an empty result raises the error.
     func search(_ query: String) async throws -> [MediaItem] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        // A loaded shelf remains searchable even when its addon publishes no
-        // search endpoint. The server and search-capable addons expand beyond
-        // those first-page cards.
+        // A loaded shelf stays searchable on its own; the server expands
+        // beyond those first-page cards.
         var results = shelves.flatMap(\.items).filter {
             $0.hasDetailPage && $0.name.localizedStandardContains(term)
         }
@@ -344,8 +306,6 @@ final class MediaLibrary: ObservableObject {
                     .search(userID: profile.userID, query: term) + results
             } catch { serverError = error }
         }
-        // Every addon that takes a search term, asked at once inside.
-        results += await searchAddons(term)
         var seen: Set<String> = []
         results = results.filter { seen.insert($0.id).inserted }
         if results.isEmpty, let serverError { throw serverError }
@@ -367,7 +327,6 @@ final class MediaLibrary: ObservableObject {
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
-        if catalog.root.isAddonItem { removeAddonShelf(catalog); return }
         guard let profile = activeProfile else { return }
         catalogs.removeAll { $0.id == catalog.id }
         saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
@@ -378,8 +337,8 @@ final class MediaLibrary: ObservableObject {
     /// The server's own libraries that are not already a shelf.
     var availableLibraries: [MediaItem] { unshelved(roots) }
 
-    /// The addon catalogs, and any hand-made collection, that are not already a
-    /// shelf. On a Nullfin server this is the list the viewer came for.
+    /// The imported catalogs, and any hand-made collection, that are not
+    /// already a shelf. On a Nullfin server this is the list the viewer came for.
     var availableCatalogs: [MediaItem] {
         var seen: Set<String> = []
         return unshelved(importedCatalogs + collections)
@@ -478,7 +437,7 @@ final class MediaLibrary: ObservableObject {
             errorMessage = error.localizedDescription
             return
         }
-        await waitForImport(of: catalog, profile: profile)
+        await waitForImport(of: catalog, addonID: addonID, profile: profile)
     }
 
     private func drop(_ catalog: NullfinCatalog) {
@@ -494,31 +453,20 @@ final class MediaLibrary: ObservableObject {
     /// appearing is the signal. It gives up after a few minutes rather than
     /// waiting forever; the shelf can still be added by hand once the import
     /// finishes.
-    private func waitForImport(of catalog: NullfinCatalog, profile: MediaServerProfile) async {
+    private func waitForImport(of catalog: NullfinCatalog, addonID: String,
+                               profile: MediaServerProfile) async {
         guard let source = try? client(for: profile) else { return }
-        guard let wanted = catalog.collectionId else {
-            // Without an id there is nothing to watch for. It is switched on
-            // either way, so say so rather than leaving the choice looking
-            // like it did nothing.
-            errorMessage = "\(catalog.name) is switched on, but this server did not say which collection it becomes. It will appear under imported catalogs once the server finishes."
-            return
-        }
-        // Ask for the one collection by the id the addon just named, rather
-        // than scanning a list of every collection for it. A list is a broad
-        // query with assumptions in it and it only has to be wrong once to
-        // leave this waiting forever; an item by its id either exists or does
-        // not. The first look happens before any waiting, because a catalog
-        // the server already holds should not cost ten seconds.
-        //
         // A full library refresh re-imports every enabled catalog, not just
         // this one, so on a server with several addons it is minutes of work.
-        // Ten of them.
+        // Ten of them. The first look happens before any waiting, because a
+        // catalog the server already holds should not cost ten seconds.
         for attempt in 0..<61 {
             if attempt > 0 {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
             }
             guard activeProfile?.id == profile.id else { return }
-            guard let found = try? await source.item(userID: profile.userID, itemID: wanted)
+            guard let found = await importedCollection(for: catalog, addonID: addonID,
+                                                       source: source, profile: profile)
             else { continue }
             await addShelf(found)
             drop(catalog)
@@ -530,6 +478,34 @@ final class MediaLibrary: ObservableObject {
         guard !Task.isCancelled else { return }
         errorMessage = "\(catalog.name) is still importing on the server. It will appear under imported catalogs when that finishes — refresh then to add it."
         await reload()
+    }
+
+    /// The collection a catalog became, asked for three ways.
+    ///
+    /// The id the catalog carried when it was chosen is the obvious one and
+    /// the one this used to rely on alone -- but a catalog the server has
+    /// never imported carries no id at all until the server resolves one, and
+    /// it only resolves one once the import has run. So for exactly the case
+    /// that matters, a freshly switched-on catalog, that id is nil or stale,
+    /// and watching it alone is watching for something that will never arrive.
+    /// Hence asking the server what the id is *now*, on every pass, and
+    /// falling back to the collection that carries the catalog's name for a
+    /// server that imports it without ever naming it back.
+    private func importedCollection(for catalog: NullfinCatalog, addonID: String,
+                                    source: JellyfinClient,
+                                    profile: MediaServerProfile) async -> MediaItem? {
+        if let id = catalog.collectionId,
+           let item = try? await source.item(userID: profile.userID, itemID: id) {
+            return item
+        }
+        let current = (try? await source.addonCatalogs(addonID: addonID))?
+            .first { $0.catalogId == catalog.catalogId }
+        if let id = current?.collectionId, id != catalog.collectionId,
+           let item = try? await source.item(userID: profile.userID, itemID: id) {
+            return item
+        }
+        return (try? await source.collections(userID: profile.userID))?
+            .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }
     }
 
     /// A server that will not answer, as opposed to one that answered badly.
@@ -546,8 +522,8 @@ final class MediaLibrary: ObservableObject {
     }
 
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
-        // An addon names its artwork outright rather than hosting it, so the
-        // card asks for that address and never reaches the server at all.
+        // A source that names its artwork outright is asked for that address
+        // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
@@ -556,20 +532,18 @@ final class MediaLibrary: ObservableObject {
     // Asking for art the server did not report leaves a request to 404 behind
     // every hero, so each of these answers nil unless the item claims one.
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
-        if item.isAddonItem { return item.backdropURL.flatMap(URL.init(string:)) }
+        if let backdrop = item.backdropURL { return URL(string: backdrop) }
         guard item.hasBackdrop, let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "backdrop", maxWidth: width)
     }
 
     func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
-        if item.isAddonItem { return item.logoArtworkURL.flatMap(URL.init(string:)) }
+        if let logo = item.logoArtworkURL { return URL(string: logo) }
         guard item.hasLogo, let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
     }
 
     func playbackURL(for item: MediaItem) -> URL? {
-        // An addon item is only ever played through a chosen stream.
-        if item.isAddonItem { return nil }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id)
     }
@@ -589,16 +563,12 @@ final class MediaLibrary: ObservableObject {
     }
 
     func playbackSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
-        if item.isAddonItem { return try await addonSources(for: item) }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).playbackInfo(itemID: item.id).mediaSources
             .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
     }
 
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
-        // The addon handed back the address itself, and it is already in the
-        // source the viewer picked.
-        if item.isAddonItem { return source.path.flatMap(URL.init(string:)) }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: source.id)
     }

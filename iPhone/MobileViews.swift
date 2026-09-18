@@ -4,6 +4,7 @@ struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var guideFullscreen = false
@@ -18,7 +19,7 @@ struct MainView: View {
             MobileLiveView(isActive: tab == 0) { playing = $0 }
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setGuideFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
@@ -43,7 +44,7 @@ struct MainView: View {
         .statusBarHidden(guideFullscreen)
         .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
-            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream))
+            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
@@ -54,6 +55,14 @@ struct MainView: View {
         }
     }
 
+    // The guide raises this from inside its own animated change, so the tab bar
+    // and status bar leave in the same movement the video grows in, rather than
+    // snapping away a frame ahead of it.
+    private func setGuideFullscreen(_ value: Bool) {
+        guard guideFullscreen != value else { return }
+        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
+        withAnimation(animation) { guideFullscreen = value }
+    }
 }
 
 struct ProfileSetupView: View {
@@ -76,7 +85,7 @@ struct ProfileSetupView: View {
                         Text("Your games.\nAnywhere.").font(.inter(.largeTitle, .bold))
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section("Your provider") {
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -84,7 +93,7 @@ struct ProfileSetupView: View {
                         .keyboardType(.URL).textContentType(.URL)
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     Button {
                         connecting = true
@@ -109,7 +118,7 @@ struct ProfileSetupView: View {
                 }.listRowBackground(LineupStyle.raised)
                 if let connectionError {
                     Section { Text(connectionError).foregroundStyle(.red) }
-                        .listRowBackground(LineupStyle.surface)
+                        .listRowBackground(LineupGlassRow())
                 }
             }
             .navigationTitle(addingProvider ? "Add provider" : "")
@@ -129,60 +138,19 @@ struct ProfileSetupView: View {
     }
 }
 
-private struct MobileAccountView: View {
-    @Binding var selectedTab: Int
+/// The preferred-channel and recents lists, on a screen of their own.
+///
+/// They were rows in the Account form, where a viewer with a preference per
+/// team turned the whole tab into a long scroll before reaching anything else.
+/// Everything here is unchanged; it simply is not in the way any more.
+private struct MobilePreferredChannelsView: View {
     @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
-    @EnvironmentObject private var cloud: CloudSettingsSync
-    @State private var addingProvider = false
-    @State private var addingMediaServer = false
-    @State private var removingProfile: XtreamProfile?
-    @State private var removingMediaProfile: MediaServerProfile?
-    @State private var clearingPreferences = false
-    @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
+    @Binding var clearingPreferences: Bool
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    ForEach(library.profiles) { profile in
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await library.selectProfile(profile) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: library.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(profile.name).font(.inter(.body, .semibold))
-                                        Text(profile.username).font(.inter(.caption)).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if library.activeProfile?.id == profile.id {
-                                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
-                                    }
-                                }.contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(profile.name), \(library.activeProfile?.id == profile.id ? "active provider" : "switch provider")")
-                            Button(role: .destructive) { removingProfile = profile } label: {
-                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Remove \(profile.name)")
-                        }
-                        .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
-                    }
-                    Button("Add provider", systemImage: "plus.circle") { addingProvider = true }
-                        .disabled(library.isSwitchingProfile)
-                    if library.isSwitchingProfile { ProgressView("Switching provider…") }
-                } header: {
-                    Text("Providers")
-                } footer: {
-                    Text("Select a provider to use its channels and guide. Each provider keeps its own favorites and preferred channels.")
-                }.listRowBackground(LineupStyle.surface)
-                Section {
-                    if library.teamPreferences.isEmpty {
+        Form {
+            Section {
+                if library.teamPreferences.isEmpty {
                         Text("No preferred channels yet. Choose a channel for a game and Lineup can remember it for either team.")
                             .font(.inter(.caption)).foregroundStyle(.secondary)
                     } else {
@@ -227,11 +195,122 @@ private struct MobileAccountView: View {
                         Button("Clear recent channels", systemImage: "clock.arrow.circlepath",
                                role: .destructive) { library.clearRecentChannels() }
                     }
+            } footer: {
+                Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
+            }.listRowBackground(LineupGlassRow())
+        }
+        .scrollContentBackground(.hidden).background(LineupStyle.background)
+        .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
+                            titleVisibility: .visible) {
+            Button("Remove all", role: .destructive) { library.removeAllPreferences() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+        }
+        .navigationTitle("Preferred channels")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Channel matching and playback diagnostics, which are read when something is
+/// wrong rather than browsed, so they sit one tap in rather than inline.
+private struct MobileDiagnosticsView: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @ObservedObject var playbackDiagnostics: PlaybackDiagnostics
+
+    var body: some View {
+        Form {
+            Section {
+                NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
+                Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
+                if playbackDiagnostics.isEnabled {
+                    NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
+                }
+            } footer: {
+                Text("Playback diagnostics records what the player does while it is on. Leave it off unless you are chasing a problem.")
+            }.listRowBackground(LineupGlassRow())
+        }
+        .scrollContentBackground(.hidden).background(LineupStyle.background)
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MobileAccountView: View {
+    @Binding var selectedTab: Int
+    @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var media: MediaLibrary
+    @EnvironmentObject private var cloud: CloudSettingsSync
+    @State private var addingProvider = false
+    @State private var addingMediaServer = false
+    @State private var removingProfile: XtreamProfile?
+    @State private var removingMediaProfile: MediaServerProfile?
+    @State private var clearingPreferences = false
+    @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
+    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
+
+    /// Counts rather than the lists themselves, so the row says whether there
+    /// is anything behind it without reproducing it.
+    private var preferencesSummary: String {
+        let teams = library.teamPreferences.listed().count
+        let recents = library.recentStreams.count
+        if teams == 0 && recents == 0 { return "None yet" }
+        var parts: [String] = []
+        if teams > 0 { parts.append("\(teams) team\(teams == 1 ? "" : "s")") }
+        if recents > 0 { parts.append("\(recents) recent") }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(library.profiles) { profile in
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await library.selectProfile(profile) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: library.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(profile.name).font(.inter(.body, .semibold))
+                                        Text(profile.username).font(.inter(.caption)).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if library.activeProfile?.id == profile.id {
+                                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
+                                    }
+                                }.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(profile.name), \(library.activeProfile?.id == profile.id ? "active provider" : "switch provider")")
+                            Button(role: .destructive) { removingProfile = profile } label: {
+                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Remove \(profile.name)")
+                        }
+                        .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
+                    }
+                    Button("Add provider", systemImage: "plus.circle") { addingProvider = true }
+                        .disabled(library.isSwitchingProfile)
+                    if library.isSwitchingProfile { ProgressView("Switching provider…") }
                 } header: {
-                    Text("Preferred channels & recents")
+                    Text("Providers")
                 } footer: {
-                    Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
-                }.listRowBackground(LineupStyle.surface)
+                    Text("Each provider keeps its own favorites and preferred channels.")
+                }.listRowBackground(LineupGlassRow())
+                Section {
+                    NavigationLink {
+                        MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
+                            .environmentObject(library)
+                    } label: {
+                        LabeledContent("Preferred channels & recents",
+                                       value: preferencesSummary)
+                    }
+                } footer: {
+                    Text("Games on these teams open on the saved channel, and these lists belong to this provider alone.")
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     if let profile = media.activeProfile {
                         MediaServerAccountCard(profile: profile) { selectedTab = 2 }
@@ -261,11 +340,15 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Media Servers")
                 } footer: {
-                    Text("Jellyfin and Nullfin servers. Nullfin libraries include the addon catalogs configured on your server.")
-                }.listRowBackground(LineupStyle.surface)
+                    Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
+                }.listRowBackground(LineupGlassRow())
                 Section {
-                    // Keep the picker inline so changing the palette does not
-                    // dismiss a pushed theme screen during its own redraw.
+                    // Collapsed rather than pushed. A theme screen of its own
+                    // dismissed itself as the palette changed underneath it,
+                    // which is why this picker stays inline; a disclosure row
+                    // gives back the height without putting it on a screen that
+                    // can be torn down mid-redraw.
+                    DisclosureGroup {
                     Picker("Theme", selection: $selectedTheme) {
                         ForEach(LineupTheme.allCases) { theme in
                             HStack {
@@ -279,35 +362,29 @@ private struct MobileAccountView: View {
                         }
                     }
                     .pickerStyle(.inline)
-                } header: {
-                    Text("Theme")
-                } footer: {
-                    Text("A complete color treatment for Lineup. Your choice syncs through iCloud.")
-                }
-                .listRowBackground(LineupStyle.surface)
-                Section("Current library") {
-                    LabeledContent("iCloud", value: cloud.status)
-                    LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
-                    LabeledContent("Channels", value: "\(library.streams.count)")
-                    NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
-                    Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
-                    if playbackDiagnostics.isEnabled {
-                        NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
+                    .labelsHidden()
+                    } label: {
+                        LabeledContent("Theme", value: LineupTheme(rawValue: selectedTheme)?.name ?? "Signal")
                     }
+                } footer: {
+                    Text("Syncs through iCloud.")
+                }
+                .listRowBackground(LineupGlassRow())
+                Section("Current library") {
+                    LabeledContent("Channels", value: "\(library.streams.count)")
+                    LabeledContent("iCloud", value: cloud.status)
+                    NavigationLink("Diagnostics") {
+                        MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
+                            .environmentObject(library)
+                    }
+                    LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
-            .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
-                                titleVisibility: .visible) {
-                Button("Remove all", role: .destructive) { library.removeAllPreferences() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
-            }
             .navigationTitle("Account")
             .task {
                 if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
@@ -371,7 +448,7 @@ private struct MatchDiagnosticsView: View {
                 }
             } footer: {
                 Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
-            }.listRowBackground(LineupStyle.surface)
+            }.listRowBackground(LineupGlassRow())
         }
         .scrollContentBackground(.hidden)
         .background(LineupStyle.background)

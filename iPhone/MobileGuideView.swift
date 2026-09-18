@@ -5,6 +5,7 @@ struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var showsSearch = false
     @FocusState private var searchFocused: Bool
@@ -54,6 +55,9 @@ struct MobileGuideView: View {
                 let showsMetadata = viewport.size.height > 400
                 let metadataHeight: CGFloat = showsMetadata ? 106 : 0
                 let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight))
+                let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
+                                                                    safeAreaTop: viewport.safeAreaInsets.top,
+                                                                    safeAreaBottom: viewport.safeAreaInsets.bottom)
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         if selectedStream != nil {
@@ -93,18 +97,23 @@ struct MobileGuideView: View {
                             MobileGuidePlayer(controller: playback, stream: stream,
                                 program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
                                 expanded: expanded, showsMetadata: showsMetadata,
-                                videoHeight: expanded ? viewport.size.height : videoHeight,
-                                onClose: closePlayer, onExpand: { expanded.toggle() },
+                                videoHeight: expanded ? fullHeight : videoHeight,
+                                onClose: closePlayer, onExpand: { setExpanded(!expanded) },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) })
-                                .frame(height: expanded ? viewport.size.height : videoHeight + metadataHeight, alignment: .top)
+                                .frame(height: expanded ? fullHeight : videoHeight + metadataHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
+                        // The player is the one thing that reaches past the
+                        // chrome, so it claims the whole screen itself rather
+                        // than waiting for the guide around it to get out of the
+                        // way first. Its position and size stay identical
+                        // whether or not the bars have finished hiding.
+                        .ignoresSafeArea(expanded ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(enabled: expanded, onDismiss: closePlayer))
                     }
                 }
             }
-            .ignoresSafeArea(expanded ? .all : [], edges: .all)
             .background(LineupStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -222,6 +231,22 @@ struct MobileGuideView: View {
         playback = MobilePlaybackController()
         selectedStream = stream
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
+    }
+
+    /// Expanding moves the video, the guide behind it, the navigation bar, the
+    /// tab bar and the status bar. Driving all of it from one animated change is
+    /// what makes it read as a single motion instead of the video jumping first
+    /// and the chrome catching up afterwards.
+    private func setExpanded(_ value: Bool) {
+        guard !reduceMotion else {
+            expanded = value
+            onFullscreenChange(value)
+            return
+        }
+        withAnimation(.smooth(duration: 0.34)) {
+            expanded = value
+            onFullscreenChange(value)
+        }
     }
 
     private func closePlayer() {

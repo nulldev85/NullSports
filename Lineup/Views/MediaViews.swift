@@ -6,24 +6,21 @@ import UIKit
 struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingServer = false
-    @State private var addingAddon = false
     @State private var choosingShelf = false
 
     var body: some View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer, addingAddon: $addingAddon,
-                choosingShelf: $choosingShelf)
+            TVMediaServersHome(addingServer: $addingServer, choosingShelf: $choosingShelf)
             #else
             Group {
                 if !media.hasAnySource {
                     ContentUnavailableView {
-                        Label("Add a Source", systemImage: "play.square.stack")
+                        Label("Add a Media Server", systemImage: "play.square.stack")
                     } description: {
-                        Text("Connect a Jellyfin or Nullfin server for your own library, or add an addon to browse its catalogs and play its streams directly.")
+                        Text("Connect a Jellyfin, Nullfin, or other Jellyfin-compatible server to watch your own library here.")
                     } actions: {
-                        Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
                 } else if media.shelves.isEmpty && media.isLoading {
@@ -46,22 +43,12 @@ struct MediaServersView: View {
                     .environmentObject(media)
                     .preferredColorScheme(.dark)
             }
-            .sheet(isPresented: $addingAddon) {
-                AddonSetupView()
-                    .environmentObject(media)
-                    .preferredColorScheme(.dark)
-            }
             .sheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environmentObject(media)
             }
             .task {
                 if media.activeProfile != nil && media.roots.isEmpty {
                     await media.reload()
-                } else if media.addonShelves.isEmpty {
-                    // A row from an addon is fetched rather than stored, so at
-                    // launch there are none however many were chosen. Only
-                    // when the server reload above did not already do it.
-                    await media.refreshAddonShelves()
                 }
             }
             .alert("Media Server", isPresented: Binding(
@@ -87,7 +74,6 @@ struct MediaServersView: View {
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
                 .disabled(media.isLoading || !media.hasAnySource)
-            Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
             Button("Add Server", systemImage: "plus") { addingServer = true }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -107,10 +93,13 @@ struct MediaServerAccountCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
+                // A glass circle on the left and a glass capsule on the right
+                // bracket the header; a filled disc against bare text did not.
                 Image(systemName: "play.square.stack.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: 42, height: 42)
-                    .background(LineupStyle.raised, in: Circle())
+                    .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
+                                       border: LineupStyle.line)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(profile.name).font(.inter(.headline, .bold)).lineLimit(1)
@@ -120,14 +109,26 @@ struct MediaServerAccountCard: View {
                         .font(.inter(.caption)).lineLimit(1)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 }
-                Spacer(minLength: 4)
+                Spacer(minLength: 8)
+                // A floor under the width so the header does not shuffle as the
+                // word changes between connecting, connected and offline.
                 Text(media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"))
                     .font(.inter(.caption2, .semibold))
                     .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
+                    .lineLimit(1)
+                    .frame(minWidth: 74)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
+                                       border: LineupStyle.line)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Equal thirds, each centred in its own column, divided by a
+            // hairline. Left-aligned thirds left the last figure floating well
+            // short of the right edge and the whole row reading lopsided.
+            HStack(spacing: 0) {
                 statistic(media.libraryCounts?.movies, label: "Movies")
+                statisticDivider
                 statistic(media.libraryCounts?.shows, label: "Shows")
+                statisticDivider
                 statistic(media.libraryCounts?.episodes, label: "Episodes")
             }
             HStack(spacing: 10) {
@@ -141,24 +142,30 @@ struct MediaServerAccountCard: View {
                 Text("Updated \(refreshed, style: .relative)")
                     .font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.48))
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(16)
         .frame(maxWidth: 720, alignment: .leading)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(LineupStyle.line, lineWidth: 1))
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous),
+                           fallback: LineupStyle.surface, border: LineupStyle.line)
+    }
+
+    private var statisticDivider: some View {
+        Rectangle().fill(LineupStyle.line)
+            .frame(width: 1, height: 26)
     }
 
     private func statistic(_ count: Int?, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 3) {
             Text(count.map { $0.formatted() } ?? "—")
                 .font(.interDigits(.headline, .semibold))
+                .lineLimit(1).minimumScaleFactor(0.7)
             Text(label).font(.inter(.caption2))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     private func cardButton(_ title: String, symbol: String,
@@ -179,8 +186,9 @@ private struct MediaServerCardAction: View {
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 38)
-                .background(focused ? LineupStyle.focused : LineupStyle.raised, in: Capsule())
-                .overlay(Capsule().stroke(LineupStyle.line, lineWidth: 1))
+                .lineupLiquidGlass(Capsule(),
+                                   fallback: focused ? LineupStyle.focused : LineupStyle.raised,
+                                   border: LineupStyle.line)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
         }
         .lineupFlatButton()
@@ -192,16 +200,39 @@ private struct MediaServerPulseDot: View {
     let connected: Bool
     @State private var pulsing = false
 
+    private var tint: Color {
+        connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
+    }
+
     var body: some View {
+        // A bead rather than a filled circle: a lit upper face, a deeper base,
+        // a hairline rim and one small specular. That is what reads as glass at
+        // nine points, where a material effect would show nothing at all.
         Circle()
-            .fill(connected ? Color.green : Color.gray)
-            .frame(width: 8, height: 8)
+            .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
+                                 center: UnitPoint(x: 0.34, y: 0.28),
+                                 startRadius: 0, endRadius: 8))
+            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
+            .overlay(alignment: .topLeading) {
+                Circle().fill(.white.opacity(0.55))
+                    .frame(width: 2.6, height: 2.6)
+                    .blur(radius: 0.6)
+                    .offset(x: 1.5, y: 1.3)
+            }
+            .frame(width: 9, height: 9)
+            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
+            // The halo sits in an overlay so its travel never moves the row,
+            // and it is a soft fill rather than a ring: it leaves the bead,
+            // fades out, and is gone. Half the brightness and half again the
+            // duration of the ring it replaces.
             .overlay {
                 if connected && !reduceMotion {
-                    Circle().stroke(Color.green.opacity(0.7), lineWidth: 1.5)
-                        .frame(width: 15, height: 15)
-                        .scaleEffect(pulsing ? 1.5 : 0.7)
-                        .opacity(pulsing ? 0 : 1)
+                    Circle()
+                        .fill(tint.opacity(0.3))
+                        .frame(width: 9, height: 9)
+                        .scaleEffect(pulsing ? 2.2 : 1)
+                        .opacity(pulsing ? 0 : 0.55)
+                        .allowsHitTesting(false)
                 }
             }
             .onAppear { startPulse() }
@@ -210,9 +241,11 @@ private struct MediaServerPulseDot: View {
     }
 
     private func startPulse() {
-        pulsing = false
+        // Clear any cycle still running before starting one, or the two
+        // overlap and the halo appears to travel the wrong way.
+        withAnimation(.linear(duration: 0)) { pulsing = false }
         guard connected && !reduceMotion else { return }
-        withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+        withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) {
             pulsing = true
         }
     }
@@ -222,7 +255,6 @@ private struct MediaServerPulseDot: View {
 private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary
     @Binding var addingServer: Bool
-    @Binding var addingAddon: Bool
     @Binding var choosingShelf: Bool
     @State private var optionsVisible = false
 
@@ -233,21 +265,13 @@ private struct TVMediaServersHome: View {
                     Text("MEDIA SERVERS")
                         .font(.inter(13, .bold)).tracking(2.2)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
-                    Text(media.activeProfile?.name ?? (media.addons.isEmpty ? "Your library" : "Your addons"))
+                    Text(media.activeProfile?.name ?? "Your library")
                         .font(.inter(34, .semibold))
                         .foregroundStyle(LineupStyle.lightPurple)
                 }
                 Spacer()
                 if let profile = media.activeProfile {
                     Label(profile.username, systemImage: "checkmark.circle.fill")
-                        .font(.inter(15, .semibold))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
-                        .padding(.horizontal, 14).frame(height: 38)
-                        .background(LineupStyle.surface, in: Capsule())
-                }
-                if !media.addons.isEmpty {
-                    Label("\(media.addons.count) addon\(media.addons.count == 1 ? "" : "s")",
-                        systemImage: "puzzlepiece.extension.fill")
                         .font(.inter(15, .semibold))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
                         .padding(.horizontal, 14).frame(height: 38)
@@ -265,7 +289,6 @@ private struct TVMediaServersHome: View {
                     .disabled(!media.hasAnySource)
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
                     .disabled(media.isLoading || !media.hasAnySource)
-                Button("Add Addon", systemImage: "puzzlepiece.extension") { addingAddon = true }
                 Button("Add Server", systemImage: "plus") { addingServer = true }
                 ForEach(media.shelves) { shelf in
                     Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
@@ -274,8 +297,7 @@ private struct TVMediaServersHome: View {
             }
 
             if !media.hasAnySource {
-                TVMediaEmptyState(addServer: { addingServer = true },
-                    addAddon: { addingAddon = true })
+                TVMediaEmptyState(addServer: { addingServer = true })
             } else if media.shelves.isEmpty && media.isLoading {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
@@ -283,7 +305,7 @@ private struct TVMediaServersHome: View {
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if media.roots.isEmpty && media.addons.isEmpty {
+            } else if media.roots.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
                     Text("No libraries found").font(.inter(.title2, .semibold))
@@ -308,7 +330,6 @@ private struct TVMediaServersHome: View {
 
 private struct TVMediaEmptyState: View {
     let addServer: () -> Void
-    let addAddon: () -> Void
     var body: some View {
         HStack(spacing: 34) {
             ZStack {
@@ -320,10 +341,9 @@ private struct TVMediaEmptyState: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Add an addon to browse its catalogs and play its streams, or connect a Jellyfin or Nullfin server for a library of your own. Both can be on at once.")
+                Text("Connect a Jellyfin, Nullfin, or other Jellyfin-compatible server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
-                    Button("Add an Addon", systemImage: "puzzlepiece.extension", action: addAddon)
                     Button("Connect a Server", systemImage: "plus", action: addServer)
                 }
                 .lineupButtonStyle().padding(.top, 6)
@@ -384,7 +404,7 @@ private struct MediaCatalogsScreen: View {
                 TVSelectable(scale: LineupStyle.cardLift, action: { editingQuery = true }) {
                     HStack(spacing: 12) {
                         Image(systemName: "magnifyingglass").opacity(0.58)
-                        Text(query.isEmpty ? "Search movies, shows, and addon catalogs" : query)
+                        Text(query.isEmpty ? "Search movies and shows" : query)
                             .lineLimit(1).truncationMode(.tail)
                             .opacity(query.isEmpty ? 0.58 : 1)
                         if searching { ProgressView().controlSize(.small) }
@@ -398,7 +418,7 @@ private struct MediaCatalogsScreen: View {
                 #else
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass").opacity(0.58)
-                    TextField("Search movies, shows, and addon catalogs", text: $query).textFieldStyle(.plain)
+                    TextField("Search movies and shows", text: $query).textFieldStyle(.plain)
                     if searching { ProgressView().controlSize(.small) }
                     if !query.isEmpty {
                         Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
@@ -416,12 +436,12 @@ private struct MediaCatalogsScreen: View {
 
             if !submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if searching && results.isEmpty {
-                    ProgressView("Searching connected addons…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView("Searching your library…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let searchError {
                     ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
                 } else if results.isEmpty {
                     ContentUnavailableView("No Results", systemImage: "magnifyingglass",
-                        description: Text("No connected catalog or metadata addon returned a match."))
+                        description: Text("Nothing in your connected libraries matched that."))
                 } else {
                     MediaGridScreen(title: "Search Results", items: results)
                 }
@@ -532,7 +552,7 @@ private struct MediaCatalogsScreen: View {
     private var searchSheet: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Search").font(.inter(34, .semibold))
-            TextField("Movies, shows, and addon catalogs", text: $query)
+            TextField("Movies and shows", text: $query)
                 .textFieldStyle(.plain)
                 .font(.inter(24))
                 .onSubmit { submitSearch() }
@@ -763,12 +783,12 @@ private struct FullBleedHeader: ViewModifier {
 }
 
 /// Which shelves to show, in two groups: the server's own libraries, and the
-/// collections -- which on a Nullfin server is where an enabled addon catalog
+/// collections -- which on a Nullfin server is where an enabled catalog
 /// lands, one collection per catalog.
 ///
 /// Lineup only ever asked `/views` for this list, and that route answers with
-/// promoted collections alone. An addon catalog is imported unpromoted, so no
-/// number of attached addons could put one in front of the viewer. The second
+/// promoted collections alone. An imported catalog is left unpromoted, so no
+/// number of them could put one in front of the viewer. The second
 /// group is the part that was missing.
 private struct MediaShelfPicker: View {
     @EnvironmentObject private var media: MediaLibrary
@@ -790,7 +810,7 @@ private struct MediaShelfPicker: View {
     }
 
     private var hasAnything: Bool {
-        !groups.isEmpty || !media.addonGroups.isEmpty || !media.availableAddonCatalogs.isEmpty
+        !groups.isEmpty || !media.addonGroups.isEmpty
     }
 
     var body: some View {
@@ -831,7 +851,7 @@ private struct MediaShelfPicker: View {
         if !hasAnything {
             ContentUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
                 description: Text(media.addonsUnavailable
-                    ? "This server offers no other library or catalog, and it does not let this account browse addons -- sign in as an administrator to switch catalogs on from here."
+                    ? "This server offers no other library or catalog, and it does not let this account browse its catalogs -- sign in as an administrator to switch them on from here."
                     : "This server offers no other library or catalog."))
                 .mediaFocusAnchor()
         } else {
@@ -861,42 +881,9 @@ private struct MediaShelfPicker: View {
                             #endif
                         }
                     }
-                    // Catalogs from the addons Lineup talks to itself. One
-                    // request each and they are a row, so there is nothing to
-                    // wait for and nothing to switch on first.
-                    ForEach(media.availableAddonCatalogs) { entry in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(entry.addon.name.uppercased())
-                                .font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                            Text("Added addon — rows appear as soon as you pick one")
-                                .font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
-                        }
-                        .padding(.top, 18).padding(.bottom, 6)
-                        ForEach(entry.catalogs) { catalog in
-                            let key = StremioID.shelf(addon: entry.addon.id, catalog: catalog)
-                            #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
-                                fillRadius: 14,
-                                action: { addAddonCatalog(catalog, from: entry.addon) }) {
-                                MediaShelfRow(title: catalog.title, detail: catalog.type.capitalized,
-                                    busy: adding.contains(key))
-                            }
-                            #else
-                            Button { addAddonCatalog(catalog, from: entry.addon) } label: {
-                                MediaShelfRow(title: catalog.title, detail: catalog.type.capitalized,
-                                    busy: adding.contains(key))
-                            }
-                            .lineupFlatButton()
-                            #endif
-                        }
-                    }
-                    // Catalogs the addons on a Nullfin *server* offer that it is
-                    // not importing yet. Choosing one switches it on and asks
-                    // the server to fetch it, which is the slower road to the
-                    // same place -- kept for the catalogs a server holds that
-                    // no addon here is attached to.
+                    // Catalogs the server offers that it is not importing yet.
+                    // Choosing one switches it on and asks the server to fetch
+                    // it, which it then does in its own time.
                     ForEach(media.addonGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(group.name.uppercased())
@@ -964,18 +951,6 @@ private struct MediaShelfPicker: View {
             media.stopWaiting(for: catalog)
         } else {
             media.enableCatalog(catalog, addonID: addonID)
-        }
-    }
-
-    /// A row from an addon Lineup talks to directly. No import, no waiting:
-    /// the catalog is fetched and it is on screen.
-    private func addAddonCatalog(_ catalog: StremioCatalogSpec, from addon: StremioAddon) {
-        let key = StremioID.shelf(addon: addon.id, catalog: catalog)
-        guard !adding.contains(key) else { return }
-        adding.insert(key)
-        Task { @MainActor in
-            await media.addAddonShelf(catalog, addon: addon)
-            adding.remove(key)
         }
     }
 
@@ -1219,10 +1194,9 @@ private struct MediaDetailScreen: View {
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            // Only where there is somewhere to keep it. An addon holds no
-            // account of the viewer's, so a bookmark there would be a button
-            // that appears to work and remembers nothing.
-            if !subject.isAddonItem {
+            // The server keeps the viewer's account of what is marked, so
+            // these write through to it rather than to anything local.
+            Group {
                 iconButton(favorite ? "heart.fill" : "heart") {
                     favorite.toggle()
                     Task { await media.setFavorite(favorite, for: subject) }
@@ -1599,7 +1573,7 @@ private struct MediaDetailScreen: View {
             let children = try await media.numberedChildren(of: item)
             let seasonList = children.filter { $0.type == "Season" }
             guard !seasonList.isEmpty else {
-                // Some addon catalogs hang episodes straight off the item.
+                // Some imported catalogs hang episodes straight off the item.
                 seasons = []
                 selectedSeason = nil
                 episodes = children.filter(\.isPlayable)
@@ -1806,8 +1780,8 @@ private struct MediaSourcePicker: View {
     @State private var selectedSource: MediaPlaybackSource?
     @State private var providerFilter: String?
 
-    // Addons in the order the server ranked their best result, so the chip row
-    // reads the same way the list below it does.
+    // Sources in the order the server ranked their best result, so the chip
+    // row reads the same way the list below it does.
     private var providers: [String] {
         var seen: Set<String> = []
         return sources.map(\.provider).filter { seen.insert($0).inserted }
@@ -1858,7 +1832,7 @@ private struct MediaSourcePicker: View {
                     VStack(spacing: 14) {
                         ProgressView().controlSize(.large)
                         Text("Finding the best streams…").font(.inter(.headline))
-                        Text("Connected addons are ranking results for \(item.name).")
+                        Text("Looking for playable versions of \(item.name).")
                             .font(.inter(.subheadline)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     }
                     .mediaFocusAnchor()
@@ -1867,12 +1841,12 @@ private struct MediaSourcePicker: View {
                         .mediaFocusAnchor()
                 } else if sources.isEmpty {
                     ContentUnavailableView("No Streams Found", systemImage: "play.slash",
-                        description: Text("None of the connected streaming addons returned a playable result."))
+                        description: Text("Your server returned no playable version of this title."))
                         .mediaFocusAnchor()
                 } else {
                     VStack(spacing: 0) {
-                        // Results arrive interleaved from every connected addon, and
-                        // a viewer who trusts one of them wants to see only its rows.
+                        // Results arrive interleaved from every source the server
+                        // reports, and a viewer who trusts one wants only its rows.
                         if providers.count > 1 {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
@@ -1932,13 +1906,40 @@ private struct MediaSourcePicker: View {
         loading = false
     }
 
+    // The synopsis type and the player that shows it are both iPhone-only;
+    // tvOS has its own player and never builds this.
+    #if !os(tvOS)
+    /// What is playing, for the panel the player shows with its controls. The
+    /// player is handed a URL and a name; everything else about the title lives
+    /// here, so it is gathered here.
+    private var playerSynopsis: MobilePlayerSynopsis {
+        let heading: String?
+        if let series = item.seriesName, !series.isEmpty {
+            heading = [series, item.episodeCode, item.name]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        } else {
+            heading = item.name
+        }
+        let detail = [item.formattedAirDate.map { "Aired \($0)" } ?? item.productionYear.map(String.init),
+                      item.formattedRuntime,
+                      item.officialRating]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return MobilePlayerSynopsis(heading: heading,
+                                    detail: detail.isEmpty ? nil : detail,
+                                    overview: item.overview)
+    }
+    #endif
+
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false)
             #else
-            MobilePlayerView(name: item.name, urls: [url])
+            MobilePlayerView(name: item.name, urls: [url], isLive: false,
+                             sourceBitrate: source.formattedBitrate,
+                             sourceQuality: source.quality,
+                             synopsis: playerSynopsis)
             #endif
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
@@ -2019,15 +2020,26 @@ private struct MediaChromeSurface: ViewModifier {
     var outline = false
     var radius: CGFloat = 12
 
+    // The search field and the rest of the media chrome sit on the same glass
+    // as the player's controls and the Account tab. A prominent control is the
+    // exception: it is a call to action and stays filled, because glass is a
+    // surface to read through and that one is meant to be looked at.
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .foregroundStyle(filled ? LineupStyle.background : LineupStyle.lightPurple)
-            .background(filled ? LineupStyle.lightPurple
-                : (focused ? LineupStyle.focused : LineupStyle.surface),
-                in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .stroke(border, lineWidth: 1))
-            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        if filled {
+            content
+                .foregroundStyle(LineupStyle.background)
+                .background(LineupStyle.lightPurple, in: shape)
+                .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        } else {
+            content
+                .foregroundStyle(LineupStyle.lightPurple)
+                .lineupLiquidGlass(shape,
+                                   fallback: focused ? LineupStyle.focused : LineupStyle.surface,
+                                   border: border)
+                .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        }
     }
 
     // Focus marks the edge. Only a deliberate call to action fills, and it
@@ -2361,7 +2373,7 @@ struct MediaServerSetupView: View {
                         || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
-                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers, whose libraries include the catalogs and streams from any addons configured on them. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
+                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
                 }
                 if let error = media.errorMessage {
                     Section { Text(error).foregroundStyle(.red) }
@@ -2426,219 +2438,4 @@ struct InitialSourceSetupView: View {
         24
         #endif
     }
-}
-
-/// Where addons are added and taken off.
-///
-/// An addon is a link, and that is the whole setup: no account, no import, no
-/// waiting. What it offers shows up in Add Shelf the moment it is added, and
-/// its first rows go up by themselves so the screen behind this one is not
-/// empty afterwards.
-struct AddonSetupView: View {
-    @EnvironmentObject private var media: MediaLibrary
-    @Environment(\.dismiss) private var dismiss
-    @State private var address = ""
-    /// The addon a row was pressed on, held while the removal is confirmed. A
-    /// row that deletes on one press is a row nobody can safely browse with a
-    /// remote.
-    @State private var pendingRemoval: StremioAddon?
-
-    private var canAdd: Bool {
-        !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !media.addonBusy
-    }
-
-    private let explanation = "Paste an addon's link — the one ending in /manifest.json. Catalog addons fill the rows on this tab; streaming addons supply the links Lineup plays. Both kinds can be added, and Lineup asks every streaming addon whenever you pick something to watch."
-
-    var body: some View {
-        #if os(tvOS)
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("ADDONS").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                Text("Add a catalog or streaming addon")
-                    .font(.inter(26, .semibold))
-            }
-            .padding(.bottom, 10)
-            Text(explanation)
-                .font(.inter(16)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-                .frame(maxWidth: 820, alignment: .leading)
-                .padding(.bottom, 22)
-
-            TextField("https://addon.example.com/manifest.json", text: $address)
-                .textFieldStyle(.plain)
-                .font(.system(size: 20, design: .monospaced))
-                .padding(.bottom, 18)
-
-            HStack(spacing: 14) {
-                TVSelectable(scale: LineupStyle.controlLift, action: add) {
-                    HStack(spacing: 10) {
-                        if media.addonBusy { ProgressView().controlSize(.small) }
-                        Text(media.addonBusy ? "Reading manifest…" : "Add Addon")
-                            .font(.inter(17, .semibold))
-                    }
-                    .padding(.horizontal, 22).frame(height: 52)
-                    .modifier(MediaChromeSurface(prominent: true, radius: 12))
-                }
-                .disabled(!canAdd)
-                TVSelectable(scale: LineupStyle.controlLift, action: { dismiss() }) {
-                    Text("Done").font(.inter(17, .semibold))
-                        .padding(.horizontal, 22).frame(height: 52)
-                        .modifier(MediaChromeSurface(radius: 12))
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.bottom, 26)
-            .lineupFocusRegion()
-
-            if media.addons.isEmpty {
-                Text("No addons yet.")
-                    .font(.inter(17)).foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-            } else {
-                Text("INSTALLED").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                    .padding(.bottom, 8)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(media.addons) { addon in
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
-                                fillRadius: 14, action: { pendingRemoval = addon }) {
-                                AddonRow(addon: addon)
-                            }
-                        }
-                    }
-                    .padding(.bottom, 40)
-                }
-                .lineupFocusRegion()
-            }
-        }
-        .padding(.horizontal, 60).padding(.top, 44)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
-        .onExitCommand { dismiss() }
-        .confirmationDialog("Remove this addon?", isPresented: Binding(
-            get: { pendingRemoval != nil },
-            set: { if !$0 { pendingRemoval = nil } }
-        ), titleVisibility: .visible, presenting: pendingRemoval) { addon in
-            Button("Remove \(addon.name)", role: .destructive) {
-                media.removeAddon(addon)
-                pendingRemoval = nil
-            }
-            Button("Keep", role: .cancel) { pendingRemoval = nil }
-        } message: { addon in
-            Text("Its rows come off this tab. \(addon.name) can be added again at any time.")
-        }
-        #else
-        NavigationStack {
-            Form {
-                // Header and footer both, which the title-plus-footer
-                // shorthand does not offer.
-                Section {
-                    TextField("https://addon.example.com/manifest.json", text: $address)
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(.body, design: .monospaced))
-                    Button(media.addonBusy ? "Reading manifest…" : "Add Addon", action: add)
-                        .lineupButtonStyle()
-                        .disabled(!canAdd)
-                } header: {
-                    Text("Addon Link")
-                } footer: {
-                    Text(explanation)
-                }
-                if !media.addons.isEmpty {
-                    Section("Installed") {
-                        ForEach(media.addons) { addon in
-                            AddonRow(addon: addon)
-                        }
-                        .onDelete { offsets in
-                            for addon in offsets.map({ media.addons[$0] }) {
-                                media.removeAddon(addon)
-                            }
-                        }
-                    }
-                }
-                if let error = media.errorMessage {
-                    Section { Text(error).foregroundStyle(.red) }
-                }
-            }
-            .navigationTitle("Addons")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                if !media.addons.isEmpty {
-                    ToolbarItem(placement: .primaryAction) { EditButton() }
-                }
-            }
-        }
-        #endif
-    }
-
-    private func add() {
-        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !media.addonBusy else { return }
-        Task { @MainActor in
-            if await media.addAddon(address: value) { address = "" }
-        }
-    }
-}
-
-/// One installed addon: what it is called, and what it actually does. The
-/// second line is the useful half -- an addon that provides no catalogs will
-/// never appear in Add Shelf, and knowing that from here saves looking.
-private struct AddonRow: View {
-    let addon: StremioAddon
-
-    private var roles: String {
-        var parts: [String] = []
-        if !addon.catalogs.isEmpty {
-            parts.append("\(addon.catalogs.count) catalog\(addon.catalogs.count == 1 ? "" : "s")")
-        }
-        if addon.providesStreams { parts.append("streams") }
-        if addon.providesMeta { parts.append("details") }
-        return parts.isEmpty ? "No rows or streams offered" : parts.joined(separator: " · ")
-    }
-
-    private var host: String {
-        URL(string: addon.address)?.host ?? addon.address
-    }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(addon.name).font(.inter(nameSize, .semibold))
-                    .lineLimit(1)
-                Text(roles).font(.inter(detailSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-                Text(host).font(.system(size: detailSize, design: .monospaced))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.38))
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            Spacer(minLength: 16)
-            #if os(tvOS)
-            Image(systemName: "trash")
-                .font(.inter(nameSize, .semibold))
-                .foregroundStyle(LineupStyle.warning)
-                .accessibilityLabel("Remove " + addon.name)
-            #endif
-        }
-        .padding(.horizontal, rowInset).padding(.vertical, rowInset * 0.8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // A television row is a card of its own; in a Form the section already
-        // draws one, and a second behind it reads as a box inside a box.
-        .background(rowFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    #if os(tvOS)
-    private var nameSize: CGFloat { 22 }
-    private var detailSize: CGFloat { 14 }
-    private var rowInset: CGFloat { 20 }
-    private var rowFill: Color { LineupStyle.surface.opacity(0.5) }
-    #else
-    private var nameSize: CGFloat { 16 }
-    private var detailSize: CGFloat { 12 }
-    private var rowInset: CGFloat { 0 }
-    private var rowFill: Color { .clear }
-    #endif
 }

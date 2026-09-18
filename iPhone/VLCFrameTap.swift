@@ -17,7 +17,12 @@ enum VLCFrameTap {
     /// The libvlc player behind a `VLCMediaPlayer`, or nil if VLCKit's internals
     /// have moved. Everything the frame pipeline does needs this handle.
     static func handle(for player: VLCMediaPlayer) -> OpaquePointer? {
-        OpaquePointer(player.playerInstance)
+        // `libvlc_media_player_t` is forward-declared in the bridging header and
+        // never defined, so Clang imports a pointer to it as an OpaquePointer
+        // already. Wrapping it in `OpaquePointer(_:)` asks for an initializer
+        // that takes one, which is the one conversion OpaquePointer doesn't
+        // offer -- it converts from typed and raw pointers, not from itself.
+        player.playerInstance
     }
 
     /// True when both video-callback entry points resolved at link time.

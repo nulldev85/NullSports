@@ -123,3 +123,41 @@ enum SystemEngineWatchdog {
         return elapsed > videoDeadline ? .failOver : .wait
     }
 }
+
+/// Where playback is in a title that has an end.
+///
+/// Live channels have neither a length nor a position worth showing, so the
+/// player publishes this only for something that can actually be scrubbed.
+struct MobilePlaybackProgress: Equatable {
+    var position: Double
+    var duration: Double
+
+    var fraction: Double { duration > 0 ? min(max(position / duration, 0), 1) : 0 }
+    var remaining: Double { max(0, duration - position) }
+
+    /// "1:04:22" past an hour, "4:22" below it, which is how every other player
+    /// on the platform writes a running time.
+    static func timecode(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        let (hours, minutes, secs) = (total / 3600, (total % 3600) / 60, total % 60)
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+/// What a title is, for the panel the player shows while its controls are up.
+///
+/// Built by whoever opened the player, because only they hold the record: the
+/// player itself is handed a URL and a name and knows nothing about seasons,
+/// air dates or plots.
+struct MobilePlayerSynopsis: Equatable {
+    var heading: String?
+    var detail: String?
+    var overview: String?
+
+    var isEmpty: Bool {
+        (heading ?? "").isEmpty && (detail ?? "").isEmpty && (overview ?? "").isEmpty
+    }
+}
