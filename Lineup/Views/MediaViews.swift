@@ -93,10 +93,13 @@ struct MediaServerAccountCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
+                // A glass circle on the left and a glass capsule on the right
+                // bracket the header; a filled disc against bare text did not.
                 Image(systemName: "play.square.stack.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: 42, height: 42)
-                    .background(LineupStyle.raised, in: Circle())
+                    .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
+                                       border: LineupStyle.line)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(profile.name).font(.inter(.headline, .bold)).lineLimit(1)
@@ -106,14 +109,26 @@ struct MediaServerAccountCard: View {
                         .font(.inter(.caption)).lineLimit(1)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 }
-                Spacer(minLength: 4)
+                Spacer(minLength: 8)
+                // A floor under the width so the header does not shuffle as the
+                // word changes between connecting, connected and offline.
                 Text(media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"))
                     .font(.inter(.caption2, .semibold))
                     .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
+                    .lineLimit(1)
+                    .frame(minWidth: 74)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
+                                       border: LineupStyle.line)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Equal thirds, each centred in its own column, divided by a
+            // hairline. Left-aligned thirds left the last figure floating well
+            // short of the right edge and the whole row reading lopsided.
+            HStack(spacing: 0) {
                 statistic(media.libraryCounts?.movies, label: "Movies")
+                statisticDivider
                 statistic(media.libraryCounts?.shows, label: "Shows")
+                statisticDivider
                 statistic(media.libraryCounts?.episodes, label: "Episodes")
             }
             HStack(spacing: 10) {
@@ -127,6 +142,7 @@ struct MediaServerAccountCard: View {
                 Text("Updated \(refreshed, style: .relative)")
                     .font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.48))
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -136,14 +152,20 @@ struct MediaServerAccountCard: View {
                            fallback: LineupStyle.surface, border: LineupStyle.line)
     }
 
+    private var statisticDivider: some View {
+        Rectangle().fill(LineupStyle.line)
+            .frame(width: 1, height: 26)
+    }
+
     private func statistic(_ count: Int?, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 3) {
             Text(count.map { $0.formatted() } ?? "—")
                 .font(.interDigits(.headline, .semibold))
+                .lineLimit(1).minimumScaleFactor(0.7)
             Text(label).font(.inter(.caption2))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     private func cardButton(_ title: String, symbol: String,

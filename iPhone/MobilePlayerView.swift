@@ -223,7 +223,7 @@ struct MobilePlayerView: View {
                     .multilineTextAlignment(.leading)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
+        .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: 420, alignment: .leading)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -277,7 +277,7 @@ struct MobilePlayerView: View {
             .font(.inter(.caption2, .semibold).monospacedDigit())
             .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
         }
-        .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .animation(.easeOut(duration: 0.12), value: scrubTarget == nil)
         .accessibilityElement()
