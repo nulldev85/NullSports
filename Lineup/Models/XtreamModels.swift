@@ -79,15 +79,24 @@ extension Array where Element == CurrentProgram {
             $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
         }
         var result: [CurrentProgram] = []
+        // The tail's trimmed title, carried rather than recomputed. This ran
+        // once per programme over every programme a provider publishes, and it
+        // was trimming the same previous title again on each pass.
+        var previousTitleKey = ""
 
         for program in sorted where program.end > program.start {
+            let titleKey = program.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let previous = result.last else {
                 result.append(program)
+                previousTitleKey = titleKey
                 continue
             }
 
-            let sameTitle = previous.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(program.title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+            // Not localized. These are two titles out of the same feed, so a
+            // locale-aware collation decides nothing here that a plain
+            // case-insensitive comparison does not, and it costs a great deal
+            // more over a guide's worth of programmes.
+            let sameTitle = previousTitleKey.caseInsensitiveCompare(titleKey) == .orderedSame
 
             if sameTitle && program.start <= previous.end {
                 result[result.count - 1] = CurrentProgram(
@@ -98,6 +107,7 @@ extension Array where Element == CurrentProgram {
                     end: Swift.max(previous.end, program.end),
                     isNew: previous.isNew == true || program.isNew == true
                 )
+                if previous.title.isEmpty { previousTitleKey = titleKey }
                 continue
             }
 
@@ -116,6 +126,7 @@ extension Array where Element == CurrentProgram {
                 }
             }
             result.append(program)
+            previousTitleKey = titleKey
         }
         return result
     }
