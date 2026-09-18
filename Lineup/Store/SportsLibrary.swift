@@ -796,7 +796,14 @@ final class SportsLibrary: ObservableObject {
         let profileID = activeProfile?.id
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
         let leagues = leagueStreamCache
-        let programs = programsByChannel
+        // Listings that have already finished are kept now, because the Guide
+        // draws an hour of history and cannot show what was thrown away. The
+        // matchers were never given them: the parser used to drop them before
+        // anything saw them, and a matcher handed a listing that ended an hour
+        // ago can credit a channel for a game that is no longer on it. Matching
+        // sees exactly what it always saw.
+        let matchNow = Date()
+        let programs = programsByChannel.mapValues { $0.filter { $0.end > matchNow } }
         // College event channels may have neither a league token nor a network
         // name. Let the college policy inspect them without changing other indexes.
         let currentStreams = streams
