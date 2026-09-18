@@ -73,7 +73,9 @@ struct MobilePlayerView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { dismiss() }
-                        Text(name).font(.inter(.headline)).lineLimit(1)
+                        if showsTitleInHeader {
+                            Text(name).font(.inter(.headline)).lineLimit(1)
+                        }
                         Spacer(minLength: 8)
                         if controller.canOfferPictureInPicture {
                             control("pip.enter", label: "Picture in Picture") {
@@ -202,6 +204,16 @@ struct MobilePlayerView: View {
     private var badgeDetail: String? {
         let parts = [controller.streamQualityLabel ?? sourceQuality, sourceBitrate].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The panel above the scrubber already names what is playing, so the top
+    /// bar does not say it twice. Tied to that panel actually being drawn
+    /// rather than merely intended: a live channel has none, and neither does
+    /// a title whose length never resolves, and either way the name has to be
+    /// somewhere.
+    private var showsTitleInHeader: Bool {
+        guard showsTransport, let heading = synopsis?.heading, !heading.isEmpty else { return true }
+        return false
     }
 
     private func synopsisPanel(_ synopsis: MobilePlayerSynopsis) -> some View {
