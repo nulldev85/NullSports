@@ -11,12 +11,6 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     private var text = ""
     private let endOfWindow: Date
     private(set) var programs: [String: [CurrentProgram]] = [:]
-    private lazy var dateFormatters: [DateFormatter] = ["yyyyMMddHHmmss Z", "yyyyMMddHHmmssZ", "yyyyMMddHHmm Z"].map {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = $0
-        return formatter
-    }
 
     init(now: Date = Date()) {
         self.now = now
@@ -56,9 +50,72 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
 
     private func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        for formatter in dateFormatters {
-            if let date = formatter.date(from: value) { return date }
+        return Self.timestamp(value)
+    }
+
+    /// An XMLTV timestamp, read as the fixed shape it is.
+    ///
+    /// This was three DateFormatters tried in turn. A programme carries two
+    /// timestamps and a provider publishes hundreds of thousands of them, so a
+    /// guide load meant a million locale-aware parses to read fields that are
+    /// already plain digits — and DateFormatter is among the most expensive
+    /// ways to read a digit in the framework. Reading the bytes directly is
+    /// the single largest saving available in loading a guide.
+    ///
+    /// It accepts exactly what those formatters accepted, and nothing more:
+    /// `yyyyMMddHHmmss Z`, `yyyyMMddHHmmssZ` and `yyyyMMddHHmm Z`. Widening
+    /// that would change which programmes a guide contains, which is a
+    /// different decision from making it fast.
+    static func timestamp(_ value: String) -> Date? {
+        let bytes = Array(value.utf8)
+        var index = 0
+
+        func digits(_ count: Int) -> Int? {
+            guard index + count <= bytes.count else { return nil }
+            var accumulated = 0
+            for _ in 0..<count {
+                let byte = bytes[index]
+                guard byte >= 48, byte <= 57 else { return nil }
+                accumulated = accumulated * 10 + Int(byte - 48)
+                index += 1
+            }
+            return accumulated
         }
-        return nil
+
+        guard let year = digits(4), let month = digits(2), let day = digits(2),
+              let hour = digits(2), let minute = digits(2) else { return nil }
+        // The fourteen-digit form carries seconds; the twelve-digit one does not.
+        var second = 0
+        if index < bytes.count, bytes[index] >= 48, bytes[index] <= 57 {
+            guard let parsed = digits(2) else { return nil }
+            second = parsed
+        }
+        if index < bytes.count, bytes[index] == UInt8(ascii: " ") { index += 1 }
+        // An offset was required by every one of the formats this replaces.
+        guard index < bytes.count else { return nil }
+        let sign: Int
+        switch bytes[index] {
+        case UInt8(ascii: "+"): sign = 1
+        case UInt8(ascii: "-"): sign = -1
+        default: return nil
+        }
+        index += 1
+        guard let offsetHours = digits(2), let offsetMinutes = digits(2),
+              index == bytes.count else { return nil }
+        guard (1...12).contains(month), (1...31).contains(day),
+              hour < 24, minute < 60, second < 60,
+              offsetHours < 24, offsetMinutes < 60 else { return nil }
+
+        // Days from civil: exact, and it needs no calendar to be built or
+        // consulted. Proleptic Gregorian, which is what XMLTV dates are.
+        let shiftedYear = month <= 2 ? year - 1 : year
+        let era = (shiftedYear >= 0 ? shiftedYear : shiftedYear - 399) / 400
+        let yearOfEra = shiftedYear - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        let days = era * 146_097 + dayOfEra - 719_468
+        let offset = sign * (offsetHours * 3600 + offsetMinutes * 60)
+        let seconds = days * 86_400 + hour * 3600 + minute * 60 + second - offset
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
     }
 }
