@@ -105,6 +105,11 @@ final class MobilePlaybackController: ObservableObject {
     /// diagnostics on, and none of them can alter what playback does.
     private let diag = PlaybackDiagnostics.shared
 
+    /// The libvlc player behind this controller's VLC engine, when VLCKit's
+    /// internals are reachable. The frame pipeline that will give VLC-backed
+    /// channels Picture in Picture is built on this handle; nothing uses it yet.
+    var libVLCHandle: OpaquePointer? { VLCFrameTap.handle(for: player) }
+
     /// The live values that decide whether a picture can appear at all.
     /// `layer ready` is the one that matters most: an AVPlayer can report
     /// itself playing, with audio, while its layer has never produced a frame.
@@ -137,6 +142,8 @@ final class MobilePlaybackController: ObservableObject {
             ("vlc playing", player.isPlaying ? "yes" : "no"),
             ("vlc videoOut", player.hasVideoOut ? "yes" : "no"),
             ("pip possible", pictureInPicturePossible ? "yes" : "no"),
+            ("libvlc handle", libVLCHandle == nil ? "UNAVAILABLE" : "ok"),
+            ("frame api", VLCFrameTap.videoCallbackAPIIsLinked ? "linked" : "MISSING"),
             ("loading", loading ? "yes" : "no"),
             ("error", error ?? "—")
         ]
