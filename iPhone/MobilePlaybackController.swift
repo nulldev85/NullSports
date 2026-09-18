@@ -59,6 +59,8 @@ final class MobilePlaybackController: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
+    /// Holds a surface teardown back long enough for a replacement to arrive.
+    private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
     private var originalURLs: [URL] = []
     private var started = Date()
@@ -196,6 +198,8 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Surface
 
     func attachVideo(_ view: MobileVideoHost) {
+        pendingTeardown?.cancel()
+        pendingTeardown = nil
         diag.record("attachVideo \(Int(view.bounds.width))x\(Int(view.bounds.height)) window=\(view.window == nil ? "no" : "yes") engine=\(engine.rawValue) first=\(videoView !== view)")
         videoView = view
         switch engine {
@@ -218,10 +222,21 @@ final class MobilePlaybackController: ObservableObject {
             videoView = nil
             return
         }
-        stop()
         player.drawable = nil
         view.removePlayerLayer()
         videoView = nil
+        // A layout change big enough for SwiftUI to rebuild the video surface
+        // arrives here as a teardown immediately followed by a new surface.
+        // Stopping the engine on the spot turns going full screen into a visible
+        // reconnect, so hold off a moment: a replacement surface cancels this,
+        // and anything else really was a teardown.
+        pendingTeardown?.cancel()
+        pendingTeardown = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            guard let self, !Task.isCancelled, self.videoView == nil else { return }
+            self.pendingTeardown = nil
+            self.stop()
+        }
     }
 
     /// Installs the AVPlayer layer and, the first time, the PiP controller that
@@ -698,6 +713,8 @@ final class MobilePlaybackController: ObservableObject {
     func stop() {
         monitor?.cancel()
         monitor = nil
+        pendingTeardown?.cancel()
+        pendingTeardown = nil
         retryAt = nil
         pausedByUser = false
         waitingForVideo = false
@@ -829,11 +846,19 @@ final class MobileVideoHost: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         // VLC installs its renderer as a child of this host. Keep it fitted when
-        // expanding, collapsing, or rotating without replacing the drawable.
+        // expanding, collapsing, or rotating without replacing the drawable —
+        // and, like the AVPlayer layer below, without the implicit animation the
+        // surrounding transaction would otherwise lend each frame change. Going
+        // full screen resizes this host on every frame of an animation, and a
+        // renderer easing towards each of those frames drags visibly behind its
+        // own window.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         for renderer in subviews {
             renderer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if renderer.frame != bounds { renderer.frame = bounds }
         }
+        CATransaction.commit()
         // The same for the AVPlayer layer, minus the implicit animation a layer
         // frame change would otherwise inherit from the rotation transaction.
         if let playerLayer, playerLayer.frame != bounds {

@@ -4,6 +4,7 @@ struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var guideFullscreen = false
@@ -18,7 +19,7 @@ struct MainView: View {
             MobileLiveView(isActive: tab == 0) { playing = $0 }
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setGuideFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
@@ -54,6 +55,14 @@ struct MainView: View {
         }
     }
 
+    // The guide raises this from inside its own animated change, so the tab bar
+    // and status bar leave in the same movement the video grows in, rather than
+    // snapping away a frame ahead of it.
+    private func setGuideFullscreen(_ value: Bool) {
+        guard guideFullscreen != value else { return }
+        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
+        withAnimation(animation) { guideFullscreen = value }
+    }
 }
 
 struct ProfileSetupView: View {
