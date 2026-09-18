@@ -29,6 +29,8 @@ jobs:
           /tmp/mobile-guide-checks
           swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
+          swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks
+          /tmp/playback-diagnostics-checks
           swiftc Lineup/Services/TeamChannelPreferences.swift Tests/TeamChannelPreferenceChecks.swift -o /tmp/team-preference-checks
           /tmp/team-preference-checks
           swiftc Lineup/Services/StreamFailover.swift Lineup/Services/RecentChannels.swift Tests/StreamFailoverChecks.swift -o /tmp/stream-failover-checks

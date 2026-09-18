@@ -101,6 +101,47 @@ final class MobilePlaybackController: ObservableObject {
         return modes?.contains("audio") ?? false
     }()
 
+    /// Observation only. Every call is a no-op unless the viewer has switched
+    /// diagnostics on, and none of them can alter what playback does.
+    private let diag = PlaybackDiagnostics.shared
+
+    /// The live values that decide whether a picture can appear at all.
+    /// `layer ready` is the one that matters most: an AVPlayer can report
+    /// itself playing, with audio, while its layer has never produced a frame.
+    var diagnosticsSnapshot: [(label: String, value: String)] {
+        let layer = videoView?.playerLayer
+        let item = systemPlayer.currentItem
+        return [
+            ("engine", engine.rawValue),
+            ("channel", currentChannelID.map(String.init) ?? "—"),
+            ("url", currentURL?.lastPathComponent ?? "—"),
+            ("awaiting surface", waitingForVideo ? "yes" : "no"),
+            ("host", videoView.map { "\(Int($0.bounds.width))x\(Int($0.bounds.height)) window=\($0.window == nil ? "no" : "yes")" } ?? "none"),
+            ("layer", layer == nil ? "none"
+                : "frame \(Int(layer!.frame.width))x\(Int(layer!.frame.height)) attached=\(layer!.superlayer == nil ? "no" : "yes") player=\(layer!.player == nil ? "nil" : "set")"),
+            ("layer ready", layer.map { $0.isReadyForDisplay ? "YES" : "NO" } ?? "—"),
+            ("item status", item.map { ["unknown", "readyToPlay", "failed"][min(max($0.status.rawValue, 0), 2)] } ?? "—"),
+            ("item error", item?.error.map { "\($0.localizedDescription)" } ?? "—"),
+            ("player error", systemPlayer.error.map { "\($0.localizedDescription)" } ?? "—"),
+            ("rate", String(format: "%.2f", systemPlayer.rate)),
+            ("timeControl", ["paused", "waitingToPlay", "playing"][min(max(systemPlayer.timeControlStatus.rawValue, 0), 2)]),
+            ("likelyToKeepUp", item.map { $0.isPlaybackLikelyToKeepUp ? "yes" : "no" } ?? "—"),
+            ("presentationSize", item.map { "\(Int($0.presentationSize.width))x\(Int($0.presentationSize.height))" } ?? "—"),
+            // The decisive one for a stream that plays audio with a black
+            // picture: AVPlayer will happily run an item whose video track it
+            // cannot decode, reporting no error at all.
+            ("video tracks", item.map { i in
+                let video = i.tracks.filter { $0.assetTrack?.mediaType == .video }
+                return "\(video.count) enabled=\(video.filter(\.isEnabled).count)"
+            } ?? "—"),
+            ("vlc playing", player.isPlaying ? "yes" : "no"),
+            ("vlc videoOut", player.hasVideoOut ? "yes" : "no"),
+            ("pip possible", pictureInPicturePossible ? "yes" : "no"),
+            ("loading", loading ? "yes" : "no"),
+            ("error", error ?? "—")
+        ]
+    }
+
     init() {
         pipDelegate.controller = self
         // An AVPlayerLayer that still holds its player suspends decoding once
@@ -148,6 +189,7 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Surface
 
     func attachVideo(_ view: MobileVideoHost) {
+        diag.record("attachVideo \(Int(view.bounds.width))x\(Int(view.bounds.height)) window=\(view.window == nil ? "no" : "yes") engine=\(engine.rawValue) first=\(videoView !== view)")
         videoView = view
         switch engine {
         case .vlc:
@@ -160,6 +202,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     func detachVideo(_ view: MobileVideoHost) {
+        diag.record("detachVideo mine=\(videoView === view) pip=\(pictureInPictureActive)")
         guard videoView === view else { return }
         // Picture in Picture outlives the view that started it: the window is
         // showing this stream, and tearing the engine down here would close it.
@@ -179,7 +222,9 @@ final class MobilePlaybackController: ObservableObject {
     /// keeps expand/collapse and rotation from restarting the stream.
     private func attachSystemLayer(to view: MobileVideoHost) {
         player.drawable = nil
+        let existed = view.playerLayer != nil
         let layer = view.installPlayerLayer(for: systemPlayer)
+        diag.record("attachSystemLayer \(existed ? "reused" : "created") frame=\(Int(layer.frame.width))x\(Int(layer.frame.height)) player=\(layer.player == nil ? "nil" : "set")")
         if pipController?.playerLayer !== layer {
             pipController = AVPictureInPictureController(playerLayer: layer)
             pipController?.delegate = pipDelegate
@@ -214,6 +259,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     fileprivate func pictureInPictureChanged(active: Bool) {
+        diag.record("pictureInPicture active=\(active)")
         pictureInPictureActive = active
         // Coming back from the PiP window into a foregrounded app: whatever the
         // background detach did has to be undone before the layer can draw.
@@ -229,6 +275,10 @@ final class MobilePlaybackController: ObservableObject {
     ///     that failed earlier eligible again. Only an automatic switch passes
     ///     false, so one bad game cannot loop through the same dead feeds.
     func start(urls: [URL], channelID: Int? = nil, resetFailover: Bool = true) {
+        diag.beginSession("start channel=\(channelID.map(String.init) ?? "—") urls=\(urls.count) resetFailover=\(resetFailover)")
+        for url in MobileEngineSelection.ordered(urls) {
+            diag.record("  candidate \(url.lastPathComponent) -> \(MobileEngineSelection.engine(for: url).rawValue)")
+        }
         stop()
         error = nil
         originalURLs = urls
@@ -251,6 +301,10 @@ final class MobilePlaybackController: ObservableObject {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
                 guard let self else { return }
+                // Sampled before every other guard: the AVPlayer engine skips
+                // the rest of this loop, and a paused or backgrounded stream is
+                // exactly when some of these values matter. Observation only.
+                self.diag.update(snapshot: self.diagnosticsSnapshot)
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
                     if ProcessInfo.processInfo.systemUptime >= retryAt {
@@ -312,6 +366,7 @@ final class MobilePlaybackController: ObservableObject {
         let url = candidates.removeFirst()
         currentURL = url
         engine = MobileEngineSelection.engine(for: url)
+        diag.record("openNext \(url.lastPathComponent) engine=\(engine.rawValue) remaining=\(candidates.count)")
         started = Date()
         loading = true
         switch engine {
@@ -346,6 +401,7 @@ final class MobilePlaybackController: ObservableObject {
             let status = item.status
             onMain {
                 guard let self else { return }
+                self.diag.record("item status -> \(["unknown", "readyToPlay", "failed"][min(max(status.rawValue, 0), 2)])\(item.error.map { " error=\($0.localizedDescription)" } ?? "")")
                 switch status {
                 case .failed: self.systemEngineFailed()
                 case .readyToPlay:
@@ -367,6 +423,7 @@ final class MobilePlaybackController: ObservableObject {
             let playing = player.timeControlStatus == .playing
             onMain {
                 guard let self else { return }
+                self.diag.record("timeControlStatus -> \(playing ? "playing" : "not playing") rate=\(player.rate) layerReady=\(self.videoView?.playerLayer?.isReadyForDisplay.description ?? "—")")
                 self.isPlaying = playing
                 if playing {
                     self.loading = false
@@ -386,14 +443,17 @@ final class MobilePlaybackController: ObservableObject {
             MainActor.assumeIsolated { self?.systemEngineFailed() }
         })
 
+        diag.record("openSystem item created; videoView=\(videoView == nil ? "nil" : "present")")
         if let view = videoView { attachSystemLayer(to: view) }
         systemPlayer.play()
+        diag.record("openSystem play() called; layer=\(videoView?.playerLayer == nil ? "ABSENT" : "present")")
         UIApplication.shared.isIdleTimerDisabled = true
     }
 
     /// The HLS endpoint did not work. Fall through to the next candidate, which
     /// for a normal Xtream channel is the transport stream on VLC.
     private func systemEngineFailed() {
+        diag.record("systemEngineFailed candidates=\(candidates.count)")
         guard engine == .system, error == nil, retryAt == nil else { return }
         if !candidates.isEmpty {
             openNext()
@@ -416,7 +476,11 @@ final class MobilePlaybackController: ObservableObject {
 
     private func startWhenVideoIsReady() {
         guard engine == .vlc, waitingForVideo, !suspended, !pausedByUser, let view = videoView,
-              view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
+              view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else {
+            diag.record("startWhenVideoIsReady declined: engine=\(engine.rawValue) waiting=\(waitingForVideo) suspended=\(suspended) paused=\(pausedByUser) view=\(videoView == nil ? "nil" : "set") window=\(videoView?.window == nil ? "no" : "yes") size=\(Int(videoView?.bounds.width ?? 0))x\(Int(videoView?.bounds.height ?? 0))")
+            return
+        }
+        diag.record("startWhenVideoIsReady starting VLC")
         // Never call play before VLC has a mounted, nonzero drawable.
         player.drawable = view
         waitingForVideo = false
@@ -590,12 +654,14 @@ final class MobilePlaybackController: ObservableObject {
     private func detachLayerForBackground() {
         guard engine == .system, !pictureInPictureActive, !layerDetachedForBackground,
               let layer = videoView?.playerLayer else { return }
+        diag.record("detachLayerForBackground")
         layer.player = nil
         layerDetachedForBackground = true
     }
 
     private func reattachLayerAfterBackground() {
         guard layerDetachedForBackground else { return }
+        diag.record("reattachLayerAfterBackground")
         layerDetachedForBackground = false
         videoView?.playerLayer?.player = systemPlayer
     }
@@ -626,6 +692,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     func shutdown() {
+        diag.record("shutdown")
         noticeTask?.cancel()
         noticeTask = nil
         failoverNotice = nil

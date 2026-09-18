@@ -49,6 +49,13 @@ struct MobilePlayerView: View {
                 .allowsHitTesting(false)
                 .accessibilityAddTraits(.updatesFrequently)
             }
+            VStack {
+                Spacer()
+                HStack {
+                    PlaybackDiagnosticsOverlay(controller: controller)
+                    Spacer()
+                }
+            }
             if controlsVisible {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {

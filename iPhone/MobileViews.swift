@@ -139,6 +139,7 @@ private struct MobileAccountView: View {
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
     @State private var clearingPreferences = false
+    @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
@@ -289,6 +290,10 @@ private struct MobileAccountView: View {
                     LabeledContent("App version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                     LabeledContent("Channels", value: "\(library.streams.count)")
                     NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
+                    Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
+                    if playbackDiagnostics.isEnabled {
+                        NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
+                    }
                     Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
