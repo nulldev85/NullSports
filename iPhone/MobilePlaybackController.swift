@@ -74,6 +74,9 @@ final class MobilePlaybackController: ObservableObject {
     private var retryAt: TimeInterval?
 
     // AVPlayer engine state.
+    /// Whether the current AVPlayer item has reached `readyToPlay`. Held
+    /// because that status arrives once and can precede the video surface.
+    private var systemItemReady = false
     private var systemObservers: [NSKeyValueObservation] = []
     private var systemNotifications: [NSObjectProtocol] = []
     /// Held apart from `systemObservers`: those are torn down on every channel
@@ -351,8 +354,11 @@ final class MobilePlaybackController: ObservableObject {
                 case .failed: self.systemEngineFailed()
                 case .readyToPlay:
                     // Ready is not the same as showing: while the surface is
-                    // still being waited on there is nothing on screen yet, and
-                    // dropping the spinner there would leave a black rectangle.
+                    // still pending there is nothing on screen yet, and dropping
+                    // the spinner would leave a black rectangle. Record it
+                    // instead of discarding it -- `status` reaches .readyToPlay
+                    // once, so an early arrival must not be lost.
+                    self.systemItemReady = true
                     guard !self.waitingForVideo else { return }
                     self.loading = false
                     UIApplication.shared.isIdleTimerDisabled = true
@@ -391,12 +397,14 @@ final class MobilePlaybackController: ObservableObject {
             MainActor.assumeIsolated { self?.systemEngineFailed() }
         })
 
-        // Live, not video-on-demand: begin as soon as there is something to
-        // show rather than buffering ahead to insulate against stalls. A stall
-        // is what the health monitor and failover are for; latency to first
-        // frame is what the viewer actually notices.
-        systemPlayer.automaticallyWaitsToMinimizeStalling = false
-
+        // `automaticallyWaitsToMinimizeStalling` stays at its default of true.
+        // Setting it false made `play()` take the rate to 1.0 whether or not the
+        // item had buffered anything, and because playback now begins when the
+        // video surface mounts -- which can precede `readyToPlay` -- the player
+        // wedged: one decoded frame on screen, no audio, and a timeControlStatus
+        // of .playing reporting success. Left at true, AVPlayer defers the start
+        // until it actually has data, which is what makes calling `play()` early
+        // safe in the first place.
         waitingForVideo = true
         waitingSince = Date()
         startWhenVideoIsReady()
@@ -414,6 +422,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func teardownSystemEngine() {
+        systemItemReady = false
         // `pipObserver` is deliberately not invalidated here: it belongs to the
         // layer and the PiP controller, both of which survive a channel change.
         systemObservers.forEach { $0.invalidate() }
@@ -448,6 +457,8 @@ final class MobilePlaybackController: ObservableObject {
         case .system:
             attachSystemLayer(to: view)
             systemPlayer.play()
+            // Pick up a readiness that landed while the surface was pending.
+            if systemItemReady { loading = false }
         }
         UIApplication.shared.isIdleTimerDisabled = true
     }
