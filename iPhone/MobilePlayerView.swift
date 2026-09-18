@@ -4,6 +4,10 @@ import AVFoundation
 struct MobilePlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Compact means a short screen, which on an iPhone means landscape. It is
+    /// the one layout where the synopsis and the transport controls compete
+    /// for the same band of the picture.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @StateObject private var controller = MobilePlaybackController()
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
@@ -118,10 +122,20 @@ struct MobilePlayerView: View {
                     .transition(.opacity)
                 }
                 if showsTransport, let progress = controller.progress {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Spacer()
-                        if let synopsis, !synopsis.isEmpty { synopsisPanel(synopsis) }
-                        scrubber(progress)
+                    // The panel's width is measured rather than assumed: in
+                    // landscape it has to stop short of the transport controls
+                    // sitting dead centre, and only the container knows where
+                    // that is.
+                    GeometryReader { frame in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Spacer()
+                            if let synopsis, !synopsis.isEmpty {
+                                synopsisPanel(synopsis, within: frame.size.width)
+                            }
+                            scrubber(progress)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomLeading)
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 18)
@@ -220,7 +234,8 @@ struct MobilePlayerView: View {
         return false
     }
 
-    private func synopsisPanel(_ synopsis: MobilePlayerSynopsis) -> some View {
+    private func synopsisPanel(_ synopsis: MobilePlayerSynopsis,
+                               within available: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let heading = synopsis.heading, !heading.isEmpty {
                 Text(heading).font(.inter(.subheadline, .semibold)).lineLimit(1)
@@ -235,12 +250,16 @@ struct MobilePlayerView: View {
                 Text(overview)
                     .font(.inter(.caption))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.82))
-                    .lineLimit(3)
+                    // A narrower column is a taller one, and in landscape the
+                    // height is what runs into the controls. Two lines there.
+                    .lineLimit(verticalSizeClass == .compact ? 2 : 3)
                     .multilineTextAlignment(.leading)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(maxWidth: 420, alignment: .leading)
+        .frame(maxWidth: MobilePlayerLayout.synopsisWidth(
+                    available: available, compactHeight: verticalSizeClass == .compact),
+                    alignment: .leading)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
     }
