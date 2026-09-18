@@ -72,6 +72,32 @@ struct MobilePlaybackPolicyChecks {
         check(action(background: false, backgroundAudio: false) == .keepPlaying,
               "Foreground playback never depends on the background audio mode")
 
+        // System engine watchdog ------------------------------------------
+        func verdict(_ elapsed: TimeInterval, ready: Bool, video: Bool) -> SystemEngineWatchdog.Verdict {
+            SystemEngineWatchdog.verdict(elapsed: elapsed, isReady: ready, hasVideo: video)
+        }
+
+        // A healthy stream is never interrupted, however long it runs.
+        check(verdict(0, ready: true, video: true) == .wait, "A ready stream with video waits")
+        check(verdict(3600, ready: true, video: true) == .wait, "…and keeps waiting forever")
+
+        // The captured failure: status stuck at unknown, no error, nothing to
+        // fire on, and a perfectly good transport stream queued behind it.
+        check(verdict(1, ready: false, video: false) == .wait, "A slow open is given time")
+        check(verdict(7.9, ready: false, video: false) == .wait, "…right up to the deadline")
+        check(verdict(8.1, ready: false, video: false) == .failOver, "An item that never loads falls over")
+        check(SystemEngineWatchdog.readyDeadline == 8, "The open deadline is deliberate")
+
+        // Ready but blank gets longer, because the server did answer.
+        check(verdict(9, ready: true, video: false) == .wait, "A ready stream is given longer to show a picture")
+        check(verdict(12.1, ready: true, video: false) == .failOver, "…but not indefinitely")
+        check(SystemEngineWatchdog.videoDeadline == 12, "The picture deadline is deliberate")
+        check(SystemEngineWatchdog.videoDeadline > SystemEngineWatchdog.readyDeadline,
+              "Answering the request buys more patience than not answering it")
+
+        // Video without readiness cannot happen, but must not crash the table.
+        check(verdict(20, ready: false, video: true) == .failOver, "Unready outranks a stale size")
+
         print("Mobile playback policy checks passed")
     }
 }

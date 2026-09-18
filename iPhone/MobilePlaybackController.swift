@@ -313,8 +313,23 @@ final class MobilePlaybackController: ObservableObject {
                     }
                     continue
                 }
-                // AVPlayer reports its own status through KVO and the stall
-                // notification; only the VLC engine needs polling.
+                // AVPlayer reports status through KVO, but it has no failure to
+                // report when a playlist simply never loads: the item stays at
+                // .unknown with no error, so nothing fires and the transport
+                // stream queued behind it is never tried. This deadline is the
+                // AVPlayer equivalent of the drawable timeout the VLC path has
+                // had since 0.17.4.
+                if self.engine == .system, self.error == nil {
+                    let item = self.systemPlayer.currentItem
+                    let verdict = SystemEngineWatchdog.verdict(
+                        elapsed: Date().timeIntervalSince(self.started),
+                        isReady: item?.status == .readyToPlay,
+                        hasVideo: (item?.presentationSize.width ?? 0) > 0)
+                    if verdict == .failOver {
+                        self.diag.record("watchdog: giving up on \(self.currentURL?.lastPathComponent ?? "—") after \(Int(Date().timeIntervalSince(self.started)))s, status=\(item?.status == .readyToPlay ? "ready" : "unready") size=\(Int(item?.presentationSize.width ?? 0))x\(Int(item?.presentationSize.height ?? 0))")
+                        self.systemEngineFailed()
+                    }
+                }
                 guard self.engine == .vlc else { continue }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {

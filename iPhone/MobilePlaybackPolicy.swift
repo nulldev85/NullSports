@@ -88,3 +88,38 @@ enum MobileBackgroundPolicy {
         return backgroundAudioEnabled ? .keepPlaying : .pause
     }
 }
+
+/// When to give up on the AVPlayer engine and fall through to the next
+/// candidate — in practice the transport stream, which VLC can play.
+///
+/// AVPlayer has no failure of its own to report here. A dead or unresponsive
+/// HLS endpoint leaves the item in `.unknown` indefinitely: no error, no status
+/// change, nothing for a KVO observer to fire on. A real capture from a broken
+/// provider endpoint sat exactly like that for eighteen seconds with a perfectly
+/// good `.ts` candidate queued behind it and never tried. The VLC engine has had
+/// a deadline for this since 0.17.4; this is the same idea for the other engine.
+enum SystemEngineWatchdog {
+    /// Long enough for a slow connection to open a playlist, short enough that
+    /// a dead endpoint does not read as a hung app.
+    static let readyDeadline: TimeInterval = 8
+    /// Ready but still showing nothing. Separate and longer, because reaching
+    /// `readyToPlay` means the server answered — the picture may yet arrive.
+    static let videoDeadline: TimeInterval = 12
+
+    enum Verdict: Equatable {
+        case wait
+        case failOver
+    }
+
+    /// - Parameters:
+    ///   - elapsed: seconds since this candidate was opened.
+    ///   - isReady: the item reached `readyToPlay`.
+    ///   - hasVideo: the item reported a non-zero presentation size.
+    static func verdict(elapsed: TimeInterval, isReady: Bool, hasVideo: Bool) -> Verdict {
+        if isReady && hasVideo { return .wait }
+        if !isReady { return elapsed > readyDeadline ? .failOver : .wait }
+        // Ready, playing, and still no picture: the 0.17.8 rule, which the
+        // AVPlayer path never got — audio without video is not success.
+        return elapsed > videoDeadline ? .failOver : .wait
+    }
+}

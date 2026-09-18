@@ -51,6 +51,36 @@ final class PlaybackPolicyTests: XCTestCase {
                       "LineupiOS must declare UIBackgroundModes: audio or background playback silently stops")
     }
 
+    // MARK: - System engine watchdog
+
+    private func verdict(_ elapsed: TimeInterval, ready: Bool, video: Bool) -> SystemEngineWatchdog.Verdict {
+        SystemEngineWatchdog.verdict(elapsed: elapsed, isReady: ready, hasVideo: video)
+    }
+
+    /// A working stream is never interrupted, however long it runs.
+    func testAHealthyStreamIsNeverFailedOver() {
+        XCTAssertEqual(verdict(0, ready: true, video: true), .wait)
+        XCTAssertEqual(verdict(3600, ready: true, video: true), .wait)
+    }
+
+    /// The captured failure: a dead HLS endpoint leaves the item at `.unknown`
+    /// with no error, so nothing else in the controller can notice. Eighteen
+    /// seconds of that, with a good transport stream queued and never tried.
+    func testAnItemThatNeverLoadsFallsOverToTheNextCandidate() {
+        XCTAssertEqual(verdict(1, ready: false, video: false), .wait)
+        XCTAssertEqual(verdict(7.9, ready: false, video: false), .wait)
+        XCTAssertEqual(verdict(8.1, ready: false, video: false), .failOver)
+        XCTAssertEqual(SystemEngineWatchdog.readyDeadline, 8)
+    }
+
+    /// Ready but blank gets longer, because the server did answer — and then
+    /// still falls over, which is the 0.17.8 rule the AVPlayer path never had.
+    func testReadyWithoutAPictureEventuallyFallsOverToo() {
+        XCTAssertEqual(verdict(9, ready: true, video: false), .wait)
+        XCTAssertEqual(verdict(12.1, ready: true, video: false), .failOver)
+        XCTAssertGreaterThan(SystemEngineWatchdog.videoDeadline, SystemEngineWatchdog.readyDeadline)
+    }
+
     // MARK: - Engine selection
 
     private let hls = URL(string: "http://example.com/live/u/p/1234.m3u8")!
