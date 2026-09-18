@@ -44,7 +44,7 @@ struct MainView: View {
         .statusBarHidden(guideFullscreen)
         .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
-            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream))
+            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }

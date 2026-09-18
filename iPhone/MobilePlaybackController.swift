@@ -39,6 +39,9 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var pictureInPictureActive = false
     /// A short, self-clearing line shown when Lineup moves to a different feed.
     @Published private(set) var failoverNotice: String?
+    /// Where playback is in a title that has an end. Nil for a live stream,
+    /// which has no length to report and nothing to scrub through.
+    @Published private(set) var progress: MobilePlaybackProgress?
 
     /// How the controller reaches other channels for the game on screen. Left
     /// nil for plain Guide playback, which has no game and therefore no verified
@@ -59,6 +62,7 @@ final class MobilePlaybackController: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
+    private var isScrubbing = false
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
@@ -194,6 +198,59 @@ final class MobilePlaybackController: ObservableObject {
     // versions and isn't worth pinning to for a badge — the video size alone
     // covers what was actually asked for ("quality of channel").
     var streamQualityLabel: String? { qualityLabel }
+
+    // MARK: - Position
+
+    /// Read straight from whichever engine is running. Both report a length of
+    /// zero for a live stream, so a title with no end simply has no progress to
+    /// publish and the player shows live chrome instead of a scrubber.
+    private func sampleProgress() {
+        guard !isScrubbing else { return }
+        switch engine {
+        case .system:
+            let item = systemPlayer.currentItem
+            let duration = item?.duration.seconds ?? .nan
+            let position = systemPlayer.currentTime().seconds
+            guard duration.isFinite, duration > 0, position.isFinite else { progress = nil; return }
+            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+        case .vlc:
+            let lengthMs = player.media?.length.intValue ?? 0
+            guard lengthMs > 0 else { progress = nil; return }
+            let duration = Double(lengthMs) / 1000
+            let position = Double(player.time.intValue) / 1000
+            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+        }
+    }
+
+    /// Hold the sampled position still while a finger is on the scrubber, so
+    /// the thumb does not fight the engine's own reports on the way past.
+    func beginScrubbing() { isScrubbing = true }
+
+    func endScrubbing(at seconds: Double) {
+        isScrubbing = false
+        seek(to: seconds)
+    }
+
+    func seek(to seconds: Double) {
+        guard let current = progress, current.duration > 0 else { return }
+        let target = min(max(0, seconds), current.duration)
+        switch engine {
+        case .system:
+            systemPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                              toleranceBefore: .zero, toleranceAfter: .zero)
+        case .vlc:
+            // A fraction rather than a VLCTime: `position` is the one seek the
+            // pinned VLCKit has always exposed the same way.
+            player.position = Float(target / current.duration)
+        }
+        progress = MobilePlaybackProgress(position: target, duration: current.duration)
+        diag.record("seek to \(Int(target))s of \(Int(current.duration))s via \(engine.rawValue)")
+    }
+
+    func skip(by seconds: Double) {
+        guard let current = progress else { return }
+        seek(to: current.position + seconds)
+    }
 
     // MARK: - Surface
 
@@ -331,6 +388,7 @@ final class MobilePlaybackController: ObservableObject {
                 // the rest of this loop, and a paused or backgrounded stream is
                 // exactly when some of these values matter. Observation only.
                 self.diag.update(snapshot: self.diagnosticsSnapshot)
+                self.sampleProgress()
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
                     if ProcessInfo.processInfo.systemUptime >= retryAt {

@@ -9,6 +9,14 @@ struct MobilePlayerView: View {
     @State private var hideControlsTask: Task<Void, Never>?
     let name: String
     let urls: [URL]
+    /// A channel, which runs at the live edge and cannot be scrubbed, or a
+    /// title from a media server, which has a length and a position. The two
+    /// want different chrome, and showing a LIVE dot over a film was the tell.
+    var isLive: Bool = true
+    /// What the server says this particular source is, for a title. Beats
+    /// guessing from the decoded picture, which is all a channel can offer.
+    var sourceDetail: String? = nil
+    @State private var scrubTarget: Double?
 
     var body: some View {
         ZStack {
@@ -69,8 +77,8 @@ struct MobilePlayerView: View {
                             }
                         }
                         if controller.error == nil && !controller.loading {
-                            statusBadge
-                            if let quality = controller.streamQualityLabel { qualityBadge(quality) }
+                            if isLive { statusBadge }
+                            if let detail = badgeDetail { qualityBadge(detail) }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -84,9 +92,30 @@ struct MobilePlayerView: View {
                 // lands dead-center on screen — the same spot every other player
                 // in the app puts its play/pause control.
                 if !controller.loading && controller.error == nil {
-                    control(controller.isPlaying ? "pause.fill" : "play.fill",
-                            label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
-                        .transition(.opacity)
+                    HStack(spacing: 28) {
+                        if showsTransport {
+                            control("gobackward.15", label: "Back 15 seconds") {
+                                showControls()
+                                controller.skip(by: -15)
+                            }
+                        }
+                        control(controller.isPlaying ? "pause.fill" : "play.fill",
+                                label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
+                        if showsTransport {
+                            control("goforward.15", label: "Forward 15 seconds") {
+                                showControls()
+                                controller.skip(by: 15)
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
+                if showsTransport, let progress = controller.progress {
+                    VStack {
+                        Spacer()
+                        scrubber(progress)
+                    }
+                    .transition(.opacity)
                 }
             }
         }
@@ -147,6 +176,49 @@ struct MobilePlayerView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
+    }
+
+    /// A title that reports a length gets a scrubber; a live channel never
+    /// does, however the engine happens to be feeling about its own duration.
+    private var showsTransport: Bool {
+        !isLive && controller.progress != nil && controller.error == nil && !controller.loading
+    }
+
+    /// The server's own account of the source beats the decoded picture size,
+    /// which is all a channel can be asked for.
+    private var badgeDetail: String? { sourceDetail ?? controller.streamQualityLabel }
+
+    private func scrubber(_ progress: MobilePlaybackProgress) -> some View {
+        let shown = scrubTarget ?? progress.position
+        return VStack(spacing: 6) {
+            Slider(value: Binding(
+                get: { shown },
+                set: { scrubTarget = $0 }
+            ), in: 0...max(progress.duration, 1), onEditingChanged: { editing in
+                if editing {
+                    hideControlsTask?.cancel()
+                    controller.beginScrubbing()
+                } else {
+                    controller.endScrubbing(at: scrubTarget ?? shown)
+                    scrubTarget = nil
+                    scheduleAutoHide()
+                }
+            })
+            .tint(LineupStyle.lightPurple)
+            HStack {
+                Text(MobilePlaybackProgress.timecode(shown))
+                Spacer()
+                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+            }
+            .font(.inter(.caption2, .semibold).monospacedDigit())
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 26)
+        .padding(.top, 30)
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Playback position")
     }
 
     private func qualityBadge(_ text: String) -> some View {

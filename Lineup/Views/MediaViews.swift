@@ -1859,13 +1859,22 @@ private struct MediaSourcePicker: View {
         loading = false
     }
 
+    /// What the server said this source is, which is the accurate account of
+    /// it: the release quality it named and the bitrate it reported, rather
+    /// than the decoded picture size a live channel has to be judged by.
+    private func sourceDetail(for source: MediaPlaybackSource) -> String? {
+        let parts = [source.quality, source.formattedBitrate].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false)
             #else
-            MobilePlayerView(name: item.name, urls: [url])
+            MobilePlayerView(name: item.name, urls: [url], isLive: false,
+                             sourceDetail: sourceDetail(for: source))
             #endif
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
