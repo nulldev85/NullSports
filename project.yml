@@ -36,7 +36,10 @@ targets:
         PRODUCT_NAME: Lineup
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Lineup
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
+        # App Transport Security has no INFOPLIST_KEY_ form, so it lives in a
+        # real file that Xcode merges the generated keys into — the same fix
+        # the iPhone target needed, for the same reason.
+        INFOPLIST_FILE: BuildAssets/LineuptvOS-Info.plist
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Lineup/Lineup.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

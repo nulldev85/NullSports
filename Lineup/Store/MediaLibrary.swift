@@ -158,7 +158,7 @@ final class MediaLibrary: ObservableObject {
             // as in the views above. Whatever a library already offers is the
             // library's.
             let known = Set(loaded.map(\.id))
-            let loadedCollections = ((try? await source.collections(userID: profile.userID)) ?? [])
+            let loadedCollections = ((try? await source.allCollections(userID: profile.userID)) ?? [])
                 .filter { !known.contains($0.id) }
             let shelvable = loaded + loadedCollections
             let selectedRoots = selectedShelfRoots(from: shelvable, profileID: profile.id)
@@ -432,8 +432,21 @@ final class MediaLibrary: ObservableObject {
         guard let profile = activeProfile, let source = try? client(for: profile) else { return }
         do {
             try await source.setCatalog(addonID: addonID, catalogID: catalog.catalogId, enabled: true)
-            try await source.refreshLibrary()
         } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        // Read the switch back before waiting ten minutes on it. A server that
+        // accepted the request but did not record the choice is a different
+        // problem from a slow import, and it is worth a second to tell them
+        // apart rather than showing the same spinner for both.
+        let confirmed = (try? await source.addonCatalogs(addonID: addonID))?
+            .first { $0.catalogId == catalog.catalogId }
+        if let confirmed, !confirmed.enabled {
+            errorMessage = catalog.name + " could not be switched on: the server accepted the request but still reports the catalog as off. Check that this account is allowed to change catalogs on the server."
+            return
+        }
+        do { try await source.refreshLibrary() } catch {
             errorMessage = error.localizedDescription
             return
         }
@@ -473,10 +486,19 @@ final class MediaLibrary: ObservableObject {
             await reload()
             return
         }
-        // Out of patience, not out of luck: the server is still working and
-        // the catalog is still enabled. Put it where it will turn up.
         guard !Task.isCancelled else { return }
-        errorMessage = "\(catalog.name) is still importing on the server. It will appear under imported catalogs when that finishes — refresh then to add it."
+        // Say what was actually observed. "Still importing" read the same
+        // whether the server was working on it or had never started, and those
+        // want different things done about them.
+        let latest = (try? await source.addonCatalogs(addonID: addonID))?
+            .first { $0.catalogId == catalog.catalogId }
+        let collectionCount = ((try? await source.allCollections(userID: profile.userID)) ?? []).count
+        let state = latest?.enabled == true ? "switched on" : "switched off"
+        let named = latest?.collectionId.map { "names collection " + $0 + " for it" }
+            ?? "has not named a collection for it"
+        errorMessage = catalog.name + " did not finish importing in ten minutes. The server reports it as "
+            + state + " and " + named + ", with " + String(collectionCount)
+            + " collections visible to this account. If it is not in the server's own library either, the server has not imported it and nothing here can add it yet."
         await reload()
     }
 
@@ -504,7 +526,7 @@ final class MediaLibrary: ObservableObject {
            let item = try? await source.item(userID: profile.userID, itemID: id) {
             return item
         }
-        return (try? await source.collections(userID: profile.userID))?
+        return (try? await source.allCollections(userID: profile.userID))?
             .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }
     }
 

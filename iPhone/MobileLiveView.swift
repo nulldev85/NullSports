@@ -63,7 +63,13 @@ struct MobileLiveView: View {
                         // quiet line, because everything below it already works.
                         if library.isInitialProviderSync {
                             InitialSyncBanner()
-                        } else if library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady {
+                        // Tied to work actually in flight, not to matching
+                        // being "ready". Readiness can sit false forever --
+                        // with no games there is nothing to match and nothing
+                        // ever completes it -- and the banner then announced a
+                        // refresh that had finished, or had never been needed.
+                        } else if library.isScheduleLoading || library.isLoading
+                                    || library.channelsAreSyncing {
                             RefreshingStreamsBanner()
                         } else if library.isRefreshingInBackground {
                             BackgroundRefreshBanner()
