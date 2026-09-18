@@ -233,7 +233,11 @@ final class MobilePlaybackController: ObservableObject {
         pendingTeardown?.cancel()
         pendingTeardown = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
-            guard let self, !Task.isCancelled, self.videoView == nil else { return }
+            // Re-check Picture in Picture as well as the surface: the window can
+            // take the stream over inside this window, and stopping the engine
+            // underneath it would close the very thing the viewer moved to.
+            guard let self, !Task.isCancelled,
+                  self.videoView == nil, !self.pictureInPictureActive else { return }
             self.pendingTeardown = nil
             self.stop()
         }
