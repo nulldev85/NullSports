@@ -318,8 +318,18 @@ private struct MobileAccountView: View {
                             // whole row rather than sitting inside the inset
                             // the form gives text rows — otherwise it is
                             // visibly narrower than the rows beneath it.
-                            .listRowInsets(EdgeInsets())
+                            //
+                            // The gap below it is part of the row for the same
+                            // reason. Two surfaces of their own meeting on a
+                            // shared edge read as one badly drawn shape, and a
+                            // list puts no space between rows to separate them.
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0,
+                                                      bottom: 12, trailing: 0))
                             .listRowBackground(LineupStyle.background)
+                            // Nothing to divide it from: the card is a surface,
+                            // not a row, and a hairline left floating in the
+                            // gap would be the sloppiest part of all.
+                            .listRowSeparator(.hidden)
                     }
                     ForEach(media.profiles) { profile in
                         HStack {
