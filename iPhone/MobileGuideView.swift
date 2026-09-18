@@ -98,6 +98,7 @@ struct MobileGuideView: View {
                                 program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
                                 expanded: expanded, showsMetadata: showsMetadata,
                                 videoHeight: expanded ? fullHeight : videoHeight,
+                                screenInsets: viewport.safeAreaInsets,
                                 onClose: closePlayer, onExpand: { setExpanded(!expanded) },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) })
                                 .frame(height: expanded ? fullHeight : videoHeight + metadataHeight, alignment: .top)

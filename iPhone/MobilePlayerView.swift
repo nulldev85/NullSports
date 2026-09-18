@@ -131,9 +131,13 @@ struct MobilePlayerView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
         .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
-        .background(.black).foregroundStyle(LineupStyle.lightPurple)
+        // The picture and its backing fill the screen; the controls do not.
+        // Ignoring the safe area for the whole player put the close button, the
+        // badges and the scrubber underneath the Dynamic Island — which a
+        // screenshot does not capture, so it only showed up on the device.
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
         .modifier(MobileDismissGesture(enabled: true) { dismiss() })
-        .ignoresSafeArea()
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear {

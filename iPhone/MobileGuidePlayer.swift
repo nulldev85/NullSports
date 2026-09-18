@@ -11,6 +11,13 @@ struct MobileGuidePlayer: View {
     let expanded: Bool
     let showsMetadata: Bool
     let videoHeight: CGFloat
+    /// The screen's own insets, handed down because this view cannot read them
+    /// for itself: full screen reaches past the safe area deliberately, and a
+    /// view that ignores an inset is told the inset is zero. The picture is
+    /// meant to fill the screen; the controls on top of it are not, or they end
+    /// up under the Dynamic Island — which a screenshot does not capture, so it
+    /// only ever showed up on the device.
+    var screenInsets: EdgeInsets = EdgeInsets()
     let onClose: () -> Void
     let onExpand: () -> Void
     let onRetry: () -> Void
@@ -94,6 +101,9 @@ struct MobileGuidePlayer: View {
                     }
                     .padding(.horizontal, expanded ? 24 : 10)
                     .padding(.vertical, expanded ? 20 : 10)
+                    .padding(.leading, expanded ? screenInsets.leading : 0)
+                    .padding(.trailing, expanded ? screenInsets.trailing : 0)
+                    .padding(.top, expanded ? screenInsets.top : 0)
                     .transition(.opacity)
                     // A ZStack-centered sibling, not nested in the VStack above, so
                     // it lands dead-center on screen, matching every other player.
