@@ -314,6 +314,11 @@ private struct MobileAccountView: View {
                 Section {
                     if let profile = media.activeProfile {
                         MediaServerAccountCard(profile: profile) { selectedTab = 2 }
+                            // The card draws its own surface, so it takes the
+                            // whole row rather than sitting inside the inset
+                            // the form gives text rows — otherwise it is
+                            // visibly narrower than the rows beneath it.
+                            .listRowInsets(EdgeInsets())
                             .listRowBackground(LineupStyle.background)
                     }
                     ForEach(media.profiles) { profile in

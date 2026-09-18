@@ -63,7 +63,26 @@ struct JellyfinClient: Sendable {
     ///
     /// A stock Jellyfin server answers the same request with its own
     /// collections, which belong in the same list.
-    func collections(userID: String, limit: Int = 200) async throws -> [MediaItem] {
+    /// Every collection, in pages, rather than the first page and a hope.
+    ///
+    /// A server that has imported a lot of catalogs has a lot of BoxSets, and
+    /// they come back sorted by name — so a collection whose name sorts late
+    /// falls off the end of a single capped request and is invisible to
+    /// everything downstream: the shelf picker, the library tab, and the wait
+    /// that watches for a newly imported catalog to appear.
+    func allCollections(userID: String, pageSize: Int = 200, maxPages: Int = 25) async throws -> [MediaItem] {
+        var all: [MediaItem] = []
+        var seen: Set<String> = []
+        for page in 0..<maxPages {
+            let batch = try await collections(userID: userID, limit: pageSize,
+                                              startIndex: page * pageSize)
+            for item in batch where seen.insert(item.id).inserted { all.append(item) }
+            if batch.count < pageSize { break }
+        }
+        return all
+    }
+
+    func collections(userID: String, limit: Int = 200, startIndex: Int = 0) async throws -> [MediaItem] {
         let query = [
             URLQueryItem(name: "IncludeItemTypes", value: "BoxSet"),
             URLQueryItem(name: "Recursive", value: "true"),
@@ -71,6 +90,7 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
             URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
             URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "StartIndex", value: String(startIndex)),
             URLQueryItem(name: "SortBy", value: "SortName"),
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
