@@ -1,7 +1,15 @@
 import Foundation
 
 final class XMLTVParser: NSObject, XMLParserDelegate {
-    private let now: Date
+    /// How much of the past a guide can show, and therefore how much of it has
+    /// to survive parsing. The Guide draws the hour before the current
+    /// half-hour so a programme already in progress has its elapsed shading
+    /// measured from where it actually started. Any listing that ends inside
+    /// that hour is on screen, so it must be kept — dropping everything that
+    /// had already finished is what left the first column reading "No listing"
+    /// for every channel.
+    static let lookback: TimeInterval = 3600
+    private let startOfWindow: Date
     private var currentChannel = ""
     private var currentStart: Date?
     private var currentEnd: Date?
@@ -13,8 +21,15 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     private(set) var programs: [String: [CurrentProgram]] = [:]
 
     init(now: Date = Date()) {
-        self.now = now
+        startOfWindow = Self.retentionStart(now: now)
         endOfWindow = Calendar.current.date(byAdding: .day, value: 2, to: Calendar.current.startOfDay(for: now)) ?? now
+    }
+
+    /// The earliest instant a parsed guide keeps. Anchored to the half-hour the
+    /// Guide anchors to, so the two cannot drift apart.
+    static func retentionStart(now: Date) -> Date {
+        let anchor = Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 1800).rounded(.down) * 1800)
+        return anchor.addingTimeInterval(-lookback)
     }
 
     func parse(_ data: Data) -> [String: [CurrentProgram]] {
@@ -42,7 +57,7 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         if elementName == "desc" { detail = text.trimmingCharacters(in: .whitespacesAndNewlines) }
         if elementName == "new" { currentIsNew = true }
         if elementName == "programme", let start = currentStart, let end = currentEnd,
-           end > now, start < endOfWindow, !currentChannel.isEmpty {
+           end > startOfWindow, start < endOfWindow, !currentChannel.isEmpty {
             programs[currentChannel, default: []].append(CurrentProgram(channelID: currentChannel, title: title, detail: detail, start: start, end: end, isNew: currentIsNew))
         }
         text = ""
