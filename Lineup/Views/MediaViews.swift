@@ -83,62 +83,52 @@ struct MediaServersView: View {
     #endif
 }
 
-/// A compact account summary of the selected server. Counts come from the
-/// server's total-record queries, never from the first page of shelf cards.
-struct MediaServerAccountCard: View {
-    @EnvironmentObject private var media: MediaLibrary
-    let profile: MediaServerProfile
-    let browse: () -> Void
+/// One figure on an account card. A count the app has not learned yet passes
+/// nil and shows an em dash rather than a zero it cannot stand behind.
+struct LineupCardStat: Identifiable {
+    let label: String
+    let count: Int?
+    var id: String { label }
+
+    init(_ label: String, _ count: Int?) {
+        self.label = label
+        self.count = count
+    }
+}
+
+/// The card the Account tab is built from.
+///
+/// There are two of these -- the provider and the media server -- and they are
+/// the tab's whole look, so they are one view rather than two that resemble
+/// each other. A glass circle on the left and a glass capsule on the right
+/// bracket the header; a filled disc against bare text did not. The figures
+/// below are equal columns divided by hairlines, because left-aligned thirds
+/// left the last one floating well short of the right edge and the row reading
+/// lopsided.
+struct LineupAccountCard<Actions: View>: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+    let connected: Bool
+    let status: String
+    let statusTint: Color
+    let stats: [LineupCardStat]
+    let refreshed: Date?
+    @ViewBuilder var actions: Actions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                // A glass circle on the left and a glass capsule on the right
-                // bracket the header; a filled disc against bare text did not.
-                Image(systemName: "play.square.stack.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 42, height: 42)
-                    .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
-                                       border: LineupStyle.line)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text(profile.name).font(.inter(.headline, .bold)).lineLimit(1)
-                        MediaServerPulseDot(connected: media.isConnected)
-                    }
-                    Text("\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)")
-                        .font(.inter(.caption)).lineLimit(1)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                }
-                Spacer(minLength: 8)
-                // A floor under the width so the header does not shuffle as the
-                // word changes between connecting, connected and offline.
-                Text(media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"))
-                    .font(.inter(.caption2, .semibold))
-                    .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
-                    .lineLimit(1)
-                    .frame(minWidth: 74)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
-                                       border: LineupStyle.line)
-            }
-            // Equal thirds, each centred in its own column, divided by a
-            // hairline. Left-aligned thirds left the last figure floating well
-            // short of the right edge and the whole row reading lopsided.
+            header
             HStack(spacing: 0) {
-                statistic(media.libraryCounts?.movies, label: "Movies")
-                statisticDivider
-                statistic(media.libraryCounts?.shows, label: "Shows")
-                statisticDivider
-                statistic(media.libraryCounts?.episodes, label: "Episodes")
-            }
-            HStack(spacing: 10) {
-                cardButton("Reload", symbol: "arrow.clockwise") {
-                    Task { await media.reload() }
+                ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
+                    if index > 0 {
+                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: 26)
+                    }
+                    statistic(stat)
                 }
-                .disabled(media.isLoading)
-                cardButton("Browse", symbol: "square.grid.2x2", action: browse)
             }
-            if let refreshed = media.lastRefreshedAt {
+            HStack(spacing: 10) { actions }
+            if let refreshed {
                 Text("Updated \(refreshed, style: .relative)")
                     .font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.48))
@@ -152,30 +142,80 @@ struct MediaServerAccountCard: View {
                            fallback: LineupStyle.surface, border: LineupStyle.line)
     }
 
-    private var statisticDivider: some View {
-        Rectangle().fill(LineupStyle.line)
-            .frame(width: 1, height: 26)
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: 42, height: 42)
+                .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
+                                   border: LineupStyle.line)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(title).font(.inter(.headline, .bold)).lineLimit(1)
+                    LineupStatusDot(connected: connected)
+                }
+                Text(subtitle)
+                    .font(.inter(.caption)).lineLimit(1)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            }
+            Spacer(minLength: 8)
+            // A floor under the width so the header does not shuffle as the
+            // word changes between connecting, connected and offline.
+            Text(status)
+                .font(.inter(.caption2, .semibold))
+                .foregroundStyle(statusTint)
+                .lineLimit(1)
+                .frame(minWidth: 74)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
+                                   border: LineupStyle.line)
+        }
     }
 
-    private func statistic(_ count: Int?, label: String) -> some View {
+    private func statistic(_ stat: LineupCardStat) -> some View {
         VStack(spacing: 3) {
-            Text(count.map { $0.formatted() } ?? "—")
+            Text(stat.count.map { $0.formatted() } ?? "—")
                 .font(.interDigits(.headline, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.inter(.caption2))
+            Text(stat.label).font(.inter(.caption2))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .frame(maxWidth: .infinity)
     }
-
-    private func cardButton(_ title: String, symbol: String,
-                            action: @escaping () -> Void) -> some View {
-        MediaServerCardAction(title: title, symbol: symbol, action: action)
-    }
-
 }
 
-private struct MediaServerCardAction: View {
+/// A compact account summary of the selected server. Counts come from the
+/// server's total-record queries, never from the first page of shelf cards.
+struct MediaServerAccountCard: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let profile: MediaServerProfile
+    let browse: () -> Void
+
+    var body: some View {
+        LineupAccountCard(
+            symbol: "play.square.stack.fill",
+            title: profile.name,
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            connected: media.isConnected,
+            status: media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"),
+            statusTint: media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5),
+            stats: [
+                LineupCardStat("Movies", media.libraryCounts?.movies),
+                LineupCardStat("Shows", media.libraryCounts?.shows),
+                LineupCardStat("Episodes", media.libraryCounts?.episodes)
+            ],
+            refreshed: media.lastRefreshedAt
+        ) {
+            LineupCardAction(title: "Reload", symbol: "arrow.clockwise") {
+                Task { await media.reload() }
+            }
+            .disabled(media.isLoading)
+            LineupCardAction(title: "Browse", symbol: "square.grid.2x2", action: browse)
+        }
+    }
+}
+
+struct LineupCardAction: View {
     @Environment(\.isFocused) private var focused
     let title: String
     let symbol: String
@@ -195,7 +235,7 @@ private struct MediaServerCardAction: View {
     }
 }
 
-private struct MediaServerPulseDot: View {
+struct LineupStatusDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
 

@@ -244,6 +244,77 @@ private struct MobileDiagnosticsView: View {
 /// choice, only one of them labelled for VoiceOver. Two lists that mean the
 /// same thing and do not look the same is what makes a screen read as sloppy,
 /// so there is now one row and both lists use it.
+/// The provider, told the same way the media server is told.
+///
+/// The tab used to give the media server a card and the provider a plain row,
+/// which was backwards: the provider is the thing the app is mostly about. Both
+/// are cards now, and both are the same card -- one view, two sets of figures
+/// -- so neither can drift into looking like the other's poor relation.
+private struct ProviderAccountCard: View {
+    @EnvironmentObject private var library: SportsLibrary
+    let profile: XtreamProfile
+    let openGuide: () -> Void
+
+    /// Channels in hand is what "ready" means here. A provider mid-sync still
+    /// has whatever it restored from disk, and that is worth watching.
+    private var ready: Bool { !library.streams.isEmpty }
+
+    private var status: String {
+        if library.channelsAreSyncing { return "Updating…" }
+        return ready ? "Connected" : "Offline"
+    }
+
+    var body: some View {
+        LineupAccountCard(
+            symbol: "antenna.radiowaves.left.and.right",
+            title: profile.name,
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            connected: ready,
+            status: status,
+            statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
+            stats: [
+                LineupCardStat("Channels", library.streams.count),
+                LineupCardStat("Favorites", library.favoriteStreamOrder.count),
+                LineupCardStat("Teams", library.teamPreferences.listed().count)
+            ],
+            refreshed: library.lastRefreshedAt
+        ) {
+            LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
+                Task { await library.reload() }
+            }
+            .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
+            LineupCardAction(title: "Guide", symbol: "calendar", action: openGuide)
+        }
+    }
+}
+
+extension View {
+    /// How an account card sits in the Form.
+    ///
+    /// A card draws its own surface, so it takes the whole row rather than the
+    /// inset the form gives text rows, and it carries the gap to whatever comes
+    /// next: two surfaces of their own meeting on a shared edge read as one
+    /// badly drawn shape, and a list puts no space between rows. The separator
+    /// goes because there is nothing there to divide -- a hairline floating in
+    /// the gap would be the sloppiest part of all. Written once so both cards
+    /// sit the same way.
+    func lineupAccountCardRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+            .listRowBackground(LineupStyle.background)
+            .listRowSeparator(.hidden)
+    }
+
+    /// A section title in the app's own voice rather than the system's grey.
+    func lineupSectionHeader() -> some View {
+        self
+            .font(.inter(.caption2, .semibold))
+            .tracking(1.1)
+            .textCase(.uppercase)
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+    }
+}
+
 private struct AccountSourceRow: View {
     let name: String
     let detail: String
@@ -322,6 +393,10 @@ private struct MobileAccountView: View {
         NavigationStack {
             Form {
                 Section {
+                    if let profile = library.activeProfile {
+                        ProviderAccountCard(profile: profile) { selectedTab = 1 }
+                            .lineupAccountCardRow()
+                    }
                     ForEach(library.profiles) { profile in
                         AccountSourceRow(
                             name: profile.name,
@@ -349,29 +424,14 @@ private struct MobileAccountView: View {
                                        value: preferencesSummary)
                     }
                 } header: {
-                    Text("Providers")
+                    Text("Providers").lineupSectionHeader()
                 } footer: {
                     Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
                     if let profile = media.activeProfile {
                         MediaServerAccountCard(profile: profile) { selectedTab = 2 }
-                            // The card draws its own surface, so it takes the
-                            // whole row rather than sitting inside the inset
-                            // the form gives text rows — otherwise it is
-                            // visibly narrower than the rows beneath it.
-                            //
-                            // The gap below it is part of the row for the same
-                            // reason. Two surfaces of their own meeting on a
-                            // shared edge read as one badly drawn shape, and a
-                            // list puts no space between rows to separate them.
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0,
-                                                      bottom: 12, trailing: 0))
-                            .listRowBackground(LineupStyle.background)
-                            // Nothing to divide it from: the card is a surface,
-                            // not a row, and a hairline left floating in the
-                            // gap would be the sloppiest part of all.
-                            .listRowSeparator(.hidden)
+                            .lineupAccountCardRow()
                     }
                     ForEach(media.profiles) { profile in
                         AccountSourceRow(
@@ -386,7 +446,7 @@ private struct MobileAccountView: View {
                     Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
                     if media.isLoading { ProgressView("Connecting…") }
                 } header: {
-                    Text("Media Servers")
+                    Text("Media Servers").lineupSectionHeader()
                 } footer: {
                     Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
                 }.listRowBackground(LineupGlassRow())
@@ -416,25 +476,24 @@ private struct MobileAccountView: View {
                         LabeledContent("Theme", value: LineupTheme(rawValue: selectedTheme)?.name ?? "Signal")
                     }
                 } header: {
-                    Text("Appearance")
+                    Text("Appearance").lineupSectionHeader()
                 } footer: {
                     Text("Syncs through iCloud.")
                 }
                 .listRowBackground(LineupGlassRow())
+                // What is left once the provider card carries the channel
+                // count, the sync state and the refresh button: three facts
+                // about the app rather than a drawer of odds and ends, which
+                // is what this section had turned into.
                 Section {
-                    LabeledContent("Channels", value: "\(library.streams.count)")
                     LabeledContent("iCloud", value: cloud.status)
                     NavigationLink("Diagnostics") {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
                             .environmentObject(library)
                     }
                     LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
-                    Button("Refresh channels and guide", systemImage: "arrow.clockwise") {
-                        Task { await library.reload() }
-                    }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-                    if library.channelsAreSyncing { ProgressView("Updating…") }
                 } header: {
-                    Text("Current library")
+                    Text("About").lineupSectionHeader()
                 }.listRowBackground(LineupGlassRow())
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
