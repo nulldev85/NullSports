@@ -375,12 +375,41 @@ private struct MobileMatchupRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
 
+    /// A card for an event rather than a single contest. UFC puts a night of
+    /// bouts behind one broadcast, so naming one of them on the card is both
+    /// arbitrary and wrong: nobody tunes in for the fight the feed happens to
+    /// list first. The event is the thing being watched.
+    private var isEvent: Bool {
+        !(game.eventName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Where it is being held, and never more than a line of it. An event is
+    /// worth naming the venue for; a fixture between two teams is not, because
+    /// the home side has already said it, so that one gets the place instead.
+    private var whereItIs: String? {
+        let parts = isEvent ? [game.venue, game.location] : [game.location]
+        let text = parts
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return text.isEmpty ? nil : text.joined(separator: " · ")
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
-                team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
-            }.frame(maxWidth: .infinity)
+                if isEvent {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(game.eventName ?? "")
+                            .font(.inter(.body, .semibold))
+                            .lineLimit(2).multilineTextAlignment(.leading)
+                        if let whereItIs { place(whereItIs) }
+                    }
+                } else {
+                    team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
+                    team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
+                    if let whereItIs { place(whereItIs) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
                 MobileLeagueLogo(league: game.league, size: 23)
@@ -411,6 +440,15 @@ private struct MobileMatchupRow: View {
         }
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
         .contentShape(Rectangle())
+    }
+
+    /// One line, quiet, and only when there is something to say. The card
+    /// earns its look by not filling every gap that could hold a fact.
+    private func place(_ text: String) -> some View {
+        Text(text)
+            .font(.inter(.caption2))
+            .foregroundStyle(LineupStyle.secondary)
+            .lineLimit(1).truncationMode(.tail)
     }
 
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
