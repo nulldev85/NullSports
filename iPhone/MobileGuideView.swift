@@ -290,6 +290,11 @@ struct MobileGuideView: View {
                         .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
+                    // The scrollers adjust no insets of their own, so the last
+                    // channel has to be given room to clear the floating tab
+                    // bar itself. Without this it sits underneath it, readable
+                    // only by scrolling past the end.
+                    .contentMargins(.bottom, viewport.safeAreaInsets.bottom, for: .scrollContent)
                     .frame(height: max(0, viewport.size.height - 40))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
@@ -304,6 +309,11 @@ struct MobileGuideView: View {
                 }
             }
             .contentMargins(.top, 0, for: .scrollContent)
+            // Held clear of the sides rather than allowed to run under them.
+            // In landscape the Dynamic Island eats into one edge, and the
+            // frozen channel column lives against exactly that edge, so the
+            // logos were disappearing behind it.
+            .safeAreaPadding(.horizontal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .coordinateSpace(name: "guideHorizontal")
             .onPreferenceChange(GuideHorizontalPosition.self) { value in
@@ -531,6 +541,11 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         }
     }
     static func configure(_ scroll: UIScrollView, horizontal: Bool) {
+        // Navigation already positions the guide inside the safe area, and
+        // letting these scrollers adjust again put that inset in twice. The
+        // cost is that they adjust for nothing else either, so the insets that
+        // do matter -- the tab bar below, the island at the sides -- are
+        // applied by the guide itself rather than left to the scroller.
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.isDirectionalLockEnabled = true
         // Elastic horizontal overscroll would move the ruler beneath frozen logos.

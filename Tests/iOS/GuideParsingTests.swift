@@ -98,3 +98,48 @@ final class GuideParsingTests: XCTestCase {
         XCTAssertEqual(named.count, 2)
     }
 }
+
+/// The guide draws an hour of history. Anything it can draw has to survive
+/// parsing, or the first column reads "No listing" for every channel — which
+/// is exactly what it did.
+final class GuideRetentionTests: XCTestCase {
+    func testParserKeepsEverythingTheGuideCanDraw() {
+        // Whatever the clock, the parser must not discard earlier than the
+        // guide's own window begins.
+        for offset in stride(from: 0.0, to: 1800.0, by: 137.0) {
+            let now = Date(timeIntervalSince1970: 1_800_000_000 + offset)
+            XCTAssertLessThanOrEqual(XMLTVParser.retentionStart(now: now),
+                                     MobileGuideWindow(now: now).start,
+                                     "the parser drops listings the guide still shows at \(now)")
+        }
+    }
+
+    func testAProgrammeThatEndedInTheLastHourIsStillParsed() {
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMddHHmmss Z"
+        // Ends twenty minutes ago: over, but still on screen in the lookback.
+        let start = now.addingTimeInterval(-80 * 60)
+        let end = now.addingTimeInterval(-20 * 60)
+        let xml = """
+        <tv><programme channel="c" start="\(formatter.string(from: start))" stop="\(formatter.string(from: end))">
+        <title>Just Finished</title></programme></tv>
+        """
+        XCTAssertEqual(XMLTVParser(now: now).parse(Data(xml.utf8))["c"]?.first?.title, "Just Finished")
+    }
+
+    func testAProgrammeFromThisMorningIsStillDropped() {
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMddHHmmss Z"
+        let start = now.addingTimeInterval(-6 * 3600)
+        let end = now.addingTimeInterval(-5 * 3600)
+        let xml = """
+        <tv><programme channel="c" start="\(formatter.string(from: start))" stop="\(formatter.string(from: end))">
+        <title>Long Over</title></programme></tv>
+        """
+        XCTAssertNil(XMLTVParser(now: now).parse(Data(xml.utf8))["c"])
+    }
+}
