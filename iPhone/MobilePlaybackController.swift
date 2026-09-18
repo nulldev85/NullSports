@@ -63,6 +63,10 @@ final class MobilePlaybackController: ObservableObject {
 
     private var monitor: Task<Void, Never>?
     private var isScrubbing = false
+    /// A channel runs at the live edge and is buffered for a link that may
+    /// wobble; a title is a file on a server that will be scrubbed through.
+    /// The two want opposite buffers, so the caller says which this is.
+    var isLive = true
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
@@ -236,8 +240,12 @@ final class MobilePlaybackController: ObservableObject {
         let target = min(max(0, seconds), current.duration)
         switch engine {
         case .system:
+            // Half a second either side rather than an exact frame. An exact
+            // seek makes AVPlayer decode forward from the previous keyframe,
+            // which is most of the wait for no difference anyone can see.
+            let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
             systemPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600),
-                              toleranceBefore: .zero, toleranceAfter: .zero)
+                              toleranceBefore: tolerance, toleranceAfter: tolerance)
         case .vlc:
             // A fraction rather than a VLCTime: `position` is the one seek the
             // pinned VLCKit has always exposed the same way.
@@ -480,10 +488,19 @@ final class MobilePlaybackController: ObservableObject {
         // (the 4.0 alpha we moved off of made it failable), so no optional
         // binding here.
         let media = VLCMedia(url: url)
-        // Matches tvOS's buffer size — 3s was too tight for some providers and
-        // read as a stall/drop after several minutes on a slightly slower link.
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
+        if isLive {
+            // Matches tvOS's buffer size — 3s was too tight for some providers
+            // and read as a stall/drop after several minutes on a slightly
+            // slower link.
+            media.addOption(":network-caching=5000")
+            media.addOption(":live-caching=5000")
+        } else {
+            // A file on a server is not a wobbling live link, and five seconds
+            // of buffer is five seconds refilled after every seek — which is
+            // what made scrubbing through a film feel like it had hung.
+            media.addOption(":network-caching=1000")
+            media.addOption(":file-caching=1000")
+        }
         media.addOption(":http-reconnect=true")
         player.media = media
         waitingForVideo = true

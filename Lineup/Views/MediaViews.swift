@@ -1859,13 +1859,29 @@ private struct MediaSourcePicker: View {
         loading = false
     }
 
-    /// What the server said this source is, which is the accurate account of
-    /// it: the release quality it named and the bitrate it reported, rather
-    /// than the decoded picture size a live channel has to be judged by.
-    private func sourceDetail(for source: MediaPlaybackSource) -> String? {
-        let parts = [source.quality, source.formattedBitrate].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    // The synopsis type and the player that shows it are both iPhone-only;
+    // tvOS has its own player and never builds this.
+    #if !os(tvOS)
+    /// What is playing, for the panel the player shows with its controls. The
+    /// player is handed a URL and a name; everything else about the title lives
+    /// here, so it is gathered here.
+    private var playerSynopsis: MobilePlayerSynopsis {
+        let heading: String?
+        if let series = item.seriesName, !series.isEmpty {
+            heading = [series, item.episodeCode, item.name]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        } else {
+            heading = item.name
+        }
+        let detail = [item.formattedAirDate.map { "Aired \($0)" } ?? item.productionYear.map(String.init),
+                      item.formattedRuntime,
+                      item.officialRating]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return MobilePlayerSynopsis(heading: heading,
+                                    detail: detail.isEmpty ? nil : detail,
+                                    overview: item.overview)
     }
+    #endif
 
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
@@ -1874,7 +1890,9 @@ private struct MediaSourcePicker: View {
             PlayerView(urls: [url], title: item.name, isLive: false)
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
-                             sourceDetail: sourceDetail(for: source))
+                             sourceBitrate: source.formattedBitrate,
+                             sourceQuality: source.quality,
+                             synopsis: playerSynopsis)
             #endif
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")

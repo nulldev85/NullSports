@@ -146,3 +146,18 @@ struct MobilePlaybackProgress: Equatable {
             : String(format: "%d:%02d", minutes, secs)
     }
 }
+
+/// What a title is, for the panel the player shows while its controls are up.
+///
+/// Built by whoever opened the player, because only they hold the record: the
+/// player itself is handed a URL and a name and knows nothing about seasons,
+/// air dates or plots.
+struct MobilePlayerSynopsis: Equatable {
+    var heading: String?
+    var detail: String?
+    var overview: String?
+
+    var isEmpty: Bool {
+        (heading ?? "").isEmpty && (detail ?? "").isEmpty && (overview ?? "").isEmpty
+    }
+}

@@ -13,9 +13,14 @@ struct MobilePlayerView: View {
     /// title from a media server, which has a length and a position. The two
     /// want different chrome, and showing a LIVE dot over a film was the tell.
     var isLive: Bool = true
-    /// What the server says this particular source is, for a title. Beats
-    /// guessing from the decoded picture, which is all a channel can offer.
-    var sourceDetail: String? = nil
+    /// The bitrate the server reported for this source. The server holds the
+    /// file, so this is the one number nothing on the device can improve on.
+    var sourceBitrate: String? = nil
+    /// The quality the server parsed from the release name. Only a fallback:
+    /// a name can say 4K about a 1080p file, so the decoded picture wins.
+    var sourceQuality: String? = nil
+    /// What is playing, shown beside the controls while they are up.
+    var synopsis: MobilePlayerSynopsis? = nil
     @State private var scrubTarget: Double?
 
     var body: some View {
@@ -111,10 +116,13 @@ struct MobilePlayerView: View {
                     .transition(.opacity)
                 }
                 if showsTransport, let progress = controller.progress {
-                    VStack {
+                    VStack(alignment: .leading, spacing: 10) {
                         Spacer()
+                        if let synopsis, !synopsis.isEmpty { synopsisPanel(synopsis) }
                         scrubber(progress)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 18)
                     .transition(.opacity)
                 }
             }
@@ -126,7 +134,10 @@ struct MobilePlayerView: View {
         .ignoresSafeArea()
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onAppear { controller.start(urls: urls) }
+        .onAppear {
+            controller.isLive = isLive
+            controller.start(urls: urls)
+        }
         .onDisappear { controller.shutdown(); hideControlsTask?.cancel() }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
         // whether this transition touches playback at all.
@@ -184,41 +195,94 @@ struct MobilePlayerView: View {
         !isLive && controller.progress != nil && controller.error == nil && !controller.loading
     }
 
-    /// The server's own account of the source beats the decoded picture size,
-    /// which is all a channel can be asked for.
-    private var badgeDetail: String? { sourceDetail ?? controller.streamQualityLabel }
+    /// Resolution from the picture actually being decoded, bitrate from the
+    /// server that holds the file. The server's parsed quality is the fallback
+    /// only until something has decoded, because a release name is a claim and
+    /// the decoder is the fact.
+    private var badgeDetail: String? {
+        let parts = [controller.streamQualityLabel ?? sourceQuality, sourceBitrate].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
+    private func synopsisPanel(_ synopsis: MobilePlayerSynopsis) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let heading = synopsis.heading, !heading.isEmpty {
+                Text(heading).font(.inter(.subheadline, .semibold)).lineLimit(1)
+            }
+            if let detail = synopsis.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.inter(.caption2, .semibold))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                    .lineLimit(1)
+            }
+            if let overview = synopsis.overview, !overview.isEmpty {
+                Text(overview)
+                    .font(.inter(.caption))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.82))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+        .frame(maxWidth: 420, alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// A track drawn to match the app's other floating controls rather than
+    /// the system slider, whose stock thumb and grey rail sat on the video
+    /// looking like nothing else on the screen.
     private func scrubber(_ progress: MobilePlaybackProgress) -> some View {
         let shown = scrubTarget ?? progress.position
-        return VStack(spacing: 6) {
-            Slider(value: Binding(
-                get: { shown },
-                set: { scrubTarget = $0 }
-            ), in: 0...max(progress.duration, 1), onEditingChanged: { editing in
-                if editing {
-                    hideControlsTask?.cancel()
-                    controller.beginScrubbing()
-                } else {
-                    controller.endScrubbing(at: scrubTarget ?? shown)
-                    scrubTarget = nil
-                    scheduleAutoHide()
+        let fraction = progress.duration > 0 ? min(max(shown / progress.duration, 0), 1) : 0
+        return VStack(spacing: 8) {
+            GeometryReader { track in
+                let width = track.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.18))
+                    Capsule().fill(LineupStyle.lightPurple)
+                        .frame(width: max(0, width * fraction))
+                    Circle()
+                        .fill(.white)
+                        .frame(width: scrubTarget == nil ? 13 : 17)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        .offset(x: max(0, width * fraction - (scrubTarget == nil ? 6.5 : 8.5)))
                 }
-            })
-            .tint(LineupStyle.lightPurple)
+                .frame(height: 5)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if scrubTarget == nil {
+                                hideControlsTask?.cancel()
+                                controller.beginScrubbing()
+                            }
+                            let ratio = min(max(value.location.x / max(width, 1), 0), 1)
+                            scrubTarget = ratio * progress.duration
+                        }
+                        .onEnded { _ in
+                            controller.endScrubbing(at: scrubTarget ?? shown)
+                            scrubTarget = nil
+                            scheduleAutoHide()
+                        }
+                )
+            }
+            .frame(height: 22)
             HStack {
                 Text(MobilePlaybackProgress.timecode(shown))
                 Spacer()
                 Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
             }
             .font(.inter(.caption2, .semibold).monospacedDigit())
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 26)
-        .padding(.top, 30)
-        .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .animation(.easeOut(duration: 0.12), value: scrubTarget == nil)
+        .accessibilityElement()
         .accessibilityLabel("Playback position")
+        .accessibilityValue(MobilePlaybackProgress.timecode(shown))
     }
 
     private func qualityBadge(_ text: String) -> some View {
