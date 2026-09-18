@@ -74,9 +74,6 @@ final class MobilePlaybackController: ObservableObject {
     private var retryAt: TimeInterval?
 
     // AVPlayer engine state.
-    /// Whether the current AVPlayer item has reached `readyToPlay`. Held
-    /// because that status arrives once and can precede the video surface.
-    private var systemItemReady = false
     private var systemObservers: [NSKeyValueObservation] = []
     private var systemNotifications: [NSObjectProtocol] = []
     /// Held apart from `systemObservers`: those are torn down on every channel
@@ -159,7 +156,6 @@ final class MobilePlaybackController: ObservableObject {
             startWhenVideoIsReady()
         case .system:
             attachSystemLayer(to: view)
-            startWhenVideoIsReady()
         }
     }
 
@@ -263,6 +259,9 @@ final class MobilePlaybackController: ObservableObject {
                     }
                     continue
                 }
+                // AVPlayer reports its own status through KVO and the stall
+                // notification; only the VLC engine needs polling.
+                guard self.engine == .vlc else { continue }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {
                     // The video surface never got a real window/size to attach to
@@ -277,9 +276,6 @@ final class MobilePlaybackController: ObservableObject {
                     continue
                 }
                 guard self.error == nil else { continue }
-                // AVPlayer reports its own status through KVO and the stall
-                // notification; only the VLC engine needs polling from here on.
-                guard self.engine == .vlc else { continue }
                 self.isPlaying = self.player.isPlaying
                 self.loading = !self.player.isPlaying || !self.player.hasVideoOut
                 if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
@@ -353,13 +349,6 @@ final class MobilePlaybackController: ObservableObject {
                 switch status {
                 case .failed: self.systemEngineFailed()
                 case .readyToPlay:
-                    // Ready is not the same as showing: while the surface is
-                    // still pending there is nothing on screen yet, and dropping
-                    // the spinner would leave a black rectangle. Record it
-                    // instead of discarding it -- `status` reaches .readyToPlay
-                    // once, so an early arrival must not be lost.
-                    self.systemItemReady = true
-                    guard !self.waitingForVideo else { return }
                     self.loading = false
                     UIApplication.shared.isIdleTimerDisabled = true
                 default: break
@@ -397,17 +386,9 @@ final class MobilePlaybackController: ObservableObject {
             MainActor.assumeIsolated { self?.systemEngineFailed() }
         })
 
-        // `automaticallyWaitsToMinimizeStalling` stays at its default of true.
-        // Setting it false made `play()` take the rate to 1.0 whether or not the
-        // item had buffered anything, and because playback now begins when the
-        // video surface mounts -- which can precede `readyToPlay` -- the player
-        // wedged: one decoded frame on screen, no audio, and a timeControlStatus
-        // of .playing reporting success. Left at true, AVPlayer defers the start
-        // until it actually has data, which is what makes calling `play()` early
-        // safe in the first place.
-        waitingForVideo = true
-        waitingSince = Date()
-        startWhenVideoIsReady()
+        if let view = videoView { attachSystemLayer(to: view) }
+        systemPlayer.play()
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     /// The HLS endpoint did not work. Fall through to the next candidate, which
@@ -422,7 +403,6 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func teardownSystemEngine() {
-        systemItemReady = false
         // `pipObserver` is deliberately not invalidated here: it belongs to the
         // layer and the PiP controller, both of which survive a channel change.
         systemObservers.forEach { $0.invalidate() }
@@ -434,38 +414,18 @@ final class MobilePlaybackController: ObservableObject {
         layerDetachedForBackground = false
     }
 
-    /// Never start either engine before the video host is mounted and sized.
-    ///
-    /// The surfaces are built by SwiftUI *after* `start(urls:)` runs — the host
-    /// is keyed on the controller's identity, so it does not exist yet when the
-    /// stream is opened. VLC without a drawable produces audio and no picture;
-    /// AVPlayer without an `AVPlayerLayer` does the same, then snaps to the live
-    /// edge whenever the layer finally arrives. Both look like a stream that
-    /// takes seconds to "catch up". Waiting here is what makes video and audio
-    /// start together.
     private func startWhenVideoIsReady() {
-        guard waitingForVideo, !suspended, !pausedByUser, let view = videoView,
+        guard engine == .vlc, waitingForVideo, !suspended, !pausedByUser, let view = videoView,
               view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
+        // Never call play before VLC has a mounted, nonzero drawable.
+        player.drawable = view
         waitingForVideo = false
         waitingSince = nil
         started = Date()
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
-        switch engine {
-        case .vlc:
-            player.drawable = view
-            player.play()
-        case .system:
-            attachSystemLayer(to: view)
-            systemPlayer.play()
-            // Pick up a readiness that landed while the surface was pending.
-            if systemItemReady { loading = false }
-        }
+        player.play()
         UIApplication.shared.isIdleTimerDisabled = true
     }
-
-    /// True while a stream is open but held back for its video surface. Exposed
-    /// for tests: it is the state that decides whether playback has begun.
-    var isAwaitingVideoSurface: Bool { waitingForVideo }
 
     // MARK: - Transport
 
@@ -483,8 +443,7 @@ final class MobilePlaybackController: ObservableObject {
                 if waitingForVideo { startWhenVideoIsReady() }
                 else if retryAt == nil { player.play() }
             case .system:
-                if waitingForVideo { startWhenVideoIsReady() }
-                else if retryAt == nil { systemPlayer.play() }
+                if retryAt == nil { systemPlayer.play() }
             }
         }
         refreshIsPlaying()
@@ -618,10 +577,7 @@ final class MobilePlaybackController: ObservableObject {
                     UIApplication.shared.isIdleTimerDisabled = true
                 }
             case .system:
-                if waitingForVideo {
-                    waitingSince = Date()
-                    startWhenVideoIsReady()
-                } else if retryAt == nil, systemPlayer.timeControlStatus != .playing {
+                if retryAt == nil, systemPlayer.timeControlStatus != .playing {
                     systemPlayer.play()
                     UIApplication.shared.isIdleTimerDisabled = true
                 }

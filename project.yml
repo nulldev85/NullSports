@@ -64,7 +64,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
         PRODUCT_MODULE_NAME: LineupiOS
         MARKETING_VERSION: "0.19.0"
-        CURRENT_PROJECT_VERSION: "85"
+        CURRENT_PROJECT_VERSION: "86"
         PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
         # An explicit Info.plist, not INFOPLIST_KEY_* settings. UIBackgroundModes
