@@ -191,6 +191,12 @@ final class MediaLibrary: ObservableObject {
             }
         } catch {
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
+            // A cancelled load is the app's own bookkeeping, not a fault: a
+            // second refresh replaces the first, and leaving a tab cancels what
+            // it started. Reporting it put an alert reading "cancelled" in
+            // front of a viewer who had simply opened the tab, and marked a
+            // server offline that was never asked.
+            guard !Self.isCancellation(error) else { return }
             isConnected = false
             errorMessage = error.localizedDescription
         }
@@ -321,7 +327,7 @@ final class MediaLibrary: ObservableObject {
         guard let profile = activeProfile, !catalogs.contains(where: { $0.id == root.id }) else { return }
         var loaded: [MediaItem] = []
         do { loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id) }
-        catch { errorMessage = error.localizedDescription }
+        catch { if !Self.isCancellation(error) { errorMessage = error.localizedDescription } }
         catalogs.append(MediaCatalog(root: root, items: loaded))
         saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
     }
@@ -390,7 +396,7 @@ final class MediaLibrary: ObservableObject {
             // Anything but a refusal is worth reporting; a refusal is the
             // ordinary answer from a plain Jellyfin server or a member account.
             addonsUnavailable = isRefusal(error)
-            if !addonsUnavailable { errorMessage = error.localizedDescription }
+            if !addonsUnavailable, !Self.isCancellation(error) { errorMessage = error.localizedDescription }
         }
     }
 
@@ -528,6 +534,15 @@ final class MediaLibrary: ObservableObject {
         }
         return (try? await source.allCollections(userID: profile.userID))?
             .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }
+    }
+
+    /// Whether a request was called off rather than refused. URLSession reports
+    /// this as an error whose whole description is "cancelled", which is exactly
+    /// what a viewer should never be shown.
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let url = error as? URLError { return url.code == .cancelled }
+        return (error as NSError).code == NSURLErrorCancelled
     }
 
     /// A server that will not answer, as opposed to one that answered badly.

@@ -177,6 +177,30 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     }
 
     var isUpcoming: Bool { state == "pre" && start > Date() }
+
+    /// A card for an event rather than a single contest. UFC puts a night of
+    /// bouts behind one broadcast, so naming one of them is both arbitrary and
+    /// wrong: nobody tunes in for the fight the feed happens to list first.
+    var isEvent: Bool { !(eventName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// Where it is being held, in one short line or not at all.
+    ///
+    /// An event is worth naming the venue for, because its name says nothing
+    /// about where it is. A fixture between two teams is not: the home side has
+    /// already said the venue, so the city is the part that adds something --
+    /// and the venue stands in only when the schedule knows no city, which
+    /// still beats a card that says nothing about where the game is.
+    var placeLine: String? {
+        let venue = Self.cleaned(self.venue)
+        let city = Self.cleaned(self.location)
+        let parts = isEvent ? [venue, city].compactMap { $0 } : [city ?? venue].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    private static func cleaned(_ value: String?) -> String? {
+        let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? nil : text
+    }
 }
 
 struct XtreamEnvelope: Codable {

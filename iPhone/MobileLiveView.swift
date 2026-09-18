@@ -375,12 +375,27 @@ private struct MobileMatchupRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
 
+    /// Both read from the game itself, so the card and the tests agree on what
+    /// an event is and on where it is being held.
+    private var isEvent: Bool { game.isEvent }
+    private var whereItIs: String? { game.placeLine }
+
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
-                team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
-            }.frame(maxWidth: .infinity)
+                if isEvent {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(game.eventName ?? "")
+                            .font(.inter(.body, .semibold))
+                            .lineLimit(2).multilineTextAlignment(.leading)
+                        if let whereItIs { place(whereItIs) }
+                    }
+                } else {
+                    team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
+                    team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
+                    if let whereItIs { place(whereItIs) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
                 MobileLeagueLogo(league: game.league, size: 23)
@@ -411,6 +426,15 @@ private struct MobileMatchupRow: View {
         }
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
         .contentShape(Rectangle())
+    }
+
+    /// One line, quiet, and only when there is something to say. The card
+    /// earns its look by not filling every gap that could hold a fact.
+    private func place(_ text: String) -> some View {
+        Text(text)
+            .font(.inter(.caption2))
+            .foregroundStyle(LineupStyle.secondary)
+            .lineLimit(1).truncationMode(.tail)
     }
 
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {

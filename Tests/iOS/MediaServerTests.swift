@@ -330,3 +330,18 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(query?.first(where: { $0.name == "api_key" })?.value, "token")
     }
 }
+
+final class MediaCancellationTests: XCTestCase {
+    func testACalledOffRequestIsNotAFailureWorthShowing() {
+        XCTAssertTrue(MediaLibrary.isCancellation(CancellationError()))
+        XCTAssertTrue(MediaLibrary.isCancellation(URLError(.cancelled)))
+        XCTAssertTrue(MediaLibrary.isCancellation(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)))
+    }
+
+    func testARealFailureStillIs() {
+        XCTAssertFalse(MediaLibrary.isCancellation(URLError(.timedOut)))
+        XCTAssertFalse(MediaLibrary.isCancellation(URLError(.notConnectedToInternet)))
+        XCTAssertFalse(MediaLibrary.isCancellation(JellyfinError.authenticationFailed))
+    }
+}
