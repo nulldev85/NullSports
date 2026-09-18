@@ -286,6 +286,10 @@ final class SportsLibrary: ObservableObject {
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
         var searchText: [Int: String] = [:]
+        // The prepared text, kept only for channels that get past the filter.
+        // Both passes below ask the same six leagues about the same string,
+        // and each question used to lowercase and re-tokenize it from scratch.
+        var matchText: [Int: SportsMatchText] = [:]
         var collegeStreamIDs: Set<Int> = []
         let professional = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
@@ -296,12 +300,18 @@ final class SportsLibrary: ObservableObject {
             if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
             let searchable = "\(base) \(stream.epgChannelID.flatMap { programText[$0] } ?? "")"
             searchText[stream.id] = searchable
-            return SportsLeague.allCases.contains { $0.matches(searchable) }
+            // Already lowercase: `base` was lowercased above and the listing
+            // text was lowercased when it was built.
+            let prepared = SportsMatchText(alreadyLowercased: searchable)
+            guard SportsLeague.allCases.contains(where: { $0.matches(prepared) }) else { return false }
+            matchText[stream.id] = prepared
+            return true
         }
         let leagues = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
-            (league, professional.filter {
-                (league == .ncaaf || !collegeStreamIDs.contains($0.id))
-                    && league.matches(searchText[$0.id] ?? $0.name)
+            (league, professional.filter { stream in
+                guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
+                guard let prepared = matchText[stream.id] else { return league.matches(stream.name) }
+                return league.matches(prepared)
             })
         })
         return SportsIndex(professional: professional, leagues: leagues, searchText: searchText)
@@ -1067,7 +1077,16 @@ final class SportsLibrary: ObservableObject {
         // ago can credit a channel for a game that is no longer on it. Matching
         // sees exactly what it always saw.
         let matchNow = Date()
-        let programs = programsByChannel.mapValues { $0.filter { $0.end > matchNow } }
+        let trace = StartupTrace.shared
+        // Every listing of every channel, copied and filtered, before the
+        // matching has started. Measured on its own because "rematch games"
+        // as one number cannot say whether the cost is this or the matching.
+        let listings = programsByChannel
+        let programs = await trace.measure("prepare listings for matching") {
+            await Task.detached(priority: .utility) {
+                listings.mapValues { $0.filter { $0.end > matchNow } }
+            }.value
+        }
         // College event channels may have neither a league token nor a network
         // name. Let the college policy inspect them without changing other indexes.
         let currentStreams = streams
@@ -1079,7 +1098,8 @@ final class SportsLibrary: ObservableObject {
         // rematches against a newly installed channel index.
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
-        let result = await Task.detached(priority: .utility) {
+        let result = await trace.measure("match games to channels") {
+            await Task.detached(priority: .utility) {
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
@@ -1146,7 +1166,8 @@ final class SportsLibrary: ObservableObject {
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
             return (matches, signatures, matches != previousMatches, evidenceByGame)
-        }.value
+            }.value
+        }
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }

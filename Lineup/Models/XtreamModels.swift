@@ -259,38 +259,64 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     /// background, which is why a second theme could not have its own.
     var color: Color { LineupStyle.leagueColor(self) }
 
-    func matches(_ text: String) -> Bool {
-        let value = text.lowercased()
-        if self == .ncaaf {
+    /// Kept for callers holding a plain string. Anything asking more than one
+    /// league about the same text should prepare it once instead.
+    func matches(_ text: String) -> Bool { matches(SportsMatchText(text)) }
+
+    func matches(_ text: SportsMatchText) -> Bool {
+        switch self {
+        case .ncaaf:
             // Include shared broadcasters as candidates; game matching still
             // requires team evidence before offering playback.
-            let words = Set(value.components(separatedBy: CharacterSet.alphanumerics.inverted))
-            return containsLeagueToken(value)
-                || ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"].contains { value.contains($0) }
-                || !words.isDisjoint(with: ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"])
-        }
-        if self == .ufc {
-            return ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"].contains { value.contains($0) }
-        }
-        return containsLeagueToken(value) || containsAny(value, teamTerms)
-    }
-
-    private var teamTerms: [String] {
-        switch self {
-        case .ncaaf: [] // Avoid ambiguous shared mascots such as Tigers and Bulldogs.
-        case .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"]
-        case .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"]
-        case .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"]
-        case .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]
-        case .ufc: []
+            return text.words.contains(rawValue)
+                || Self.ncaafTerms.contains { text.value.contains($0) }
+                || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
+        case .ufc:
+            return Self.ufcTerms.contains { text.value.contains($0) }
+        default:
+            return text.words.contains(rawValue)
+                || (Self.teamTerms[self] ?? []).contains { text.value.contains($0) }
         }
     }
 
-    private func containsAny(_ text: String, _ terms: [String]) -> Bool {
-        terms.contains { text.contains($0) }
+    private static let ncaafTerms = ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"]
+    private static let ncaafBroadcasters: Set<String> = ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"]
+    private static let ufcTerms = ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"]
+
+    // Stored, not computed. As a computed property every one of these arrays
+    // was built again on every call, and the call happens once per league per
+    // channel.
+    private static let teamTerms: [SportsLeague: [String]] = [
+        // NCAAF is left out on purpose: ambiguous shared mascots such as
+        // Tigers and Bulldogs.
+        .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"],
+        .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"],
+        .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"],
+        .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]
+    ]
+}
+
+/// A channel's searchable text, prepared once.
+///
+/// League matching asks the same text the same six questions, and each
+/// question used to lowercase the whole string again and split it into words
+/// again. That text is not short: it carries the channel's entire day of
+/// listings, and the caller had already lowercased it. Six redundant lowercase
+/// passes and seven tokenizations per channel, across twenty-six thousand
+/// channels, is where a launch spent most of a minute.
+struct SportsMatchText {
+    let value: String
+    let words: Set<String>
+
+    /// Hoisted: `inverted` builds a new character set every time it is read,
+    /// and this was read once per league per channel.
+    private static let wordSeparators = CharacterSet.alphanumerics.inverted
+
+    /// For text the caller has already lowercased, which is the hot path.
+    init(alreadyLowercased value: String) {
+        self.value = value
+        self.words = Set(value.components(separatedBy: Self.wordSeparators))
     }
 
-    private func containsLeagueToken(_ text: String) -> Bool {
-        text.components(separatedBy: CharacterSet.alphanumerics.inverted).contains(rawValue)
-    }
+    init(_ text: String) { self.init(alreadyLowercased: text.lowercased()) }
 }
