@@ -25,8 +25,9 @@ final class GuideParsingTests: XCTestCase {
             "20260918123000-0930",
             "20260101000000 +0100",
             "20261231235959 +0000",
-            "20260229120000 +0000",   // a leap day
-            "20250228235900 +0000",   // the day before one that does not exist
+            "20240229120000 +0000",   // a real leap day: 2024 is a leap year
+            "20000229120000 +0000",   // a century that is a leap year
+            "20250228235900 +0000",   // the last day of a February that has 28
             "20260630120000 +0530",
             "19700101000000 +0000",   // the epoch itself
             "19691231235959 +0000"    // and just before it
@@ -42,7 +43,13 @@ final class GuideParsingTests: XCTestCase {
             "", "not a date", "2026091812300", "20260918123000",
             "20260918123000 0000", "20260918", "20261318123000 +0000",
             "20260918253000 +0000", "20260918126000 +0000",
-            "20260918123000 +0000 trailing"
+            "20260918123000 +0000 trailing",
+            // Days that do not exist. The arithmetic would roll these into the
+            // following month; the formatters refused them, and so must this.
+            "20260229120000 +0000",   // 2026 is not a leap year
+            "19000229120000 +0000",   // nor is 1900, century or not
+            "20260431120000 +0000",   // April has thirty days
+            "20260900120000 +0000"    // and there is no zeroth
         ]
         for sample in rubbish {
             XCTAssertNil(XMLTVParser.timestamp(sample), "accepted \(sample)")

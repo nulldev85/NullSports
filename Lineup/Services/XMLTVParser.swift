@@ -102,9 +102,22 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
         index += 1
         guard let offsetHours = digits(2), let offsetMinutes = digits(2),
               index == bytes.count else { return nil }
-        guard (1...12).contains(month), (1...31).contains(day),
-              hour < 24, minute < 60, second < 60,
+        guard (1...12).contains(month), hour < 24, minute < 60, second < 60,
               offsetHours < 24, offsetMinutes < 60 else { return nil }
+        // The day is checked against its own month, not merely against 31. The
+        // arithmetic below is happy to roll the thirtieth of February into
+        // March, and a listing quietly moved to the wrong day is worse than one
+        // that is dropped: it looks like real data. The formatters this
+        // replaced refused such a date, so this refuses it too.
+        let daysInMonth: Int
+        switch month {
+        case 1, 3, 5, 7, 8, 10, 12: daysInMonth = 31
+        case 4, 6, 9, 11: daysInMonth = 30
+        default:
+            let isLeapYear = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+            daysInMonth = isLeapYear ? 29 : 28
+        }
+        guard day >= 1, day <= daysInMonth else { return nil }
 
         // Days from civil: exact, and it needs no calendar to be built or
         // consulted. Proleptic Gregorian, which is what XMLTV dates are.
