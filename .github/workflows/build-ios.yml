@@ -3,12 +3,27 @@ name: Build Lineup iPhone IPA
 on:
   workflow_dispatch:
   push:
-    branches: [iphone]
+    # Agent branches get checked against the real SDKs on every push. The class
+    # of break this repo actually hits is an API that does not exist in the
+    # pinned VLCKit, which nothing but a real build can catch, and waiting for
+    # someone to remember to dispatch a run is how a branch sits broken.
+    branches: [iphone, 'claude/**']
+
+# A newer push supersedes an unfinished check on the same branch. Never cancel
+# a run on iphone: that one is producing an IPA someone is waiting for.
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/iphone' }}
 
 jobs:
   build:
     runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      # Packaging an installable build is for the shipping branch and for
+      # anyone who asks for one by hand. Every other branch stops after the
+      # tests, so a check costs a fraction of the runner time.
+      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/iphone' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -58,6 +73,7 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Build unsigned iPhone app
+        if: env.PACKAGES_IPA == 'true'
         run: |
           set -euo pipefail
           xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
@@ -70,7 +86,12 @@ jobs:
           # file is silent: Font.custom falls back to the system font and the
           # app looks the way it did before Inter. So the bundle is the thing
           # to check, not the code.
+          # The release bundle where one was built, the simulator bundle
+          # otherwise: a branch that stops after the tests still gets this
+          # check, and it is the check that has already caught a capability
+          # silently missing from a shipped build.
           app="build/Build/Products/Release-iphoneos/Lineup.app"
+          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
@@ -88,7 +109,12 @@ jobs:
           # work at all. It is silent when missing -- the app simply stops on
           # background -- and it lives in the built plist, not in code, so the
           # bundle is the thing to check.
+          # The release bundle where one was built, the simulator bundle
+          # otherwise: a branch that stops after the tests still gets this
+          # check, and it is the check that has already caught a capability
+          # silently missing from a shipped build.
           app="build/Build/Products/Release-iphoneos/Lineup.app"
+          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           plist="$app/Info.plist"
           test -f "$plist"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist"
@@ -97,6 +123,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS"
 
       - name: Package IPA
+        if: env.PACKAGES_IPA == 'true'
         run: |
           set -euo pipefail
           app="build/Build/Products/Release-iphoneos/Lineup.app"
@@ -106,6 +133,7 @@ jobs:
           cd package
           zip -qry ../Lineup-iPhone-unsigned.ipa Payload
       - name: Upload IPA
+        if: env.PACKAGES_IPA == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Lineup-iPhone-unsigned-IPA

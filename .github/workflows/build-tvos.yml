@@ -95,6 +95,20 @@ jobs:
           done
           test "$missing" -eq 0
 
+      - name: Check App Transport Security is in the bundle
+        run: |
+          set -euo pipefail
+          # It reached the built app through a build setting that does not
+          # exist, so it never reached it at all: a nested dictionary has no
+          # INFOPLIST_KEY_ form and Xcode silently ignores one. Nothing in the
+          # source says whether it survived, so read it back out of the bundle.
+          plist="build/Build/Products/Release-appletvos/Lineup.app/Info.plist"
+          test -f "$plist"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$plist" | grep -qx true
+          # The generated keys have to survive the merge with that file.
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
+
       - name: Build for tvOS Simulator
         run: |
           set -euo pipefail
