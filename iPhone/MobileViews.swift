@@ -236,6 +236,63 @@ private struct MobileDiagnosticsView: View {
     }
 }
 
+/// One source the tab can switch to, with a way to remove it.
+///
+/// The Providers list and the Media Servers list say the same thing -- a mark,
+/// a name, a second line and a trash button -- and they used to say it
+/// differently: different stack spacing, only one of them naming the active
+/// choice, only one of them labelled for VoiceOver. Two lists that mean the
+/// same thing and do not look the same is what makes a screen read as sloppy,
+/// so there is now one row and both lists use it.
+private struct AccountSourceRow: View {
+    let name: String
+    let detail: String
+    let isActive: Bool
+    /// Named in the VoiceOver label, so "switch provider" and "switch media
+    /// server" come out of the same sentence.
+    let kind: String
+    let select: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: select) {
+                HStack(spacing: 0) {
+                    // A Label rather than an icon and a stack side by side.
+                    // The "Add provider" and "Add media server" buttons under
+                    // these rows are Labels, and a Label gets the platform's
+                    // icon column -- so written this way every row in the
+                    // section starts its text at the same x, at any type size,
+                    // instead of the eleven points of ragged edge that hand
+                    // spacing left. It also keeps the names still as the
+                    // active mark changes between a filled and an empty
+                    // circle, which are not the same width.
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(name).font(.inter(.body, .semibold)).lineLimit(1)
+                            Text(detail).font(.inter(.caption))
+                                .foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    } icon: {
+                        Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    }
+                    Spacer(minLength: 8)
+                    if isActive {
+                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
+                    }
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(name), \(isActive ? "active \(kind)" : "switch \(kind)")")
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(name)")
+        }
+    }
+}
+
 private struct MobileAccountView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
@@ -266,41 +323,24 @@ private struct MobileAccountView: View {
             Form {
                 Section {
                     ForEach(library.profiles) { profile in
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await library.selectProfile(profile) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: library.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(profile.name).font(.inter(.body, .semibold))
-                                        Text(profile.username).font(.inter(.caption)).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if library.activeProfile?.id == profile.id {
-                                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
-                                    }
-                                }.contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(profile.name), \(library.activeProfile?.id == profile.id ? "active provider" : "switch provider")")
-                            Button(role: .destructive) { removingProfile = profile } label: {
-                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Remove \(profile.name)")
-                        }
+                        AccountSourceRow(
+                            name: profile.name,
+                            detail: profile.username,
+                            isActive: library.activeProfile?.id == profile.id,
+                            kind: "provider",
+                            select: { Task { await library.selectProfile(profile) } },
+                            remove: { removingProfile = profile }
+                        )
                         .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
                     }
                     Button("Add provider", systemImage: "plus.circle") { addingProvider = true }
                         .disabled(library.isSwitchingProfile)
                     if library.isSwitchingProfile { ProgressView("Switching provider…") }
-                } header: {
-                    Text("Providers")
-                } footer: {
-                    Text("Each provider keeps its own favorites and preferred channels.")
-                }.listRowBackground(LineupGlassRow())
-                Section {
+                    // Kept in this section rather than one of its own. It was
+                    // the only section on the tab with no header, which read as
+                    // a row that had come loose from something -- and it had:
+                    // these lists belong to the provider above them, which is
+                    // what the footer here already said.
                     NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
                             .environmentObject(library)
@@ -308,8 +348,10 @@ private struct MobileAccountView: View {
                         LabeledContent("Preferred channels & recents",
                                        value: preferencesSummary)
                     }
+                } header: {
+                    Text("Providers")
                 } footer: {
-                    Text("Games on these teams open on the saved channel, and these lists belong to this provider alone.")
+                    Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
                     if let profile = media.activeProfile {
@@ -332,23 +374,14 @@ private struct MobileAccountView: View {
                             .listRowSeparator(.hidden)
                     }
                     ForEach(media.profiles) { profile in
-                        HStack {
-                            Button {
-                                Task { await media.select(profile) }
-                            } label: {
-                                HStack {
-                                    Image(systemName: media.activeProfile?.id == profile.id ? "checkmark.circle.fill" : "circle")
-                                    VStack(alignment: .leading) {
-                                        Text(profile.name).font(.inter(.body, .semibold))
-                                        Text(profile.serverURL).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer()
-                                }
-                            }.buttonStyle(.plain)
-                            Button(role: .destructive) { removingMediaProfile = profile } label: {
-                                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                            }.buttonStyle(.borderless)
-                        }
+                        AccountSourceRow(
+                            name: profile.name,
+                            detail: URL(string: profile.serverURL)?.host ?? profile.serverURL,
+                            isActive: media.activeProfile?.id == profile.id,
+                            kind: "media server",
+                            select: { Task { await media.select(profile) } },
+                            remove: { removingMediaProfile = profile }
+                        )
                     }
                     Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
                     if media.isLoading { ProgressView("Connecting…") }
@@ -364,28 +397,31 @@ private struct MobileAccountView: View {
                     // gives back the height without putting it on a screen that
                     // can be torn down mid-redraw.
                     DisclosureGroup {
-                    Picker("Theme", selection: $selectedTheme) {
-                        ForEach(LineupTheme.allCases) { theme in
-                            HStack {
-                                LineupThemeSwatch(theme: theme)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(theme.name)
-                                    Text(theme.detail).font(.inter(.caption)).foregroundStyle(.secondary)
+                        Picker("Theme", selection: $selectedTheme) {
+                            ForEach(LineupTheme.allCases) { theme in
+                                HStack(spacing: 12) {
+                                    LineupThemeSwatch(theme: theme)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(theme.name)
+                                        Text(theme.detail).font(.inter(.caption))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                .tag(theme.rawValue)
                             }
-                            .tag(theme.rawValue)
                         }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
+                        .pickerStyle(.inline)
+                        .labelsHidden()
                     } label: {
                         LabeledContent("Theme", value: LineupTheme(rawValue: selectedTheme)?.name ?? "Signal")
                     }
+                } header: {
+                    Text("Appearance")
                 } footer: {
                     Text("Syncs through iCloud.")
                 }
                 .listRowBackground(LineupGlassRow())
-                Section("Current library") {
+                Section {
                     LabeledContent("Channels", value: "\(library.streams.count)")
                     LabeledContent("iCloud", value: cloud.status)
                     NavigationLink("Diagnostics") {
@@ -397,6 +433,8 @@ private struct MobileAccountView: View {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
+                } header: {
+                    Text("Current library")
                 }.listRowBackground(LineupGlassRow())
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)

@@ -198,7 +198,8 @@ private struct MediaServerCardAction: View {
 private struct MediaServerPulseDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
-    @State private var pulsing = false
+
+    private static let size: CGFloat = 9
 
     private var tint: Color {
         connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
@@ -219,34 +220,57 @@ private struct MediaServerPulseDot: View {
                     .blur(radius: 0.6)
                     .offset(x: 1.5, y: 1.3)
             }
-            .frame(width: 9, height: 9)
+            .frame(width: Self.size, height: Self.size)
             .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
-            // The halo sits in an overlay so its travel never moves the row,
-            // and it is a soft fill rather than a ring: it leaves the bead,
-            // fades out, and is gone. Half the brightness and half again the
-            // duration of the ring it replaces.
-            .overlay {
-                if connected && !reduceMotion {
-                    Circle()
-                        .fill(tint.opacity(0.3))
-                        .frame(width: 9, height: 9)
-                        .scaleEffect(pulsing ? 2.2 : 1)
-                        .opacity(pulsing ? 0 : 0.55)
-                        .allowsHitTesting(false)
-                }
-            }
-            .onAppear { startPulse() }
-            .onChange(of: connected) { _, _ in startPulse() }
+            // Underneath, not over: the halo comes out from beneath the bead
+            // and travels outward, which is the only way round that reads as
+            // the dot giving something off. Drawn over the bead it washed the
+            // bead out instead, and the bead is the thing worth looking at.
+            //
+            // It also sits in a background rather than in the layout, so its
+            // travel can never move the name beside it.
+            .background { halo }
             .accessibilityLabel(connected ? "Connected" : "Not connected")
     }
 
-    private func startPulse() {
-        // Clear any cycle still running before starting one, or the two
-        // overlap and the halo appears to travel the wrong way.
-        withAnimation(.linear(duration: 0)) { pulsing = false }
-        guard connected && !reduceMotion else { return }
-        withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) {
-            pulsing = true
+    /// Where the halo is in its cycle.
+    ///
+    /// `home` is the bead's own size, and the bead is opaque and sits on top of
+    /// it, so the halo is invisible there -- it only becomes visible in the
+    /// travelling, which is the point: nothing appears out of thin air around
+    /// the dot, it comes out from under it.
+    private enum HaloPhase: Equatable { case home, out, back }
+
+    /// The pulse. Quiet on purpose: it leaves the bead, gets a little under
+    /// twice its size, and is gone. A breath, not a beacon.
+    @ViewBuilder
+    private var halo: some View {
+        if connected && !reduceMotion {
+            Circle()
+                .fill(tint)
+                .frame(width: Self.size, height: Self.size)
+                // A phase animator rather than a repeating animation driven by
+                // state: the cycle restarts itself, so there is no stale one to
+                // cancel and no way for two to overlap and send the halo
+                // inward, which is what the first attempt at this did.
+                .phaseAnimator([HaloPhase.home, .out, .back]) { circle, phase in
+                    circle
+                        .scaleEffect(phase == .out ? 1.9 : 1)
+                        .opacity(phase == .home ? 0.38 : 0)
+                } animation: { (phase: HaloPhase) -> Animation? in
+                    switch phase {
+                    // The travel, and the only part anyone sees.
+                    case .out: return .easeOut(duration: 1.9)
+                    // Home again while fully transparent, so the return trip
+                    // -- the one that would read as a halo moving inward --
+                    // happens where there is nothing to see.
+                    case .back: return .linear(duration: 0.01)
+                    // A beat between pulses. Also invisible: at the bead's own
+                    // size the bead covers it.
+                    case .home: return .easeIn(duration: 0.45)
+                    }
+                }
+                .allowsHitTesting(false)
         }
     }
 }
