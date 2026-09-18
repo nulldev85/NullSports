@@ -539,7 +539,7 @@ final class MediaLibrary: ObservableObject {
     /// Whether a request was called off rather than refused. URLSession reports
     /// this as an error whose whole description is "cancelled", which is exactly
     /// what a viewer should never be shown.
-    static func isCancellation(_ error: Error) -> Bool {
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if let url = error as? URLError { return url.code == .cancelled }
         return (error as NSError).code == NSURLErrorCancelled
