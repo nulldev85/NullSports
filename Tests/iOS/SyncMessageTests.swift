@@ -48,3 +48,34 @@ final class LiveBannerTests: XCTestCase {
             .none)
     }
 }
+
+/// The Guide follows the same rule, and was breaking it more quietly.
+final class GuideStatusTests: XCTestCase {
+    // The case that was wrong: listings restored from cache in a second, and
+    // a spinner reading "Updating guide…" above them for the rest of the
+    // refresh. The Live tab already says a refresh is running; the Guide does
+    // not need to say it again over a guide that works.
+    func testAGuideAlreadyOnScreenDoesNotAnnounceTheRefresh() {
+        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: false,
+                                                   isGuideLoading: true))
+        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: true,
+                                                   isGuideLoading: true))
+    }
+
+    // The real wait, and the reason the spinner exists: without it the rows
+    // behind read "No listing" against every channel while the guide is still
+    // being read.
+    func testAnEmptyGuideStillSaysItIsComing() {
+        XCTAssertTrue(MobileGuideStatus.isWaiting(hasListings: false, isLoading: false,
+                                                  isGuideLoading: true))
+        XCTAssertTrue(MobileGuideStatus.isWaiting(hasListings: false, isLoading: true,
+                                                  isGuideLoading: false))
+    }
+
+    func testNothingInFlightSaysNothing() {
+        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: false, isLoading: false,
+                                                   isGuideLoading: false))
+        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: false,
+                                                   isGuideLoading: false))
+    }
+}
