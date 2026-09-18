@@ -176,6 +176,14 @@ final class SportsLibrary: ObservableObject {
             || (scheduleRefreshInFlight && scheduleValidatedLeagues.isEmpty)
     }
 
+    /// When the channel list or the guide was last brought up to date,
+    /// whichever is later. The values behind it are written during a reload,
+    /// which also republishes the lists the Account card counts, so a card
+    /// reading this redraws when it changes.
+    var lastRefreshedAt: Date? {
+        [libraryUpdatedAt, guideUpdatedAt].compactMap { $0 }.max()
+    }
+
     /// True only for the first sync of a provider that has nothing cached — the
     /// one wait a viewer genuinely has to sit through. Repeat launches restore
     /// from disk and refresh behind the screen instead, which is the difference

@@ -83,62 +83,52 @@ struct MediaServersView: View {
     #endif
 }
 
-/// A compact account summary of the selected server. Counts come from the
-/// server's total-record queries, never from the first page of shelf cards.
-struct MediaServerAccountCard: View {
-    @EnvironmentObject private var media: MediaLibrary
-    let profile: MediaServerProfile
-    let browse: () -> Void
+/// One figure on an account card. A count the app has not learned yet passes
+/// nil and shows an em dash rather than a zero it cannot stand behind.
+struct LineupCardStat: Identifiable {
+    let label: String
+    let count: Int?
+    var id: String { label }
+
+    init(_ label: String, _ count: Int?) {
+        self.label = label
+        self.count = count
+    }
+}
+
+/// The card the Account tab is built from.
+///
+/// There are two of these -- the provider and the media server -- and they are
+/// the tab's whole look, so they are one view rather than two that resemble
+/// each other. A glass circle on the left and a glass capsule on the right
+/// bracket the header; a filled disc against bare text did not. The figures
+/// below are equal columns divided by hairlines, because left-aligned thirds
+/// left the last one floating well short of the right edge and the row reading
+/// lopsided.
+struct LineupAccountCard<Actions: View>: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+    let connected: Bool
+    let status: String
+    let statusTint: Color
+    let stats: [LineupCardStat]
+    let refreshed: Date?
+    @ViewBuilder var actions: Actions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                // A glass circle on the left and a glass capsule on the right
-                // bracket the header; a filled disc against bare text did not.
-                Image(systemName: "play.square.stack.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 42, height: 42)
-                    .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
-                                       border: LineupStyle.line)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text(profile.name).font(.inter(.headline, .bold)).lineLimit(1)
-                        MediaServerPulseDot(connected: media.isConnected)
-                    }
-                    Text("\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)")
-                        .font(.inter(.caption)).lineLimit(1)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                }
-                Spacer(minLength: 8)
-                // A floor under the width so the header does not shuffle as the
-                // word changes between connecting, connected and offline.
-                Text(media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"))
-                    .font(.inter(.caption2, .semibold))
-                    .foregroundStyle(media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5))
-                    .lineLimit(1)
-                    .frame(minWidth: 74)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
-                                       border: LineupStyle.line)
-            }
-            // Equal thirds, each centred in its own column, divided by a
-            // hairline. Left-aligned thirds left the last figure floating well
-            // short of the right edge and the whole row reading lopsided.
+            header
             HStack(spacing: 0) {
-                statistic(media.libraryCounts?.movies, label: "Movies")
-                statisticDivider
-                statistic(media.libraryCounts?.shows, label: "Shows")
-                statisticDivider
-                statistic(media.libraryCounts?.episodes, label: "Episodes")
-            }
-            HStack(spacing: 10) {
-                cardButton("Reload", symbol: "arrow.clockwise") {
-                    Task { await media.reload() }
+                ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
+                    if index > 0 {
+                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: 26)
+                    }
+                    statistic(stat)
                 }
-                .disabled(media.isLoading)
-                cardButton("Browse", symbol: "square.grid.2x2", action: browse)
             }
-            if let refreshed = media.lastRefreshedAt {
+            HStack(spacing: 10) { actions }
+            if let refreshed {
                 Text("Updated \(refreshed, style: .relative)")
                     .font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.48))
@@ -152,30 +142,80 @@ struct MediaServerAccountCard: View {
                            fallback: LineupStyle.surface, border: LineupStyle.line)
     }
 
-    private var statisticDivider: some View {
-        Rectangle().fill(LineupStyle.line)
-            .frame(width: 1, height: 26)
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: 42, height: 42)
+                .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
+                                   border: LineupStyle.line)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(title).font(.inter(.headline, .bold)).lineLimit(1)
+                    LineupStatusDot(connected: connected)
+                }
+                Text(subtitle)
+                    .font(.inter(.caption)).lineLimit(1)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            }
+            Spacer(minLength: 8)
+            // A floor under the width so the header does not shuffle as the
+            // word changes between connecting, connected and offline.
+            Text(status)
+                .font(.inter(.caption2, .semibold))
+                .foregroundStyle(statusTint)
+                .lineLimit(1)
+                .frame(minWidth: 74)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
+                                   border: LineupStyle.line)
+        }
     }
 
-    private func statistic(_ count: Int?, label: String) -> some View {
+    private func statistic(_ stat: LineupCardStat) -> some View {
         VStack(spacing: 3) {
-            Text(count.map { $0.formatted() } ?? "—")
+            Text(stat.count.map { $0.formatted() } ?? "—")
                 .font(.interDigits(.headline, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.inter(.caption2))
+            Text(stat.label).font(.inter(.caption2))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .frame(maxWidth: .infinity)
     }
-
-    private func cardButton(_ title: String, symbol: String,
-                            action: @escaping () -> Void) -> some View {
-        MediaServerCardAction(title: title, symbol: symbol, action: action)
-    }
-
 }
 
-private struct MediaServerCardAction: View {
+/// A compact account summary of the selected server. Counts come from the
+/// server's total-record queries, never from the first page of shelf cards.
+struct MediaServerAccountCard: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let profile: MediaServerProfile
+    let browse: () -> Void
+
+    var body: some View {
+        LineupAccountCard(
+            symbol: "play.square.stack.fill",
+            title: profile.name,
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            connected: media.isConnected,
+            status: media.isLoading ? "Connecting…" : (media.isConnected ? "Connected" : "Offline"),
+            statusTint: media.isConnected ? Color.green : LineupStyle.lightPurple.opacity(0.5),
+            stats: [
+                LineupCardStat("Movies", media.libraryCounts?.movies),
+                LineupCardStat("Shows", media.libraryCounts?.shows),
+                LineupCardStat("Episodes", media.libraryCounts?.episodes)
+            ],
+            refreshed: media.lastRefreshedAt
+        ) {
+            LineupCardAction(title: "Reload", symbol: "arrow.clockwise") {
+                Task { await media.reload() }
+            }
+            .disabled(media.isLoading)
+            LineupCardAction(title: "Browse", symbol: "square.grid.2x2", action: browse)
+        }
+    }
+}
+
+struct LineupCardAction: View {
     @Environment(\.isFocused) private var focused
     let title: String
     let symbol: String
@@ -195,10 +235,11 @@ private struct MediaServerCardAction: View {
     }
 }
 
-private struct MediaServerPulseDot: View {
+struct LineupStatusDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
-    @State private var pulsing = false
+
+    private static let size: CGFloat = 9
 
     private var tint: Color {
         connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
@@ -219,34 +260,57 @@ private struct MediaServerPulseDot: View {
                     .blur(radius: 0.6)
                     .offset(x: 1.5, y: 1.3)
             }
-            .frame(width: 9, height: 9)
+            .frame(width: Self.size, height: Self.size)
             .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
-            // The halo sits in an overlay so its travel never moves the row,
-            // and it is a soft fill rather than a ring: it leaves the bead,
-            // fades out, and is gone. Half the brightness and half again the
-            // duration of the ring it replaces.
-            .overlay {
-                if connected && !reduceMotion {
-                    Circle()
-                        .fill(tint.opacity(0.3))
-                        .frame(width: 9, height: 9)
-                        .scaleEffect(pulsing ? 2.2 : 1)
-                        .opacity(pulsing ? 0 : 0.55)
-                        .allowsHitTesting(false)
-                }
-            }
-            .onAppear { startPulse() }
-            .onChange(of: connected) { _, _ in startPulse() }
+            // Underneath, not over: the halo comes out from beneath the bead
+            // and travels outward, which is the only way round that reads as
+            // the dot giving something off. Drawn over the bead it washed the
+            // bead out instead, and the bead is the thing worth looking at.
+            //
+            // It also sits in a background rather than in the layout, so its
+            // travel can never move the name beside it.
+            .background { halo }
             .accessibilityLabel(connected ? "Connected" : "Not connected")
     }
 
-    private func startPulse() {
-        // Clear any cycle still running before starting one, or the two
-        // overlap and the halo appears to travel the wrong way.
-        withAnimation(.linear(duration: 0)) { pulsing = false }
-        guard connected && !reduceMotion else { return }
-        withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) {
-            pulsing = true
+    /// Where the halo is in its cycle.
+    ///
+    /// `home` is the bead's own size, and the bead is opaque and sits on top of
+    /// it, so the halo is invisible there -- it only becomes visible in the
+    /// travelling, which is the point: nothing appears out of thin air around
+    /// the dot, it comes out from under it.
+    private enum HaloPhase: Equatable { case home, out, back }
+
+    /// The pulse. Quiet on purpose: it leaves the bead, gets a little under
+    /// twice its size, and is gone. A breath, not a beacon.
+    @ViewBuilder
+    private var halo: some View {
+        if connected && !reduceMotion {
+            Circle()
+                .fill(tint)
+                .frame(width: Self.size, height: Self.size)
+                // A phase animator rather than a repeating animation driven by
+                // state: the cycle restarts itself, so there is no stale one to
+                // cancel and no way for two to overlap and send the halo
+                // inward, which is what the first attempt at this did.
+                .phaseAnimator([HaloPhase.home, .out, .back]) { circle, phase in
+                    circle
+                        .scaleEffect(phase == .out ? 1.9 : 1)
+                        .opacity(phase == .home ? 0.38 : 0)
+                } animation: { (phase: HaloPhase) -> Animation? in
+                    switch phase {
+                    // The travel, and the only part anyone sees.
+                    case .out: return .easeOut(duration: 1.9)
+                    // Home again while fully transparent, so the return trip
+                    // -- the one that would read as a halo moving inward --
+                    // happens where there is nothing to see.
+                    case .back: return .linear(duration: 0.01)
+                    // A beat between pulses. Also invisible: at the bead's own
+                    // size the bead covers it.
+                    case .home: return .easeIn(duration: 0.45)
+                    }
+                }
+                .allowsHitTesting(false)
         }
     }
 }

@@ -76,22 +76,21 @@ final class GamePlaceLineTests: XCTestCase {
     }
 
     // Every league, not just the one a tester happened to be looking at.
-    func testEveryTeamSportShowsTheCity() throws {
+    func testEveryTeamSportNamesTheVenue() throws {
         for league in ["nfl", "nba", "nhl", "mlb", "ncaaf"] {
-            let fixture = try game(league: league, venue: "Some Field", location: "Dallas, TX")
+            let fixture = try game(league: league, venue: "AT&T Stadium", location: "Arlington, TX")
             XCTAssertFalse(fixture.isEvent, "\(league) is a fixture, not an event")
-            XCTAssertEqual(fixture.placeLine, "Dallas, TX",
-                           "\(league) should name the city; the home side already named the venue")
+            XCTAssertEqual(fixture.placeLine, "AT&T Stadium",
+                           "\(league) should name the venue; the home side's name already implies the city")
         }
     }
 
-    // The schedule does not always know a city. A venue still says more about
+    // The schedule does not always know a venue. A city still says more about
     // where the game is than an empty line does.
-    func testAFixtureFallsBackToItsVenue() throws {
-        XCTAssertEqual(try game(league: "nba", venue: "Madison Square Garden").placeLine,
-                       "Madison Square Garden")
-        XCTAssertEqual(try game(league: "nba", venue: "Madison Square Garden", location: "  ").placeLine,
-                       "Madison Square Garden", "Blank is not an answer")
+    func testAFixtureFallsBackToItsCity() throws {
+        XCTAssertEqual(try game(league: "nba", location: "New York, NY").placeLine, "New York, NY")
+        XCTAssertEqual(try game(league: "nba", venue: "  ", location: "New York, NY").placeLine,
+                       "New York, NY", "Blank is not an answer")
     }
 
     // A UFC card's name says nothing about where it is, so it gets both.
@@ -116,11 +115,18 @@ final class GamePlaceLineTests: XCTestCase {
         XCTAssertNil(try game(league: "ufc", eventName: "UFC 321").placeLine)
     }
 
+    // A fixture gets one line, not both: the card has room for a place, not
+    // for an address.
+    func testAFixtureNeverShowsBoth() throws {
+        let fixture = try game(league: "nfl", venue: "Lambeau Field", location: "Green Bay, WI")
+        XCTAssertEqual(fixture.placeLine, "Lambeau Field")
+    }
+
     // An empty or blank event name is not an event: a fixture keeps its two
-    // teams and its city line.
+    // teams and its venue line.
     func testABlankEventNameLeavesAFixtureAlone() throws {
         let fixture = try game(league: "mlb", venue: "Fenway Park", location: "Boston, MA", eventName: "   ")
         XCTAssertFalse(fixture.isEvent)
-        XCTAssertEqual(fixture.placeLine, "Boston, MA")
+        XCTAssertEqual(fixture.placeLine, "Fenway Park")
     }
 }
