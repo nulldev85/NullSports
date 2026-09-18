@@ -2020,15 +2020,26 @@ private struct MediaChromeSurface: ViewModifier {
     var outline = false
     var radius: CGFloat = 12
 
+    // The search field and the rest of the media chrome sit on the same glass
+    // as the player's controls and the Account tab. A prominent control is the
+    // exception: it is a call to action and stays filled, because glass is a
+    // surface to read through and that one is meant to be looked at.
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .foregroundStyle(filled ? LineupStyle.background : LineupStyle.lightPurple)
-            .background(filled ? LineupStyle.lightPurple
-                : (focused ? LineupStyle.focused : LineupStyle.surface),
-                in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .stroke(border, lineWidth: 1))
-            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        if filled {
+            content
+                .foregroundStyle(LineupStyle.background)
+                .background(LineupStyle.lightPurple, in: shape)
+                .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        } else {
+            content
+                .foregroundStyle(LineupStyle.lightPurple)
+                .lineupLiquidGlass(shape,
+                                   fallback: focused ? LineupStyle.focused : LineupStyle.surface,
+                                   border: border)
+                .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+        }
     }
 
     // Focus marks the edge. Only a deliberate call to action fills, and it

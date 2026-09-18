@@ -437,7 +437,7 @@ final class MediaLibrary: ObservableObject {
             errorMessage = error.localizedDescription
             return
         }
-        await waitForImport(of: catalog, profile: profile)
+        await waitForImport(of: catalog, addonID: addonID, profile: profile)
     }
 
     private func drop(_ catalog: NullfinCatalog) {
@@ -453,31 +453,20 @@ final class MediaLibrary: ObservableObject {
     /// appearing is the signal. It gives up after a few minutes rather than
     /// waiting forever; the shelf can still be added by hand once the import
     /// finishes.
-    private func waitForImport(of catalog: NullfinCatalog, profile: MediaServerProfile) async {
+    private func waitForImport(of catalog: NullfinCatalog, addonID: String,
+                               profile: MediaServerProfile) async {
         guard let source = try? client(for: profile) else { return }
-        guard let wanted = catalog.collectionId else {
-            // Without an id there is nothing to watch for. It is switched on
-            // either way, so say so rather than leaving the choice looking
-            // like it did nothing.
-            errorMessage = "\(catalog.name) is switched on, but this server did not say which collection it becomes. It will appear under imported catalogs once the server finishes."
-            return
-        }
-        // Ask for the one collection by the id the addon just named, rather
-        // than scanning a list of every collection for it. A list is a broad
-        // query with assumptions in it and it only has to be wrong once to
-        // leave this waiting forever; an item by its id either exists or does
-        // not. The first look happens before any waiting, because a catalog
-        // the server already holds should not cost ten seconds.
-        //
         // A full library refresh re-imports every enabled catalog, not just
         // this one, so on a server with several addons it is minutes of work.
-        // Ten of them.
+        // Ten of them. The first look happens before any waiting, because a
+        // catalog the server already holds should not cost ten seconds.
         for attempt in 0..<61 {
             if attempt > 0 {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
             }
             guard activeProfile?.id == profile.id else { return }
-            guard let found = try? await source.item(userID: profile.userID, itemID: wanted)
+            guard let found = await importedCollection(for: catalog, addonID: addonID,
+                                                       source: source, profile: profile)
             else { continue }
             await addShelf(found)
             drop(catalog)
@@ -489,6 +478,34 @@ final class MediaLibrary: ObservableObject {
         guard !Task.isCancelled else { return }
         errorMessage = "\(catalog.name) is still importing on the server. It will appear under imported catalogs when that finishes — refresh then to add it."
         await reload()
+    }
+
+    /// The collection a catalog became, asked for three ways.
+    ///
+    /// The id the catalog carried when it was chosen is the obvious one and
+    /// the one this used to rely on alone -- but a catalog the server has
+    /// never imported carries no id at all until the server resolves one, and
+    /// it only resolves one once the import has run. So for exactly the case
+    /// that matters, a freshly switched-on catalog, that id is nil or stale,
+    /// and watching it alone is watching for something that will never arrive.
+    /// Hence asking the server what the id is *now*, on every pass, and
+    /// falling back to the collection that carries the catalog's name for a
+    /// server that imports it without ever naming it back.
+    private func importedCollection(for catalog: NullfinCatalog, addonID: String,
+                                    source: JellyfinClient,
+                                    profile: MediaServerProfile) async -> MediaItem? {
+        if let id = catalog.collectionId,
+           let item = try? await source.item(userID: profile.userID, itemID: id) {
+            return item
+        }
+        let current = (try? await source.addonCatalogs(addonID: addonID))?
+            .first { $0.catalogId == catalog.catalogId }
+        if let id = current?.collectionId, id != catalog.collectionId,
+           let item = try? await source.item(userID: profile.userID, itemID: id) {
+            return item
+        }
+        return (try? await source.collections(userID: profile.userID))?
+            .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }
     }
 
     /// A server that will not answer, as opposed to one that answered badly.
