@@ -351,7 +351,14 @@ final class SportsLibrary: ObservableObject {
                 scheduleDay = Calendar.current.startOfDay(for: Date())
             }
         }
-        if streams.isEmpty, let restored = await Self.readHead(profileID: profile.id) {
+        let trace = StartupTrace.shared
+        if streams.isEmpty {
+            trace.begin()
+            trace.note("cold start", "no channels in memory")
+        }
+        if streams.isEmpty,
+           let restored = await trace.measure("read cache: channels + state",
+                                              { await Self.readHead(profileID: profile.id) }) {
             guard activeProfile?.id == profile.id else { return }
             // The channel list goes up first. Every screen in the app needs it
             // and nothing needs it sooner, and it is a fraction of the size of
@@ -369,9 +376,11 @@ final class SportsLibrary: ObservableObject {
             // index and the matching below both read it, so it has to be in
             // place before either of them runs -- but not before the channels
             // are, which is the whole change.
+            trace.note("channels on screen", "\(streams.count) channels, \(categories.count) categories")
             if let carried = restored.guide {
                 legacyCacheNeedsRetiring = true
                 programsByChannel = carried
+                trace.note("read cache: guide", "from the one-file cache, being migrated")
             } else {
                 // Channels are on screen and the guide is not yet, which is a
                 // state the app already has a word for. Saying it stops the
@@ -380,13 +389,15 @@ final class SportsLibrary: ObservableObject {
                 // read look identical from a row, and only one of them is
                 // worth telling anyone about.
                 isGuideLoading = true
-                let guide = await Self.readGuide(profileID: profile.id)
+                let guide = await trace.measure("read cache: guide",
+                                                { await Self.readGuide(profileID: profile.id) })
                 guard activeProfile?.id == profile.id else {
                     isGuideLoading = false
                     return
                 }
                 if let guide { programsByChannel = guide }
                 isGuideLoading = false
+                trace.note("guide on screen", "\(programsByChannel.count) channels with listings")
             }
             guideListCache = nil
             savedChannelsDigest = channelsSignature
@@ -412,11 +423,14 @@ final class SportsLibrary: ObservableObject {
                 leagueStreamCache = index.leagues
                 streamSearchText = index.searchText
                 sportsIndexReady = true
+                trace.note("sports index restored", "from cache")
                 if matchIdentities(now: now).keys.contains(where: { gameStreamCache[$0] == nil }) {
-                    await rebuildGameStreamCache()
+                    await trace.measure("rematch games", { await rebuildGameStreamCache() })
                 }
             } else {
-                await rebuildProfessionalStreams()
+                await trace.measure("rebuild sports index",
+                                    detail: "cached index missing or stale",
+                                    { await rebuildProfessionalStreams() })
             }
         }
         guard activeProfile?.id == profile.id else { return }
@@ -480,32 +494,49 @@ final class SportsLibrary: ObservableObject {
             // provider with tens of thousands of channels is most of what a
             // refresh used to do. The policy decides whether the app has
             // earned the right to ask that cheap question at all.
-            async let loadedCategories = client.categories(
-                ifChangedFrom: LibraryCachePolicy.digest(categoriesDigest,
-                                                         whenHolding: !categories.isEmpty))
-            async let loadedStreams = client.streams(
-                ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
-                                                         whenHolding: !streams.isEmpty))
-            let (freshCategories, freshStreams) = try await (loadedCategories, loadedStreams)
+            let trace = StartupTrace.shared
+            let answers = try await trace.measure("fetch channel list") {
+                async let loadedCategories = client.categories(
+                    ifChangedFrom: LibraryCachePolicy.digest(categoriesDigest,
+                                                             whenHolding: !categories.isEmpty))
+                async let loadedStreams = client.streams(
+                    ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
+                                                             whenHolding: !streams.isEmpty))
+                return try await (loadedCategories, loadedStreams)
+            }
+            let (freshCategories, freshStreams) = answers
+            // The digest saves parsing these, never downloading them, so the
+            // size is recorded either way -- it is the number that says
+            // whether the next thing worth doing is at the HTTP level.
+            trace.note("channel list downloaded",
+                       "\(StartupTrace.size(freshCategories.bytes + freshStreams.bytes)), "
+                       + (freshStreams.payload == nil ? "unchanged" : "changed"))
             guard activeProfile?.id == profile.id else { return }
             // Different bytes still need the old comparison: a server can
             // reorder a list, or restate it, without changing what it says.
             let oldCategories = categories
             let oldStreams = streams
-            let changes = await Task.detached(priority: .utility) {
-                (freshCategories.map { $0.value != oldCategories } ?? false,
-                 freshStreams.map { $0.value != oldStreams } ?? false)
-            }.value
+            let newCategories = freshCategories.payload
+            let newStreams = freshStreams.payload
+            let changes = await trace.measure("compare channel list") {
+                await Task.detached(priority: .utility) {
+                    (newCategories.map { $0.value != oldCategories } ?? false,
+                     newStreams.map { $0.value != oldStreams } ?? false)
+                }.value
+            }
             guard activeProfile?.id == profile.id else { return }
-            if let freshCategories { categoriesDigest = freshCategories.digest }
-            if let freshStreams { streamsDigest = freshStreams.digest }
-            if changes.0, let freshCategories { categories = freshCategories.value }
-            if changes.1, let freshStreams {
+            if let newCategories { categoriesDigest = newCategories.digest }
+            if let newStreams { streamsDigest = newStreams.digest }
+            if changes.0, let newCategories { categories = newCategories.value }
+            if changes.1, let newStreams {
                 guideListCache = nil
-                streams = freshStreams.value
+                streams = newStreams.value
             }
             libraryUpdatedAt = Date()
-            if changes.0 || changes.1 { await rebuildProfessionalStreams() }
+            if changes.0 || changes.1 {
+                await trace.measure("rebuild sports index", detail: "channel list changed",
+                                    { await rebuildProfessionalStreams() })
+            }
             guard activeProfile?.id == profile.id else { return }
             channelsValidatedThisSession = true
             promoteCachedMatchesIfSafe()
@@ -530,24 +561,39 @@ final class SportsLibrary: ObservableObject {
             // A thrown error and an unchanged guide are different answers: the
             // first leaves the timestamp alone, the second moves it on, because
             // the server did answer and it said nothing has changed.
-            let fresh: XtreamPayload<[String: [CurrentProgram]]>?
+            let trace = StartupTrace.shared
+            let answer: XtreamAnswer<[String: [CurrentProgram]]>
             // As above: an empty guide cannot be left unchanged.
             let ask = LibraryCachePolicy.digest(self.guideDigest,
                                                 whenHolding: !self.programsByChannel.isEmpty)
-            do { fresh = try await client.programsToday(ifChangedFrom: ask) }
-            catch { return }
+            do {
+                // This covers the download and, when the bytes are new, the
+                // XMLTV parse. Two very different costs, so the note below
+                // says which one was paid.
+                answer = try await trace.measure("fetch guide") {
+                    try await client.programsToday(ifChangedFrom: ask)
+                }
+            } catch { return }
+            trace.note("guide downloaded",
+                       "\(StartupTrace.size(answer.bytes)), "
+                       + (answer.payload == nil ? "unchanged — not parsed" : "parsed"))
             guard self.activeProfile?.id == profileID else { return }
             var changed = false
-            if let fresh {
+            if let fresh = answer.payload {
                 let previousPrograms = self.programsByChannel
                 let programs = fresh.value
-                changed = await Task.detached(priority: .utility) { previousPrograms != programs }.value
+                changed = await trace.measure("compare guide") {
+                    await Task.detached(priority: .utility) { previousPrograms != programs }.value
+                }
                 guard self.activeProfile?.id == profileID else { return }
                 self.guideDigest = fresh.digest
                 if changed { self.programsByChannel = programs }
             }
             self.guideUpdatedAt = Date()
-            if changed { await self.rebuildProfessionalStreams() }
+            if changed {
+                await trace.measure("rebuild sports index", detail: "guide changed",
+                                    { await self.rebuildProfessionalStreams() })
+            }
             guard self.activeProfile?.id == profileID else { return }
             self.guideValidatedThisSession = true
             self.saveCache(profileID: profileID)

@@ -17,6 +17,30 @@ enum XtreamPayloadDigest {
 struct XtreamPayload<Value: Sendable>: Sendable {
     let value: Value
     let digest: String
+    /// How much arrived. The digest saves the app parsing these bytes; it does
+    /// not save downloading them, and the difference is worth being able to
+    /// see rather than assume.
+    let bytes: Int
+}
+
+/// What a server said when asked "only if it changed".
+enum XtreamAnswer<Value: Sendable>: Sendable {
+    /// The same bytes as last time. They still came down the wire -- this says
+    /// how many -- but nothing was parsed, compared or written.
+    case unchanged(bytes: Int)
+    case fresh(XtreamPayload<Value>)
+
+    var payload: XtreamPayload<Value>? {
+        if case .fresh(let payload) = self { return payload }
+        return nil
+    }
+
+    var bytes: Int {
+        switch self {
+        case .unchanged(let bytes): return bytes
+        case .fresh(let payload): return payload.bytes
+        }
+    }
 }
 
 struct XtreamClient {
@@ -27,15 +51,13 @@ struct XtreamClient {
         try await request(action: nil)
     }
 
-    /// The categories, or nil when the server sent the same bytes as last time.
-    func categories(ifChangedFrom digest: String?) async throws -> XtreamPayload<[XtreamCategory]>? {
+    func categories(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[XtreamCategory]> {
         try await request(action: "get_live_categories", ifChangedFrom: digest)
     }
 
-    /// The channel list, or nil when the server sent the same bytes as last
-    /// time. On a large provider this list is the bulk of a refresh, and
-    /// decoding it only to find it unchanged was most of what a refresh did.
-    func streams(ifChangedFrom digest: String?) async throws -> XtreamPayload<[XtreamStream]>? {
+    /// On a large provider this list is the bulk of a refresh, and decoding it
+    /// only to find it unchanged was most of what a refresh did.
+    func streams(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[XtreamStream]> {
         try await request(action: "get_live_streams", ifChangedFrom: digest)
     }
 
@@ -59,7 +81,7 @@ struct XtreamClient {
     /// keeps whatever the last parse kept. That is exactly what the app did
     /// before when it found the guide unchanged, and nothing reads past the
     /// hour of history the Guide draws.
-    func programsToday(ifChangedFrom digest: String?) async throws -> XtreamPayload<[String: [CurrentProgram]]>? {
+    func programsToday(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[String: [CurrentProgram]]> {
         guard let base = normalizedBaseURL,
               var components = URLComponents(url: base.appendingPathComponent("xmltv.php"), resolvingAgainstBaseURL: false)
         else { throw XtreamError.invalidServer }
@@ -76,11 +98,11 @@ struct XtreamClient {
             throw XtreamError.serverRejected
         }
         let fresh = XtreamPayloadDigest.of(data)
-        if let digest, digest == fresh { return nil }
+        if let digest, digest == fresh { return .unchanged(bytes: data.count) }
         let programs = await Task.detached(priority: .utility) {
             XMLTVParser().parse(data)
         }.value
-        return XtreamPayload(value: programs, digest: fresh)
+        return .fresh(XtreamPayload(value: programs, digest: fresh, bytes: data.count))
     }
 
     /// The bytes an action answers with, before anything has been made of
@@ -115,12 +137,14 @@ struct XtreamClient {
     }
 
     private func request<T: Decodable & Sendable>(action: String?,
-                                                 ifChangedFrom digest: String?) async throws -> XtreamPayload<T>? {
+                                                 ifChangedFrom digest: String?) async throws -> XtreamAnswer<T> {
         let data = try await payload(action: action)
         let fresh = XtreamPayloadDigest.of(data)
-        if let digest, digest == fresh { return nil }
-        do { return XtreamPayload(value: try JSONDecoder().decode(T.self, from: data), digest: fresh) }
-        catch { throw XtreamError.invalidResponse }
+        if let digest, digest == fresh { return .unchanged(bytes: data.count) }
+        do {
+            return .fresh(XtreamPayload(value: try JSONDecoder().decode(T.self, from: data),
+                                        digest: fresh, bytes: data.count))
+        } catch { throw XtreamError.invalidResponse }
     }
 
     private var normalizedBaseURL: URL? {

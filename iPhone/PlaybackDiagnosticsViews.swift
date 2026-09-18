@@ -78,3 +78,33 @@ struct PlaybackDiagnosticsReportView: View {
         }
     }
 }
+
+/// The last launch, step by step.
+///
+/// Always recorded, because the question it answers -- which part of a slow
+/// start is actually slow -- has been guessed at twice and measured never.
+struct StartupTraceReportView: View {
+    @ObservedObject private var trace = StartupTrace.shared
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView {
+            Text(trace.report)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+        }
+        .background(LineupStyle.background)
+        .navigationTitle("Launch timing")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(copied ? "Copied" : "Copy") {
+                    UIPasteboard.general.string = trace.report
+                    copied = true
+                }
+            }
+        }
+    }
+}
