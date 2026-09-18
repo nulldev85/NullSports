@@ -185,15 +185,17 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
 
     /// Where it is being held, in one short line or not at all.
     ///
-    /// An event is worth naming the venue for, because its name says nothing
-    /// about where it is. A fixture between two teams is not: the home side has
-    /// already said the venue, so the city is the part that adds something --
-    /// and the venue stands in only when the schedule knows no city, which
-    /// still beats a card that says nothing about where the game is.
+    /// The venue is the line worth having. A home side's name already implies
+    /// its city -- nobody needs telling the Mariners are in Seattle -- but it
+    /// does not name the ballpark, so that is the part that adds something.
+    /// The city stands in only when the schedule knows no venue, which still
+    /// beats a card that says nothing about where the game is.
+    ///
+    /// An event gets both, because its name implies neither.
     var placeLine: String? {
         let venue = Self.cleaned(self.venue)
         let city = Self.cleaned(self.location)
-        let parts = isEvent ? [venue, city].compactMap { $0 } : [city ?? venue].compactMap { $0 }
+        let parts = isEvent ? [venue, city].compactMap { $0 } : [venue ?? city].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
