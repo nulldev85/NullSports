@@ -30,6 +30,44 @@ enum DailyCachePolicy {
     }
 }
 
+/// When the library's cache files are worth reading, asking about, or writing.
+///
+/// The library keeps three files per provider rather than one: the channel
+/// list, the guide, and a small state file holding timestamps, today's matches
+/// and the digests of what the server last sent. The split is what lets the
+/// channels be read -- and drawn -- without the guide in front of them, and
+/// what stops a new timestamp from rewriting a day of listings alongside it.
+enum LibraryCachePolicy {
+    /// What the channel file would contain, said in a few characters.
+    ///
+    /// Categories and channels are only ever assigned from a payload that
+    /// carried a digest, and the index is a function of those and the guide,
+    /// so these four answer "would writing it put back what is already there?"
+    /// without encoding a megabyte to find out.
+    static func channelsSignature(categoriesDigest: String?, streamsDigest: String?,
+                                  guideDigest: String?, hasIndex: Bool) -> String {
+        "\(categoriesDigest ?? "-")|\(streamsDigest ?? "-")|\(guideDigest ?? "-")|\(hasIndex)"
+    }
+
+    static func guideSignature(guideDigest: String?) -> String { guideDigest ?? "-" }
+
+    /// Whether a file whose contents would be `signature` still needs writing.
+    static func needsWriting(signature: String, lastWritten: String?) -> Bool {
+        signature != lastWritten
+    }
+
+    /// The digest to send with a request, which is nil unless what it
+    /// describes is actually in hand.
+    ///
+    /// A digest says "tell me only if this changed". Sent while holding
+    /// nothing -- a cache file that went missing, one that would not decode --
+    /// the answer "nothing changed" leaves the app empty with no way to ask
+    /// again. Held data is what earns the right to ask the cheap question.
+    static func digest(_ digest: String?, whenHolding hasData: Bool) -> String? {
+        hasData ? digest : nil
+    }
+}
+
 // The library stores this with the exact channel/guide snapshot used to match.
 // Array identities preserve field boundaries without delimiter collisions.
 struct DailyGameMatches<Channel: Codable & Hashable & Sendable>: Codable, Sendable {

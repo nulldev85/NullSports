@@ -1,6 +1,9 @@
 import Foundation
 import OSLog
 
+/// The one-file cache every install before this one wrote. Still read, once,
+/// so an upgrade does not cost a viewer their channel list and a cold fetch;
+/// it is split into the three below and deleted on the way past.
 private struct LibraryCache: Codable, Sendable {
     let categories: [XtreamCategory]
     let streams: [XtreamStream]
@@ -13,6 +16,36 @@ private struct LibraryCache: Codable, Sendable {
     let sportsIndex: SportsIndex?
 }
 
+/// The channel list and what is built from it: everything the app needs before
+/// it can put a row on screen, and a fraction of what the guide costs to read.
+private struct ChannelCache: Codable, Sendable {
+    let categories: [XtreamCategory]
+    let streams: [XtreamStream]
+    let sportsIndex: SportsIndex?
+}
+
+/// The guide. By far the largest of the three, and the last one needed, so it
+/// is read after the channels are on screen rather than in front of them.
+private struct GuideCache: Codable, Sendable {
+    let programsByChannel: [String: [CurrentProgram]]
+}
+
+/// Everything small and everything volatile: when each half was fetched, the
+/// digest of what the server sent for it, and today's matches.
+///
+/// This is the file that is written on every refresh, because these are the
+/// things that change on every refresh. Keeping them here is what stops a new
+/// timestamp from rewriting a channel list and a day of listings alongside it.
+private struct LibraryState: Codable, Sendable {
+    let guideUpdatedAt: Date?
+    let libraryUpdatedAt: Date?
+    let matchCacheVersion: Int?
+    let dailyMatches: DailyGameMatches<XtreamStream>?
+    let categoriesDigest: String?
+    let streamsDigest: String?
+    let guideDigest: String?
+}
+
 private struct SportsIndex: Codable, Sendable {
     let professional: [XtreamStream]
     let leagues: [SportsLeague: [XtreamStream]]
@@ -22,6 +55,18 @@ private struct SportsIndex: Codable, Sendable {
 private struct ScheduleCache: Codable, Sendable {
     let savedAt: Date
     let games: [String: [SportsGame]]
+}
+
+/// The channel list and the state beside it: what has to be read before
+/// anything can be drawn, and nothing else.
+///
+/// `guide` comes back filled only when the read had to fall back to the
+/// one-file cache, which holds all three together -- there is no reading part
+/// of that file, so having read it there is no sense in reading it again.
+private struct RestoredLibrary: Sendable {
+    let channels: ChannelCache
+    let state: LibraryState?
+    let guide: [String: [CurrentProgram]]?
 }
 
 @MainActor
@@ -78,6 +123,20 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
+    /// Digests of what the server last sent for each list, carried across
+    /// launches in the state file. A refresh that gets the same bytes back
+    /// stops at the digest: nothing is decoded, compared, or written.
+    private var categoriesDigest: String?
+    private var streamsDigest: String?
+    private var guideDigest: String?
+    /// What is already on disk, so a write can be skipped when it would put
+    /// back exactly what is there. Set when a file is read and when one is
+    /// written; nil means "unknown", which writes.
+    private var savedChannelsDigest: String?
+    private var savedGuideDigest: String?
+    /// Set when a one-file cache was read, cleared once the three files that
+    /// replace it have been written.
+    private var legacyCacheNeedsRetiring = false
     /// Set while a provider refresh is running *behind* restored cache. The
     /// screen stays usable, so this deliberately does not feed
     /// `channelsAreSyncing`, which gates playback and the picker.
@@ -292,16 +351,48 @@ final class SportsLibrary: ObservableObject {
                 scheduleDay = Calendar.current.startOfDay(for: Date())
             }
         }
-        if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
+        if streams.isEmpty, let restored = await Self.readHead(profileID: profile.id) {
             guard activeProfile?.id == profile.id else { return }
-            categories = cached.categories
-            streams = cached.streams
+            // The channel list goes up first. Every screen in the app needs it
+            // and nothing needs it sooner, and it is a fraction of the size of
+            // the guide that used to be decoded in front of it.
+            categories = restored.channels.categories
+            streams = restored.channels.streams
             guideListCache = nil
-            programsByChannel = cached.programsByChannel
-            guideUpdatedAt = cached.guideUpdatedAt
-            libraryUpdatedAt = cached.libraryUpdatedAt
+            let state = restored.state
+            guideUpdatedAt = state?.guideUpdatedAt
+            libraryUpdatedAt = state?.libraryUpdatedAt
+            categoriesDigest = state?.categoriesDigest
+            streamsDigest = state?.streamsDigest
+            guideDigest = state?.guideDigest
+            // Now the expensive half, with something already on screen. The
+            // index and the matching below both read it, so it has to be in
+            // place before either of them runs -- but not before the channels
+            // are, which is the whole change.
+            if let carried = restored.guide {
+                legacyCacheNeedsRetiring = true
+                programsByChannel = carried
+            } else {
+                // Channels are on screen and the guide is not yet, which is a
+                // state the app already has a word for. Saying it stops the
+                // Guide printing "No listing" against every row for as long as
+                // the read takes -- an empty guide and a guide still being
+                // read look identical from a row, and only one of them is
+                // worth telling anyone about.
+                isGuideLoading = true
+                let guide = await Self.readGuide(profileID: profile.id)
+                guard activeProfile?.id == profile.id else {
+                    isGuideLoading = false
+                    return
+                }
+                if let guide { programsByChannel = guide }
+                isGuideLoading = false
+            }
+            guideListCache = nil
+            savedChannelsDigest = channelsSignature
+            savedGuideDigest = guideSignature
             let now = Date()
-            if cached.matchCacheVersion == 2, let saved = cached.dailyMatches {
+            if state?.matchCacheVersion == 2, let saved = state?.dailyMatches {
                 gameStreamCache = saved.restore(identities: matchIdentities(now: now), available: streams, now: now)
                 restoredMatchGameIDs = Set(gameStreamCache.keys)
                 matchedGameIdentities = saved.identities.filter { gameStreamCache[$0.key] != nil }
@@ -312,9 +403,9 @@ final class SportsLibrary: ObservableObject {
                     gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 }
             }
-            if cached.matchCacheVersion == 2, let saved = cached.dailyMatches,
+            if state?.matchCacheVersion == 2, let saved = state?.dailyMatches,
                DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
-               let index = cached.sportsIndex,
+               let index = restored.channels.sportsIndex,
                DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(index.leagues.keys.map(\.rawValue)),
                    expectedLeagues: Set(SportsLeague.allCases.map(\.rawValue))) {
                 professionalStreams = index.professional
@@ -384,20 +475,34 @@ final class SportsLibrary: ObservableObject {
         if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         guard refreshChannels else { return }
         do {
-            async let loadedCategories = client.categories()
-            async let loadedStreams = client.streams()
-            let (newCategories, newStreams) = try await (loadedCategories, loadedStreams)
+            // nil back means the server sent the same bytes as last time, so
+            // there is nothing to decode and nothing to compare -- which on a
+            // provider with tens of thousands of channels is most of what a
+            // refresh used to do. The policy decides whether the app has
+            // earned the right to ask that cheap question at all.
+            async let loadedCategories = client.categories(
+                ifChangedFrom: LibraryCachePolicy.digest(categoriesDigest,
+                                                         whenHolding: !categories.isEmpty))
+            async let loadedStreams = client.streams(
+                ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
+                                                         whenHolding: !streams.isEmpty))
+            let (freshCategories, freshStreams) = try await (loadedCategories, loadedStreams)
             guard activeProfile?.id == profile.id else { return }
+            // Different bytes still need the old comparison: a server can
+            // reorder a list, or restate it, without changing what it says.
             let oldCategories = categories
             let oldStreams = streams
             let changes = await Task.detached(priority: .utility) {
-                (oldCategories != newCategories, oldStreams != newStreams)
+                (freshCategories.map { $0.value != oldCategories } ?? false,
+                 freshStreams.map { $0.value != oldStreams } ?? false)
             }.value
             guard activeProfile?.id == profile.id else { return }
-            if changes.0 { categories = newCategories }
-            if changes.1 {
+            if let freshCategories { categoriesDigest = freshCategories.digest }
+            if let freshStreams { streamsDigest = freshStreams.digest }
+            if changes.0, let freshCategories { categories = freshCategories.value }
+            if changes.1, let freshStreams {
                 guideListCache = nil
-                streams = newStreams
+                streams = freshStreams.value
             }
             libraryUpdatedAt = Date()
             if changes.0 || changes.1 { await rebuildProfessionalStreams() }
@@ -422,16 +527,27 @@ final class SportsLibrary: ObservableObject {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
             }
             // Keep the last good guide and its timestamp when a refresh fails.
-            guard let programs = try? await client.programsToday() else { return }
+            // A thrown error and an unchanged guide are different answers: the
+            // first leaves the timestamp alone, the second moves it on, because
+            // the server did answer and it said nothing has changed.
+            let fresh: XtreamPayload<[String: [CurrentProgram]]>?
+            // As above: an empty guide cannot be left unchanged.
+            let ask = LibraryCachePolicy.digest(self.guideDigest,
+                                                whenHolding: !self.programsByChannel.isEmpty)
+            do { fresh = try await client.programsToday(ifChangedFrom: ask) }
+            catch { return }
             guard self.activeProfile?.id == profileID else { return }
-            let previousPrograms = self.programsByChannel
-            let changed = await Task.detached(priority: .utility) { previousPrograms != programs }.value
-            guard self.activeProfile?.id == profileID else { return }
-            self.guideUpdatedAt = Date()
-            if changed {
-                self.programsByChannel = programs
-                await self.rebuildProfessionalStreams()
+            var changed = false
+            if let fresh {
+                let previousPrograms = self.programsByChannel
+                let programs = fresh.value
+                changed = await Task.detached(priority: .utility) { previousPrograms != programs }.value
+                guard self.activeProfile?.id == profileID else { return }
+                self.guideDigest = fresh.digest
+                if changed { self.programsByChannel = programs }
             }
+            self.guideUpdatedAt = Date()
+            if changed { await self.rebuildProfessionalStreams() }
             guard self.activeProfile?.id == profileID else { return }
             self.guideValidatedThisSession = true
             self.saveCache(profileID: profileID)
@@ -449,13 +565,23 @@ final class SportsLibrary: ObservableObject {
         return Date().timeIntervalSince(libraryUpdatedAt) < libraryLifetime
     }
 
+    private var channelsSignature: String {
+        LibraryCachePolicy.channelsSignature(categoriesDigest: categoriesDigest,
+                                             streamsDigest: streamsDigest,
+                                             guideDigest: guideDigest,
+                                             hasIndex: sportsIndexReady)
+    }
+
+    private var guideSignature: String {
+        LibraryCachePolicy.guideSignature(guideDigest: guideDigest)
+    }
+
     private func saveCache(profileID: UUID) {
         let now = Date()
         let identities = matchIdentities(now: now)
-        let snapshot = LibraryCache(
-            categories: categories,
-            streams: streams,
-            programsByChannel: programsByChannel,
+        // Always written: every one of these changes on every refresh, which
+        // is the whole reason they were moved out of the big files.
+        let state = LibraryState(
             guideUpdatedAt: guideUpdatedAt,
             libraryUpdatedAt: libraryUpdatedAt,
             matchCacheVersion: 2,
@@ -463,28 +589,112 @@ final class SportsLibrary: ObservableObject {
                 channels: gameStreamCache.filter { key, _ in
                     identities[key] != nil && identities[key] == matchedGameIdentities[key]
                 }),
-            sportsIndex: sportsIndexReady ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache, searchText: streamSearchText) : nil
+            categoriesDigest: categoriesDigest,
+            streamsDigest: streamsDigest,
+            guideDigest: guideDigest
         )
         lastSavedMatchIdentities = identities
         lastSavedMatchDay = now
+
+        // Written only when they would say something new.
+        let channels: ChannelCache? = !LibraryCachePolicy.needsWriting(
+            signature: channelsSignature, lastWritten: savedChannelsDigest) ? nil : ChannelCache(
+            categories: categories,
+            streams: streams,
+            sportsIndex: sportsIndexReady
+                ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache,
+                              searchText: streamSearchText)
+                : nil
+        )
+        let guide: GuideCache? = LibraryCachePolicy.needsWriting(
+            signature: guideSignature, lastWritten: savedGuideDigest)
+            ? GuideCache(programsByChannel: programsByChannel) : nil
+        savedChannelsDigest = channelsSignature
+        savedGuideDigest = guideSignature
+        let retireLegacy = legacyCacheNeedsRetiring
+        legacyCacheNeedsRetiring = false
+
         let previousWrite = cacheWriteTask
         cacheWriteTask = Task.detached(priority: .utility) {
             await previousWrite?.value
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? data.write(to: Self.cacheURL(profileID: profileID), options: .atomic)
+            if let channels { Self.write(channels, to: Self.channelsURL(profileID: profileID)) }
+            if let guide { Self.write(guide, to: Self.guideURL(profileID: profileID)) }
+            Self.write(state, to: Self.stateURL(profileID: profileID))
+            // Only once the three that replace it are on disk.
+            if retireLegacy {
+                try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profileID))
+            }
         }
     }
 
-    nonisolated private static func readCache(profileID: UUID) async -> LibraryCache? {
+    nonisolated private static func write<T: Encodable>(_ value: T, to url: URL) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    nonisolated private static func readHead(profileID: UUID) async -> RestoredLibrary? {
         await Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: cacheURL(profileID: profileID)) else { return nil }
-            return try? JSONDecoder().decode(LibraryCache.self, from: data)
+            let decoder = JSONDecoder()
+            if let data = try? Data(contentsOf: channelsURL(profileID: profileID)),
+               let channels = try? decoder.decode(ChannelCache.self, from: data) {
+                let state = (try? Data(contentsOf: stateURL(profileID: profileID)))
+                    .flatMap { try? decoder.decode(LibraryState.self, from: $0) }
+                return RestoredLibrary(channels: channels, state: state, guide: nil)
+            }
+            guard let data = try? Data(contentsOf: cacheURL(profileID: profileID)),
+                  let legacy = try? decoder.decode(LibraryCache.self, from: data) else { return nil }
+            return RestoredLibrary(
+                channels: ChannelCache(categories: legacy.categories, streams: legacy.streams,
+                                       sportsIndex: legacy.sportsIndex),
+                state: LibraryState(guideUpdatedAt: legacy.guideUpdatedAt,
+                                    libraryUpdatedAt: legacy.libraryUpdatedAt,
+                                    matchCacheVersion: legacy.matchCacheVersion,
+                                    dailyMatches: legacy.dailyMatches,
+                                    // A one-file cache predates digests, so the
+                                    // next refresh fetches and compares as it
+                                    // always did, and records them for the one
+                                    // after that.
+                                    categoriesDigest: nil, streamsDigest: nil, guideDigest: nil),
+                guide: legacy.programsByChannel
+            )
         }.value
     }
 
+    nonisolated private static func readGuide(profileID: UUID) async -> [String: [CurrentProgram]]? {
+        await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: guideURL(profileID: profileID)),
+                  let guide = try? JSONDecoder().decode(GuideCache.self, from: data) else { return nil }
+            return guide.programsByChannel
+        }.value
+    }
+
+    nonisolated private static func cacheDirectory() -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    }
+
+    /// The one-file cache written by every version before the split.
     nonisolated private static func cacheURL(profileID: UUID) -> URL {
-        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return directory.appendingPathComponent("lineup-\(profileID.uuidString).json")
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString).json")
+    }
+
+    nonisolated private static func channelsURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-channels.json")
+    }
+
+    nonisolated private static func guideURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-guide.json")
+    }
+
+    nonisolated private static func stateURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-state.json")
+    }
+
+    nonisolated private static func removeCaches(profileID: UUID) {
+        let manager = FileManager.default
+        for url in [cacheURL(profileID: profileID), channelsURL(profileID: profileID),
+                    guideURL(profileID: profileID), stateURL(profileID: profileID)] {
+            try? manager.removeItem(at: url)
+        }
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {
@@ -1308,7 +1518,7 @@ final class SportsLibrary: ObservableObject {
         }
         // Finish an already queued cache write before deleting this cache.
         await cacheWriteTask?.value
-        try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
+        Self.removeCaches(profileID: profile.id)
         persistProfiles()
         isSwitchingProfile = false
         if removingActive, activeProfile != nil { await bootstrap() }
