@@ -375,24 +375,10 @@ private struct MobileMatchupRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
 
-    /// A card for an event rather than a single contest. UFC puts a night of
-    /// bouts behind one broadcast, so naming one of them on the card is both
-    /// arbitrary and wrong: nobody tunes in for the fight the feed happens to
-    /// list first. The event is the thing being watched.
-    private var isEvent: Bool {
-        !(game.eventName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Where it is being held, and never more than a line of it. An event is
-    /// worth naming the venue for; a fixture between two teams is not, because
-    /// the home side has already said it, so that one gets the place instead.
-    private var whereItIs: String? {
-        let parts = isEvent ? [game.venue, game.location] : [game.location]
-        let text = parts
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return text.isEmpty ? nil : text.joined(separator: " · ")
-    }
+    /// Both read from the game itself, so the card and the tests agree on what
+    /// an event is and on where it is being held.
+    private var isEvent: Bool { game.isEvent }
+    private var whereItIs: String? { game.placeLine }
 
     var body: some View {
         HStack(spacing: 14) {
