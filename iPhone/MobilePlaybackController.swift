@@ -495,11 +495,13 @@ final class MobilePlaybackController: ObservableObject {
             media.addOption(":network-caching=5000")
             media.addOption(":live-caching=5000")
         } else {
-            // A file on a server is not a wobbling live link, and five seconds
-            // of buffer is five seconds refilled after every seek — which is
-            // what made scrubbing through a film feel like it had hung.
-            media.addOption(":network-caching=1000")
-            media.addOption(":file-caching=1000")
+            // Five seconds of buffer is five seconds refilled after every
+            // seek, which made scrubbing feel like it had hung; one second
+            // seeks fast but leaves nothing in hand and a real server on a
+            // real link stutters. Three is the compromise, and it is the one
+            // number to move if either complaint comes back.
+            media.addOption(":network-caching=3000")
+            media.addOption(":file-caching=3000")
         }
         media.addOption(":http-reconnect=true")
         player.media = media

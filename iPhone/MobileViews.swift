@@ -85,7 +85,7 @@ struct ProfileSetupView: View {
                         Text("Your games.\nAnywhere.").font(.inter(.largeTitle, .bold))
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section("Your provider") {
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -93,7 +93,7 @@ struct ProfileSetupView: View {
                         .keyboardType(.URL).textContentType(.URL)
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     Button {
                         connecting = true
@@ -118,7 +118,7 @@ struct ProfileSetupView: View {
                 }.listRowBackground(LineupStyle.raised)
                 if let connectionError {
                     Section { Text(connectionError).foregroundStyle(.red) }
-                        .listRowBackground(LineupStyle.surface)
+                        .listRowBackground(LineupGlassRow())
                 }
             }
             .navigationTitle(addingProvider ? "Add provider" : "")
@@ -197,7 +197,7 @@ private struct MobilePreferredChannelsView: View {
                     }
             } footer: {
                 Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
-            }.listRowBackground(LineupStyle.surface)
+            }.listRowBackground(LineupGlassRow())
         }
         .scrollContentBackground(.hidden).background(LineupStyle.background)
         .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
@@ -228,7 +228,7 @@ private struct MobileDiagnosticsView: View {
                 }
             } footer: {
                 Text("Playback diagnostics records what the player does while it is on. Leave it off unless you are chasing a problem.")
-            }.listRowBackground(LineupStyle.surface)
+            }.listRowBackground(LineupGlassRow())
         }
         .scrollContentBackground(.hidden).background(LineupStyle.background)
         .navigationTitle("Diagnostics")
@@ -299,7 +299,7 @@ private struct MobileAccountView: View {
                     Text("Providers")
                 } footer: {
                     Text("Each provider keeps its own favorites and preferred channels.")
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
@@ -310,7 +310,7 @@ private struct MobileAccountView: View {
                     }
                 } footer: {
                     Text("Games on these teams open on the saved channel, and these lists belong to this provider alone.")
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     if let profile = media.activeProfile {
                         MediaServerAccountCard(profile: profile) { selectedTab = 2 }
@@ -341,7 +341,7 @@ private struct MobileAccountView: View {
                     Text("Media Servers")
                 } footer: {
                     Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
                 Section {
                     // Collapsed rather than pushed. A theme screen of its own
                     // dismissed itself as the palette changed underneath it,
@@ -369,7 +369,7 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Syncs through iCloud.")
                 }
-                .listRowBackground(LineupStyle.surface)
+                .listRowBackground(LineupGlassRow())
                 Section("Current library") {
                     LabeledContent("Channels", value: "\(library.streams.count)")
                     LabeledContent("iCloud", value: cloud.status)
@@ -382,7 +382,7 @@ private struct MobileAccountView: View {
                         Task { await library.reload() }
                     }.disabled(library.channelsAreSyncing || library.isSwitchingProfile)
                     if library.channelsAreSyncing { ProgressView("Updating…") }
-                }.listRowBackground(LineupStyle.surface)
+                }.listRowBackground(LineupGlassRow())
             }
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
@@ -448,7 +448,7 @@ private struct MatchDiagnosticsView: View {
                 }
             } footer: {
                 Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
-            }.listRowBackground(LineupStyle.surface)
+            }.listRowBackground(LineupGlassRow())
         }
         .scrollContentBackground(.hidden)
         .background(LineupStyle.background)

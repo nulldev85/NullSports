@@ -132,9 +132,8 @@ struct MediaServerAccountCard: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(16)
         .frame(maxWidth: 720, alignment: .leading)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(LineupStyle.line, lineWidth: 1))
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous),
+                           fallback: LineupStyle.surface, border: LineupStyle.line)
     }
 
     private func statistic(_ count: Int?, label: String) -> some View {
@@ -165,8 +164,9 @@ private struct MediaServerCardAction: View {
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 38)
-                .background(focused ? LineupStyle.focused : LineupStyle.raised, in: Capsule())
-                .overlay(Capsule().stroke(LineupStyle.line, lineWidth: 1))
+                .lineupLiquidGlass(Capsule(),
+                                   fallback: focused ? LineupStyle.focused : LineupStyle.raised,
+                                   border: LineupStyle.line)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
         }
         .lineupFlatButton()
@@ -178,16 +178,39 @@ private struct MediaServerPulseDot: View {
     let connected: Bool
     @State private var pulsing = false
 
+    private var tint: Color {
+        connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
+    }
+
     var body: some View {
+        // A bead rather than a filled circle: a lit upper face, a deeper base,
+        // a hairline rim and one small specular. That is what reads as glass at
+        // nine points, where a material effect would show nothing at all.
         Circle()
-            .fill(connected ? Color.green : Color.gray)
-            .frame(width: 8, height: 8)
+            .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
+                                 center: UnitPoint(x: 0.34, y: 0.28),
+                                 startRadius: 0, endRadius: 8))
+            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
+            .overlay(alignment: .topLeading) {
+                Circle().fill(.white.opacity(0.55))
+                    .frame(width: 2.6, height: 2.6)
+                    .blur(radius: 0.6)
+                    .offset(x: 1.5, y: 1.3)
+            }
+            .frame(width: 9, height: 9)
+            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
+            // The halo sits in an overlay so its travel never moves the row,
+            // and it is a soft fill rather than a ring: it leaves the bead,
+            // fades out, and is gone. Half the brightness and half again the
+            // duration of the ring it replaces.
             .overlay {
                 if connected && !reduceMotion {
-                    Circle().stroke(Color.green.opacity(0.7), lineWidth: 1.5)
-                        .frame(width: 15, height: 15)
-                        .scaleEffect(pulsing ? 1.5 : 0.7)
-                        .opacity(pulsing ? 0 : 1)
+                    Circle()
+                        .fill(tint.opacity(0.3))
+                        .frame(width: 9, height: 9)
+                        .scaleEffect(pulsing ? 2.2 : 1)
+                        .opacity(pulsing ? 0 : 0.55)
+                        .allowsHitTesting(false)
                 }
             }
             .onAppear { startPulse() }
@@ -196,9 +219,11 @@ private struct MediaServerPulseDot: View {
     }
 
     private func startPulse() {
-        pulsing = false
+        // Clear any cycle still running before starting one, or the two
+        // overlap and the halo appears to travel the wrong way.
+        withAnimation(.linear(duration: 0)) { pulsing = false }
         guard connected && !reduceMotion else { return }
-        withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+        withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) {
             pulsing = true
         }
     }

@@ -415,6 +415,23 @@ extension View {
         lineupLiquidGlass(shape, clear: clear, fallback: Color.black.opacity(0.6))
     }
 
+}
+
+/// The background behind a Form row, on the same Liquid Glass as the app's
+/// floating chrome. Passed to `listRowBackground`, which wants a view rather
+/// than a modifier, so it is a view rather than another `lineupLiquidGlass`
+/// overload. Below iOS 26 it is the theme surface these rows already used.
+struct LineupGlassRow: View {
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: Rectangle())
+        } else {
+            LineupStyle.surface
+        }
+    }
+}
+
+extension View {
     // iOS 26 draws the tab bar in Liquid Glass itself. Forcing an opaque
     // toolbar background paints over that, so the theme colour is applied
     // only below iOS 26, where there is no glass to preserve.
@@ -431,6 +448,23 @@ extension View {
 #endif
 
 #if os(tvOS)
+extension View {
+    // tvOS has no Liquid Glass, so the shared views that ask for it keep the
+    // theme's own fill and hairline — which is exactly what they looked like
+    // before the call site was unified.
+    func lineupLiquidGlass<S: InsettableShape, F: ShapeStyle>(
+        _ shape: S, clear: Bool = false, fallback: F,
+        border: Color = .white.opacity(0.12)
+    ) -> some View {
+        self.background(fallback, in: shape)
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
+    }
+
+    func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
+        lineupLiquidGlass(shape, clear: clear, fallback: LineupStyle.surface, border: LineupStyle.line)
+    }
+}
+
 /// A plain view that takes focus and a press, with no Button involved.
 ///
 /// This is exactly what the Live and Guide screens do, and it is why they never
