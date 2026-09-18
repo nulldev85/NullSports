@@ -178,15 +178,25 @@ struct SportsScheduleClient: Sendable {
         return error.localizedDescription
     }
 
+    // Built once rather than per game. This is the same trap the guide parser
+    // had, at a smaller scale: every kick-off time built an ISO8601 formatter
+    // and up to three DateFormatters, and building one costs more than using
+    // it. Four constructions per game, discarded immediately, across every
+    // game in every league on every schedule refresh.
+    private static let internetDate = ISO8601DateFormatter()
+    private static let fallbackDates: [DateFormatter] = [
+        "yyyy-MM-dd'T'HH:mmXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX", "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"
+    ].map { format in
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = format
+        return formatter
+    }
+
     private static func parseDate(_ value: String) -> Date? {
-        let internet = ISO8601DateFormatter()
-        if let date = internet.date(from: value) { return date }
-        let formats = ["yyyy-MM-dd'T'HH:mmXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX", "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"]
-        for format in formats {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = format
+        if let date = internetDate.date(from: value) { return date }
+        for formatter in fallbackDates {
             if let date = formatter.date(from: value) { return date }
         }
         return nil
