@@ -452,6 +452,9 @@ private struct LiveSlateDashboard: View {
     let onStopPreview: () -> Void
 
     @State private var gameFocusRequest: UUID?
+    /// Set by the first row once it has been laid out. The starting value is
+    /// only what to draw with before that happens.
+    @State private var matchupRow: CGFloat = 246
 
     var body: some View {
         GeometryReader { geometry in
@@ -471,6 +474,9 @@ private struct LiveSlateDashboard: View {
                 .frame(height: screenHeight(in: geometry.size))
                 Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(height: 1)
                 matchups
+                    .onPreferenceChange(MatchupRowHeight.self) { height in
+                        if height > 0 { matchupRow = height }
+                    }
             }
         }
         .background(LiveBoardStyle.canvas)
@@ -508,15 +514,14 @@ private struct LiveSlateDashboard: View {
 
     /// One row of four, and no more.
     ///
-    /// Four across is what a viewer wants to see at once; Down is how they
-    /// reach the next four. Sized off the card rather than guessed at: about
-    /// 215 points for a matchup, a dozen for the lift it grows by when
-    /// focused, the grid's own padding either side, and a heading carrying a
-    /// filter capsule. Anything beyond that is height taken from the picture
-    /// to show part of a row nobody asked to see -- which is what 440 was
-    /// doing, and why the screen looked wrong.
+    /// Four across is what a viewer wants at once; Down is how they reach the
+    /// next four. The row measures itself and reports back, so the only thing
+    /// left to add is what surrounds it: the grid's padding either side, the
+    /// lift a focused card grows by, and the heading with its filter capsule.
+    /// Everything else is the picture.
     private func screenHeight(in size: CGSize) -> CGFloat {
-        max(240, size.height - 330)
+        let chrome: CGFloat = 32 + 14 + 62      // padding, lift, heading
+        return max(240, size.height - (matchupRow + chrome))
     }
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
@@ -849,6 +854,20 @@ private struct LiveBoardTeam: View {
     }
 }
 
+/// How tall a row of matchups turned out to be.
+///
+/// The strip that holds them has to be that plus the lift a focused card grows
+/// by, and I have now picked that number three times and been wrong three
+/// times -- too short and the television clips the card being looked at, too
+/// tall and it eats the picture. The row is the only thing that knows, so it
+/// says.
+private struct MatchupRowHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
@@ -883,6 +902,14 @@ private struct LiveGameSlate: View {
                                         onFocus: { focusedGame = game; focusRequest = nil },
                                         onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
                                     .id(game.id)
+                                    .background {
+                                        if rowStart == 0, column == 0 {
+                                            GeometryReader { row in
+                                                Color.clear.preference(key: MatchupRowHeight.self,
+                                                                       value: row.size.height)
+                                            }
+                                        }
+                                    }
                                     .onAppear {
                                         if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
                                     }
