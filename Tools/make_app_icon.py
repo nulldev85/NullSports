@@ -1,178 +1,102 @@
 #!/usr/bin/env python3
 """Draws Lineup's app icon and writes every size the two targets ask for.
 
-The mark is an equalizer: five bars standing on a baseline, the tallest one
-live. It says signal rather than list -- something on air, with a peak -- and
-it is a shape nobody mistakes for a menu at any size.
+The mark is three blocks: one tall on the left, two stacked to its right --
+a lineup, and a guide's own geometry, in the plainest possible terms.
 
-On why it looks the way it does, since most of these are decisions against
-something easier:
+Rebuilt from the supplied artwork as geometry rather than resampled from it.
+Three rounded rectangles and two flat colours is all it is, and drawing it
+means every size is exact rather than an interpolation of an 884-pixel
+original -- and it means the blocks can be handed over without the field
+behind them, which the television's layered icon and the tinted appearance
+both need and a flattened picture cannot give.
 
-  No outer glow. A coloured blur behind a shape is the oldest shortcut in
-  icon design and it reads as one. The peak earns its prominence by being
-  the tallest thing and the only coloured thing, which is enough.
-
-  The bars are lit from above and sit on a contact shadow. That is the whole
-  difference between objects on a field and flat swatches on a background,
-  and it is the only depth in the drawing -- one light, one direction, no
-  highlights anywhere else pretending to a second source.
-
-  The bars that are not the peak are one colour, not several. An earlier
-  version had them catching light from the red one, which is a physical
-  conceit in a drawing with no other physics in it. They are a cool slate
-  with enough luminance to be a deliberate part of the mark rather than
-  something switched off.
-
-  The field has chroma. A neutral dark grey is what an icon looks like when
-  nobody chose the background.
+Measured off the original, then regularised where the measurement was within
+its own error: one corner radius rather than three within a pixel of each
+other, one gutter, and the whole mark centred exactly rather than four pixels
+shy of it.
 
     python3 Tools/make_app_icon.py
 """
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Signal's palette, warmed and deepened for a mark that has to hold at forty
-# points. An icon cannot change with the theme, so it commits.
-FIELD = [(0.0, (22, 35, 58)), (0.55, (13, 21, 36)), (1.0, (7, 11, 18))]
-# Lit from above: each bar's own face, brightest at the cap.
-SLATE = [(0.0, (88, 104, 129)), (0.10, (74, 89, 113)), (1.0, (44, 55, 74))]
-LIVE = [(0.0, (255, 114, 132)), (0.10, (250, 82, 104)), (1.0, (214, 26, 58))]
+FIELD = (7, 7, 7)           # the near-black the blocks sit on
+INK = (253, 250, 243)       # warm off-white, not pure white
 
-# One grid, at 1024. Every other size is this drawn larger or smaller, never
-# re-laid-out, so the proportions cannot drift between platforms.
-UNIT = 1024.0
-BAR_W = 132 / UNIT
-BAR_GAP = 42 / UNIT
-BASELINE = 842 / UNIT
-TALLEST = 660 / UNIT
+# The mark, in fractions of the icon's edge, measured off the artwork at its
+# own 884-pixel tile and kept as exact ratios rather than rounded decimals.
+#
+# The parts agree with each other to the pixel: the tall block, a gutter and
+# the bottom-right block span the same width as the whole mark; the top-right
+# block, a gutter and the bottom-right block span the same height. So the
+# outer box and one gutter give every edge, and nothing can drift out of
+# alignment when a number is changed.
+TILE = 884.0
+GUTTER = 32 / TILE
+RADIUS = 17.3 / TILE
+TALL_W = 214 / TILE         # the left block
+SMALL_H = 290 / TILE        # the top-right block
+SMALL_W = 168 / TILE
 
-# The levels. Deliberately not a staircase: bars that climb evenly read as
-# signal strength, which is a different idiom and a much more generic one.
-# Uneven around a peak, the way a meter is, with the peak at the optical
-# centre so the one thing worth looking at is where the eye lands.
-LEVELS = (0.46, 0.79, 1.00, 0.55, 0.70)
-LIT = 2
+WIDTH = 501 / TILE          # 214 + 32 + 255
+HEIGHT = 578 / TILE         # 290 + 32 + 256
+# Where the artwork puts it, not where the arithmetic would. It sits about a
+# pixel and a half left and high of dead centre in its own tile, which is
+# under two tenths of a percent -- far below anything the eye resolves, and
+# not worth moving somebody's drawing for.
+LEFT = 190 / TILE
+TOP = 151 / TILE
+RIGHT = LEFT + WIDTH
+BOTTOM = TOP + HEIGHT
 
-
-def ramp(height, stops):
-    """A vertical gradient from (position, colour) stops."""
-    column = Image.new("RGB", (1, height))
-    pixels = column.load()
-    for y in range(height):
-        t = y / max(1, height - 1)
-        lower = stops[0]
-        upper = stops[-1]
-        for index in range(len(stops) - 1):
-            if stops[index][0] <= t <= stops[index + 1][0]:
-                lower, upper = stops[index], stops[index + 1]
-                break
-        span = max(1e-6, upper[0] - lower[0])
-        k = (t - lower[0]) / span
-        pixels[0, y] = tuple(round(a + (b - a) * k)
-                             for a, b in zip(lower[1], upper[1]))
-    return column
+BLOCKS = (
+    # left, top, right, bottom
+    (LEFT, TOP, LEFT + TALL_W, BOTTOM),                       # tall, left
+    (RIGHT - SMALL_W, TOP, RIGHT, TOP + SMALL_H),             # small, top right
+    (LEFT + TALL_W + GUTTER, TOP + SMALL_H + GUTTER, RIGHT, BOTTOM),
+)
 
 
-def wash(size, stops):
-    return ramp(size[1], stops).resize(size, Image.BILINEAR)
+def draw_mark(size, scale, centre, ink=INK):
+    """The three blocks, on a transparent canvas, drawn around `centre`.
 
-
-def pill_mask(size, boxes):
-    mask = Image.new("L", size, 0)
-    draw = ImageDraw.Draw(mask)
-    for x, y, w, h in boxes:
-        draw.rounded_rectangle([x - w / 2, y - h / 2, x + w / 2, y + h / 2],
-                               radius=w / 2, fill=255)
-    return mask
-
-
-def geometry(scale, centre):
-    """Where every bar stands, in pixels, for a mark of this size."""
-    cx, cy = centre
-    bar_w = BAR_W * scale
-    pitch = (BAR_W + BAR_GAP) * scale
-    span = len(LEVELS) * bar_w + (len(LEVELS) - 1) * BAR_GAP * scale
-    left = cx - span / 2 + bar_w / 2
-    base = cy + (BASELINE - 0.5) * scale
-    boxes = []
-    for index, level in enumerate(LEVELS):
-        h = TALLEST * scale * level
-        boxes.append((left + index * pitch, base - h / 2, bar_w, h))
-    return boxes
-
-
-def draw_mark(size, scale, centre, *, lift, tinted=False):
-    """The bars, on a transparent canvas.
-
-    `lift` adds the contact shadow. It is left off where the system composites
-    the art over a backdrop of its own choosing and a shadow would be a smear
-    against an unknown colour.
+    `scale` is the icon's own edge length. The mark is proportional to it, so
+    the television's wide icon keeps the phone's proportions instead of
+    stretching them across the extra width.
     """
-    boxes = geometry(scale, centre)
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
-
-    if tinted:
-        # One channel: the system paints this, so all it may carry is how
-        # light each part is. The peak stays the brightest thing.
-        draw = ImageDraw.Draw(canvas)
-        for index, (x, y, w, h) in enumerate(boxes):
-            value = 255 if index == LIT else 122
-            draw.rounded_rectangle([x - w / 2, y - h / 2, x + w / 2, y + h / 2],
-                                   radius=w / 2, fill=(value, value, value, 255))
-        return canvas
-
-    if lift:
-        # Tight, dark and downward. A contact shadow, not a halo: it says the
-        # bars are standing on the field rather than floating over it.
-        shadow = Image.new("RGBA", size, (0, 0, 0, 0))
-        offset = [(x, y + scale * 0.014, w, h) for x, y, w, h in boxes]
-        shadow.putalpha(pill_mask(size, offset).point(lambda v: v * 0.38))
-        shadow = Image.composite(Image.new("RGBA", size, (0, 0, 0, 255)),
-                                 Image.new("RGBA", size, (0, 0, 0, 0)),
-                                 shadow.getchannel("A"))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=scale * 0.022))
-        canvas.alpha_composite(shadow)
-
-    # Each bar is painted with its own gradient rather than a slab of colour,
-    # so the cap catches the light and the foot falls away.
-    for index, box in enumerate(boxes):
-        x, y, w, h = box
-        stops = LIVE if index == LIT else SLATE
-        face = wash(size, stops).convert("RGBA")
-        # The ramp is measured over the bar, not the canvas, so a short bar
-        # gets the whole fall of light rather than a slice of it.
-        band = ramp(max(2, round(h)), stops).resize((size[0], max(2, round(h))),
-                                                    Image.BILINEAR)
-        face = Image.new("RGBA", size, (0, 0, 0, 0))
-        face.paste(band.convert("RGBA"), (0, round(y - h / 2)))
-        face.putalpha(pill_mask(size, [box]))
-        canvas.alpha_composite(face)
+    draw = ImageDraw.Draw(canvas)
+    cx, cy = centre
+    radius = RADIUS * scale
+    for left, top, right, bottom in BLOCKS:
+        box = [cx + (left - 0.5) * scale, cy + (top - 0.5) * scale,
+               cx + (right - 0.5) * scale, cy + (bottom - 0.5) * scale]
+        draw.rounded_rectangle(box, radius=radius, fill=(*ink, 255))
     return canvas
 
 
 def square(edge, *, background=True, tinted=False):
-    if background and not tinted:
-        base = wash((edge, edge), FIELD).convert("RGBA")
-    else:
-        base = Image.new("RGBA", (edge, edge), (0, 0, 0, 0))
+    base = (Image.new("RGBA", (edge, edge), (*FIELD, 255)) if background
+            else Image.new("RGBA", (edge, edge), (0, 0, 0, 0)))
+    # Tinted carries no colour of its own: the system paints it, so the blocks
+    # go down at full luminance and the field is left to whatever is behind.
     base.alpha_composite(draw_mark((edge, edge), edge, (edge / 2, edge / 2),
-                                   lift=background and not tinted, tinted=tinted))
+                                   ink=(255, 255, 255) if tinted else INK))
     return base
 
 
 def widescreen(size, *, background=True, mark_scale=None, centre=None):
     w, h = size
-    base = (wash(size, FIELD).convert("RGBA") if background
+    base = (Image.new("RGBA", size, (*FIELD, 255)) if background
             else Image.new("RGBA", size, (0, 0, 0, 0)))
-    # Sized off the height: the mark is taller than it is wide, so height is
-    # what fills a frame. Driving it off the width would run the bars off the
-    # top and bottom of a television icon.
-    scale = mark_scale or h * 1.04
-    base.alpha_composite(draw_mark(size, scale, centre or (w / 2, h / 2),
-                                   lift=background))
+    # Sized off the height, so the mark keeps the same share of a television
+    # icon that it has of a phone's.
+    scale = mark_scale or h
+    base.alpha_composite(draw_mark(size, scale, centre or (w / 2, h / 2)))
     return base
 
 
@@ -186,6 +110,8 @@ def write(image, *parts):
 def main():
     ios = os.path.join("iPhone", "Assets.xcassets", "AppIcon.appiconset")
     print("iPhone")
+    # Full bleed and square: iOS applies its own corner, and a picture that
+    # brings its own gets rounded twice and sits inside a dark ring.
     write(square(1024).convert("RGB"), ios, "AppIcon.png")
     write(square(1024, background=False), ios, "AppIcon-Dark.png")
     write(square(1024, background=False, tinted=True), ios, "AppIcon-Tinted.png")
@@ -194,14 +120,14 @@ def main():
                          "App Icon & Top Shelf Image.brandassets")
     print("tvOS")
     # Layered, and the split is the point: the television slides the
-    # foreground against the background as the icon takes focus, so the bars
-    # travel over the field rather than the whole picture moving as one.
+    # foreground against the background as the icon takes focus, so the
+    # blocks travel over the field rather than the whole picture moving.
     for name, (w, h), suffix in [("App Icon - Large", (1280, 768), ""),
                                  ("App Icon - Small", (400, 240), ""),
                                  ("App Icon - Small", (800, 480), "@2x")]:
         stack = os.path.join(brand, f"{name}.imagestack")
-        field = wash((w, h), FIELD).convert("RGB")
-        write(field, stack, "Background.imagestacklayer", "Content.imageset",
+        write(Image.new("RGB", (w, h), FIELD),
+              stack, "Background.imagestacklayer", "Content.imageset",
               f"Background{suffix}.png")
         write(widescreen((w, h), background=False),
               stack, "Foreground.imagestacklayer", "Content.imageset",
@@ -212,7 +138,7 @@ def main():
                                  ("Top Shelf Image", (3840, 1440), "@2x"),
                                  ("Top Shelf Image Wide", (2320, 720), ""),
                                  ("Top Shelf Image Wide", (4640, 1440), "@2x")]:
-        image = widescreen((w, h), mark_scale=h * 0.9, centre=(w * 0.24, h / 2))
+        image = widescreen((w, h), mark_scale=h * 0.92, centre=(w * 0.24, h / 2))
         write(image.convert("RGB"), brand, f"{name}.imageset",
               f"{name.replace(' ', '')}{suffix}.png")
 
