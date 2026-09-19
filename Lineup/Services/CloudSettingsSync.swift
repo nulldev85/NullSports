@@ -85,7 +85,8 @@ final class CloudSettingsSync: ObservableObject {
                 values[key] = data
             }
         }
-        for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix("NullSports.favoriteStreams.") {
+        for (key, value) in defaults.dictionaryRepresentation()
+        where key.hasPrefix("NullSports.favoriteStreams.") || key.hasPrefix("NullSports.followedTeams.") {
             if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
                 values[key] = data
             }
