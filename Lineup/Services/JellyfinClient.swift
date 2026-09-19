@@ -8,16 +8,40 @@ struct JellyfinClient: Sendable {
 
     init(serverURL: String, accessToken: String? = nil, deviceID: String,
          session: URLSession = .shared) throws {
-        let trimmed = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: trimmed), let scheme = url.scheme,
-              ["http", "https"].contains(scheme.lowercased()), url.host != nil else {
+        guard let url = Self.address(from: serverURL) else {
             throw JellyfinError.invalidServer
         }
         self.serverURL = url
         self.accessToken = accessToken
         self.deviceID = deviceID
         self.session = session
+    }
+
+    /// What somebody typed, as an address to call.
+    ///
+    /// The scheme is supplied when it is missing, which is most of the time on
+    /// a television: a Jellyfin server is "192.168.1.50:8096" to the person who
+    /// set it up, and nobody types "http://" on a remote if they can help it.
+    /// Without it `URL` reads the host as the scheme -- "192.168.1.50" -- and
+    /// the address is rejected as unreadable, which is what it did.
+    ///
+    /// Plain http, because that is what a server on a home network answers on
+    /// and this is the address of a box down the hall far more often than it is
+    /// a public host. Anyone who needs TLS types it and is believed.
+    static func address(from typed: String) -> URL? {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return nil }
+        let candidate = URL(string: trimmed)
+        let scheme = candidate?.scheme?.lowercased()
+        if let candidate, let scheme, ["http", "https"].contains(scheme), candidate.host != nil {
+            return candidate
+        }
+        // Anything else is treated as a bare address. A scheme that is neither
+        // http nor https is not honoured -- "192.168.1.50:8096" parses as one,
+        // and it is a host and a port.
+        guard let url = URL(string: "http://" + trimmed), url.host != nil else { return nil }
+        return url
     }
 
     func authenticate(username: String, password: String) async throws -> JellyfinAuthenticationResponse {
@@ -301,7 +325,7 @@ enum JellyfinError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidServer: "Enter a valid Jellyfin or Nullfin server URL."
+        case .invalidServer: "That does not look like a server address. Try the address and port, like 192.168.1.50:8096, or a full https:// address."
         case .authenticationFailed: "The media server rejected those credentials."
         case .invalidResponse: "The server returned an unsupported response."
         case .server(let status): "The media server returned HTTP \(status)."

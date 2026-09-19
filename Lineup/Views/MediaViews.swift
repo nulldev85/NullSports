@@ -2472,10 +2472,20 @@ struct MediaServerSetupView: View {
             Form {
                 Section("Jellyfin-Compatible Server") {
                     TextField("Display name", text: $name)
-                    TextField("Server URL", text: $server)
+                    TextField("Server address", text: $server)
+                        #if !os(tvOS)
+                        .keyboardType(.URL).textContentType(.URL)
+                        #endif
                     TextField("Username", text: $username)
                     SecureField("Password", text: $password)
                 }
+                // The provider form has always had these and this one never
+                // did. A capitalised host or an autocorrected one is not the
+                // address anybody meant to type, and on a television, where
+                // every character costs a click, it is not obvious what went
+                // wrong either.
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 Section {
                     Button(media.isLoading ? "Connecting…" : "Connect") {
                         Task {
@@ -2492,14 +2502,25 @@ struct MediaServerSetupView: View {
                         || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
-                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
+                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers. The address can be just the host and port, like 192.168.1.50:8096. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
                 }
+                #if os(tvOS)
+                // A television draws no navigation bar, so the toolbar's
+                // Cancel is never rendered and the form has no visible way
+                // out. It gets a row of its own here.
+                Section {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                        .lineupButtonStyle()
+                }
+                #endif
                 if let error = media.errorMessage {
                     Section { Text(error).foregroundStyle(.red) }
                 }
             }
             .navigationTitle("Add Media Server")
+            #if !os(tvOS)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            #endif
             .disabled(media.isLoading)
         }
     }

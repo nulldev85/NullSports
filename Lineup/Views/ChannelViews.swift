@@ -452,20 +452,39 @@ private struct LiveSlateDashboard: View {
     let onStopPreview: () -> Void
 
     @State private var gameFocusRequest: UUID?
+    /// Set by the first row once it has been laid out. The starting value is
+    /// only what to draw with before that happens.
+    @State private var matchupRow: CGFloat = 246
+    /// The margin the picture and the matchups both stop at. A television
+    /// overscans, so nothing should run to the very edge -- and when the
+    /// picture did and the cards under it did not, the black carried on past
+    /// where the grid ended, which is what read as unfinished.
+    private let edge: CGFloat = 38
 
     var body: some View {
-        GeometryReader { geometry in
+        VStack(spacing: 0) {
+            // The rail and the picture share the top; the matchups have the
+            // full width underneath. Running the rail the whole height put
+            // the grid beside its foot rather than below it, and Down out
+            // of the last team found nothing there to move to.
             HStack(spacing: 0) {
                 LiveGameRail(events: events, selectedLeague: $selectedLeague,
                              focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
                              onPlay: onPlay, onStartMultiview: onStartMultiview)
                     .frame(width: 330)
                 Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
-                VStack(spacing: 0) {
-                    screen.frame(height: screenHeight(in: geometry.size))
-                    matchups
-                }
+                screen
             }
+            // The picture takes whatever the matchups do not. Nothing here
+            // works out how much that is: the matchups are one row tall by
+            // construction, and this absorbs the remainder. Every version of
+            // this that computed a height got the height wrong.
+            .frame(maxHeight: .infinity)
+            Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(height: 1)
+            matchups
+                .onPreferenceChange(MatchupRowHeight.self) { height in
+                    if height > 0 { matchupRow = height }
+                }
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
@@ -491,20 +510,22 @@ private struct LiveSlateDashboard: View {
                 }
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 8)
+            .padding(.horizontal, edge).padding(.top, 12).padding(.bottom, 4)
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
                           multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal, 22)
+                .equatable()
+                .frame(maxWidth: .infinity)
+                .frame(height: matchupRow + Self.gridPadding * 2)
+                .padding(.horizontal, edge - 5)   // the grid adds five of its own
         }
     }
 
-    /// The picture keeps the height it has now and the grid takes what is
-    /// left -- about one row of cards, which scrolls for the rest.
-    private func screenHeight(in size: CGSize) -> CGFloat {
-        max(260, size.height - 300)
-    }
+    /// The breathing room above and below the row, which is also what the
+    /// focused card's lift grows into. The grid uses it for its padding and
+    /// the strip adds it twice to arrive at its own height, so the two cannot
+    /// disagree about how tall one row is.
+    static let gridPadding: CGFloat = 16
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
     /// screen, which is the point of the rearrangement.
@@ -529,6 +550,7 @@ private struct LiveSlateDashboard: View {
         }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { caption }
+        .padding(.trailing, edge)
         .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
     }
 
@@ -701,7 +723,7 @@ private struct LiveRailRow: View {
                     PulsingLiveDot(size: 5)
                     Text(game.status.isEmpty ? "LIVE" : game.status.uppercased()).lineLimit(1)
                 } else {
-                    Text(game.start.formatted(.dateTime.hour().minute()))
+                    Text(game.startLabel)
                 }
                 Text(game.league.shortName).foregroundStyle(LiveBoardStyle.muted)
                 Spacer(minLength: 0)
@@ -836,6 +858,42 @@ private struct LiveBoardTeam: View {
     }
 }
 
+extension LiveGameSlate: Equatable {
+    /// Rebuilt when the slate changes, and not when focus moves.
+    ///
+    /// The focused game is held by the view above this one, so every press of
+    /// an arrow invalidated that view, and this one with it -- seventy-odd
+    /// cards rebuilt to move a highlight between two of them. Focus is drawn
+    /// by each card from its own FocusState and needs nobody rebuilt at all.
+    ///
+    /// Scores and status are compared as well as identity, so a goal still
+    /// redraws the card it was scored on.
+    static func == (lhs: LiveGameSlate, rhs: LiveGameSlate) -> Bool {
+        lhs.multiviewPrimaryID == rhs.multiviewPrimaryID
+            && lhs.columns == rhs.columns
+            && lhs.focusRequest.wrappedValue == rhs.focusRequest.wrappedValue
+            && lhs.events.count == rhs.events.count
+            && zip(lhs.events, rhs.events).allSatisfy {
+                $0.id == $1.id && $0.awayScore == $1.awayScore
+                    && $0.homeScore == $1.homeScore && $0.status == $1.status
+            }
+    }
+}
+
+/// How tall a row of matchups turned out to be.
+///
+/// The strip that holds them has to be that plus the lift a focused card grows
+/// by, and I have now picked that number three times and been wrong three
+/// times -- too short and the television clips the card being looked at, too
+/// tall and it eats the picture. The row is the only thing that knows, so it
+/// says.
+private struct MatchupRowHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
@@ -865,11 +923,19 @@ private struct LiveGameSlate: View {
                                 let index = rowStart + column
                                 if events.indices.contains(index) {
                                     let game = events[index]
-                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
+                                    LiveSlateRow(game: game, rowFocus: $focusedRowID,
                                         multiviewPrimaryID: multiviewPrimaryID,
                                         onFocus: { focusedGame = game; focusRequest = nil },
                                         onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
                                     .id(game.id)
+                                    .background {
+                                        if rowStart == 0, column == 0 {
+                                            GeometryReader { row in
+                                                Color.clear.preference(key: MatchupRowHeight.self,
+                                                                       value: row.size.height)
+                                            }
+                                        }
+                                    }
                                     .onAppear {
                                         if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
                                     }
@@ -883,7 +949,10 @@ private struct LiveGameSlate: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(5)
+                // Room for a focused card to lift into. Five points was not
+                // enough and the television clipped the card being looked at.
+                .padding(.horizontal, 5)
+                .padding(.vertical, LiveSlateDashboard.gridPadding)
             }
             .focusSection()
             .task(id: focusRequest) {
@@ -903,7 +972,6 @@ private struct LiveSlateRow: View {
     let game: SportsGame
     let rowFocus: FocusState<String?>.Binding
     private var isFocused: Bool { rowFocus.wrappedValue == game.id }
-    let selected: Bool
     let multiviewPrimaryID: Int?
     let onFocus: () -> Void
     let onPlay: () -> Void
@@ -963,7 +1031,7 @@ private struct LiveSlateRow: View {
                         in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
-                    .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
+                    .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(0.06),
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }

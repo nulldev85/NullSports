@@ -126,7 +126,7 @@ struct MobileLiveView: View {
                         }
                         if !slate.mine.isEmpty {
                             Section {
-                                ForEach(slate.mine) { matchup($0) }
+                                ForEach(slate.mine) { matchup($0, showsDay: true) }
                             } header: {
                                 let onNow = slate.mine.filter(\.isLive).count
                                 sectionTitle("MY TEAMS",
@@ -352,14 +352,14 @@ struct MobileLiveView: View {
         .background(LineupStyle.background)
     }
 
-    private func matchup(_ game: SportsGame) -> some View {
+    private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
         Button {
             guard !game.isUpcoming else {
                 upcomingGame = game
                 return
             }
             open(game)
-        } label: { MobileMatchupRow(game: game) }
+        } label: { MobileMatchupRow(game: game, showsDay: showsDay) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
@@ -464,6 +464,8 @@ struct MobileLiveView: View {
 private struct MobileMatchupRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
+    /// Set where the row is not under a heading that names the day.
+    var showsDay = false
 
     /// Both read from the game itself, so the card and the tests agree on what
     /// an event is and on where it is being held.
@@ -497,7 +499,12 @@ private struct MobileMatchupRow: View {
                     }.accessibilityElement(children: .ignore)
                         .accessibilityLabel("Live. \(game.status)")
                 } else {
-                    Text(game.start, format: .dateTime.hour().minute())
+                    // A bare time only reads correctly under a heading that
+                    // names the day. My Teams has no such heading -- it is
+                    // sorted by what you can watch, not by date -- so the rows
+                    // there carry the day themselves.
+                    Text(showsDay ? game.startLabel
+                                  : game.start.formatted(.dateTime.hour().minute()))
                         .font(.interDigits(.caption, .semibold))
                 }
                 if !game.broadcast.isEmpty {

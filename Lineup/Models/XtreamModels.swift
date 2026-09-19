@@ -192,6 +192,21 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     /// beats a card that says nothing about where the game is.
     ///
     /// An event gets both, because its name implies neither.
+    /// When it starts, in as few words as carry the meaning.
+    ///
+    /// A list that is not grouped by day cannot show a bare time: "1:05 PM" is
+    /// the same string tonight and tomorrow night, and My Teams holds both.
+    /// Today is left unqualified, because a time with nothing beside it is
+    /// today and saying so would be noise on most rows.
+    var startLabel: String { Self.startLabel(for: start) }
+
+    static func startLabel(for start: Date, calendar: Calendar = .current) -> String {
+        let time = start.formatted(.dateTime.hour().minute())
+        if calendar.isDateInToday(start) { return time }
+        if calendar.isDateInTomorrow(start) { return "Tomorrow \(time)" }
+        return start.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+
     var placeLine: String? {
         let venue = Self.cleaned(self.venue)
         let city = Self.cleaned(self.location)

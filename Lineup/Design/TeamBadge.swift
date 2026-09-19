@@ -34,15 +34,15 @@ struct TeamBadge: View {
                 // the three layers are flattened once and that one picture is
                 // what moves.
                 //
-                // Not on the television. A focused card there grows, and a
-                // flattened picture grows by being stretched -- soft, on the
-                // one badge the viewer is looking straight at. Nothing scrolls
-                // on that screen fast enough to need the saving.
-                #if os(tvOS)
-                art.background { halo(art) }
-                #else
+                // The television flattens it too now. I left it alone there on
+                // the theory that a focused card grows and a flattened picture
+                // grows by stretching -- true, but the stretch is a 34-point
+                // badge at 1.06, which is two points, and the cost is four
+                // blurred layers on every badge of every card. A grid of
+                // seventy games carries three hundred of them, recomposited
+                // whenever anything moves. Two points of softening on the one
+                // badge being looked at is the cheaper side of that trade.
                 art.background { halo(art) }.drawingGroup()
-                #endif
             } else {
                 Text(fallback)
                     .font(.inter(max(7, size * 0.3), .black))
