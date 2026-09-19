@@ -455,6 +455,11 @@ private struct LiveSlateDashboard: View {
     /// Set by the first row once it has been laid out. The starting value is
     /// only what to draw with before that happens.
     @State private var matchupRow: CGFloat = 246
+    /// The margin the picture and the matchups both stop at. A television
+    /// overscans, so nothing should run to the very edge -- and when the
+    /// picture did and the cards under it did not, the black carried on past
+    /// where the grid ended, which is what read as unfinished.
+    private let edge: CGFloat = 38
 
     var body: some View {
         GeometryReader { geometry in
@@ -503,12 +508,12 @@ private struct LiveSlateDashboard: View {
                 }
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 44).padding(.top, 12).padding(.bottom, 4)
+            .padding(.horizontal, edge).padding(.top, 12).padding(.bottom, 4)
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
                           multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal, 38)
+                .padding(.horizontal, edge - 5)   // the grid adds five of its own
         }
     }
 
@@ -547,6 +552,7 @@ private struct LiveSlateDashboard: View {
         }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { caption }
+        .padding(.trailing, edge)
         .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
     }
 
