@@ -5,35 +5,40 @@ import XCTest
 /// whole logic, and getting it wrong is not a crash -- it is a launch that
 /// works perfectly while telling the viewer it does not.
 final class LiveBannerTests: XCTestCase {
-    // The case that was wrong: a refresh behind restored cache sets the
-    // background flag *and* the syncing one, so asking about syncing first
-    // made the quiet banner unreachable. Channels were on screen in a second
-    // and the tab said "refreshing streams" for another ninety.
-    func testARefreshBehindRestoredCacheIsTheQuietOne() {
-        XCTAssertEqual(
-            MobileLiveBanner.choose(isInitialProviderSync: false, isRefreshingInBackground: true,
-                                    isScheduleLoading: false, isLoading: false,
-                                    channelsAreSyncing: true),
-            .background,
-            "Everything on screen already works; saying otherwise for a minute is the bug")
+    // The case that was wrong twice. First the quiet banner was unreachable,
+    // because syncing was asked about before the background flag. Then the
+    // quiet banner was reachable only from the launch refresh, because the
+    // background flag is the one thing `refreshInBackground` sets and nothing
+    // else does -- so a schedule poll, a score update, or a matching pass
+    // brought the loud pulsing line back over a tab that was playing a stream.
+    func testAnyWorkBehindRestoredCacheIsTheQuietOne() {
+        for (schedule, loading, syncing) in [(true, false, false), (false, true, false),
+                                             (false, false, true), (true, true, true)] {
+            XCTAssertEqual(
+                LiveSyncBanner.choose(isInitialProviderSync: false, hasContent: true,
+                                        isScheduleLoading: schedule, isLoading: loading,
+                                        channelsAreSyncing: syncing),
+                .background,
+                "Channels on screen are channels that play; the loud line calls that a wait")
+        }
     }
 
     // Nothing restored means nothing to use, and that wait is worth explaining
     // at length. It outranks everything.
     func testAFirstSyncOutranksEverything() {
         XCTAssertEqual(
-            MobileLiveBanner.choose(isInitialProviderSync: true, isRefreshingInBackground: true,
+            LiveSyncBanner.choose(isInitialProviderSync: true, hasContent: false,
                                     isScheduleLoading: true, isLoading: true,
                                     channelsAreSyncing: true),
             .initialSync)
     }
 
-    // Work in flight with no background refresh behind it is the loud one:
-    // there is no cache underneath, so the screen really is waiting.
+    // Work in flight with an empty screen behind it is the loud one: there is
+    // no cache underneath, so the screen really is waiting.
     func testWorkWithNoCacheBehindItStillSaysSo() {
         for (schedule, loading, syncing) in [(true, false, false), (false, true, false), (false, false, true)] {
             XCTAssertEqual(
-                MobileLiveBanner.choose(isInitialProviderSync: false, isRefreshingInBackground: false,
+                LiveSyncBanner.choose(isInitialProviderSync: false, hasContent: false,
                                         isScheduleLoading: schedule, isLoading: loading,
                                         channelsAreSyncing: syncing),
                 .refreshing)
@@ -41,11 +46,13 @@ final class LiveBannerTests: XCTestCase {
     }
 
     func testAnIdleTabSaysNothing() {
-        XCTAssertEqual(
-            MobileLiveBanner.choose(isInitialProviderSync: false, isRefreshingInBackground: false,
-                                    isScheduleLoading: false, isLoading: false,
-                                    channelsAreSyncing: false),
-            .none)
+        for content in [true, false] {
+            XCTAssertEqual(
+                LiveSyncBanner.choose(isInitialProviderSync: false, hasContent: content,
+                                        isScheduleLoading: false, isLoading: false,
+                                        channelsAreSyncing: false),
+                .none)
+        }
     }
 }
 
@@ -56,9 +63,9 @@ final class GuideStatusTests: XCTestCase {
     // refresh. The Live tab already says a refresh is running; the Guide does
     // not need to say it again over a guide that works.
     func testAGuideAlreadyOnScreenDoesNotAnnounceTheRefresh() {
-        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: false,
+        XCTAssertFalse(GuideSyncStatus.isWaiting(hasListings: true, isLoading: false,
                                                    isGuideLoading: true))
-        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: true,
+        XCTAssertFalse(GuideSyncStatus.isWaiting(hasListings: true, isLoading: true,
                                                    isGuideLoading: true))
     }
 
@@ -66,16 +73,16 @@ final class GuideStatusTests: XCTestCase {
     // behind read "No listing" against every channel while the guide is still
     // being read.
     func testAnEmptyGuideStillSaysItIsComing() {
-        XCTAssertTrue(MobileGuideStatus.isWaiting(hasListings: false, isLoading: false,
+        XCTAssertTrue(GuideSyncStatus.isWaiting(hasListings: false, isLoading: false,
                                                   isGuideLoading: true))
-        XCTAssertTrue(MobileGuideStatus.isWaiting(hasListings: false, isLoading: true,
+        XCTAssertTrue(GuideSyncStatus.isWaiting(hasListings: false, isLoading: true,
                                                   isGuideLoading: false))
     }
 
     func testNothingInFlightSaysNothing() {
-        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: false, isLoading: false,
+        XCTAssertFalse(GuideSyncStatus.isWaiting(hasListings: false, isLoading: false,
                                                    isGuideLoading: false))
-        XCTAssertFalse(MobileGuideStatus.isWaiting(hasListings: true, isLoading: false,
+        XCTAssertFalse(GuideSyncStatus.isWaiting(hasListings: true, isLoading: false,
                                                    isGuideLoading: false))
     }
 }

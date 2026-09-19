@@ -25,10 +25,24 @@ struct TeamBadge: View {
     private var rim: CGFloat { max(2, size * 0.1) }
 
     var body: some View {
-        AsyncImage(url: URL(string: url)) { phase in
-            if let image = phase.image {
+        LineupArtView(url: URL(string: url), width: size) { loaded in
+            if let image = loaded {
                 let art = image.resizable().scaledToFit().padding(inset)
+                // The halo is two blurred copies of the badge, and a blur is an
+                // offscreen pass the compositor redoes whenever what is under
+                // it changes. On the phone, where these scroll past in lists,
+                // the three layers are flattened once and that one picture is
+                // what moves.
+                //
+                // Not on the television. A focused card there grows, and a
+                // flattened picture grows by being stretched -- soft, on the
+                // one badge the viewer is looking straight at. Nothing scrolls
+                // on that screen fast enough to need the saving.
+                #if os(tvOS)
                 art.background { halo(art) }
+                #else
+                art.background { halo(art) }.drawingGroup()
+                #endif
             } else {
                 Text(fallback)
                     .font(.inter(max(7, size * 0.3), .black))

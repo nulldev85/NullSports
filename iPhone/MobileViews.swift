@@ -245,50 +245,6 @@ private struct MobileDiagnosticsView: View {
 /// choice, only one of them labelled for VoiceOver. Two lists that mean the
 /// same thing and do not look the same is what makes a screen read as sloppy,
 /// so there is now one row and both lists use it.
-/// The provider, told the same way the media server is told.
-///
-/// The tab used to give the media server a card and the provider a plain row,
-/// which was backwards: the provider is the thing the app is mostly about. Both
-/// are cards now, and both are the same card -- one view, two sets of figures
-/// -- so neither can drift into looking like the other's poor relation.
-private struct ProviderAccountCard: View {
-    @EnvironmentObject private var library: SportsLibrary
-    let profile: XtreamProfile
-    let openGuide: () -> Void
-
-    /// Channels in hand is what "ready" means here. A provider mid-sync still
-    /// has whatever it restored from disk, and that is worth watching.
-    private var ready: Bool { !library.streams.isEmpty }
-
-    private var status: String {
-        if library.channelsAreSyncing { return "Updating…" }
-        return ready ? "Connected" : "Offline"
-    }
-
-    var body: some View {
-        LineupAccountCard(
-            symbol: "antenna.radiowaves.left.and.right",
-            title: profile.name,
-            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
-            connected: ready,
-            status: status,
-            statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
-            stats: [
-                LineupCardStat("Channels", library.streams.count),
-                LineupCardStat("Favorites", library.favoriteStreamOrder.count),
-                LineupCardStat("Teams", library.teamPreferences.listed().count)
-            ],
-            refreshed: library.lastRefreshedAt
-        ) {
-            LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
-                Task { await library.reload() }
-            }
-            .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-            LineupCardAction(title: "Guide", symbol: "calendar", action: openGuide)
-        }
-    }
-}
-
 extension View {
     /// How an account card sits in the Form.
     ///

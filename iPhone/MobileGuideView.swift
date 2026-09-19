@@ -72,7 +72,7 @@ struct MobileGuideView: View {
                                     .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
-                        if MobileGuideStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
+                        if GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
                                                        isLoading: library.isLoading,
                                                        isGuideLoading: library.isGuideLoading) {
                             ProgressView("Updating guide…").font(.inter(.caption)).padding(8)
@@ -360,8 +360,8 @@ struct MobileGuideView: View {
     private func channelTile(_ stream: XtreamStream) -> some View {
         Button { selectChannel(stream) } label: {
             ZStack(alignment: .center) {
-                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                    if let image = phase.image {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
+                    if let image = loaded {
                         image.resizable().scaledToFit()
                             .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
                     } else {
@@ -499,10 +499,9 @@ private struct FavoritesOrderView: View {
                     List {
                         ForEach(listed) { stream in
                             HStack(spacing: 12) {
-                                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { image in
-                                    image.resizable().scaledToFit()
-                                } placeholder: {
-                                    Image(systemName: "tv").foregroundStyle(.secondary)
+                                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 44) { loaded in
+                                    if let image = loaded { image.resizable().scaledToFit() }
+                                    else { Image(systemName: "tv").foregroundStyle(.secondary) }
                                 }
                                 .frame(width: 44, height: 30)
                                 Text(stream.name).lineLimit(1)

@@ -504,6 +504,12 @@ private struct LiveSlateDashboard: View {
                     Spacer()
                     if multiviewTitle != nil {
                         GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                    } else if banner == .background {
+                        // Everything on the board already works, so this is a
+                        // footnote and nothing more.
+                        Text("UPDATING IN BACKGROUND")
+                            .font(.inter(11, .bold)).tracking(2)
+                            .foregroundStyle(LiveBoardStyle.muted)
                     } else {
                         Text("Select to preview  ·  Hold for multiview").foregroundColor(LineupStyle.lightPurple)
                             .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
@@ -522,11 +528,23 @@ private struct LiveSlateDashboard: View {
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
-    // Matching keeps running after the schedule and library finish, and every
-    // game reads as unmatched until it lands. Cover that window too, so it is
-    // not mistaken for a settled answer of "no channel".
+    /// The same rule the phone uses, from the same file. Matching keeps
+    /// running after the schedule and library finish and every game reads as
+    /// unmatched until it lands, so that window counts as work in flight --
+    /// but work in flight is only a wait when there is nothing behind it.
+    private var banner: LiveSyncBanner {
+        LiveSyncBanner.choose(isInitialProviderSync: library.isInitialProviderSync,
+                              hasContent: library.hasRestoredCache,
+                              isScheduleLoading: library.isScheduleLoading,
+                              isLoading: library.isLoading,
+                              channelsAreSyncing: !library.automaticMatchingReady)
+    }
+
+    /// The dark screen says the set is looking for channels only while it
+    /// genuinely has none. With channels restored behind it, the sweep was
+    /// telling a viewer to wait for something they could already watch.
     private var isPreparingStreams: Bool {
-        library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady
+        banner == .initialSync || banner == .refreshing
     }
 
     private func screenHeight(in size: CGSize) -> CGFloat {
@@ -687,10 +705,26 @@ private struct LiveSlateRow: View {
                     }
                 }
                 .font(.inter(11, .semibold)).foregroundStyle(LiveBoardStyle.muted)
-                LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
-                    record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
-                LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
-                    record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
+                // A fight card has no two sides to put against each other, so
+                // the bout's own name goes where the teams would. Both kinds
+                // say where they are being held, which is the one fact a
+                // matchup card can add without becoming a table.
+                if game.isEvent {
+                    Text(game.eventName ?? "")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(2).minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
+                        record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
+                    LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
+                        record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
+                }
+                if let place = game.placeLine {
+                    Text(place).font(.inter(13))
+                        .foregroundStyle(LiveBoardStyle.muted)
+                        .lineLimit(1).truncationMode(.tail)
+                }
                 HStack {
                     Text(isPrimary ? "MULTIVIEW · FIRST GAME" : (game.broadcast.isEmpty ? "Channel selection available" : game.broadcast)).foregroundColor(LineupStyle.lightPurple)
                         .lineLimit(1)
@@ -726,7 +760,7 @@ private struct LiveSlateRow: View {
                     .disabled(isPrimary)
             }
         }
-        .accessibilityLabel("\(game.awayTeam) at \(game.homeTeam), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
+        .accessibilityLabel("\(game.isEvent ? (game.eventName ?? game.league.shortName) : "\(game.awayTeam) at \(game.homeTeam)"), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
     }
 }
 
@@ -902,9 +936,9 @@ private struct LeagueLogo: View {
             if league == .ufc {
                 Image("League-ufc").resizable().scaledToFit()
             } else {
-                AsyncImage(url: logoURL) { phase in
-                    if let image = phase.image {
-                image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
+                LineupArtView(url: logoURL, width: size) { loaded in
+                    if let image = loaded {
+                        image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
                     } else {
                         Image(systemName: sportsSymbol(league))
                             .resizable().scaledToFit()
@@ -1007,9 +1041,21 @@ private struct GameEventCard: View {
             HStack(spacing: 18) {
                 MatchupArtwork(event: event)
                 VStack(alignment: .leading, spacing: 8) {
-                    GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
-                    Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
-                    GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
+                    if event.isEvent {
+                        Text(event.eventName ?? "")
+                            .font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
+                            .lineLimit(2).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
+                        Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
+                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
+                    }
+                    if let place = event.placeLine {
+                        Text(place).font(.inter(.caption))
+                            .foregroundStyle(LineupStyle.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                     HStack(spacing: 12) {
                         Text(event.league.shortName).foregroundColor(LineupStyle.lightPurple)
                             .font(.inter(.caption, .bold)).padding(.horizontal, 10).frame(height: 28)
@@ -1099,11 +1145,18 @@ private struct MatchupArtwork: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LineupStyle.raised)
-            HStack(spacing: 16) {
-                TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
-                Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
-                    .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
-                TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
+            // An event is one card, not two sides. Two crests either side of a
+            // "VS" is a promise the fixture does not make, so it gets the
+            // league's own mark instead.
+            if event.isEvent {
+                LeagueLogo(league: event.league, size: 76)
+            } else {
+                HStack(spacing: 16) {
+                    TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
+                    Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
+                        .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
+                    TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
+                }
             }
         }.frame(width: 190, height: 126)
     }
@@ -1136,8 +1189,9 @@ private struct ChannelLogo: View {
     var width: CGFloat = 74
     var height: CGFloat = 54
     var body: some View {
-        AsyncImage(url: URL(string: url ?? "")) { $0.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) } placeholder: {
-            Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary)
+        LineupArtView(url: URL(string: url ?? ""), width: width) { loaded in
+            if let image = loaded { image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) }
+            else { Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary) }
         }
         .transaction { $0.animation = nil }
         .padding(4).frame(width: width, height: height).background(LineupStyle.raised)
@@ -1238,7 +1292,9 @@ struct GuideView: View {
                         searchActive: $searchActive,
                         query: $query,
                         multiviewTitle: multiviewPrimary?.name,
-                        isLoading: library.isGuideLoading,
+                        isLoading: GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
+                                                            isLoading: library.isLoading,
+                                                            isGuideLoading: library.isGuideLoading),
                         now: guideNow,
                         onCancelMultiview: { multiviewPrimary = nil }
                     )
@@ -1613,8 +1669,8 @@ private struct GuidePreviewArtwork: View {
     var body: some View {
         ZStack {
             GuidePalette.panel
-            AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                if let image = phase.image {
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 420) { loaded in
+                if let image = loaded {
                     image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(24)
                 } else {
                     VStack(spacing: 12) {
@@ -1938,8 +1994,9 @@ private struct GuideChannelArtwork: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 3) {
-                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                    if let image = phase.image {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)),
+                              width: max(1, proxy.size.width - 44)) { loaded in
+                    if let image = loaded {
                         image.resizable().scaledToFit()
                             .frame(width: max(1, proxy.size.width - 44),
                                    height: max(1, proxy.size.height - 56))
@@ -2082,8 +2139,8 @@ private struct TVFavoritesOrderView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(LineupStyle.raised.opacity(0.82))
-                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                    if let image = phase.image {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 100) { loaded in
+                    if let image = loaded {
                         image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(10)
                     } else {
                         Image(systemName: "tv").foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
@@ -2324,6 +2381,18 @@ private struct GuideInlineStatus: View {
     }
 }
 
+/// The Account screen.
+///
+/// It was a column of label-and-value rows: Profile, Server, Username, then
+/// the same again for the media server, in panels that all looked alike and
+/// said nothing a viewer wanted from across a room. The phone's version was
+/// rebuilt around two cards -- one per source, each saying what it is, whether
+/// it is reachable, what it holds and what can be done with it -- and those
+/// cards are shared code, so this is the same screen at television size rather
+/// than a second design that has to be kept in step with the first.
+///
+/// Everything below the cards is arranged in one column of equal width, so the
+/// edges line up down the whole screen rather than each panel finding its own.
 struct AccountView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
@@ -2331,84 +2400,286 @@ struct AccountView: View {
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingMediaServer = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
+
+    private let columnWidth: CGFloat = 900
+
     var body: some View {
         NavigationStack {
-            // Scrolling, because the panels already filled the screen before
-            // appearance was one of them.
             ScrollView {
-                VStack(alignment: .leading, spacing: 30) {
-                    ScreenHeading(title: "Account", detail: "Provider and app details")
-                    DetailPanel(title: "PROVIDERS") {
-                        if let profile = library.activeProfile {
-                            AccountRow(label: "Profile", value: profile.name)
-                            Divider().overlay(LineupStyle.line)
-                            AccountRow(label: "Server", value: profile.serverURL)
-                            Divider().overlay(LineupStyle.line)
-                            AccountRow(label: "Username", value: profile.username)
-                        } else {
-                            AccountRow(label: "Status", value: "Not connected")
-                        }
-                    }
-                    if library.activeProfile != nil {
-                        Button("Remove provider", role: .destructive) { library.removeActiveProfile() }
-                            .lineupButtonStyle()
-                    }
-                    DetailPanel(title: "MEDIA SERVERS") {
-                        if media.profiles.isEmpty {
-                            AccountRow(label: "Status", value: "Not connected")
-                        } else {
-                            if let profile = media.activeProfile {
-                                MediaServerAccountCard(profile: profile) { selectedTab = 2 }
-                                    .padding(.bottom, 12)
-                            }
-                            ForEach(media.profiles) { profile in
-                                HStack(spacing: 20) {
-                                    Button {
-                                        Task { await media.select(profile) }
-                                    } label: {
-                                        AccountRow(label: profile.name,
-                                            value: media.activeProfile?.id == profile.id ? "Active" : "Select")
-                                    }
-                                    .lineupFlatButton()
-                                    Button("Remove", role: .destructive) { media.remove(profile) }
-                                        .lineupButtonStyle()
-                                }
-                            }
-                        }
-                    }
-                    Button("Add Media Server", systemImage: "plus") { addingMediaServer = true }
-                        .lineupButtonStyle()
-                    DetailPanel(title: "THEME") {
-                        HStack(spacing: 20) {
-                            ForEach(LineupTheme.allCases) { theme in
-                                TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
-                                    action: { selectedTheme = theme.rawValue }) {
-                                    ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
-                                }
-                            }
-                        }
-                    }
-                    NavigationLink("Channel matching") { MatchDiagnosticsView() }
-                        .lineupButtonStyle()
-                    DetailPanel(title: "ABOUT") {
-                        AccountRow(label: "iCloud", value: cloud.status)
-                        AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
-                    }
+                VStack(alignment: .leading, spacing: 44) {
+                    ScreenHeading(title: "Account", detail: "Your sources, how they look, and what the app is doing")
+                    sources
+                    appearance
+                    diagnostics
+                    about
                 }
-                .padding(.horizontal, 120).padding(.vertical, 48)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(width: columnWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 56)
             }
             .background(LineupStyle.background)
-            .task {
-                if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
-                    await media.reload()
-                }
-            }
+            // The store decides and the store owns it, as on the Media
+            // Servers tab: a load tied to this screen was cancelled by
+            // leaving it, and left the flag raised behind.
+            .onAppear { media.loadShelvesIfNeeded() }
+            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
             }
         }
+    }
+
+    // MARK: - Sections
+
+    /// Both sources, as cards, in the order a viewer meets them: the provider
+    /// that fills Live and Guide, then the media server behind its own tab.
+    private var sources: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("SOURCES")
+            if let profile = library.activeProfile {
+                ProviderAccountCard(profile: profile) { selectedTab = 1 }
+            } else {
+                AccountEmptyCard(symbol: "antenna.radiowaves.left.and.right",
+                                 title: "No provider",
+                                 detail: "Add one on the Live tab to fill the guide.")
+            }
+            if let profile = media.activeProfile {
+                MediaServerAccountCard(profile: profile) { selectedTab = 2 }
+            } else {
+                AccountEmptyCard(symbol: "play.square.stack",
+                                 title: "No media server",
+                                 detail: "Connect a Jellyfin-compatible server to watch your own library.")
+            }
+            // Switching between servers is a list, not a card: a viewer with
+            // one server -- almost everyone -- should not be shown a chooser
+            // for it. It appears when there is a choice to make.
+            if media.profiles.count > 1 {
+                VStack(spacing: 0) {
+                    ForEach(media.profiles) { profile in
+                        AccountServerChoice(profile: profile,
+                                            active: media.activeProfile?.id == profile.id)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            HStack(spacing: 18) {
+                AccountAction(title: "Add Media Server", symbol: "plus") { addingMediaServer = true }
+                if let profile = media.activeProfile, media.profiles.count == 1 {
+                    AccountAction(title: "Remove Server", symbol: "trash", destructive: true) {
+                        media.remove(profile)
+                    }
+                }
+                if library.activeProfile != nil {
+                    AccountAction(title: "Remove Provider", symbol: "trash", destructive: true) {
+                        library.removeActiveProfile()
+                    }
+                }
+            }
+        }
+    }
+
+    private var appearance: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("APPEARANCE")
+            HStack(spacing: 20) {
+                ForEach(LineupTheme.allCases) { theme in
+                    TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
+                        action: { selectedTheme = theme.rawValue }) {
+                        ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The two screens that answer "why did it do that", side by side and the
+    /// same width, rather than two buttons of different lengths stacked.
+    private var diagnostics: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("DIAGNOSTICS")
+            HStack(spacing: 18) {
+                AccountLink(title: "Channel matching", detail: "Why each game chose its channel",
+                            symbol: "point.3.connected.trianglepath.dotted") { MatchDiagnosticsView() }
+                AccountLink(title: "Launch timing", detail: "Where the last start spent its time",
+                            symbol: "speedometer") { TVStartupTraceView() }
+            }
+        }
+    }
+
+    private var about: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("ABOUT")
+            VStack(spacing: 0) {
+                AccountRow(label: "iCloud", value: cloud.status)
+                Divider().overlay(LineupStyle.line)
+                AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
+            }
+            .padding(.horizontal, 30)
+            .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+}
+
+/// One heading, one rule, everywhere on the screen.
+private struct AccountSectionHeading: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.inter(15, .bold)).tracking(2.4)
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+            Rectangle().fill(LineupStyle.line).frame(height: 1)
+        }
+    }
+}
+
+/// A source that is not connected, in the shape of the card that would be
+/// there if it were. An absence should hold the same space as a presence, or
+/// the screen rearranges itself the first time something connects.
+private struct AccountEmptyCard: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 22) {
+            Image(systemName: symbol)
+                .font(.system(size: 32, weight: .semibold))
+                .frame(width: 72, height: 72)
+                .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised, border: LineupStyle.line)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.inter(.headline, .bold))
+                Text(detail).font(.inter(.callout))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(30)
+        .frame(maxWidth: 900, alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 26, style: .continuous),
+                           fallback: LineupStyle.surface, border: LineupStyle.line)
+    }
+}
+
+private struct AccountServerChoice: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @FocusState private var isFocused: Bool
+    let profile: MediaServerProfile
+    let active: Bool
+
+    var body: some View {
+        HStack(spacing: 20) {
+            LineupStatusDot(connected: active && media.isConnected)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(profile.name).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                    .font(.inter(.callout)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+            }
+            Spacer(minLength: 20)
+            Text(active ? "ACTIVE" : "SELECT")
+                .font(.inter(13, .bold)).tracking(1.6)
+                .foregroundStyle(active ? LineupStyle.text : LineupStyle.lightPurple.opacity(0.55))
+            Button("Remove", role: .destructive) { media.remove(profile) }
+                .lineupButtonStyle()
+        }
+        .padding(.horizontal, 30).padding(.vertical, 22)
+        .background(isFocused ? LineupStyle.focused : Color.clear)
+        .contentShape(Rectangle())
+        .focusable().focused($isFocused).focusEffectDisabled()
+        .onTapGesture { if !active { Task { await media.select(profile) } } }
+    }
+}
+
+/// A tile that goes somewhere, sized like its neighbour so a row of them reads
+/// as a row rather than as whatever length each title happened to be.
+private struct AccountLink<Destination: View>: View {
+    @FocusState private var isFocused: Bool
+    let title: String
+    let detail: String
+    let symbol: String
+    @ViewBuilder var destination: Destination
+
+    var body: some View {
+        NavigationLink { destination } label: {
+            HStack(spacing: 20) {
+                Image(systemName: symbol).font(.system(size: 26, weight: .semibold))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text(detail).font(.inter(.callout)).lineLimit(2)
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(LineupStyle.lightPurple)
+            .padding(26)
+            .frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+            .background(isFocused ? LineupStyle.focused : LineupStyle.surface,
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isFocused ? LineupStyle.liveSelectionBorder : LineupStyle.line,
+                        lineWidth: isFocused ? 2.5 : 1))
+            .scaleEffect(isFocused ? LineupStyle.controlLift : 1)
+        }
+        .lineupFlatButton()
+        .focused($isFocused)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+private struct AccountAction: View {
+    @FocusState private var isFocused: Bool
+    let title: String
+    let symbol: String
+    var destructive = false
+    let action: () -> Void
+
+    private var tint: Color {
+        destructive ? LineupStyle.warning : LineupStyle.text
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.inter(.callout, .semibold))
+                .foregroundStyle(isFocused ? LineupStyle.text : tint)
+                .padding(.horizontal, 30).frame(height: 66)
+                .frame(maxWidth: .infinity)
+                .background(isFocused ? LineupStyle.focused : LineupStyle.surface, in: Capsule())
+                .overlay(Capsule().stroke(isFocused ? LineupStyle.liveSelectionBorder : LineupStyle.line,
+                                          lineWidth: isFocused ? 2.5 : 1))
+                .scaleEffect(isFocused ? LineupStyle.controlLift : 1)
+        }
+        .lineupFlatButton()
+        .focused($isFocused)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+/// The last launch, step by step -- the same trace the phone shows.
+///
+/// It was being recorded on the television all along and thrown away, because
+/// only the phone had a screen to read it on. Which meant the one question
+/// worth asking about a slow start on a set -- which part is slow -- could
+/// only be guessed at, and guessing is what cost days on the phone.
+private struct TVStartupTraceView: View {
+    @ObservedObject private var trace = StartupTrace.shared
+
+    var body: some View {
+        ScrollView {
+            Text(trace.report)
+                .font(.system(size: 21, design: .monospaced))
+                .foregroundStyle(LineupStyle.lightPurple)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(40)
+        }
+        .focusable()
+        .background(LineupStyle.background)
     }
 }
 
@@ -2513,17 +2784,6 @@ private struct MatchDiagnosticsRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct DetailPanel<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.5).foregroundStyle(LineupStyle.secondary)
-            VStack(spacing: 0) { content }.padding(.horizontal, 24).background(LineupStyle.surface)
-        }
     }
 }
 

@@ -25,6 +25,20 @@ struct MediaServersView: View {
                     }
                 } else if media.shelves.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
+                } else if media.shelves.isEmpty && media.loadFailed {
+                    // Not "Choose Your Shelves". An attempt that failed and a
+                    // server with nothing selected look identical from here,
+                    // and telling a viewer to pick shelves that could not be
+                    // fetched sends them looking for a setting to fix.
+                    ContentUnavailableView {
+                        Label("Can't Reach Your Server", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text("Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")
+                    } actions: {
+                        Button("Try Again", systemImage: "arrow.clockwise") {
+                            Task { await media.reload() }
+                        }
+                    }
                 } else {
                     MediaCatalogsScreen(catalogs: media.shelves)
                 }
@@ -46,11 +60,12 @@ struct MediaServersView: View {
             .sheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environmentObject(media)
             }
-            .task {
-                if media.activeProfile != nil && media.roots.isEmpty {
-                    await media.reload()
-                }
-            }
+            // Not `.task`. A task belongs to the view, and this work does not:
+            // leaving the tab mid-load used to cancel it and leave the tab
+            // stuck on its spinner. The store owns the load and decides whether
+            // one is needed; appearing only asks.
+            .onAppear { media.loadShelvesIfNeeded() }
+            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
                 set: { if !$0 { media.errorMessage = nil } }
@@ -122,7 +137,7 @@ struct LineupAccountCard<Actions: View>: View {
             HStack(spacing: 0) {
                 ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
                     if index > 0 {
-                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: 26)
+                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: rule)
                     }
                     statistic(stat)
                 }
@@ -136,17 +151,37 @@ struct LineupAccountCard<Actions: View>: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(16)
-        .frame(maxWidth: 720, alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous),
+        .padding(cardPadding)
+        .frame(maxWidth: maxCardWidth, alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
     }
+
+    // A television is not a large phone. The type scales itself -- a text style
+    // resolves bigger there -- but padding, a glyph circle and a corner do not,
+    // and a card built to phone measurements reads as a postage stamp from
+    // across a room.
+    #if os(tvOS)
+    private var cardPadding: CGFloat { 30 }
+    private var maxCardWidth: CGFloat { 900 }
+    private var cardRadius: CGFloat { 26 }
+    private var glyph: CGFloat { 72 }
+    private var glyphSize: CGFloat { 32 }
+    private var rule: CGFloat { 44 }
+    #else
+    private var cardPadding: CGFloat { 16 }
+    private var maxCardWidth: CGFloat { 720 }
+    private var cardRadius: CGFloat { 20 }
+    private var glyph: CGFloat { 42 }
+    private var glyphSize: CGFloat { 20 }
+    private var rule: CGFloat { 26 }
+    #endif
 
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 20, weight: .semibold))
-                .frame(width: 42, height: 42)
+                .font(.system(size: glyphSize, weight: .semibold))
+                .frame(width: glyph, height: glyph)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
             VStack(alignment: .leading, spacing: 3) {
@@ -181,6 +216,53 @@ struct LineupAccountCard<Actions: View>: View {
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The provider, told the same way the media server is told.
+///
+/// The tab used to give the media server a card and the provider a plain row,
+/// which was backwards: the provider is the thing the app is mostly about. Both
+/// are cards now, and both are the same card -- one view, two sets of figures
+/// -- so neither can drift into looking like the other's poor relation.
+///
+/// Shared, because the phone and the television show the same two cards and
+/// there is no version of this that should differ between them.
+struct ProviderAccountCard: View {
+    @EnvironmentObject private var library: SportsLibrary
+    let profile: XtreamProfile
+    let openGuide: () -> Void
+
+    /// Channels in hand is what "ready" means here. A provider mid-sync still
+    /// has whatever it restored from disk, and that is worth watching.
+    private var ready: Bool { !library.streams.isEmpty }
+
+    private var status: String {
+        if library.channelsAreSyncing { return "Updating…" }
+        return ready ? "Connected" : "Offline"
+    }
+
+    var body: some View {
+        LineupAccountCard(
+            symbol: "antenna.radiowaves.left.and.right",
+            title: profile.name,
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            connected: ready,
+            status: status,
+            statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
+            stats: [
+                LineupCardStat("Channels", library.streams.count),
+                LineupCardStat("Favorites", library.favoriteStreamOrder.count),
+                LineupCardStat("Teams", library.teamPreferences.listed().count)
+            ],
+            refreshed: library.lastRefreshedAt
+        ) {
+            LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
+                Task { await library.reload() }
+            }
+            .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
+            LineupCardAction(title: "Guide", symbol: "calendar", action: openGuide)
+        }
     }
 }
 
@@ -225,7 +307,11 @@ struct LineupCardAction: View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
+                #if os(tvOS)
+                .frame(maxWidth: .infinity, minHeight: 66)
+                #else
                 .frame(maxWidth: .infinity, minHeight: 38)
+                #endif
                 .lineupLiquidGlass(Capsule(),
                                    fallback: focused ? LineupStyle.focused : LineupStyle.raised,
                                    border: LineupStyle.line)
@@ -239,7 +325,11 @@ struct LineupStatusDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
 
+    #if os(tvOS)
+    private static let size: CGFloat = 16
+    #else
     private static let size: CGFloat = 9
+    #endif
 
     private var tint: Color {
         connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
@@ -249,19 +339,23 @@ struct LineupStatusDot: View {
         // A bead rather than a filled circle: a lit upper face, a deeper base,
         // a hairline rim and one small specular. That is what reads as glass at
         // nine points, where a material effect would show nothing at all.
+        // Every measurement below is a fraction of the bead rather than a
+        // number, because the television draws it at nearly twice the size and
+        // a specular highlight fixed at two and a half points would vanish
+        // there while the rim stayed hairline-thin.
         Circle()
             .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
                                  center: UnitPoint(x: 0.34, y: 0.28),
-                                 startRadius: 0, endRadius: 8))
-            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
+                                 startRadius: 0, endRadius: Self.size * 0.9))
+            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: Self.size * 0.056))
             .overlay(alignment: .topLeading) {
                 Circle().fill(.white.opacity(0.55))
-                    .frame(width: 2.6, height: 2.6)
-                    .blur(radius: 0.6)
-                    .offset(x: 1.5, y: 1.3)
+                    .frame(width: Self.size * 0.29, height: Self.size * 0.29)
+                    .blur(radius: Self.size * 0.067)
+                    .offset(x: Self.size * 0.167, y: Self.size * 0.144)
             }
             .frame(width: Self.size, height: Self.size)
-            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
+            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: Self.size / 3)
             // Underneath, not over: the halo comes out from beneath the bead
             // and travels outward, which is the only way round that reads as
             // the dot giving something off. Drawn over the bead it washed the
@@ -1182,8 +1276,13 @@ private struct MediaDetailScreen: View {
                         Image(uiImage: preparedHero).resizable().scaledToFill()
                     }
                     #else
-                    AsyncImage(url: heroURL) { phase in
-                        if let image = phase.image { image.resizable().scaledToFill() }
+                    LineupArtView(url: heroURL, width: heroWidth) { loaded in
+                        if let image = loaded { image.resizable().scaledToFill() }
+                        // The gradient behind is the placeholder, so there is
+                        // nothing to draw here -- but something has to be
+                        // returned. A closure that can produce no view at all
+                        // is what left this blank once already.
+                        else { Color.clear }
                     }
                     #endif
                 }
@@ -1252,7 +1351,7 @@ private struct MediaDetailScreen: View {
 
     private var actions: some View {
         HStack(spacing: 12) {
-            Button { chosen = playTarget } label: { playLabel }
+            Button { chosen = playTarget } label: { playLabel.modifier(MediaChromeFocus()) }
             .lineupFlatButton()
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
@@ -1280,39 +1379,31 @@ private struct MediaDetailScreen: View {
 
     /// The play button.
     ///
-    /// On a television it is as wide as what it says and no paler than anything
-    /// else on the page: a full-width filled bar was the loudest thing on the
-    /// screen for a control that starts one episode, and at that size the white
-    /// read as a slab rather than a button. A phone keeps the filled bar --
-    /// there it is the one thing a thumb goes for, and a full-width primary
-    /// action is how every other app on the platform says so.
+    /// The same surface as the heart, the eye and the shuffle beside it. It
+    /// used to be filled on the phone, on the theory that a primary action
+    /// should be the one thing a thumb goes for -- but the fill is a pale slab
+    /// against a dark page, sitting directly beside three dark controls, and
+    /// what it read as was a mistake rather than an emphasis. The television
+    /// had already dropped it for the same reason.
+    ///
+    /// It is still the widest thing in the row, which is how it says it is the
+    /// main one. Width is the emphasis now; brightness was too much of it.
     @ViewBuilder
     private var playLabel: some View {
         let text = HStack(spacing: 8) {
             Image(systemName: "play.fill")
             Text("Play").font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
-                Text(code).foregroundStyle(playCodeTint)
+                // Quieter than the word beside it, on the same dark surface
+                // both platforms now use.
+                Text(code).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
         }
         .font(.inter(17))
         #if os(tvOS)
         text.padding(.horizontal, 22).frame(height: buttonHeight)
-            .modifier(MediaChromeFocus())
         #else
         text.frame(maxWidth: .infinity).frame(height: buttonHeight)
-            .modifier(MediaChromeFocus(prominent: true))
-        #endif
-    }
-
-    /// The episode code beside "Play", quieter than the word itself -- which
-    /// means a dark tint on the phone's filled bar and a pale one on the
-    /// television's outlined button.
-    private var playCodeTint: Color {
-        #if os(tvOS)
-        LineupStyle.lightPurple.opacity(0.55)
-        #else
-        LineupStyle.background.opacity(0.5)
         #endif
     }
 
@@ -1418,10 +1509,12 @@ private struct MediaDetailScreen: View {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 12)
                                             .fill(LineupStyle.surface)
-                                        AsyncImage(url: trailers[index].2
-                                            ?? media.backdropURL(for: subject)) { phase in
-                                            if let image = phase.image {
+                                        LineupArtView(url: trailers[index].2
+                                            ?? media.backdropURL(for: subject), width: 260) { loaded in
+                                            if let image = loaded {
                                                 image.resizable().scaledToFill()
+                                            } else {
+                                                Color.clear
                                             }
                                         }
                                         Image(systemName: "play.fill")
@@ -1457,8 +1550,8 @@ private struct MediaDetailScreen: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
-                                    AsyncImage(url: media.personImageURL(for: person)) { phase in
-                                        if let image = phase.image {
+                                    LineupArtView(url: media.personImageURL(for: person), width: 112) { loaded in
+                                        if let image = loaded {
                                             image.resizable().scaledToFill()
                                         } else {
                                             Image(systemName: "person.fill")
@@ -1622,6 +1715,10 @@ private struct MediaDetailScreen: View {
         media.imageURL(for: subject, width: 900)
         #endif
     }
+    /// Wider than any iPhone, so the hero is never decoded short of the screen
+    /// it fills. It is one picture on one page; the saving is not worth a
+    /// measurement pass to get it exact.
+    private var heroWidth: CGFloat { 460 }
     #if os(tvOS)
     nonisolated private static func fetchHeroData(from urls: [URL]) async -> Data? {
         for url in urls {
@@ -1716,8 +1813,8 @@ private struct MediaEpisodeCard: View {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
-                        AsyncImage(url: media.imageURL(for: episode, width: 640)) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
+                        LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
+                            if let image = loaded { image.resizable().scaledToFill() }
                             else { Image(systemName: "film.fill").font(.largeTitle) }
                         }
                     }
@@ -2312,8 +2409,8 @@ private struct MediaItemCard: View {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
-                        AsyncImage(url: media.imageURL(for: item)) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
+                        LineupArtView(url: media.imageURL(for: item), width: artWidth) { loaded in
+                            if let image = loaded { image.resizable().scaledToFill() }
                             else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                         }
                     }
@@ -2335,6 +2432,17 @@ private struct MediaItemCard: View {
         .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
+    /// The widest this card is ever drawn -- the top of the grid's adaptive
+    /// range, which is wider than the fixed width a shelf gives it. One size
+    /// per shape means a title scrolled past in a shelf and met again in a
+    /// grid is the same cached picture both times.
+    private var artWidth: CGFloat {
+        #if os(tvOS)
+        shape == .poster ? 310 : 460
+        #else
+        shape == .poster ? 210 : 300
+        #endif
+    }
     private var cardRadius: CGFloat {
         #if os(tvOS)
         18
