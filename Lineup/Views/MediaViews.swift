@@ -1155,7 +1155,6 @@ private struct MediaDetailScreen: View {
                 episodesSection
                 trailersSection
                 castSection
-                aboutSection
                 relatedSection
             }
             .padding(.bottom, 44)
@@ -1486,66 +1485,14 @@ private struct MediaDetailScreen: View {
     }
 
     @ViewBuilder
-    private var aboutSection: some View {
-        let hasFacts = subject.formattedAirDate != nil || subject.status != nil
-            || subject.officialRating != nil
-            || subject.genres?.isEmpty == false || subject.tags?.isEmpty == false
-            || subject.studios?.isEmpty == false || subject.productionLocations?.isEmpty == false
-            || subject.people?.contains(where: { $0.type?.lowercased() == "director" }) == true
-        if hasFacts {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("About").font(sectionTitleFont).padding(.bottom, 8)
-                if let date = subject.formattedAirDate {
-                    let aired = subject.isSeries
-                        ? [date, subject.formattedEndDate].compactMap { $0 }.joined(separator: " – ")
-                        : date
-                    factRow(subject.isSeries ? "Aired" : "Released", aired)
-                }
-                if let status = subject.status { factRow("Status", status) }
-                if let rating = subject.officialRating { factRow("Rated", rating) }
-                if let genres = subject.genres, !genres.isEmpty {
-                    factRow("Genres", genres.joined(separator: ", "))
-                }
-                if let tags = subject.tags, !tags.isEmpty {
-                    factRow("Tags", tags.joined(separator: ", "))
-                }
-                if let studios = subject.studios, !studios.isEmpty {
-                    factRow(subject.isSeries ? "Network" : "Studio",
-                        studios.map(\.name).joined(separator: ", "))
-                }
-                let directors = (subject.people ?? []).filter {
-                    $0.type?.lowercased() == "director"
-                }.map(\.name)
-                if !directors.isEmpty {
-                    factRow(directors.count == 1 ? "Director" : "Directors",
-                        directors.joined(separator: ", "))
-                }
-                if let countries = subject.productionLocations, !countries.isEmpty {
-                    factRow("Country", countries.joined(separator: ", "))
-                }
-            }
-            .padding(.horizontal, horizontalPadding)
-        }
-    }
-
-    private func factRow(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            Text(title).font(.inter(.subheadline, .semibold))
-            Spacer(minLength: 12)
-            Text(value).font(.inter(.subheadline))
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.64))
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 360, alignment: .trailing)
-        }
-        .padding(.vertical, 10)
-        .overlay(alignment: .bottom) { LineupStyle.line.frame(height: 1) }
-    }
-
-    @ViewBuilder
     private var relatedSection: some View {
         if !related.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Related").font(sectionTitleFont)
+                // Named for what it holds, because a row of posters under a
+                // bare "Related" does not say whether it is offering films or
+                // series.
+                Text(subject.isSeries ? "Related Shows" : "Related Movies")
+                    .font(sectionTitleFont)
                     .padding(.horizontal, horizontalPadding)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
