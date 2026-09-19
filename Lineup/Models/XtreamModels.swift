@@ -370,6 +370,12 @@ struct SportsMatchText {
     func has(_ words: Set<String>, _ phrases: [String]) -> Bool {
         if !self.words.isDisjoint(with: words) { return true }
         if phrases.contains(where: { value.contains($0) }) { return true }
+        // Acronyms are searched for even in the long text. A provider writes
+        // "UFC299" and "PPV01", and tokenizing cannot find a term glued to its
+        // neighbour -- which is how five hundred channels fell out of the
+        // index. There are four of these against thirty team names, so the
+        // scan they cost is not the one that mattered.
+        if words.contains(where: { $0.count <= 3 && value.contains($0) }) { return true }
         guard scannable else { return false }
         return words.contains { value.contains($0) }
     }

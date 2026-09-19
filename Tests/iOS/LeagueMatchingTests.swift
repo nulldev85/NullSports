@@ -239,3 +239,23 @@ final class WordLookupTests: XCTestCase {
         XCTAssertTrue(SportsLeague.nhl.matches(text("golden knights vs maple leafs")))
     }
 }
+
+/// Acronyms glued to numbers are how a provider writes a pay-per-view channel,
+/// and they are why five hundred channels fell out of the index.
+final class GluedAcronymTests: XCTestCase {
+    private func listings(_ value: String) -> SportsMatchText {
+        SportsMatchText(alreadyLowercased: value.lowercased(), scannable: false)
+    }
+
+    func testAnAcronymGluedToANumberIsStillFoundInListings() {
+        XCTAssertTrue(SportsLeague.ufc.matches(listings("ufc299 main card")))
+        XCTAssertTrue(SportsLeague.ufc.matches(listings("ppv01 tonight")))
+    }
+
+    // Team names are not searched for in listings, which is the scan that cost
+    // thirty-five seconds. Only the short acronyms are.
+    func testTeamNamesAreStillNotSearchedForInListings() {
+        XCTAssertFalse(SportsLeague.nfl.matches(listings("bearsville community access")))
+        XCTAssertTrue(SportsLeague.nfl.matches(listings("bears at packers")))
+    }
+}

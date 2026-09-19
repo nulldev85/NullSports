@@ -1058,11 +1058,11 @@ final class SportsLibrary: ObservableObject {
                 game: Self.collegeMatchup(game), now: now,
                 allowNetworkFallback: false) != nil
         }
-        return Self.professionalScore(stream, game: game, preparedGame: Self.prepared(game),
-                                      name: ProfessionalChannelMatcher.normalize(stream.name),
-                                      listings: listings,
-                                      prepared: Self.matcherListings(["": listings])[""] ?? [],
-                                      now: now) != nil
+        return Self.professionalScore(
+            stream, game: game, preparedGame: Self.prepared(game),
+            channel: ProfessionalChannelMatcher.prepare(
+                channel: stream.name, listings: Self.matcherListings(["": listings])[""] ?? []),
+            listings: listings, now: now) != nil
     }
 
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
@@ -1099,16 +1099,29 @@ final class SportsLibrary: ObservableObject {
 
     nonisolated private static func professionalScore(_ stream: XtreamStream, game: SportsGame,
                                                        preparedGame: ProfessionalChannelMatcher.PreparedGame,
-                                                       name: String,
+                                                       channel: ProfessionalChannelMatcher.PreparedChannel,
                                                        listings: [CurrentProgram],
-                                                       prepared: [ProfessionalChannelMatcher.PreparedListing],
                                                        now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
-        return ProfessionalChannelMatcher.score(channel: name, listings: prepared,
-                                                game: preparedGame, now: now)
+        return ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
+    }
+
+    /// Every candidate channel prepared once for the pass: its name normalized
+    /// and padded, its listings likewise, and whether it is a replay or a
+    /// whip-around feed already decided.
+    nonisolated private static func preparedChannels(
+        _ candidates: [XtreamStream],
+        listings: [String: [ProfessionalChannelMatcher.PreparedListing]]
+    ) -> [Int: ProfessionalChannelMatcher.PreparedChannel] {
+        var prepared: [Int: ProfessionalChannelMatcher.PreparedChannel] = [:]
+        for candidate in candidates where prepared[candidate.id] == nil {
+            prepared[candidate.id] = ProfessionalChannelMatcher.prepare(
+                channel: candidate.name, listings: listings[candidate.epgChannelID ?? ""] ?? [])
+        }
+        return prepared
     }
 
     nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
@@ -1150,16 +1163,15 @@ final class SportsLibrary: ObservableObject {
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream],
                                                   programs: [String: [CurrentProgram]],
-                                                  prepared: [String: [ProfessionalChannelMatcher.PreparedListing]],
-                                                  names: [Int: String],
+                                                  channels: [Int: ProfessionalChannelMatcher.PreparedChannel],
                                                   preparedGame: ProfessionalChannelMatcher.PreparedGame,
                                                   now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
         for candidate in candidates {
-            let key = candidate.epgChannelID ?? ""
+            guard let prepared = channels[candidate.id] else { continue }
             guard let score = professionalScore(candidate, game: game, preparedGame: preparedGame,
-                name: names[candidate.id] ?? ProfessionalChannelMatcher.normalize(candidate.name),
-                listings: programs[key] ?? [], prepared: prepared[key] ?? [], now: now) else { continue }
+                channel: prepared, listings: programs[candidate.epgChannelID ?? ""] ?? [],
+                now: now) else { continue }
             if let current = best {
                 guard score > current.score || (score == current.score && candidate.id < current.stream.id) else { continue }
             }
@@ -1242,12 +1254,8 @@ final class SportsLibrary: ObservableObject {
             let preparedListings = Self.matcherListings(programs)
             // Every candidate channel's name, normalized once for the pass
             // rather than once for each of sixty-six games.
-            var preparedNames: [Int: String] = [:]
-            for candidates in leagues.values {
-                for candidate in candidates where preparedNames[candidate.id] == nil {
-                    preparedNames[candidate.id] = ProfessionalChannelMatcher.normalize(candidate.name)
-                }
-            }
+            let preparedChannels = Self.preparedChannels(leagues.values.flatMap { $0 },
+                                                         listings: preparedListings)
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -1279,28 +1287,27 @@ final class SportsLibrary: ObservableObject {
                     currentSignature: signature, hasMatch: matches[game.id] != nil)
                     ? matches[game.id].flatMap { cached in
                         let key = cached.epgChannelID ?? ""
+                        let channel = preparedChannels[cached.id] ?? ProfessionalChannelMatcher.prepare(
+                            channel: cached.name, listings: preparedListings[key] ?? [])
                         return Self.professionalScore(cached, game: game, preparedGame: preparedGame,
-                                                      name: preparedNames[cached.id]
-                                                        ?? ProfessionalChannelMatcher.normalize(cached.name),
-                                                      listings: programs[key] ?? [],
-                                                      prepared: preparedListings[key] ?? [], now: now)
+                                                      channel: channel, listings: programs[key] ?? [],
+                                                      now: now)
                             .map { (cached, $0) }
                     }
                     : nil
                 var evidence = reused?.evidence
                 if reused == nil {
                     if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [],
-                                                       programs: programs, prepared: preparedListings,
-                                                       names: preparedNames, preparedGame: preparedGame,
-                                                       now: now) {
+                                                       programs: programs, channels: preparedChannels,
+                                                       preparedGame: preparedGame, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
                         let key = stream.epgChannelID ?? ""
+                        let chosen = preparedChannels[stream.id] ?? ProfessionalChannelMatcher.prepare(
+                            channel: stream.name, listings: preparedListings[key] ?? [])
                         evidence = Self.professionalScore(stream, game: game, preparedGame: preparedGame,
-                                                          name: preparedNames[stream.id]
-                                                            ?? ProfessionalChannelMatcher.normalize(stream.name),
-                                                          listings: programs[key] ?? [],
-                                                          prepared: preparedListings[key] ?? [], now: now)
+                                                          channel: chosen, listings: programs[key] ?? [],
+                                                          now: now)
                     } else {
                         matches.removeValue(forKey: game.id)
                         signatures.removeValue(forKey: game.id)
@@ -1363,11 +1370,12 @@ final class SportsLibrary: ObservableObject {
                     game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
             } else {
                 let freshListings = programs(for: fresh)
-                evidence = Self.professionalScore(fresh, game: game, preparedGame: Self.prepared(game),
-                                                  name: ProfessionalChannelMatcher.normalize(fresh.name),
-                                                  listings: freshListings,
-                                                  prepared: Self.matcherListings(["": freshListings])[""] ?? [],
-                                                  now: now)
+                evidence = Self.professionalScore(
+                    fresh, game: game, preparedGame: Self.prepared(game),
+                    channel: ProfessionalChannelMatcher.prepare(
+                        channel: fresh.name,
+                        listings: Self.matcherListings(["": freshListings])[""] ?? []),
+                    listings: freshListings, now: now)
             }
             guard let evidence else { continue }
             refreshedMatches[game.id] = fresh
