@@ -72,7 +72,7 @@ struct MobileGuideView: View {
                                     .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
-                        if MobileGuideStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
+                        if GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
                                                        isLoading: library.isLoading,
                                                        isGuideLoading: library.isGuideLoading) {
                             ProgressView("Updating guide…").font(.inter(.caption)).padding(8)

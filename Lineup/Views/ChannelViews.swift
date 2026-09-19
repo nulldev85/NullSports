@@ -504,6 +504,12 @@ private struct LiveSlateDashboard: View {
                     Spacer()
                     if multiviewTitle != nil {
                         GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                    } else if banner == .background {
+                        // Everything on the board already works, so this is a
+                        // footnote and nothing more.
+                        Text("UPDATING IN BACKGROUND")
+                            .font(.inter(11, .bold)).tracking(2)
+                            .foregroundStyle(LiveBoardStyle.muted)
                     } else {
                         Text("Select to preview  ·  Hold for multiview").foregroundColor(LineupStyle.lightPurple)
                             .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
@@ -522,11 +528,23 @@ private struct LiveSlateDashboard: View {
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
-    // Matching keeps running after the schedule and library finish, and every
-    // game reads as unmatched until it lands. Cover that window too, so it is
-    // not mistaken for a settled answer of "no channel".
+    /// The same rule the phone uses, from the same file. Matching keeps
+    /// running after the schedule and library finish and every game reads as
+    /// unmatched until it lands, so that window counts as work in flight --
+    /// but work in flight is only a wait when there is nothing behind it.
+    private var banner: LiveSyncBanner {
+        LiveSyncBanner.choose(isInitialProviderSync: library.isInitialProviderSync,
+                              hasContent: library.hasRestoredCache,
+                              isScheduleLoading: library.isScheduleLoading,
+                              isLoading: library.isLoading,
+                              channelsAreSyncing: !library.automaticMatchingReady)
+    }
+
+    /// The dark screen says the set is looking for channels only while it
+    /// genuinely has none. With channels restored behind it, the sweep was
+    /// telling a viewer to wait for something they could already watch.
     private var isPreparingStreams: Bool {
-        library.isScheduleLoading || library.isLoading || !library.automaticMatchingReady
+        banner == .initialSync || banner == .refreshing
     }
 
     private func screenHeight(in size: CGSize) -> CGFloat {
@@ -687,10 +705,26 @@ private struct LiveSlateRow: View {
                     }
                 }
                 .font(.inter(11, .semibold)).foregroundStyle(LiveBoardStyle.muted)
-                LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
-                    record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
-                LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
-                    record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
+                // A fight card has no two sides to put against each other, so
+                // the bout's own name goes where the teams would. Both kinds
+                // say where they are being held, which is the one fact a
+                // matchup card can add without becoming a table.
+                if game.isEvent {
+                    Text(game.eventName ?? "")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(2).minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
+                        record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
+                    LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
+                        record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
+                }
+                if let place = game.placeLine {
+                    Text(place).font(.inter(13))
+                        .foregroundStyle(LiveBoardStyle.muted)
+                        .lineLimit(1).truncationMode(.tail)
+                }
                 HStack {
                     Text(isPrimary ? "MULTIVIEW · FIRST GAME" : (game.broadcast.isEmpty ? "Channel selection available" : game.broadcast)).foregroundColor(LineupStyle.lightPurple)
                         .lineLimit(1)
@@ -726,7 +760,7 @@ private struct LiveSlateRow: View {
                     .disabled(isPrimary)
             }
         }
-        .accessibilityLabel("\(game.awayTeam) at \(game.homeTeam), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
+        .accessibilityLabel("\(game.isEvent ? (game.eventName ?? game.league.shortName) : "\(game.awayTeam) at \(game.homeTeam)"), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
     }
 }
 
@@ -902,9 +936,9 @@ private struct LeagueLogo: View {
             if league == .ufc {
                 Image("League-ufc").resizable().scaledToFit()
             } else {
-                AsyncImage(url: logoURL) { phase in
-                    if let image = phase.image {
-                image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
+                LineupArtView(url: logoURL, width: size) { loaded in
+                    if let image = loaded {
+                        image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple)
                     } else {
                         Image(systemName: sportsSymbol(league))
                             .resizable().scaledToFit()
@@ -1007,9 +1041,21 @@ private struct GameEventCard: View {
             HStack(spacing: 18) {
                 MatchupArtwork(event: event)
                 VStack(alignment: .leading, spacing: 8) {
-                    GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
-                    Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
-                    GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
+                    if event.isEvent {
+                        Text(event.eventName ?? "")
+                            .font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
+                            .lineLimit(2).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
+                        Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
+                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
+                    }
+                    if let place = event.placeLine {
+                        Text(place).font(.inter(.caption))
+                            .foregroundStyle(LineupStyle.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                     HStack(spacing: 12) {
                         Text(event.league.shortName).foregroundColor(LineupStyle.lightPurple)
                             .font(.inter(.caption, .bold)).padding(.horizontal, 10).frame(height: 28)
@@ -1099,11 +1145,18 @@ private struct MatchupArtwork: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LineupStyle.raised)
-            HStack(spacing: 16) {
-                TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
-                Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
-                    .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
-                TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
+            // An event is one card, not two sides. Two crests either side of a
+            // "VS" is a promise the fixture does not make, so it gets the
+            // league's own mark instead.
+            if event.isEvent {
+                LeagueLogo(league: event.league, size: 76)
+            } else {
+                HStack(spacing: 16) {
+                    TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
+                    Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
+                        .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
+                    TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
+                }
             }
         }.frame(width: 190, height: 126)
     }
@@ -1136,8 +1189,9 @@ private struct ChannelLogo: View {
     var width: CGFloat = 74
     var height: CGFloat = 54
     var body: some View {
-        AsyncImage(url: URL(string: url ?? "")) { $0.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) } placeholder: {
-            Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary)
+        LineupArtView(url: URL(string: url ?? ""), width: width) { loaded in
+            if let image = loaded { image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) }
+            else { Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary) }
         }
         .transaction { $0.animation = nil }
         .padding(4).frame(width: width, height: height).background(LineupStyle.raised)
@@ -1238,7 +1292,9 @@ struct GuideView: View {
                         searchActive: $searchActive,
                         query: $query,
                         multiviewTitle: multiviewPrimary?.name,
-                        isLoading: library.isGuideLoading,
+                        isLoading: GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
+                                                            isLoading: library.isLoading,
+                                                            isGuideLoading: library.isGuideLoading),
                         now: guideNow,
                         onCancelMultiview: { multiviewPrimary = nil }
                     )
@@ -1613,8 +1669,8 @@ private struct GuidePreviewArtwork: View {
     var body: some View {
         ZStack {
             GuidePalette.panel
-            AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                if let image = phase.image {
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 420) { loaded in
+                if let image = loaded {
                     image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(24)
                 } else {
                     VStack(spacing: 12) {
@@ -1938,8 +1994,9 @@ private struct GuideChannelArtwork: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 3) {
-                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                    if let image = phase.image {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)),
+                              width: max(1, proxy.size.width - 44)) { loaded in
+                    if let image = loaded {
                         image.resizable().scaledToFit()
                             .frame(width: max(1, proxy.size.width - 44),
                                    height: max(1, proxy.size.height - 56))
@@ -2082,8 +2139,8 @@ private struct TVFavoritesOrderView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(LineupStyle.raised.opacity(0.82))
-                AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-                    if let image = phase.image {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 100) { loaded in
+                    if let image = loaded {
                         image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(10)
                     } else {
                         Image(systemName: "tv").foregroundStyle(LineupStyle.lightPurple.opacity(0.5))

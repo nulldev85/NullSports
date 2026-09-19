@@ -88,7 +88,7 @@ struct MobileLiveView: View {
                         // empty screen behind it, so it explains itself at
                         // length; a refresh running behind restored cache is a
                         // quiet line, because everything below it already works.
-                        switch MobileLiveBanner.choose(
+                        switch LiveSyncBanner.choose(
                             isInitialProviderSync: library.isInitialProviderSync,
                             hasContent: library.hasRestoredCache,
                             isScheduleLoading: library.isScheduleLoading,
