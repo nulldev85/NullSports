@@ -130,9 +130,6 @@ final class SportsLibrary: ObservableObject {
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
     private var guideRefresh: Task<Void, Never>?
-    /// Set by a guide refresh running alongside a channel refresh, so the one
-    /// index rebuild that follows knows the guide is part of why.
-    private var guideChangedThisRefresh = false
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
@@ -577,12 +574,8 @@ final class SportsLibrary: ObservableObject {
         isLoading = refreshChannels && streams.isEmpty
         errorMessage = nil
         let client = XtreamClient(profile: profile, password: password)
-        let guideRefreshTask = forceGuide ? refreshGuide(client: client, profileID: profile.id) : nil
-        guard refreshChannels else {
-            // A guide-only refresh: there is no channel half to defer to.
-            await rebuildIndexIfGuideChanged(guideRefreshTask, profileID: profile.id)
-            return
-        }
+        if forceGuide { refreshGuide(client: client, profileID: profile.id) }
+        guard refreshChannels else { return }
         do {
             // nil back means the server sent the same bytes as last time, so
             // there is nothing to decode and nothing to compare -- which on a
@@ -628,19 +621,21 @@ final class SportsLibrary: ObservableObject {
                 streams = newStreams.value
             }
             libraryUpdatedAt = Date()
-            // Wait for the guide before rebuilding. The index is built from the
-            // channel list *and* the guide, and rebuilding on the first of the
-            // two to arrive means building it again when the second does. The
-            // screen is not waiting on this: the index it is using came back
-            // from the cache before any of this started.
-            if let guideRefreshTask { await guideRefreshTask.value }
-            guard activeProfile?.id == profile.id else { return }
-            if changes.0 || changes.1 || guideChangedThisRefresh {
-                let why = [changes.0 || changes.1 ? "channel list" : nil,
-                           guideChangedThisRefresh ? "guide" : nil]
-                    .compactMap { $0 }.joined(separator: " and ") + " changed"
-                guideChangedThisRefresh = false
-                await trace.measure("rebuild sports index", detail: why,
+            // Rebuilt here, on the channel list alone, and again when the guide
+            // lands. That is one build more than it needs.
+            //
+            // Waiting for the guide first would fix it, and I tried: the app
+            // froze. `libraryRefreshInFlight` is held for the whole of this
+            // function, and it feeds `channelsAreSyncing`, which disables the
+            // channel picker and withholds playback until a refresh has
+            // finished. Waiting on a ninety-six megabyte download before
+            // releasing that is not an optimisation, it is a stall with the
+            // controls switched off.
+            //
+            // Saving the second build means moving it off this function's
+            // in-flight window entirely, not extending the window.
+            if changes.0 || changes.1 {
+                await trace.measure("rebuild sports index", detail: "channel list changed",
                                     { await rebuildProfessionalStreams() })
             }
             guard activeProfile?.id == profile.id else { return }
@@ -652,23 +647,7 @@ final class SportsLibrary: ObservableObject {
             guard activeProfile?.id == profile.id else { return }
             isLoading = false
             if streams.isEmpty { errorMessage = error.localizedDescription }
-            // The channel half failed, so nothing below waited for the guide.
-            // If the guide came back with something new it still needs an
-            // index, and this is the only place left to ask for one.
-            await rebuildIndexIfGuideChanged(guideRefreshTask, profileID: profile.id)
         }
-    }
-
-    /// The rebuild a guide refresh defers to its channel refresh, run on the
-    /// paths where that channel refresh never gets there.
-    private func rebuildIndexIfGuideChanged(_ guideRefresh: Task<Void, Never>?,
-                                            profileID: UUID) async {
-        guard let guideRefresh else { return }
-        await guideRefresh.value
-        guard activeProfile?.id == profileID, guideChangedThisRefresh else { return }
-        guideChangedThisRefresh = false
-        await StartupTrace.shared.measure("rebuild sports index", detail: "guide changed",
-                                          { await rebuildProfessionalStreams() })
     }
 
     /// Returns the task doing the work, so a caller that is about to rebuild
@@ -719,9 +698,10 @@ final class SportsLibrary: ObservableObject {
                 if changed { self.programsByChannel = programs }
             }
             self.guideUpdatedAt = Date()
-            // Recorded rather than acted on. Whoever started this refresh
-            // waits for it and rebuilds once, with both halves in hand.
-            if changed { self.guideChangedThisRefresh = true }
+            if changed {
+                await trace.measure("rebuild sports index", detail: "guide changed",
+                                    { await self.rebuildProfessionalStreams() })
+            }
             guard self.activeProfile?.id == profileID else { return }
             self.guideValidatedThisSession = true
             self.saveCache(profileID: profileID)
