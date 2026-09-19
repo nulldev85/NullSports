@@ -8,20 +8,19 @@ enum CollegeChannelMatcher {
         let start: Date
         let end: Date
         let text: String
-        /// Padded and split once. Both were being redone inside the matching,
-        /// which runs once per game per candidate channel.
-        let padded: String
-        let words: Set<String>
 
+        // No padded copy and no word set here, deliberately. Both were tried:
+        // they turn a scan into a lookup, and on a real provider they also add
+        // about a hundred and forty megabytes -- a hundred and sixty thousand
+        // listings, each carrying a second copy of its text and a set of its
+        // words. The app froze while playing a channel, which is exactly when
+        // video buffers land on top. A matcher does not get to spend that.
         init(title: String, detail: String, start: Date, end: Date) {
             self.title = title
             self.detail = detail
             self.start = start
             self.end = end
-            let normalized = CollegeChannelMatcher.normalized(title + " " + detail)
-            text = normalized
-            padded = " " + normalized + " "
-            words = Set(normalized.split(separator: " ").map(String.init))
+            text = CollegeChannelMatcher.normalized(title + " " + detail)
         }
     }
 
@@ -37,10 +36,10 @@ enum CollegeChannelMatcher {
         let expectedNetworks: Set<String>
         let awayAliases: [String]
         let homeAliases: [String]
-        /// The words of each alias. An alias cannot be in a title unless all
-        /// of its words are, and that is a lookup rather than a search.
-        let awayAliasWords: [Set<String>]
-        let homeAliasWords: [Set<String>]
+        /// Each alias padded once, rather than once per channel it is tried
+        /// against.
+        let awayAliasNeedles: [String]
+        let homeAliasNeedles: [String]
 
         init(broadcast: String, away: String, home: String, awayAbbreviation: String,
              homeAbbreviation: String, kickoff: Date, isLive: Bool, status: String = "") {
@@ -60,8 +59,8 @@ enum CollegeChannelMatcher {
             expectedNetworks = CollegeChannelMatcher.networks(broadcast)
             awayAliases = CollegeChannelMatcher.teamAliases(away, abbreviation: awayAbbreviation)
             homeAliases = CollegeChannelMatcher.teamAliases(home, abbreviation: homeAbbreviation)
-            awayAliasWords = awayAliases.map { Set($0.split(separator: " ").map(String.init)) }
-            homeAliasWords = homeAliases.map { Set($0.split(separator: " ").map(String.init)) }
+            awayAliasNeedles = awayAliases.map { " " + $0 + " " }
+            homeAliasNeedles = homeAliases.map { " " + $0 + " " }
         }
     }
 
@@ -140,12 +139,9 @@ enum CollegeChannelMatcher {
             && now.timeIntervalSince(game.kickoff) < 12 * 60 * 60
         if game.isDelayed && now.timeIntervalSince(game.kickoff) >= 12 * 60 * 60 { return nil }
         func teams(_ listing: Listing) -> Bool {
-            titleMatches(padded: listing.padded, words: listing.words, game: game)
+            titleMatches(padded: " " + listing.text + " ", game: game)
         }
-        func teamsInName() -> Bool {
-            titleMatches(padded: " " + name + " ",
-                         words: Set(name.split(separator: " ").map(String.init)), game: game)
-        }
+        func teamsInName() -> Bool { titleMatches(padded: " " + name + " ", game: game) }
         let point = (game.isLive || delayActive) ? now : game.kickoff
         let current = listings.filter { $0.start <= point && point < $0.end }
         if delayActive && current.contains(where: { listing in
@@ -325,21 +321,36 @@ enum CollegeChannelMatcher {
         let game = Matchup(broadcast: "", away: away, home: home,
                            awayAbbreviation: awayAbbreviation, homeAbbreviation: homeAbbreviation,
                            kickoff: .distantPast, isLive: false)
-        return titleMatches(padded: " " + text + " ",
-                            words: Set(text.split(separator: " ").map(String.init)), game: game)
+        return titleMatches(padded: " " + text + " ", game: game)
     }
 
     // The first occurrence of `phrase` that names the school itself rather than
     // part of a longer school name. Later occurrences still count, so "Washington"
     // is found in "Washington State at Washington".
+    /// The qualifiers with their separators already attached, because the
+    /// alternative is building fifty-six short strings every time a school
+    /// name is found in a title.
+    private static let trailingQualifierPrefixes = trailingQualifiers.map { $0 + " " }
+    private static let leadingQualifierSuffixes = leadingQualifiers.map { " " + $0 }
+
     private static func schoolRange(_ padded: String, phrase: String) -> Range<String.Index>? {
-        let needle = " " + phrase + " "
+        schoolRange(padded, needle: " " + phrase + " ")
+    }
+
+    /// The needle is padded by the caller where it can be, because an alias is
+    /// the same alias for every channel it is tried against.
+    ///
+    /// The text either side of a hit is read as a slice rather than copied.
+    /// Copying it made two new strings of most of the title, every time, to
+    /// answer whether the word before or after disqualifies the match.
+    private static func schoolRange(_ padded: String, needle: String) -> Range<String.Index>? {
         var searchStart = padded.startIndex
         while let range = padded.range(of: needle, range: searchStart..<padded.endIndex) {
-            let following = String(padded[range.upperBound...])
-            let preceding = String(padded[..<range.lowerBound])
-            if !trailingQualifiers.contains(where: { following == $0 || following.hasPrefix($0 + " ") })
-                && !leadingQualifiers.contains(where: { preceding.hasSuffix(" " + $0) }) {
+            let following = padded[range.upperBound...]
+            let preceding = padded[..<range.lowerBound]
+            if !trailingQualifiers.contains(where: { following.elementsEqual($0) })
+                && !trailingQualifierPrefixes.contains(where: { following.hasPrefix($0) })
+                && !leadingQualifierSuffixes.contains(where: { preceding.hasSuffix($0) }) {
                 return range
             }
             searchStart = padded.index(after: range.lowerBound)
@@ -350,35 +361,25 @@ enum CollegeChannelMatcher {
     // One side of a matchup, for guide text that names a school we can identify
     // alongside one we cannot. Callers supply normalized text.
     static func sideMatches(_ text: String, names: [String]) -> Bool {
-        let padded = " " + text + " "
-        let words = Set(text.split(separator: " ").map(String.init))
-        return sideMatches(padded: padded, words: words, names: names,
-                           aliasWords: names.map { Set($0.split(separator: " ").map(String.init)) })
+        sideMatches(padded: " " + text + " ", names: names, needles: nil)
     }
 
-    /// The same question, asked of text that has already been padded and split.
-    ///
-    /// A school's name cannot be in a title unless every word of it is, and
-    /// that is a couple of hash lookups against a scan that copies the text
-    /// either side of every hit it finds. The scan still decides the aliases
-    /// that get past the gate, so the qualifier rules -- Washington State not
-    /// supplying Washington -- are applied exactly as before.
-    static func sideMatches(padded: String, words: Set<String>,
-                            names: [String], aliasWords: [Set<String>]) -> Bool {
+    /// The aliases are padded once for the game rather than once for every
+    /// channel they are tried against; the text is padded once by the caller.
+    static func sideMatches(padded: String, names: [String], needles: [String]?) -> Bool {
         for (index, name) in names.enumerated() {
-            guard index >= aliasWords.count || aliasWords[index].isSubset(of: words) else { continue }
-            if schoolRange(padded, phrase: name) != nil { return true }
+            let needle = needles.flatMap { index < $0.count ? $0[index] : nil } ?? " " + name + " "
+            if schoolRange(padded, needle: needle) != nil { return true }
         }
         return false
     }
 
-    private static func titleMatches(padded: String, words: Set<String>, game: Matchup) -> Bool {
+    private static func titleMatches(padded: String, game: Matchup) -> Bool {
         let awayNames = game.awayAliases
         let homeNames = game.homeAliases
-        guard sideMatches(padded: padded, words: words, names: awayNames,
-                          aliasWords: game.awayAliasWords),
-              sideMatches(padded: padded, words: words, names: homeNames,
-                          aliasWords: game.homeAliasWords) else { return false }
+        guard sideMatches(padded: padded, names: awayNames, needles: game.awayAliasNeedles),
+              sideMatches(padded: padded, names: homeNames, needles: game.homeAliasNeedles)
+        else { return false }
         let text = String(padded.dropFirst().dropLast())
         // Consume the longer occurrence first so Washington State cannot also
         // supply Washington, and no shared mascot can establish a match.

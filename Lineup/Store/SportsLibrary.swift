@@ -129,6 +129,9 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
+    private var guideRefresh: Task<Void, Never>?
+    /// Discards the answer from a promote pass that a newer one has overtaken.
+    private var promoteGeneration = UUID()
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
@@ -315,16 +318,13 @@ final class SportsLibrary: ObservableObject {
         // Prepared once per guide channel rather than once per stream. A
         // provider lists the same channel several times over -- HD, FHD, SD,
         // a backup feed -- and every one of them points at these same listings.
-        let programText = time("listing text") {
-            programs.mapValues { listings in
-                // Not scannable: this is the several-thousand-character half,
-                // and searching it for every term is what cost the launch
-                // thirty-five seconds.
-                SportsMatchText(alreadyLowercased:
-                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased(),
-                    scannable: false)
-            }
-        }
+        // Deliberately not prepared up front. Preparing all of them held a
+        // word set for every guide channel at once -- five thousand days of
+        // television, something like a hundred megabytes -- for the length of
+        // the build, on a phone that is also holding twenty-six thousand
+        // channels, a guide, and whatever the viewer is watching. Each one is
+        // built where it is needed and dropped once it has answered, so one
+        // exists at a time instead of five thousand.
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
 
@@ -342,8 +342,14 @@ final class SportsLibrary: ObservableObject {
         var collegeStreamIDs: Set<Int> = []
 
         func leagues(listedOn stream: XtreamStream) -> Set<SportsLeague> {
-            guard let epgID = stream.epgChannelID, let text = programText[epgID] else { return [] }
+            guard let epgID = stream.epgChannelID, let listings = programs[epgID] else { return [] }
             if let known = listingLeagues[epgID] { return known }
+            // Built here and gone at the end of this call. What is kept is the
+            // answer: at most six league cases, against a day of listings.
+            let text = SportsMatchText(
+                alreadyLowercased: listings.map { "\($0.title) \($0.detail)" }
+                    .joined(separator: " ").lowercased(),
+                scannable: false)
             let found = Set(SportsLeague.allCases.filter { $0.matches(text) })
             listingLeagues[epgID] = found
             return found
@@ -620,13 +626,26 @@ final class SportsLibrary: ObservableObject {
                 streams = newStreams.value
             }
             libraryUpdatedAt = Date()
+            // Rebuilt here, on the channel list alone, and again when the guide
+            // lands. That is one build more than it needs.
+            //
+            // Waiting for the guide first would fix it, and I tried: the app
+            // froze. `libraryRefreshInFlight` is held for the whole of this
+            // function, and it feeds `channelsAreSyncing`, which disables the
+            // channel picker and withholds playback until a refresh has
+            // finished. Waiting on a ninety-six megabyte download before
+            // releasing that is not an optimisation, it is a stall with the
+            // controls switched off.
+            //
+            // Saving the second build means moving it off this function's
+            // in-flight window entirely, not extending the window.
             if changes.0 || changes.1 {
                 await trace.measure("rebuild sports index", detail: "channel list changed",
                                     { await rebuildProfessionalStreams() })
             }
             guard activeProfile?.id == profile.id else { return }
             channelsValidatedThisSession = true
-            promoteCachedMatchesIfSafe()
+            await promoteCachedMatchesIfSafe()
             isLoading = false
             saveCache(profileID: profile.id)
         } catch {
@@ -636,10 +655,17 @@ final class SportsLibrary: ObservableObject {
         }
     }
 
-    private func refreshGuide(client: XtreamClient, profileID: UUID) {
-        guard !isGuideLoading else { return }
+    /// Returns the task doing the work, so a caller that is about to rebuild
+    /// the index can wait for the guide first.
+    ///
+    /// The channel list and the guide arrive seconds apart, and each used to
+    /// rebuild the index on arrival: two full builds per launch, the first of
+    /// them thrown away by the generation token the moment the second landed.
+    @discardableResult
+    private func refreshGuide(client: XtreamClient, profileID: UUID) -> Task<Void, Never>? {
+        guard !isGuideLoading else { return nil }
         isGuideLoading = true
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             defer {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
@@ -685,6 +711,8 @@ final class SportsLibrary: ObservableObject {
             self.guideValidatedThisSession = true
             self.saveCache(profileID: profileID)
         }
+        guideRefresh = task
+        return task
     }
 
     private var isGuideFresh: Bool {
@@ -935,7 +963,7 @@ final class SportsLibrary: ObservableObject {
                 }
                 guard self.activeProfile?.id == profileID else { return }
                 self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
-                self.promoteCachedMatchesIfSafe()
+                await self.promoteCachedMatchesIfSafe()
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
                 if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
             }
@@ -1347,7 +1375,7 @@ final class SportsLibrary: ObservableObject {
         let newIdentities = identities.filter { result.0[$0.key] != nil }
         let identityChanged = newIdentities != matchedGameIdentities
         matchedGameIdentities = newIdentities
-        promoteCachedMatchesIfSafe()
+        await promoteCachedMatchesIfSafe()
         // Save changed matching results without rewriting the full guide on
         // every score/clock update. Writes remain serialized and atomic.
         if let profileID, force || result.2 || identityChanged || matchIdentities(now: now) != lastSavedMatchIdentities
@@ -1360,43 +1388,75 @@ final class SportsLibrary: ObservableObject {
     // evidence while the replacement downloads, but only for a freshly returned
     // channel whose ID, name and EPG binding are all unchanged. The ordinary
     // matcher still rechecks the game, preserving every evidence threshold.
-    private func promoteCachedMatchesIfSafe() {
+    /// Re-confirm the matches restored from cache against the channel list the
+    /// server just returned.
+    ///
+    /// This used to run on the main actor, and it is not small work: a
+    /// dictionary built from every one of twenty-six thousand channels, and
+    /// then, for each game, a channel name and a day of its listings put
+    /// through folding, lowercasing, splitting and rejoining. It runs whenever
+    /// matching finishes and whenever a refresh lands, several times a launch.
+    ///
+    /// That is what froze the app. The picture kept playing -- video decodes
+    /// on its own threads -- while nothing on screen would respond, and then
+    /// the picture stopped too. The work happens in a detached task now and
+    /// only the answer comes back to the main actor.
+    private func promoteCachedMatchesIfSafe() async {
         guard channelsValidatedThisSession else {
             fastValidatedGameIDs = []
             return
         }
-        let freshByID = Dictionary(grouping: streams, by: \.id).compactMapValues { $0.first }
+        let currentStreams = streams
+        let games = gamesByLeague.values.flatMap { $0 }
+        let restored = restoredMatchGameIDs
+        let validatedLeagues = scheduleValidatedLeagues
+        let identities = matchedGameIdentities
+        let cache = gameStreamCache
+        let listings = programsByChannel
         let now = Date()
-        var validated: Set<String> = []
+        let generation = UUID()
+        promoteGeneration = generation
+
+        let found = await Task.detached(priority: .utility) {
+            let freshByID = Dictionary(grouping: currentStreams, by: \.id).compactMapValues { $0.first }
+            var matches: [String: XtreamStream] = [:]
+            var evidenceByGame: [String: Int] = [:]
+            for game in games {
+                guard restored.contains(game.id),
+                      validatedLeagues.contains(game.league),
+                      identities[game.id] == Self.matchIdentity(game),
+                      let cached = cache[game.id], let fresh = freshByID[cached.id],
+                      DailyCachePolicy.isSameChannelSlot(cachedID: cached.id, freshID: fresh.id,
+                        cachedName: cached.name, freshName: fresh.name,
+                        cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID) else { continue }
+                let freshListings = fresh.epgChannelID.flatMap { listings[$0] } ?? []
+                let evidence: Int?
+                if game.league == .ncaaf {
+                    evidence = CollegeChannelMatcher.score(channel: fresh.name,
+                        listings: Self.collegeListings(freshListings),
+                        game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
+                } else {
+                    evidence = Self.professionalScore(
+                        fresh, game: game, preparedGame: Self.prepared(game),
+                        channel: ProfessionalChannelMatcher.prepare(
+                            channel: fresh.name,
+                            listings: Self.matcherListings(["": freshListings])[""] ?? []),
+                        listings: freshListings, now: now)
+                }
+                guard let evidence else { continue }
+                matches[game.id] = fresh
+                evidenceByGame[game.id] = evidence
+            }
+            return (matches, evidenceByGame)
+        }.value
+
+        // A newer pass, or a different provider, owns the answer now.
+        guard promoteGeneration == generation else { return }
         var refreshedMatches = gameStreamCache
         var refreshedEvidence = matchEvidenceScores
-        for game in gamesByLeague.values.flatMap({ $0 }) {
-            guard restoredMatchGameIDs.contains(game.id),
-                  scheduleValidatedLeagues.contains(game.league),
-                  matchedGameIdentities[game.id] == Self.matchIdentity(game),
-                  let cached = gameStreamCache[game.id], let fresh = freshByID[cached.id],
-                  DailyCachePolicy.isSameChannelSlot(cachedID: cached.id, freshID: fresh.id,
-                    cachedName: cached.name, freshName: fresh.name,
-                    cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID) else { continue }
-            let evidence: Int?
-            if game.league == .ncaaf {
-                evidence = CollegeChannelMatcher.score(channel: fresh.name,
-                    listings: Self.collegeListings(programs(for: fresh)),
-                    game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
-            } else {
-                let freshListings = programs(for: fresh)
-                evidence = Self.professionalScore(
-                    fresh, game: game, preparedGame: Self.prepared(game),
-                    channel: ProfessionalChannelMatcher.prepare(
-                        channel: fresh.name,
-                        listings: Self.matcherListings(["": freshListings])[""] ?? []),
-                    listings: freshListings, now: now)
-            }
-            guard let evidence else { continue }
-            refreshedMatches[game.id] = fresh
-            refreshedEvidence[game.id] = evidence
-            validated.insert(game.id)
-        }
+        for (id, stream) in found.0 { refreshedMatches[id] = stream }
+        for (id, evidence) in found.1 { refreshedEvidence[id] = evidence }
+        let validated = Set(found.0.keys)
         if refreshedMatches != gameStreamCache { gameStreamCache = refreshedMatches }
         if refreshedEvidence != matchEvidenceScores { matchEvidenceScores = refreshedEvidence }
         if validated != fastValidatedGameIDs { fastValidatedGameIDs = validated }
