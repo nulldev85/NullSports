@@ -978,6 +978,16 @@ private struct LiveSlateRow: View {
                     reminders.toggleGame(game)
                 }
             }
+            // Following is offered wherever a game is, not only in the rail.
+            // The rail is empty until somebody is followed, so a follow action
+            // that lived only there could never be reached from a fresh install.
+            ForEach(library.followableSides(of: game)) { team in
+                let following = library.isFollowing(team.key)
+                Button(following ? "Unfollow \(team.name)" : "Follow \(team.name)",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(team)
+                }
+            }
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
                     .disabled(isPrimary)
@@ -1354,6 +1364,16 @@ private struct GameEventCard: View {
                 Button(reminders.reminds(event) ? "Remove Reminder" : "Remind Me",
                        systemImage: reminders.reminds(event) ? "bell.slash" : "bell") {
                     reminders.toggleGame(event)
+                }
+            }
+            // Following is offered wherever a game is, not only in the rail.
+            // The rail is empty until somebody is followed, so a follow action
+            // that lived only there could never be reached from a fresh install.
+            ForEach(library.followableSides(of: event)) { team in
+                let following = library.isFollowing(team.key)
+                Button(following ? "Unfollow \(team.name)" : "Follow \(team.name)",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(team)
                 }
             }
             if stream != nil {
