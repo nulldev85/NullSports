@@ -222,12 +222,13 @@ private struct MobileDiagnosticsView: View {
         Form {
             Section {
                 NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
+                NavigationLink("Launch timing") { StartupTraceReportView() }
                 Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
                 if playbackDiagnostics.isEnabled {
                     NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
                 }
             } footer: {
-                Text("Playback diagnostics records what the player does while it is on. Leave it off unless you are chasing a problem.")
+                Text("Launch timing is always recorded and shows where the last start spent its time. Playback diagnostics records what the player does while it is on — leave that off unless you are chasing a problem.")
             }.listRowBackground(LineupGlassRow())
         }
         .scrollContentBackground(.hidden).background(LineupStyle.background)

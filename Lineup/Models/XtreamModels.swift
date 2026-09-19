@@ -259,38 +259,124 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     /// background, which is why a second theme could not have its own.
     var color: Color { LineupStyle.leagueColor(self) }
 
-    func matches(_ text: String) -> Bool {
-        let value = text.lowercased()
-        if self == .ncaaf {
+    /// Kept for callers holding a plain string. Anything asking more than one
+    /// league about the same text should prepare it once instead.
+    func matches(_ text: String) -> Bool { matches(SportsMatchText(text)) }
+
+    /// One word is looked up; only a phrase is searched for.
+    ///
+    /// A day of a channel's listings is thousands of characters, and asking
+    /// "does this contain 'bears'" scanned all of them. Thirty team names, six
+    /// leagues, five thousand channels: thirty-five seconds of a launch spent
+    /// scanning the same text for words already sitting in a set beside it.
+    ///
+    /// Single words are now a set lookup, which is stricter than the scan it
+    /// replaces: "bears" no longer matches inside "bearsville". For a team
+    /// name that is the answer anyone wanted -- a listing says Bears, it does
+    /// not say Bearsville -- and phrases like "blue jays" still search the
+    /// text, because a set of words cannot hold them.
+    func matches(_ text: SportsMatchText) -> Bool {
+        switch self {
+        case .ncaaf:
             // Include shared broadcasters as candidates; game matching still
             // requires team evidence before offering playback.
-            let words = Set(value.components(separatedBy: CharacterSet.alphanumerics.inverted))
-            return containsLeagueToken(value)
-                || ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"].contains { value.contains($0) }
-                || !words.isDisjoint(with: ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"])
-        }
-        if self == .ufc {
-            return ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"].contains { value.contains($0) }
-        }
-        return containsLeagueToken(value) || containsAny(value, teamTerms)
-    }
-
-    private var teamTerms: [String] {
-        switch self {
-        case .ncaaf: [] // Avoid ambiguous shared mascots such as Tigers and Bulldogs.
-        case .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"]
-        case .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"]
-        case .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"]
-        case .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]
-        case .ufc: []
+            return text.words.contains(rawValue)
+                || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
+                || text.has(Self.ncaafWords, Self.ncaafPhrases)
+        case .ufc:
+            return text.has(Self.ufcWords, Self.ufcPhrases)
+        default:
+            return text.words.contains(rawValue)
+                || text.has(Self.teamWords[self] ?? [], Self.teamPhrases[self] ?? [])
         }
     }
 
-    private func containsAny(_ text: String, _ terms: [String]) -> Bool {
-        terms.contains { text.contains($0) }
+    /// A term can be looked up only if it survives tokenizing as one piece.
+    /// "pay-per-view" has no space in it but splits into three words, so it
+    /// has to keep searching the text; "76ers" does not.
+    private static func isOneWord(_ term: String) -> Bool {
+        !term.isEmpty && term.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
     }
 
-    private func containsLeagueToken(_ text: String) -> Bool {
-        text.components(separatedBy: CharacterSet.alphanumerics.inverted).contains(rawValue)
+    private static func words(_ terms: [String]) -> Set<String> {
+        Set(terms.filter(isOneWord))
+    }
+
+    private static func phrases(_ terms: [String]) -> [String] {
+        terms.filter { !isOneWord($0) }
+    }
+
+    private static let ncaafWords = words(ncaafTerms)
+    private static let ncaafPhrases = phrases(ncaafTerms)
+    private static let ufcWords = words(ufcTerms)
+    private static let ufcPhrases = phrases(ufcTerms)
+    private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }
+    private static let teamPhrases: [SportsLeague: [String]] = teamTerms.mapValues { phrases($0) }
+
+    private static let ncaafTerms = ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"]
+    private static let ncaafBroadcasters: Set<String> = ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"]
+    private static let ufcTerms = ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"]
+
+    // Stored, not computed. As a computed property every one of these arrays
+    // was built again on every call, and the call happens once per league per
+    // channel.
+    private static let teamTerms: [SportsLeague: [String]] = [
+        // NCAAF is left out on purpose: ambiguous shared mascots such as
+        // Tigers and Bulldogs.
+        .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"],
+        .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"],
+        .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"],
+        .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]
+    ]
+}
+
+/// A channel's searchable text, prepared once.
+///
+/// League matching asks the same text the same six questions, and each
+/// question used to lowercase the whole string again and split it into words
+/// again. That text is not short: it carries the channel's entire day of
+/// listings, and the caller had already lowercased it. Six redundant lowercase
+/// passes and seven tokenizations per channel, across twenty-six thousand
+/// channels, is where a launch spent most of a minute.
+struct SportsMatchText {
+    let value: String
+    let words: Set<String>
+
+    /// Whether scanning the whole string for a term is affordable here.
+    ///
+    /// A channel's name is a few dozen characters and a day of its listings is
+    /// several thousand. Scanning the short one is free, and it is also where
+    /// terms turn up glued to their neighbours -- a channel called "PPV01" is
+    /// a pay-per-view channel, and no amount of tokenizing will say so. The
+    /// long one is where the same scan cost thirty-five seconds of a launch,
+    /// and where a term glued inside a word is noise rather than a match.
+    let scannable: Bool
+
+    /// Hoisted: `inverted` builds a new character set every time it is read,
+    /// and this was read once per league per channel.
+    private static let wordSeparators = CharacterSet.alphanumerics.inverted
+
+    /// For text the caller has already lowercased, which is the hot path.
+    init(alreadyLowercased value: String, scannable: Bool = true) {
+        self.value = value
+        self.words = Set(value.components(separatedBy: Self.wordSeparators))
+        self.scannable = scannable
+    }
+
+    init(_ text: String) { self.init(alreadyLowercased: text.lowercased()) }
+
+    /// Whether any of these terms is here: the words by lookup, the phrases by
+    /// search, and -- only where searching is cheap -- the words by search too.
+    func has(_ words: Set<String>, _ phrases: [String]) -> Bool {
+        if !self.words.isDisjoint(with: words) { return true }
+        if phrases.contains(where: { value.contains($0) }) { return true }
+        // Acronyms are searched for even in the long text. A provider writes
+        // "UFC299" and "PPV01", and tokenizing cannot find a term glued to its
+        // neighbour -- which is how five hundred channels fell out of the
+        // index. There are four of these against thirty team names, so the
+        // scan they cost is not the one that mattered.
+        if words.contains(where: { $0.count <= 3 && value.contains($0) }) { return true }
+        guard scannable else { return false }
+        return words.contains { value.contains($0) }
     }
 }

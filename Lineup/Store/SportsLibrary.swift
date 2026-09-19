@@ -1,6 +1,9 @@
 import Foundation
 import OSLog
 
+/// The one-file cache every install before this one wrote. Still read, once,
+/// so an upgrade does not cost a viewer their channel list and a cold fetch;
+/// it is split into the three below and deleted on the way past.
 private struct LibraryCache: Codable, Sendable {
     let categories: [XtreamCategory]
     let streams: [XtreamStream]
@@ -13,15 +16,64 @@ private struct LibraryCache: Codable, Sendable {
     let sportsIndex: SportsIndex?
 }
 
+/// The channel list and what is built from it: everything the app needs before
+/// it can put a row on screen, and a fraction of what the guide costs to read.
+private struct ChannelCache: Codable, Sendable {
+    let categories: [XtreamCategory]
+    let streams: [XtreamStream]
+    let sportsIndex: SportsIndex?
+}
+
+/// The guide. By far the largest of the three, and the last one needed, so it
+/// is read after the channels are on screen rather than in front of them.
+private struct GuideCache: Codable, Sendable {
+    let programsByChannel: [String: [CurrentProgram]]
+}
+
+/// Everything small and everything volatile: when each half was fetched, the
+/// digest of what the server sent for it, and today's matches.
+///
+/// This is the file that is written on every refresh, because these are the
+/// things that change on every refresh. Keeping them here is what stops a new
+/// timestamp from rewriting a channel list and a day of listings alongside it.
+private struct LibraryState: Codable, Sendable {
+    let guideUpdatedAt: Date?
+    let libraryUpdatedAt: Date?
+    let matchCacheVersion: Int?
+    let dailyMatches: DailyGameMatches<XtreamStream>?
+    let categoriesDigest: String?
+    let streamsDigest: String?
+    let guideDigest: String?
+}
+
+/// The channels worth offering, and which league each belongs to.
+///
+/// It used to carry a third field: a per-stream search string, each one a
+/// channel name glued to its whole day of listings. Nothing ever read it. It
+/// was built for every one of twenty-six thousand streams, held in memory,
+/// written into the cache file and read back on the next launch, and no code
+/// anywhere consulted it. An older cache file still has it; Codable ignores a
+/// key the type no longer declares.
 private struct SportsIndex: Codable, Sendable {
     let professional: [XtreamStream]
     let leagues: [SportsLeague: [XtreamStream]]
-    let searchText: [Int: String]
 }
 
 private struct ScheduleCache: Codable, Sendable {
     let savedAt: Date
     let games: [String: [SportsGame]]
+}
+
+/// The channel list and the state beside it: what has to be read before
+/// anything can be drawn, and nothing else.
+///
+/// `guide` comes back filled only when the read had to fall back to the
+/// one-file cache, which holds all three together -- there is no reading part
+/// of that file, so having read it there is no sense in reading it again.
+private struct RestoredLibrary: Sendable {
+    let channels: ChannelCache
+    let state: LibraryState?
+    let guide: [String: [CurrentProgram]]?
 }
 
 @MainActor
@@ -54,7 +106,6 @@ final class SportsLibrary: ObservableObject {
     private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
-    private var streamSearchText: [Int: String] = [:]
     @Published private var sportsIndexReady = false
     @Published private var channelsValidatedThisSession = false
     @Published private var guideValidatedThisSession = false
@@ -78,6 +129,20 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
+    /// Digests of what the server last sent for each list, carried across
+    /// launches in the state file. A refresh that gets the same bytes back
+    /// stops at the digest: nothing is decoded, compared, or written.
+    private var categoriesDigest: String?
+    private var streamsDigest: String?
+    private var guideDigest: String?
+    /// What is already on disk, so a write can be skipped when it would put
+    /// back exactly what is there. Set when a file is read and when one is
+    /// written; nil means "unknown", which writes.
+    private var savedChannelsDigest: String?
+    private var savedGuideDigest: String?
+    /// Set when a one-file cache was read, cleared once the three files that
+    /// replace it have been written.
+    private var legacyCacheNeedsRetiring = false
     /// Set while a provider refresh is running *behind* restored cache. The
     /// screen stays usable, so this deliberately does not feed
     /// `channelsAreSyncing`, which gates playback and the picker.
@@ -205,47 +270,113 @@ final class SportsLibrary: ObservableObject {
         let currentCategories = categories
         let currentStreams = streams
         let currentPrograms = programsByChannel
-        let index = await Task.detached(priority: .utility) {
-            Self.makeSportsIndex(categories: currentCategories, streams: currentStreams, programs: currentPrograms)
-        }.value
+        // Timed apart from the matching that follows it. One number for the
+        // pair could not say which half was slow, and for two rounds it was
+        // read as though it were all the matching's.
+        let built = await StartupTrace.shared.measure("build sports index") {
+            await Task.detached(priority: .utility) {
+                Self.makeSportsIndex(categories: currentCategories, streams: currentStreams,
+                                     programs: currentPrograms)
+            }.value
+        }
+        let index = built.index
+        for phase in built.phases {
+            StartupTrace.shared.append("    " + phase.name, seconds: phase.seconds, detail: nil)
+        }
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: indexGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
-        streamSearchText = index.searchText
         sportsIndexReady = true
+        let byLeague = SportsLeague.allCases
+            .map { "\($0.rawValue) \(index.leagues[$0]?.count ?? 0)" }.joined(separator: ", ")
+        StartupTrace.shared.note("index built",
+                                 "\(index.professional.count) sports channels of \(currentStreams.count) — " + byLeague)
         await rebuildGameStreamCache(force: true)
     }
 
+    /// The index, and how long each part of building it took.
+    ///
+    /// The timings come back rather than being recorded in place because this
+    /// runs off the main actor, and because one number for the whole thing was
+    /// read wrongly twice.
     nonisolated private static func makeSportsIndex(
         categories: [XtreamCategory], streams: [XtreamStream], programs: [String: [CurrentProgram]]
-    ) -> SportsIndex {
+    ) -> (index: SportsIndex, phases: [(name: String, seconds: Double)]) {
+        var phases: [(name: String, seconds: Double)] = []
+        func time<T>(_ name: String, _ work: () -> T) -> T {
+            let start = ProcessInfo.processInfo.systemUptime
+            let value = work()
+            phases.append((name, ProcessInfo.processInfo.systemUptime - start))
+            return value
+        }
+
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
-        let programText = programs.mapValues { listings in
-            listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
+        // Prepared once per guide channel rather than once per stream. A
+        // provider lists the same channel several times over -- HD, FHD, SD,
+        // a backup feed -- and every one of them points at these same listings.
+        let programText = time("listing text") {
+            programs.mapValues { listings in
+                // Not scannable: this is the several-thousand-character half,
+                // and searching it for every term is what cost the launch
+                // thirty-five seconds.
+                SportsMatchText(alreadyLowercased:
+                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased(),
+                    scannable: false)
+            }
         }
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
-        var searchText: [Int: String] = [:]
+
+        // Which leagues a guide channel's listings point at, worked out once
+        // for the channel rather than once for every stream that carries it.
+        //
+        // This is the shape of the thing: five thousand guide channels behind
+        // twenty-six thousand streams, and the answer for a channel's listings
+        // is the same whichever stream is asking. It used to be recomputed per
+        // stream, and then a second pass recomputed all of it again per
+        // league. A day of television was scanned for thirty team names, over
+        // and over, for an answer already known.
+        var listingLeagues: [String: Set<SportsLeague>] = [:]
+        var streamLeagues: [Int: Set<SportsLeague>] = [:]
         var collegeStreamIDs: Set<Int> = []
-        let professional = streams.filter { stream in
-            let category = categoryNames[stream.categoryID ?? ""] ?? ""
-            let type = stream.streamType?.lowercased()
-            guard type != "radio_streams", type != "radio" else { return false }
-            let base = "\(stream.name) \(category)".lowercased()
-            guard !blocked.contains(where: { base.contains($0) }) else { return false }
-            if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
-            let searchable = "\(base) \(stream.epgChannelID.flatMap { programText[$0] } ?? "")"
-            searchText[stream.id] = searchable
-            return SportsLeague.allCases.contains { $0.matches(searchable) }
+
+        func leagues(listedOn stream: XtreamStream) -> Set<SportsLeague> {
+            guard let epgID = stream.epgChannelID, let text = programText[epgID] else { return [] }
+            if let known = listingLeagues[epgID] { return known }
+            let found = Set(SportsLeague.allCases.filter { $0.matches(text) })
+            listingLeagues[epgID] = found
+            return found
         }
-        let leagues = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
-            (league, professional.filter {
-                (league == .ncaaf || !collegeStreamIDs.contains($0.id))
-                    && league.matches(searchText[$0.id] ?? $0.name)
+
+        let professional = time("channel filter") {
+            streams.filter { stream in
+                let category = categoryNames[stream.categoryID ?? ""] ?? ""
+                let type = stream.streamType?.lowercased()
+                guard type != "radio_streams", type != "radio" else { return false }
+                let base = "\(stream.name) \(category)".lowercased()
+                guard !blocked.contains(where: { base.contains($0) }) else { return false }
+                if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
+                // Short: a name and a category, and already lowercase.
+                let baseText = SportsMatchText(alreadyLowercased: base)
+                let found = Set(SportsLeague.allCases.filter { $0.matches(baseText) })
+                    .union(leagues(listedOn: stream))
+                guard !found.isEmpty else { return false }
+                streamLeagues[stream.id] = found
+                return true
+            }
+        }
+        // No matching happens here any more. The filter above already settled
+        // which leagues each channel belongs to; this only sorts them.
+        let leagueBuckets = time("league buckets") {
+            Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+                (league, professional.filter { stream in
+                    guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
+                    return streamLeagues[stream.id]?.contains(league) ?? false
+                })
             })
-        })
-        return SportsIndex(professional: professional, leagues: leagues, searchText: searchText)
+        }
+        return (SportsIndex(professional: professional, leagues: leagueBuckets), phases)
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -292,16 +423,59 @@ final class SportsLibrary: ObservableObject {
                 scheduleDay = Calendar.current.startOfDay(for: Date())
             }
         }
-        if streams.isEmpty, let cached = await Self.readCache(profileID: profile.id) {
+        let trace = StartupTrace.shared
+        if streams.isEmpty {
+            trace.begin()
+            trace.note("cold start", "no channels in memory")
+        }
+        if streams.isEmpty,
+           let restored = await trace.measure("read cache: channels + state",
+                                              { await Self.readHead(profileID: profile.id) }) {
             guard activeProfile?.id == profile.id else { return }
-            categories = cached.categories
-            streams = cached.streams
+            // The channel list goes up first. Every screen in the app needs it
+            // and nothing needs it sooner, and it is a fraction of the size of
+            // the guide that used to be decoded in front of it.
+            categories = restored.channels.categories
+            streams = restored.channels.streams
             guideListCache = nil
-            programsByChannel = cached.programsByChannel
-            guideUpdatedAt = cached.guideUpdatedAt
-            libraryUpdatedAt = cached.libraryUpdatedAt
+            let state = restored.state
+            guideUpdatedAt = state?.guideUpdatedAt
+            libraryUpdatedAt = state?.libraryUpdatedAt
+            categoriesDigest = state?.categoriesDigest
+            streamsDigest = state?.streamsDigest
+            guideDigest = state?.guideDigest
+            // Now the expensive half, with something already on screen. The
+            // index and the matching below both read it, so it has to be in
+            // place before either of them runs -- but not before the channels
+            // are, which is the whole change.
+            trace.note("channels on screen", "\(streams.count) channels, \(categories.count) categories")
+            if let carried = restored.guide {
+                legacyCacheNeedsRetiring = true
+                programsByChannel = carried
+                trace.note("read cache: guide", "from the one-file cache, being migrated")
+            } else {
+                // Channels are on screen and the guide is not yet, which is a
+                // state the app already has a word for. Saying it stops the
+                // Guide printing "No listing" against every row for as long as
+                // the read takes -- an empty guide and a guide still being
+                // read look identical from a row, and only one of them is
+                // worth telling anyone about.
+                isGuideLoading = true
+                let guide = await trace.measure("read cache: guide",
+                                                { await Self.readGuide(profileID: profile.id) })
+                guard activeProfile?.id == profile.id else {
+                    isGuideLoading = false
+                    return
+                }
+                if let guide { programsByChannel = guide }
+                isGuideLoading = false
+                trace.note("guide on screen", "\(programsByChannel.count) channels with listings")
+            }
+            guideListCache = nil
+            savedChannelsDigest = channelsSignature
+            savedGuideDigest = guideSignature
             let now = Date()
-            if cached.matchCacheVersion == 2, let saved = cached.dailyMatches {
+            if state?.matchCacheVersion == 2, let saved = state?.dailyMatches {
                 gameStreamCache = saved.restore(identities: matchIdentities(now: now), available: streams, now: now)
                 restoredMatchGameIDs = Set(gameStreamCache.keys)
                 matchedGameIdentities = saved.identities.filter { gameStreamCache[$0.key] != nil }
@@ -312,20 +486,38 @@ final class SportsLibrary: ObservableObject {
                     gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 }
             }
-            if cached.matchCacheVersion == 2, let saved = cached.dailyMatches,
-               DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
-               let index = cached.sportsIndex,
+            // The index is a function of the channel list and the guide, and
+            // neither of those is a function of what day it is. It used to be
+            // gated on the saved *matches* being from today, which threw a
+            // perfectly good index away on the first launch of every new day
+            // and spent a minute building an identical one. The matches keep
+            // their daily gate above, where it belongs; a refresh rebuilds the
+            // index whenever either of its inputs actually changes.
+            if let index = restored.channels.sportsIndex,
                DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(index.leagues.keys.map(\.rawValue)),
                    expectedLeagues: Set(SportsLeague.allCases.map(\.rawValue))) {
                 professionalStreams = index.professional
                 leagueStreamCache = index.leagues
-                streamSearchText = index.searchText
                 sportsIndexReady = true
+                trace.note("sports index restored", "from cache")
                 if matchIdentities(now: now).keys.contains(where: { gameStreamCache[$0] == nil }) {
-                    await rebuildGameStreamCache()
+                    await trace.measure("rematch games", { await rebuildGameStreamCache() })
                 }
             } else {
-                await rebuildProfessionalStreams()
+                // Say which of the two it was. "Missing or stale" covered a
+                // file that was not there, an index that did not cover every
+                // league, and a state file that never arrived -- and guessing
+                // between them cost a round of testing.
+                let why: String
+                if restored.channels.sportsIndex == nil {
+                    why = state == nil
+                        ? "no index in the cache, and no state file either"
+                        : "no index in the cache"
+                } else {
+                    why = "index in the cache does not cover every league"
+                }
+                await trace.measure("rebuild sports index", detail: why,
+                                    { await rebuildProfessionalStreams() })
             }
         }
         guard activeProfile?.id == profile.id else { return }
@@ -384,23 +576,54 @@ final class SportsLibrary: ObservableObject {
         if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         guard refreshChannels else { return }
         do {
-            async let loadedCategories = client.categories()
-            async let loadedStreams = client.streams()
-            let (newCategories, newStreams) = try await (loadedCategories, loadedStreams)
+            // nil back means the server sent the same bytes as last time, so
+            // there is nothing to decode and nothing to compare -- which on a
+            // provider with tens of thousands of channels is most of what a
+            // refresh used to do. The policy decides whether the app has
+            // earned the right to ask that cheap question at all.
+            let trace = StartupTrace.shared
+            let answers = try await trace.measure("fetch channel list") {
+                async let loadedCategories = client.categories(
+                    ifChangedFrom: LibraryCachePolicy.digest(categoriesDigest,
+                                                             whenHolding: !categories.isEmpty))
+                async let loadedStreams = client.streams(
+                    ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
+                                                             whenHolding: !streams.isEmpty))
+                return try await (loadedCategories, loadedStreams)
+            }
+            let (freshCategories, freshStreams) = answers
+            // The digest saves parsing these, never downloading them, so the
+            // size is recorded either way -- it is the number that says
+            // whether the next thing worth doing is at the HTTP level.
+            trace.note("channel list downloaded",
+                       "\(StartupTrace.size(freshCategories.bytes + freshStreams.bytes)), "
+                       + (freshStreams.payload == nil ? "unchanged" : "changed"))
             guard activeProfile?.id == profile.id else { return }
+            // Different bytes still need the old comparison: a server can
+            // reorder a list, or restate it, without changing what it says.
             let oldCategories = categories
             let oldStreams = streams
-            let changes = await Task.detached(priority: .utility) {
-                (oldCategories != newCategories, oldStreams != newStreams)
-            }.value
+            let newCategories = freshCategories.payload
+            let newStreams = freshStreams.payload
+            let changes = await trace.measure("compare channel list") {
+                await Task.detached(priority: .utility) {
+                    (newCategories.map { $0.value != oldCategories } ?? false,
+                     newStreams.map { $0.value != oldStreams } ?? false)
+                }.value
+            }
             guard activeProfile?.id == profile.id else { return }
-            if changes.0 { categories = newCategories }
-            if changes.1 {
+            if let newCategories { categoriesDigest = newCategories.digest }
+            if let newStreams { streamsDigest = newStreams.digest }
+            if changes.0, let newCategories { categories = newCategories.value }
+            if changes.1, let newStreams {
                 guideListCache = nil
-                streams = newStreams
+                streams = newStreams.value
             }
             libraryUpdatedAt = Date()
-            if changes.0 || changes.1 { await rebuildProfessionalStreams() }
+            if changes.0 || changes.1 {
+                await trace.measure("rebuild sports index", detail: "channel list changed",
+                                    { await rebuildProfessionalStreams() })
+            }
             guard activeProfile?.id == profile.id else { return }
             channelsValidatedThisSession = true
             promoteCachedMatchesIfSafe()
@@ -422,15 +645,41 @@ final class SportsLibrary: ObservableObject {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
             }
             // Keep the last good guide and its timestamp when a refresh fails.
-            guard let programs = try? await client.programsToday() else { return }
+            // A thrown error and an unchanged guide are different answers: the
+            // first leaves the timestamp alone, the second moves it on, because
+            // the server did answer and it said nothing has changed.
+            let trace = StartupTrace.shared
+            let answer: XtreamAnswer<[String: [CurrentProgram]]>
+            // As above: an empty guide cannot be left unchanged.
+            let ask = LibraryCachePolicy.digest(self.guideDigest,
+                                                whenHolding: !self.programsByChannel.isEmpty)
+            do {
+                // This covers the download and, when the bytes are new, the
+                // XMLTV parse. Two very different costs, so the note below
+                // says which one was paid.
+                answer = try await trace.measure("fetch guide") {
+                    try await client.programsToday(ifChangedFrom: ask)
+                }
+            } catch { return }
+            trace.note("guide downloaded",
+                       "\(StartupTrace.size(answer.bytes)), "
+                       + (answer.payload == nil ? "unchanged — not parsed" : "parsed"))
             guard self.activeProfile?.id == profileID else { return }
-            let previousPrograms = self.programsByChannel
-            let changed = await Task.detached(priority: .utility) { previousPrograms != programs }.value
-            guard self.activeProfile?.id == profileID else { return }
+            var changed = false
+            if let fresh = answer.payload {
+                let previousPrograms = self.programsByChannel
+                let programs = fresh.value
+                changed = await trace.measure("compare guide") {
+                    await Task.detached(priority: .utility) { previousPrograms != programs }.value
+                }
+                guard self.activeProfile?.id == profileID else { return }
+                self.guideDigest = fresh.digest
+                if changed { self.programsByChannel = programs }
+            }
             self.guideUpdatedAt = Date()
             if changed {
-                self.programsByChannel = programs
-                await self.rebuildProfessionalStreams()
+                await trace.measure("rebuild sports index", detail: "guide changed",
+                                    { await self.rebuildProfessionalStreams() })
             }
             guard self.activeProfile?.id == profileID else { return }
             self.guideValidatedThisSession = true
@@ -449,13 +698,23 @@ final class SportsLibrary: ObservableObject {
         return Date().timeIntervalSince(libraryUpdatedAt) < libraryLifetime
     }
 
+    private var channelsSignature: String {
+        LibraryCachePolicy.channelsSignature(categoriesDigest: categoriesDigest,
+                                             streamsDigest: streamsDigest,
+                                             guideDigest: guideDigest,
+                                             hasIndex: sportsIndexReady)
+    }
+
+    private var guideSignature: String {
+        LibraryCachePolicy.guideSignature(guideDigest: guideDigest)
+    }
+
     private func saveCache(profileID: UUID) {
         let now = Date()
         let identities = matchIdentities(now: now)
-        let snapshot = LibraryCache(
-            categories: categories,
-            streams: streams,
-            programsByChannel: programsByChannel,
+        // Always written: every one of these changes on every refresh, which
+        // is the whole reason they were moved out of the big files.
+        let state = LibraryState(
             guideUpdatedAt: guideUpdatedAt,
             libraryUpdatedAt: libraryUpdatedAt,
             matchCacheVersion: 2,
@@ -463,28 +722,111 @@ final class SportsLibrary: ObservableObject {
                 channels: gameStreamCache.filter { key, _ in
                     identities[key] != nil && identities[key] == matchedGameIdentities[key]
                 }),
-            sportsIndex: sportsIndexReady ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache, searchText: streamSearchText) : nil
+            categoriesDigest: categoriesDigest,
+            streamsDigest: streamsDigest,
+            guideDigest: guideDigest
         )
         lastSavedMatchIdentities = identities
         lastSavedMatchDay = now
+
+        // Written only when they would say something new.
+        let channels: ChannelCache? = !LibraryCachePolicy.needsWriting(
+            signature: channelsSignature, lastWritten: savedChannelsDigest) ? nil : ChannelCache(
+            categories: categories,
+            streams: streams,
+            sportsIndex: sportsIndexReady
+                ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache)
+                : nil
+        )
+        let guide: GuideCache? = LibraryCachePolicy.needsWriting(
+            signature: guideSignature, lastWritten: savedGuideDigest)
+            ? GuideCache(programsByChannel: programsByChannel) : nil
+        savedChannelsDigest = channelsSignature
+        savedGuideDigest = guideSignature
+        let retireLegacy = legacyCacheNeedsRetiring
+        legacyCacheNeedsRetiring = false
+
         let previousWrite = cacheWriteTask
         cacheWriteTask = Task.detached(priority: .utility) {
             await previousWrite?.value
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? data.write(to: Self.cacheURL(profileID: profileID), options: .atomic)
+            if let channels { Self.write(channels, to: Self.channelsURL(profileID: profileID)) }
+            if let guide { Self.write(guide, to: Self.guideURL(profileID: profileID)) }
+            Self.write(state, to: Self.stateURL(profileID: profileID))
+            // Only once the three that replace it are on disk.
+            if retireLegacy {
+                try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profileID))
+            }
         }
     }
 
-    nonisolated private static func readCache(profileID: UUID) async -> LibraryCache? {
+    nonisolated private static func write<T: Encodable>(_ value: T, to url: URL) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    nonisolated private static func readHead(profileID: UUID) async -> RestoredLibrary? {
         await Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: cacheURL(profileID: profileID)) else { return nil }
-            return try? JSONDecoder().decode(LibraryCache.self, from: data)
+            let decoder = JSONDecoder()
+            if let data = try? Data(contentsOf: channelsURL(profileID: profileID)),
+               let channels = try? decoder.decode(ChannelCache.self, from: data) {
+                let state = (try? Data(contentsOf: stateURL(profileID: profileID)))
+                    .flatMap { try? decoder.decode(LibraryState.self, from: $0) }
+                return RestoredLibrary(channels: channels, state: state, guide: nil)
+            }
+            guard let data = try? Data(contentsOf: cacheURL(profileID: profileID)),
+                  let legacy = try? decoder.decode(LibraryCache.self, from: data) else { return nil }
+            return RestoredLibrary(
+                channels: ChannelCache(categories: legacy.categories, streams: legacy.streams,
+                                       sportsIndex: legacy.sportsIndex),
+                state: LibraryState(guideUpdatedAt: legacy.guideUpdatedAt,
+                                    libraryUpdatedAt: legacy.libraryUpdatedAt,
+                                    matchCacheVersion: legacy.matchCacheVersion,
+                                    dailyMatches: legacy.dailyMatches,
+                                    // A one-file cache predates digests, so the
+                                    // next refresh fetches and compares as it
+                                    // always did, and records them for the one
+                                    // after that.
+                                    categoriesDigest: nil, streamsDigest: nil, guideDigest: nil),
+                guide: legacy.programsByChannel
+            )
         }.value
     }
 
+    nonisolated private static func readGuide(profileID: UUID) async -> [String: [CurrentProgram]]? {
+        await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: guideURL(profileID: profileID)),
+                  let guide = try? JSONDecoder().decode(GuideCache.self, from: data) else { return nil }
+            return guide.programsByChannel
+        }.value
+    }
+
+    nonisolated private static func cacheDirectory() -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    }
+
+    /// The one-file cache written by every version before the split.
     nonisolated private static func cacheURL(profileID: UUID) -> URL {
-        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return directory.appendingPathComponent("lineup-\(profileID.uuidString).json")
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString).json")
+    }
+
+    nonisolated private static func channelsURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-channels.json")
+    }
+
+    nonisolated private static func guideURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-guide.json")
+    }
+
+    nonisolated private static func stateURL(profileID: UUID) -> URL {
+        cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString)-state.json")
+    }
+
+    nonisolated private static func removeCaches(profileID: UUID) {
+        let manager = FileManager.default
+        for url in [cacheURL(profileID: profileID), channelsURL(profileID: profileID),
+                    guideURL(profileID: profileID), stateURL(profileID: profileID)] {
+            try? manager.removeItem(at: url)
+        }
     }
 
     func streams(for league: SportsLeague) -> [XtreamStream] {
@@ -716,7 +1058,11 @@ final class SportsLibrary: ObservableObject {
                 game: Self.collegeMatchup(game), now: now,
                 allowNetworkFallback: false) != nil
         }
-        return Self.professionalScore(stream, game: game, listings: listings, now: now) != nil
+        return Self.professionalScore(
+            stream, game: game, preparedGame: Self.prepared(game),
+            channel: ProfessionalChannelMatcher.prepare(
+                channel: stream.name, listings: Self.matcherListings(["": listings])[""] ?? []),
+            listings: listings, now: now) != nil
     }
 
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
@@ -729,17 +1075,53 @@ final class SportsLibrary: ObservableObject {
         programs.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
     }
 
+    /// The matcher's own view of a channel's listings, built once per channel.
+    ///
+    /// This used to be built inside the score, which is called for every
+    /// candidate channel of every game -- sixty-six games against five
+    /// thousand channels is three hundred thousand times, each one rebuilding
+    /// the same array of the same listings for the same channel.
+    nonisolated private static func matcherListings(
+        _ programs: [String: [CurrentProgram]]
+    ) -> [String: [ProfessionalChannelMatcher.PreparedListing]] {
+        programs.mapValues { listings in
+            ProfessionalChannelMatcher.prepare(
+                listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) })
+        }
+    }
+
+    nonisolated private static func prepared(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
+        ProfessionalChannelMatcher.prepare(
+            .init(away: game.awayTeam, home: game.homeTeam,
+                  awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
+                  start: game.start, isLive: game.isLive))
+    }
+
     nonisolated private static func professionalScore(_ stream: XtreamStream, game: SportsGame,
-                                                       listings: [CurrentProgram], now: Date) -> Int? {
+                                                       preparedGame: ProfessionalChannelMatcher.PreparedGame,
+                                                       channel: ProfessionalChannelMatcher.PreparedChannel,
+                                                       listings: [CurrentProgram],
+                                                       now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
-        return ProfessionalChannelMatcher.score(channel: stream.name,
-            listings: listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) },
-            game: .init(away: game.awayTeam, home: game.homeTeam,
-                awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
-                start: game.start, isLive: game.isLive), now: now)
+        return ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
+    }
+
+    /// Every candidate channel prepared once for the pass: its name normalized
+    /// and padded, its listings likewise, and whether it is a replay or a
+    /// whip-around feed already decided.
+    nonisolated private static func preparedChannels(
+        _ candidates: [XtreamStream],
+        listings: [String: [ProfessionalChannelMatcher.PreparedListing]]
+    ) -> [Int: ProfessionalChannelMatcher.PreparedChannel] {
+        var prepared: [Int: ProfessionalChannelMatcher.PreparedChannel] = [:]
+        for candidate in candidates where prepared[candidate.id] == nil {
+            prepared[candidate.id] = ProfessionalChannelMatcher.prepare(
+                channel: candidate.name, listings: listings[candidate.epgChannelID ?? ""] ?? [])
+        }
+        return prepared
     }
 
     nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
@@ -780,11 +1162,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream],
-                                                  programs: [String: [CurrentProgram]], now: Date) -> XtreamStream? {
+                                                  programs: [String: [CurrentProgram]],
+                                                  channels: [Int: ProfessionalChannelMatcher.PreparedChannel],
+                                                  preparedGame: ProfessionalChannelMatcher.PreparedGame,
+                                                  now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
         for candidate in candidates {
-            guard let score = professionalScore(candidate, game: game,
-                listings: programs[candidate.epgChannelID ?? ""] ?? [], now: now) else { continue }
+            guard let prepared = channels[candidate.id] else { continue }
+            guard let score = professionalScore(candidate, game: game, preparedGame: preparedGame,
+                channel: prepared, listings: programs[candidate.epgChannelID ?? ""] ?? [],
+                now: now) else { continue }
             if let current = best {
                 guard score > current.score || (score == current.score && candidate.id < current.stream.id) else { continue }
             }
@@ -793,6 +1180,19 @@ final class SportsLibrary: ObservableObject {
         return best?.stream
     }
 
+    /// Match today's games to channels.
+    ///
+    /// Several things ask for this at once on a launch: the restored index, a
+    /// schedule arriving, a finished refresh, a score poll. I tried queueing
+    /// them -- one pass at a time, one more behind it -- and made the launch
+    /// twice as slow: four passes that had been overlapping at twenty seconds
+    /// each, for twenty-two seconds of wall clock between them, became four
+    /// runs end to end for eighty-five. Queueing was the wrong lever. They
+    /// overlap again, and the generation token throws away whichever results
+    /// arrive stale, as it always did.
+    ///
+    /// The cost worth removing is inside a single pass, not in how many of
+    /// them there are.
     private func rebuildGameStreamCache(force: Bool = false) async {
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
@@ -811,7 +1211,16 @@ final class SportsLibrary: ObservableObject {
         // ago can credit a channel for a game that is no longer on it. Matching
         // sees exactly what it always saw.
         let matchNow = Date()
-        let programs = programsByChannel.mapValues { $0.filter { $0.end > matchNow } }
+        let trace = StartupTrace.shared
+        // Every listing of every channel, copied and filtered, before the
+        // matching has started. Measured on its own because "rematch games"
+        // as one number cannot say whether the cost is this or the matching.
+        let listings = programsByChannel
+        let programs = await trace.measure("prepare listings for matching") {
+            await Task.detached(priority: .utility) {
+                listings.mapValues { $0.filter { $0.end > matchNow } }
+            }.value
+        }
         // College event channels may have neither a league token nor a network
         // name. Let the college policy inspect them without changing other indexes.
         let currentStreams = streams
@@ -823,7 +1232,16 @@ final class SportsLibrary: ObservableObject {
         // rematches against a newly installed channel index.
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
-        let result = await Task.detached(priority: .utility) {
+        let result = await trace.measure("match games to channels",
+                                         detail: "\(games.count) games, \(leagues.values.map(\.count).reduce(0, +)) league candidates") {
+            await Task.detached(priority: .utility) {
+            // Timed in two halves. The detail above counts only the league
+            // buckets, and four rounds of tuning went into the half they
+            // describe while the other half -- college, which casts its net
+            // over every channel the provider has -- went unmeasured.
+            var collegeSeconds = 0.0
+            var professionalSeconds = 0.0
+            func clock() -> Double { ProcessInfo.processInfo.systemUptime }
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
@@ -838,6 +1256,13 @@ final class SportsLibrary: ObservableObject {
                 if collegePrograms[key] == nil { collegePrograms[key] = Self.collegeListings(programs[key] ?? []) }
                 return CollegeChannelMatcher.Candidate(id: stream.id, name: stream.name, listings: collegePrograms[key] ?? [])
             }
+            // Built once for the whole pass, rather than rebuilt inside every
+            // one of three hundred thousand scores.
+            let preparedListings = Self.matcherListings(programs)
+            // Every candidate channel's name, normalized once for the pass
+            // rather than once for each of sixty-six games.
+            let preparedChannels = Self.preparedChannels(leagues.values.flatMap { $0 },
+                                                         listings: preparedListings)
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -845,6 +1270,8 @@ final class SportsLibrary: ObservableObject {
             for game in games {
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
+                    let collegeStart = clock()
+                    defer { collegeSeconds += clock() - collegeStart }
                     let matchup = Self.collegeMatchup(game)
                     let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
                         allowNetworkFallback: false)
@@ -862,21 +1289,36 @@ final class SportsLibrary: ObservableObject {
                     Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
                     continue
                 }
+                let professionalStart = clock()
+                defer { professionalSeconds += clock() - professionalStart }
+                // Worked out once for this game, not once per candidate.
+                let preparedGame = Self.prepared(game)
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 let reused: (stream: XtreamStream, evidence: Int)? = DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
                     currentSignature: signature, hasMatch: matches[game.id] != nil)
                     ? matches[game.id].flatMap { cached in
-                        Self.professionalScore(cached, game: game,
-                            listings: programs[cached.epgChannelID ?? ""] ?? [], now: now).map { (cached, $0) }
+                        let key = cached.epgChannelID ?? ""
+                        let channel = preparedChannels[cached.id] ?? ProfessionalChannelMatcher.prepare(
+                            channel: cached.name, listings: preparedListings[key] ?? [])
+                        return Self.professionalScore(cached, game: game, preparedGame: preparedGame,
+                                                      channel: channel, listings: programs[key] ?? [],
+                                                      now: now)
+                            .map { (cached, $0) }
                     }
                     : nil
                 var evidence = reused?.evidence
                 if reused == nil {
-                    if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], programs: programs, now: now) {
+                    if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [],
+                                                       programs: programs, channels: preparedChannels,
+                                                       preparedGame: preparedGame, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
-                        evidence = Self.professionalScore(stream, game: game,
-                            listings: programs[stream.epgChannelID ?? ""] ?? [], now: now)
+                        let key = stream.epgChannelID ?? ""
+                        let chosen = preparedChannels[stream.id] ?? ProfessionalChannelMatcher.prepare(
+                            channel: stream.name, listings: preparedListings[key] ?? [])
+                        evidence = Self.professionalScore(stream, game: game, preparedGame: preparedGame,
+                                                          channel: chosen, listings: programs[key] ?? [],
+                                                          now: now)
                     } else {
                         matches.removeValue(forKey: game.id)
                         signatures.removeValue(forKey: game.id)
@@ -889,8 +1331,13 @@ final class SportsLibrary: ObservableObject {
                 let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") evidence=\(evidence?.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=\(reused == nil ? "professional-fresh" : "professional-reused")"
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
-            return (matches, signatures, matches != previousMatches, evidenceByGame)
-        }.value
+            return (matches, signatures, matches != previousMatches, evidenceByGame,
+                    collegeSlate.count, collegeCandidates.count, collegeSeconds, professionalSeconds)
+            }.value
+        }
+        trace.note("  college", "\(result.4) games over \(result.5) candidates, "
+                   + String(format: "%.1fs", result.6))
+        trace.note("  professional", String(format: "%.1fs", result.7))
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
@@ -937,8 +1384,13 @@ final class SportsLibrary: ObservableObject {
                     listings: Self.collegeListings(programs(for: fresh)),
                     game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
             } else {
-                evidence = Self.professionalScore(fresh, game: game,
-                    listings: programs(for: fresh), now: now)
+                let freshListings = programs(for: fresh)
+                evidence = Self.professionalScore(
+                    fresh, game: game, preparedGame: Self.prepared(game),
+                    channel: ProfessionalChannelMatcher.prepare(
+                        channel: fresh.name,
+                        listings: Self.matcherListings(["": freshListings])[""] ?? []),
+                    listings: freshListings, now: now)
             }
             guard let evidence else { continue }
             refreshedMatches[game.id] = fresh
@@ -1308,7 +1760,7 @@ final class SportsLibrary: ObservableObject {
         }
         // Finish an already queued cache write before deleting this cache.
         await cacheWriteTask?.value
-        try? FileManager.default.removeItem(at: Self.cacheURL(profileID: profile.id))
+        Self.removeCaches(profileID: profile.id)
         persistProfiles()
         isSwitchingProfile = false
         if removingActive, activeProfile != nil { await bootstrap() }
@@ -1330,7 +1782,6 @@ final class SportsLibrary: ObservableObject {
         streams = []
         professionalStreams = []
         leagueStreamCache = [:]
-        streamSearchText = [:]
         sportsIndexReady = false
         gameStreamCache = [:]
         matchEvidenceScores = [:]

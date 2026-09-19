@@ -68,15 +68,36 @@ enum CollegeChannelMatcher {
         let listings: [Listing]
         let normalizedName: String
         let networkIDs: Set<String>
+        /// Whether this channel is disqualified on its name alone -- radio, a
+        /// replay, another sport.
+        ///
+        /// It depends on nothing but the name, and it was being worked out
+        /// inside the score, which runs once per game. Twenty thousand
+        /// candidates against twenty-eight college games is half a million
+        /// times, each rebuilding the same nineteen-string list and padding
+        /// the same name nineteen times over. That was sixteen seconds of
+        /// every launch.
+        let isBlocked: Bool
 
         init(id: Int, name: String, listings: [Listing]) {
             self.id = id
             self.name = name
             self.listings = listings
-            normalizedName = CollegeChannelMatcher.normalized(name)
+            let normalized = CollegeChannelMatcher.normalized(name)
+            normalizedName = normalized
             networkIDs = CollegeChannelMatcher.networks(name)
+            let padded = " " + normalized + " "
+            isBlocked = CollegeChannelMatcher.blockedPhrases.contains(where: padded.contains)
         }
     }
+
+    /// Padded once, because a word match is a search for " phrase " inside
+    /// " text " and padding at the point of comparison allocates two strings
+    /// every time it is asked.
+    static let blockedPhrases = ["radio", "audio", "sirius", "podcast", "music", "nfhs", "news",
+                                 "business", "high school", "basketball", "baseball", "soccer",
+                                 "volleyball", "softball", "lacrosse", "hockey", "tennis",
+                                 "replay", "classic"].map { " " + $0 + " " }
 
     // Evidence outranks provider ordering. Multiple valid feeds are alternatives,
     // even when the provider gives each quality or affiliate a different EPG ID.
@@ -94,8 +115,8 @@ enum CollegeChannelMatcher {
     private static func score(candidate: Candidate, game: Matchup, now: Date, allowNetworkFallback: Bool) -> Int? {
         let name = candidate.normalizedName
         let listings = candidate.listings
-        let blocked = ["radio", "audio", "sirius", "podcast", "music", "nfhs", "news", "business", "high school", "basketball", "baseball", "soccer", "volleyball", "softball", "lacrosse", "hockey", "tennis", "replay", "classic"]
-        guard !blocked.contains(where: { contains(name, phrase: $0) }) else { return nil }
+        // Settled when the candidate was built, not here.
+        guard !candidate.isBlocked else { return nil }
         let expected = game.expectedNetworks
         let actual = candidate.networkIDs
         let networkMatch = actual.count == 1 && actual.isSubset(of: expected)

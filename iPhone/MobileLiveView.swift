@@ -61,18 +61,16 @@ struct MobileLiveView: View {
                         // empty screen behind it, so it explains itself at
                         // length; a refresh running behind restored cache is a
                         // quiet line, because everything below it already works.
-                        if library.isInitialProviderSync {
-                            InitialSyncBanner()
-                        // Tied to work actually in flight, not to matching
-                        // being "ready". Readiness can sit false forever --
-                        // with no games there is nothing to match and nothing
-                        // ever completes it -- and the banner then announced a
-                        // refresh that had finished, or had never been needed.
-                        } else if library.isScheduleLoading || library.isLoading
-                                    || library.channelsAreSyncing {
-                            RefreshingStreamsBanner()
-                        } else if library.isRefreshingInBackground {
-                            BackgroundRefreshBanner()
+                        switch MobileLiveBanner.choose(
+                            isInitialProviderSync: library.isInitialProviderSync,
+                            isRefreshingInBackground: library.isRefreshingInBackground,
+                            isScheduleLoading: library.isScheduleLoading,
+                            isLoading: library.isLoading,
+                            channelsAreSyncing: library.channelsAreSyncing) {
+                        case .initialSync: InitialSyncBanner()
+                        case .background: BackgroundRefreshBanner()
+                        case .refreshing: RefreshingStreamsBanner()
+                        case .none: EmptyView()
                         }
                         if let error = library.scheduleErrorMessage {
                             Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
