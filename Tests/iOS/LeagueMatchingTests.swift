@@ -88,3 +88,56 @@ final class LeagueMatchingTests: XCTestCase {
         XCTAssertTrue(SportsLeague.nfl.matches("us|nfl-network"), "Separators still split words")
     }
 }
+
+/// A channel's own words and the listings it points at are asked about
+/// separately now, rather than glued into one string per stream. These check
+/// that splitting them decides the same things.
+final class SplitMatchTextTests: XCTestCase {
+    private func asksSeparately(_ league: SportsLeague, name: String, listings: String) -> Bool {
+        let base = SportsMatchText(alreadyLowercased: name.lowercased())
+        let text = SportsMatchText(alreadyLowercased: listings.lowercased())
+        return league.matches(base) || league.matches(text)
+    }
+
+    private func asksJoined(_ league: SportsLeague, name: String, listings: String) -> Bool {
+        league.matches(SportsMatchText(alreadyLowercased: "\(name) \(listings)".lowercased()))
+    }
+
+    private let cases: [(name: String, listings: String)] = [
+        ("us| espn hd", "college football alabama at auburn  nfl live  sportscenter"),
+        ("us| regional sports network", "toronto blue jays at boston red sox pregame"),
+        ("CA| SN1 FHD", "maple leafs vs golden knights  post game"),
+        ("us| generic entertainment", "reruns and movies all day"),
+        ("us| nba tv", ""),
+        ("", "ufc 320 prelims early prelims"),
+        ("us| fs1", "nascar cup series"),
+        ("us| tnt", "white sox at guardians")
+    ]
+
+    func testAskingTheTwoHalvesSeparatelyAgreesWithAskingTheJoin() {
+        for sample in cases {
+            for league in SportsLeague.allCases {
+                XCTAssertEqual(asksSeparately(league, name: sample.name, listings: sample.listings),
+                               asksJoined(league, name: sample.name, listings: sample.listings),
+                               "\(league.rawValue) disagreed about \"\(sample.name)\" + listings")
+            }
+        }
+    }
+
+    // A channel with no listings is matched on its name alone, which is what
+    // happens for every stream whose EPG id the guide does not carry.
+    func testAChannelWithNoListingsIsStillMatchedOnItsName() {
+        let base = SportsMatchText(alreadyLowercased: "us| nfl network hd")
+        XCTAssertTrue(SportsLeague.nfl.matches(base))
+        XCTAssertFalse(SportsLeague.mlb.matches(base))
+    }
+
+    // Listings carry a match the name never could: a generic regional channel
+    // showing a game is exactly the case the guide text exists for.
+    func testListingsCanCarryAMatchTheNameCannot() {
+        let base = SportsMatchText(alreadyLowercased: "us| regional sports 4")
+        let listings = SportsMatchText(alreadyLowercased: "dodgers at padres  first pitch")
+        XCTAssertFalse(SportsLeague.mlb.matches(base))
+        XCTAssertTrue(SportsLeague.mlb.matches(listings))
+    }
+}

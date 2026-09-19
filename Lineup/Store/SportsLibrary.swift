@@ -46,10 +46,17 @@ private struct LibraryState: Codable, Sendable {
     let guideDigest: String?
 }
 
+/// The channels worth offering, and which league each belongs to.
+///
+/// It used to carry a third field: a per-stream search string, each one a
+/// channel name glued to its whole day of listings. Nothing ever read it. It
+/// was built for every one of twenty-six thousand streams, held in memory,
+/// written into the cache file and read back on the next launch, and no code
+/// anywhere consulted it. An older cache file still has it; Codable ignores a
+/// key the type no longer declares.
 private struct SportsIndex: Codable, Sendable {
     let professional: [XtreamStream]
     let leagues: [SportsLeague: [XtreamStream]]
-    let searchText: [Int: String]
 }
 
 private struct ScheduleCache: Codable, Sendable {
@@ -99,7 +106,6 @@ final class SportsLibrary: ObservableObject {
     private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
-    private var streamSearchText: [Int: String] = [:]
     @Published private var sportsIndexReady = false
     @Published private var channelsValidatedThisSession = false
     @Published private var guideValidatedThisSession = false
@@ -271,7 +277,6 @@ final class SportsLibrary: ObservableObject {
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
-        streamSearchText = index.searchText
         sportsIndexReady = true
         await rebuildGameStreamCache(force: true)
     }
@@ -280,17 +285,34 @@ final class SportsLibrary: ObservableObject {
         categories: [XtreamCategory], streams: [XtreamStream], programs: [String: [CurrentProgram]]
     ) -> SportsIndex {
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
+        // Prepared once per guide channel rather than once per stream. A
+        // provider lists the same channel several times over -- HD, FHD, SD,
+        // a backup feed -- and every one of them points at these same
+        // listings. There are five thousand of these and twenty-six thousand
+        // streams.
         let programText = programs.mapValues { listings in
-            listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased()
+            SportsMatchText(alreadyLowercased:
+                listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased())
         }
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
-        var searchText: [Int: String] = [:]
-        // The prepared text, kept only for channels that get past the filter.
-        // Both passes below ask the same six leagues about the same string,
-        // and each question used to lowercase and re-tokenize it from scratch.
-        var matchText: [Int: SportsMatchText] = [:]
+        // A channel's own words, and the listings it points at, kept apart.
+        //
+        // They used to be joined into one string per stream -- a channel name
+        // glued to a whole day of television -- which was then tokenized, and
+        // held, and written to the cache file. Twenty-six thousand times.
+        // Asking the two halves separately answers the same question: the
+        // join was a space, so the words are the same words, and the only
+        // thing lost is a phrase that happened to straddle the seam between a
+        // channel's name and its first listing, which was never a real match.
+        var matchText: [Int: (base: SportsMatchText, listings: SportsMatchText?)] = [:]
         var collegeStreamIDs: Set<Int> = []
+
+        func isSport(_ prepared: (base: SportsMatchText, listings: SportsMatchText?),
+                     _ league: SportsLeague) -> Bool {
+            league.matches(prepared.base) || prepared.listings.map { league.matches($0) } ?? false
+        }
+
         let professional = streams.filter { stream in
             let category = categoryNames[stream.categoryID ?? ""] ?? ""
             let type = stream.streamType?.lowercased()
@@ -298,12 +320,10 @@ final class SportsLibrary: ObservableObject {
             let base = "\(stream.name) \(category)".lowercased()
             guard !blocked.contains(where: { base.contains($0) }) else { return false }
             if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
-            let searchable = "\(base) \(stream.epgChannelID.flatMap { programText[$0] } ?? "")"
-            searchText[stream.id] = searchable
-            // Already lowercase: `base` was lowercased above and the listing
-            // text was lowercased when it was built.
-            let prepared = SportsMatchText(alreadyLowercased: searchable)
-            guard SportsLeague.allCases.contains(where: { $0.matches(prepared) }) else { return false }
+            // Already lowercase, and short: a name and a category, nothing more.
+            let prepared = (base: SportsMatchText(alreadyLowercased: base),
+                            listings: stream.epgChannelID.flatMap { programText[$0] })
+            guard SportsLeague.allCases.contains(where: { isSport(prepared, $0) }) else { return false }
             matchText[stream.id] = prepared
             return true
         }
@@ -311,10 +331,10 @@ final class SportsLibrary: ObservableObject {
             (league, professional.filter { stream in
                 guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
                 guard let prepared = matchText[stream.id] else { return league.matches(stream.name) }
-                return league.matches(prepared)
+                return isSport(prepared, league)
             })
         })
-        return SportsIndex(professional: professional, leagues: leagues, searchText: searchText)
+        return SportsIndex(professional: professional, leagues: leagues)
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -424,14 +444,18 @@ final class SportsLibrary: ObservableObject {
                     gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 }
             }
-            if state?.matchCacheVersion == 2, let saved = state?.dailyMatches,
-               DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
-               let index = restored.channels.sportsIndex,
+            // The index is a function of the channel list and the guide, and
+            // neither of those is a function of what day it is. It used to be
+            // gated on the saved *matches* being from today, which threw a
+            // perfectly good index away on the first launch of every new day
+            // and spent a minute building an identical one. The matches keep
+            // their daily gate above, where it belongs; a refresh rebuilds the
+            // index whenever either of its inputs actually changes.
+            if let index = restored.channels.sportsIndex,
                DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(index.leagues.keys.map(\.rawValue)),
                    expectedLeagues: Set(SportsLeague.allCases.map(\.rawValue))) {
                 professionalStreams = index.professional
                 leagueStreamCache = index.leagues
-                streamSearchText = index.searchText
                 sportsIndexReady = true
                 trace.note("sports index restored", "from cache")
                 if matchIdentities(now: now).keys.contains(where: { gameStreamCache[$0] == nil }) {
@@ -658,8 +682,7 @@ final class SportsLibrary: ObservableObject {
             categories: categories,
             streams: streams,
             sportsIndex: sportsIndexReady
-                ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache,
-                              searchText: streamSearchText)
+                ? SportsIndex(professional: professionalStreams, leagues: leagueStreamCache)
                 : nil
         )
         let guide: GuideCache? = LibraryCachePolicy.needsWriting(
@@ -1607,7 +1630,6 @@ final class SportsLibrary: ObservableObject {
         streams = []
         professionalStreams = []
         leagueStreamCache = [:]
-        streamSearchText = [:]
         sportsIndexReady = false
         gameStreamCache = [:]
         matchEvidenceScores = [:]
