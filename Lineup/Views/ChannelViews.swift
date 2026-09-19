@@ -451,17 +451,59 @@ private struct LiveSlateDashboard: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
 
+    @State private var gameFocusRequest: UUID?
+
     var body: some View {
-        HStack(spacing: 0) {
-            LiveGameRail(events: events, selectedLeague: $selectedLeague,
-                         focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
-                         onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(width: 330)
-            Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
-            screen
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                LiveGameRail(events: events, selectedLeague: $selectedLeague,
+                             focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
+                             onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(width: 330)
+                Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
+                VStack(spacing: 0) {
+                    screen.frame(height: screenHeight(in: geometry.size))
+                    matchups
+                }
+            }
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
+    }
+
+    /// Everything that is not one of the viewer's teams, in the grid it has
+    /// always been in, under the picture where it has always been.
+    private var matchups: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
+                    .font(.inter(12, .bold)).tracking(2.5)
+                Text("\(events.count)").font(.interDigits(12, .bold))
+                    .foregroundStyle(LiveBoardStyle.muted)
+                Spacer()
+                if multiviewTitle != nil {
+                    GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                } else {
+                    // The filter sits with the thing it filters. It used to be
+                    // seven buttons in the left rail, which is now the viewer's
+                    // teams and has nothing to do with leagues.
+                    LiveRailLeagueFilter(selectedLeague: $selectedLeague)
+                }
+            }
+            .foregroundStyle(LineupStyle.lightPurple)
+            .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 8)
+            LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
+                          multiviewPrimaryID: multiviewPrimaryID,
+                          onPlay: onPlay, onStartMultiview: onStartMultiview)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal, 22)
+        }
+    }
+
+    /// The picture keeps the height it has now and the grid takes what is
+    /// left -- about one row of cards, which scrolls for the rest.
+    private func screenHeight(in size: CGSize) -> CGFloat {
+        max(260, size.height - 300)
     }
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
@@ -485,7 +527,7 @@ private struct LiveSlateDashboard: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { caption }
         .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
     }
@@ -575,39 +617,43 @@ private struct LiveGameRail: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
+    /// Only the viewer's own games. Everything else is in the grid below the
+    /// picture, which is where it has always been.
     private var mine: [SportsGame] { events.filter { library.isFollowing($0) } }
-    private var rest: [SportsGame] { events.filter { !library.isFollowing($0) } }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
-                    if !mine.isEmpty {
-                        Section {
-                            ForEach(mine) { row($0) }
-                        } header: { heading("YOUR TEAMS", detail: "\(mine.filter(\.isLive).count) LIVE") }
-                    }
-                    Section {
-                        ForEach(rest) { row($0) }
-                    } header: {
-                        heading(mine.isEmpty ? "TONIGHT" : "EVERYTHING ELSE", detail: "\(rest.count)")
-                    }
-                    LiveRailLeagueFilter(selectedLeague: $selectedLeague)
-                        .padding(.top, 18)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    if mine.isEmpty { empty } else { ForEach(mine) { row($0) } }
+                } header: {
+                    heading("MY TEAMS", detail: mine.isEmpty ? "" : "\(mine.filter(\.isLive).count) LIVE")
                 }
-                .padding(.horizontal, 16).padding(.vertical, 20)
             }
-            .focusSection()
-            .onChange(of: focusedRowID) { value in
-                guard let value, let game = events.first(where: { $0.id == value }) else { return }
-                focusedGame = game
-            }
-            .onChange(of: selectedLeague) { _ in
-                // A new filter is a new list; put the remote at the top of it.
-                guard let first = events.first else { return }
-                proxy.scrollTo(first.id, anchor: .top)
-            }
+            .padding(.horizontal, 16).padding(.bottom, 20)
         }
+        .focusSection()
+        .onChange(of: focusedRowID) { value in
+            guard let value, let game = events.first(where: { $0.id == value }) else { return }
+            focusedGame = game
+        }
+    }
+
+    /// Nobody followed yet, or nobody playing. Says which, and says where the
+    /// following happens, because it happens in a menu nobody finds by accident.
+    private var empty: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "star").font(.system(size: 30, weight: .light))
+                .foregroundStyle(LiveBoardStyle.muted)
+            Text(library.followedTeams.isEmpty ? "No teams followed" : "None of yours are on")
+                .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
+            Text(library.followedTeams.isEmpty
+                 ? "Hold Select on any game below to follow a team. Their games appear here."
+                 : "Your teams are not playing in this range.")
+                .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10).padding(.top, 8)
     }
 
     private func heading(_ title: String, detail: String) -> some View {
@@ -739,7 +785,7 @@ private struct LiveRailLeagueFilter: View {
         // the whole control behind something that already draws its own --
         // the bulky frame this app spent a long time removing. TVSelectable
         // over a confirmation dialog is the shape the rest of it uses.
-        TVSelectable(scale: LineupStyle.controlLift, fill: LineupStyle.focused, fillRadius: 10,
+        TVSelectable(scale: LineupStyle.controlLift, fill: LineupStyle.focused, fillRadius: 23,
                      action: { choosing = true }) {
             HStack(spacing: 10) {
                 Image(systemName: "line.3.horizontal.decrease")
@@ -748,10 +794,9 @@ private struct LiveRailLeagueFilter: View {
             }
             .font(.inter(14, .semibold))
             .foregroundStyle(LiveBoardStyle.muted)
-            .padding(.horizontal, 14).frame(height: 52)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18).frame(height: 46)
             .background(LiveBoardStyle.panel,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        in: Capsule())
         }
         .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
             Button("All sports") { selectedLeague = nil }
@@ -760,6 +805,185 @@ private struct LiveRailLeagueFilter: View {
             }
         }
         .accessibilityLabel("Filter by sport")
+    }
+}
+
+private struct LiveBoardTeam: View {
+    let name: String
+    let logo: String
+    let abbreviation: String
+    let record: String?
+    let score: String?
+    var large = false
+
+    var body: some View {
+        HStack(spacing: large ? 14 : 10) {
+            TeamBadge(url: logo, fallback: abbreviation, size: large ? 44 : 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).foregroundColor(LineupStyle.lightPurple).font(.inter(large ? 25 : 23, .semibold))
+                    .foregroundStyle(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
+                if let record = nonempty(record) {
+                    Text(record).foregroundColor(LineupStyle.lightPurple).font(.interDigits(17, .medium)).foregroundStyle(LiveBoardStyle.muted)
+                }
+            }
+            Spacer(minLength: 6)
+            if let score, !score.isEmpty {
+                Text(score).foregroundColor(LineupStyle.lightPurple).font(.interDigits(large ? 33 : 25, .bold))
+                    .foregroundStyle(LineupStyle.lightPurple)
+            }
+        }
+    }
+}
+
+private struct LiveGameSlate: View {
+    let events: [SportsGame]
+    @Binding var focusedGame: SportsGame?
+    @Binding var focusRequest: UUID?
+    @FocusState private var focusedRowID: String?
+    let multiviewPrimaryID: Int?
+    let columns: Int
+    let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
+
+    private var rowStarts: [Int] {
+        Array(stride(from: 0, to: events.count, by: columns))
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                // Keep every row in the focus tree. LazyVGrid removes rows just
+                // outside the viewport; after scrolling back up, tvOS can then
+                // see the tab bar or league rail before it recreates the card
+                // directly above. The first press escapes and the second works
+                // only because that press caused the missing row to be loaded.
+                Grid(horizontalSpacing: 18, verticalSpacing: 18) {
+                    ForEach(rowStarts, id: \.self) { rowStart in
+                        GridRow {
+                            ForEach(0..<columns, id: \.self) { column in
+                                let index = rowStart + column
+                                if events.indices.contains(index) {
+                                    let game = events[index]
+                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
+                                        multiviewPrimaryID: multiviewPrimaryID,
+                                        onFocus: { focusedGame = game; focusRequest = nil },
+                                        onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
+                                    .id(game.id)
+                                    .onAppear {
+                                        if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
+                                    }
+                                } else {
+                                    Color.clear
+                                        .frame(maxWidth: .infinity, minHeight: 1)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(5)
+            }
+            .focusSection()
+            .task(id: focusRequest) {
+                guard let request = focusRequest, let firstID = events.first?.id else { return }
+                proxy.scrollTo(firstID, anchor: .top)
+                await Task.yield()
+                guard !Task.isCancelled, focusRequest == request, events.first?.id == firstID else { return }
+                focusedRowID = firstID
+            }
+        }
+    }
+}
+
+private struct LiveSlateRow: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var reminders: GameReminders
+    let game: SportsGame
+    let rowFocus: FocusState<String?>.Binding
+    private var isFocused: Bool { rowFocus.wrappedValue == game.id }
+    let selected: Bool
+    let multiviewPrimaryID: Int?
+    let onFocus: () -> Void
+    let onPlay: () -> Void
+    let onStartMultiview: () -> Void
+    private var stream: XtreamStream? { library.stream(for: game) }
+    private var isPrimary: Bool { multiviewPrimaryID != nil && multiviewPrimaryID == stream?.id }
+
+    var body: some View {
+        Group {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    LeagueLogo(league: game.league, size: 28)
+                    Text(game.league.shortName).foregroundColor(LineupStyle.lightPurple).font(.inter(17, .semibold)).tracking(1)
+                        .foregroundStyle(LineupStyle.lightPurple)
+                    Spacer()
+                    if game.isLive {
+                        PulsingLiveDot(size: 6)
+                        Text(game.status.uppercased()).foregroundColor(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
+                    } else {
+                        Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundColor(LineupStyle.lightPurple)
+                            .font(.interDigits(17, .semibold))
+                            .foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
+                    }
+                }
+                .font(.inter(11, .semibold)).foregroundStyle(LiveBoardStyle.muted)
+                // A fight card has no two sides to put against each other, so
+                // the bout's own name goes where the teams would. Both kinds
+                // say where they are being held, which is the one fact a
+                // matchup card can add without becoming a table.
+                if game.isEvent {
+                    Text(game.eventName ?? "")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(2).minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    LiveBoardTeam(name: game.awayTeam, logo: game.awayLogo, abbreviation: game.awayAbbreviation,
+                        record: game.awayRecord, score: game.isLive ? game.awayScore : nil)
+                    LiveBoardTeam(name: game.homeTeam, logo: game.homeLogo, abbreviation: game.homeAbbreviation,
+                        record: game.homeRecord, score: game.isLive ? game.homeScore : nil)
+                }
+                if let place = game.placeLine {
+                    Text(place).font(.inter(13))
+                        .foregroundStyle(LiveBoardStyle.muted)
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                HStack {
+                    Text(isPrimary ? "MULTIVIEW · FIRST GAME" : (game.broadcast.isEmpty ? "Channel selection available" : game.broadcast)).foregroundColor(LineupStyle.lightPurple)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: isFocused ? "play.fill" : "arrow.up.right")
+                }
+                .font(.inter(11, .semibold)).foregroundStyle(isFocused ? LiveBoardStyle.accent : LiveBoardStyle.muted)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity)
+            .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
+                        in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
+                    .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
+                                  lineWidth: isFocused ? 2.5 : 1)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+        .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
+        .onTapGesture(perform: onPlay)
+        .accessibilityAddTraits(.isButton)
+        .onChange(of: isFocused) { value in if value { onFocus() } }
+        .contextMenu {
+            if game.isUpcoming {
+                Button(reminders.reminds(game) ? "Remove Reminder" : "Remind Me",
+                       systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                }
+            }
+            if stream != nil {
+                Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
+                    .disabled(isPrimary)
+            }
+        }
+        .accessibilityLabel("\(game.isEvent ? (game.eventName ?? game.league.shortName) : "\(game.awayTeam) at \(game.homeTeam)"), \(game.isLive ? game.status : game.start.formatted(date: .abbreviated, time: .shortened))")
     }
 }
 
