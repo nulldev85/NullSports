@@ -493,17 +493,18 @@ private struct LiveSlateDashboard: View {
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 8)
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
-                          multiviewPrimaryID: multiviewPrimaryID, columns: 4,
+                          multiviewPrimaryID: multiviewPrimaryID,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.horizontal, 22)
         }
     }
 
-    /// The picture keeps the height it has now and the grid takes what is
-    /// left -- about one row of cards, which scrolls for the rest.
+    /// The picture takes what is left once the shelf has the height a card
+    /// and its focus lift need. Too little and the television clips the very
+    /// card a viewer is looking at.
     private func screenHeight(in size: CGSize) -> CGFloat {
-        max(260, size.height - 300)
+        max(240, size.height - 330)
     }
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
@@ -836,59 +837,51 @@ private struct LiveBoardTeam: View {
     }
 }
 
+/// The matchups, as one shelf under the picture.
+///
+/// It was a four-column Grid, which is what it should be when it owns the
+/// lower half of a screen. It does not any more: the picture takes the room
+/// and this gets a strip. Two things went wrong in that strip. A Grid is not
+/// lazy, so all seventy-odd games were built and laid out on every pass while
+/// a video played beside them -- that is the stutter. And a vertical scroller
+/// barely two cards tall cannot show a focused card: the television scrolls to
+/// centre it and the container cuts its top off, which is the clipping.
+///
+/// A shelf answers both. Only the handful on screen are built, and moving
+/// along it is the one direction a strip has room for.
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
     @Binding var focusRequest: UUID?
     @FocusState private var focusedRowID: String?
     let multiviewPrimaryID: Int?
-    let columns: Int
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
-    private var rowStarts: [Int] {
-        Array(stride(from: 0, to: events.count, by: columns))
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                // Keep every row in the focus tree. LazyVGrid removes rows just
-                // outside the viewport; after scrolling back up, tvOS can then
-                // see the tab bar or league rail before it recreates the card
-                // directly above. The first press escapes and the second works
-                // only because that press caused the missing row to be loaded.
-                Grid(horizontalSpacing: 18, verticalSpacing: 18) {
-                    ForEach(rowStarts, id: \.self) { rowStart in
-                        GridRow {
-                            ForEach(0..<columns, id: \.self) { column in
-                                let index = rowStart + column
-                                if events.indices.contains(index) {
-                                    let game = events[index]
-                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
-                                        multiviewPrimaryID: multiviewPrimaryID,
-                                        onFocus: { focusedGame = game; focusRequest = nil },
-                                        onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
-                                    .id(game.id)
-                                    .onAppear {
-                                        if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
-                                    }
-                                } else {
-                                    Color.clear
-                                        .frame(maxWidth: .infinity, minHeight: 1)
-                                        .accessibilityHidden(true)
-                                }
-                            }
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 18) {
+                    ForEach(events) { game in
+                        LiveSlateRow(game: game, rowFocus: $focusedRowID,
+                                     selected: focusedGame?.id == game.id,
+                                     multiviewPrimaryID: multiviewPrimaryID,
+                                     onFocus: { focusedGame = game; focusRequest = nil },
+                                     onPlay: { onPlay(game) },
+                                     onStartMultiview: { onStartMultiview(game) })
+                            .frame(width: 340)
+                            .id(game.id)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(5)
+                // Room above and below for a focused card to grow into. Without
+                // it the lift is clipped by the scroll view it grows inside.
+                .padding(.vertical, 14)
+                .padding(.horizontal, 6)
             }
             .focusSection()
             .task(id: focusRequest) {
                 guard let request = focusRequest, let firstID = events.first?.id else { return }
-                proxy.scrollTo(firstID, anchor: .top)
+                proxy.scrollTo(firstID, anchor: .leading)
                 await Task.yield()
                 guard !Task.isCancelled, focusRequest == request, events.first?.id == firstID else { return }
                 focusedRowID = firstID
