@@ -76,7 +76,7 @@ struct MobilePlayerView: View {
             if controlsVisible {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
-                        control("xmark", label: "Close player") { dismiss() }
+                        control("xmark", label: "Close player") { exit() }
                         if showsTitleInHeader {
                             Text(name).font(.inter(.headline)).lineLimit(1)
                         }
@@ -151,7 +151,8 @@ struct MobilePlayerView: View {
         // screenshot does not capture, so it only showed up on the device.
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
-        .modifier(MobileDismissGesture(enabled: true) { dismiss() })
+        .modifier(MobileDismissGesture(enabled: true,
+                                       onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear {
@@ -324,6 +325,13 @@ struct MobilePlayerView: View {
         Text(text).font(.inter(.caption2, .semibold))
             .padding(.horizontal, 10).padding(.vertical, 6)
             .lineupLiquidGlass(Capsule())
+    }
+
+    /// The close button leaves the same way a swipe does: the picture is
+    /// stilled first, so it travels with the frame instead of trailing it.
+    private func exit() {
+        controller.freezePictureForExit()
+        dismiss()
     }
 
     private func control(_ symbol: String, label: String, size: CGFloat = 44,

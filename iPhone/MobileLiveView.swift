@@ -23,16 +23,43 @@ struct MobileLiveView: View {
     var isActive = true
     let onPlay: (XtreamStream) -> Void
 
-    private var games: [SportsGame] { library.games(for: league) }
-    private var live: [SportsGame] { games.filter(\.isLive) }
-    private var upcomingDays: [Date] {
-        Array(Set(games.filter(\.isUpcoming).map { Calendar.current.startOfDay(for: $0.start) })).sorted()
+    /// Today's games, sorted into what the screen actually draws.
+    ///
+    /// These used to be computed properties, and a computed property is
+    /// recomputed at every mention. A single pass over this screen mentioned
+    /// them about ten times -- the masthead twice, the live section three
+    /// times, and once per upcoming day inside a loop -- so one render walked
+    /// every game, checked every clock and sorted the lot ten times over.
+    /// That is what a tab switch was waiting for.
+    struct Slate {
+        let all: [SportsGame]
+        let live: [SportsGame]
+        /// Upcoming games already grouped, so the section loop does not filter
+        /// the whole list again for each day it draws.
+        let days: [(day: Date, games: [SportsGame])]
+    }
+
+    private func slate() -> Slate {
+        let all = library.games(for: league)
+        let calendar = Calendar.current
+        var byDay: [Date: [SportsGame]] = [:]
+        var live: [SportsGame] = []
+        for game in all {
+            if game.isLive { live.append(game) }
+            if game.isUpcoming {
+                byDay[calendar.startOfDay(for: game.start), default: []].append(game)
+            }
+        }
+        return Slate(all: all, live: live,
+                     days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
     }
 
     var body: some View {
-        NavigationStack {
+        // Once, at the top, and passed down. Everything below reads from it.
+        let slate = slate()
+        return NavigationStack {
             VStack(spacing: 0) {
-                masthead
+                masthead(slate)
                 leagueTabs
                 if let stream = previewStream {
                     TimelineView(.periodic(from: .now, by: 30)) { clock in
@@ -77,22 +104,20 @@ struct MobileLiveView: View {
                                 .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .padding(16)
                         }
-                        if !live.isEmpty {
+                        if !slate.live.isEmpty {
                             Section {
-                                ForEach(live) { matchup($0) }
-                            } header: { sectionTitle("ON AIR", detail: "\(live.count) LIVE") }
+                                ForEach(slate.live) { matchup($0) }
+                            } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
                         }
-                        ForEach(upcomingDays, id: \.self) { day in
+                        ForEach(slate.days, id: \.day) { day, dayGames in
                             Section {
-                                ForEach(games.filter { $0.isUpcoming && Calendar.current.isDate($0.start, inSameDayAs: day) }) {
-                                    matchup($0)
-                                }
+                                ForEach(dayGames) { matchup($0) }
                             } header: {
                                 sectionTitle(Calendar.current.isDateInToday(day) ? "UP NEXT" : day.formatted(.dateTime.weekday(.wide)).uppercased(),
                                              detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                             }
                         }
-                        if games.isEmpty && !library.isScheduleLoading {
+                        if slate.all.isEmpty && !library.isScheduleLoading {
                             ContentUnavailableView(library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                                 systemImage: "sportscourt",
                                 description: Text("Pull down to refresh, or find your channels in Guide."))
@@ -200,7 +225,7 @@ struct MobileLiveView: View {
         }
     }
 
-    private var masthead: some View {
+    private func masthead(_ slate: Slate) -> some View {
         HStack(alignment: .bottom) {
             HStack(spacing: 10) {
                 Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
@@ -214,8 +239,8 @@ struct MobileLiveView: View {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                     .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
                 HStack(spacing: 5) {
-                    Circle().fill(live.isEmpty ? LineupStyle.secondary : LineupStyle.liveDot).frame(width: 5, height: 5)
-                    Text(live.isEmpty ? "\(games.count) MATCHUPS" : "\(live.count) LIVE NOW")
+                    Circle().fill(slate.live.isEmpty ? LineupStyle.secondary : LineupStyle.liveDot).frame(width: 5, height: 5)
+                    Text(slate.live.isEmpty ? "\(slate.all.count) MATCHUPS" : "\(slate.live.count) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
             }

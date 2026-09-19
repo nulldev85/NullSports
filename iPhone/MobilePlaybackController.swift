@@ -75,6 +75,8 @@ final class MobilePlaybackController: ObservableObject {
     private var suspended = false
     private var shouldResume = false
     private weak var videoView: MobileVideoHost?
+    /// The same view, readable by the dismissal so it can still the picture.
+    var videoViewForExit: MobileVideoHost? { videoView }
     private var waitingForVideo = false
     private var waitingSince: Date?
     private var currentURL: URL?
@@ -865,6 +867,34 @@ private final class MobilePictureInPictureDelegate: NSObject, AVPictureInPicture
     }
 }
 
+extension MobilePlaybackController {
+    /// Hold the last frame still while the player is dismissed.
+    ///
+    /// The picture trails the frame on the way out because it is not drawn by
+    /// the thing moving it: the renderer draws on its own clock while the
+    /// dismissal moves and scales the frame at display rate, so it arrives
+    /// late to each position.
+    ///
+    /// Stopping the decoder is what actually settles it. A paused renderer
+    /// leaves its last frame on the drawable, and a layer whose contents are
+    /// not changing moves with its parent exactly. The snapshot below is tried
+    /// first and usually comes back empty for VLC -- an OpenGL drawable is not
+    /// something UIKit can copy -- which is why that alone did not fix it.
+    ///
+    /// Picture in Picture is the exception: the viewer moved the stream to
+    /// another window and it must keep playing there.
+    func freezePictureForExit() {
+        guard !pictureInPictureActive else { return }
+        switch engine {
+        case .vlc: if player.isPlaying { player.pause() }
+        case .system: systemPlayer.pause()
+        }
+        videoViewForExit?.freezePicture()
+    }
+
+    func thawPictureAfterCancelledExit() { videoViewForExit?.thawPicture() }
+}
+
 struct MobileVideoSurface: UIViewRepresentable {
     let controller: MobilePlaybackController
     func makeUIView(context: Context) -> MobileVideoHost {
@@ -911,6 +941,46 @@ final class MobileVideoHost: UIView {
         layer.addSublayer(created)
         playerLayer = created
         return created
+    }
+
+    private var stillPicture: UIView?
+
+    /// Swap the live picture for a still of itself.
+    ///
+    /// Dismissing moves and scales this view over a fifth of a second. The
+    /// renderer inside it draws on its own clock -- VLC at the stream's frame
+    /// rate, AVPlayer on its display link -- so during that movement it
+    /// arrives late to each position and visibly trails the frame around it.
+    /// A still has nothing to arrive late for.
+    ///
+    /// `snapshotView` is used rather than rendering the layer, because the
+    /// picture lives in hardware-composited layers that a bitmap context
+    /// cannot see. If the snapshot fails the live view simply stays, which is
+    /// what happened before this existed.
+    func freezePicture() {
+        guard stillPicture == nil, bounds.width > 1, bounds.height > 1,
+              let still = snapshotView(afterScreenUpdates: false) else { return }
+        still.frame = bounds
+        still.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(still)
+        stillPicture = still
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for view in subviews where view !== still { view.isHidden = true }
+        playerLayer?.isHidden = true
+        CATransaction.commit()
+    }
+
+    /// Put the live picture back, for a dismissal that was begun and released.
+    func thawPicture() {
+        guard let still = stillPicture else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        still.removeFromSuperview()
+        stillPicture = nil
+        for view in subviews { view.isHidden = false }
+        playerLayer?.isHidden = false
+        CATransaction.commit()
     }
 
     func removePlayerLayer() {

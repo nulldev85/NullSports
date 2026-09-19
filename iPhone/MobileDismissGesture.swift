@@ -13,6 +13,9 @@ struct MobileDismissGesture: ViewModifier {
     @State private var completing = false
     @State private var exitOffset: CGFloat = 0
     let enabled: Bool
+    /// Called the moment the exit is committed, before anything moves, so a
+    /// live picture can be stilled first.
+    var onBeginExit: () -> Void = {}
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
@@ -33,7 +36,10 @@ struct MobileDismissGesture: ViewModifier {
                                                                projectedY: value.predictedEndTranslation.height) else { return }
                         if reduceMotion { onDismiss(); return }
                         // Finish from the release position before tearing down VLC.
-                        // The video stays alive during the outgoing movement.
+                        // The video stays alive during the outgoing movement --
+                        // as a still, so it travels with the frame rather than
+                        // trailing it.
+                        onBeginExit()
                         exitOffset = max(0, value.translation.height)
                         completing = true
                         DispatchQueue.main.async {

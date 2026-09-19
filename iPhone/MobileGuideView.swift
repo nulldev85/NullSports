@@ -113,7 +113,10 @@ struct MobileGuideView: View {
                         // whether or not the bars have finished hiding.
                         .ignoresSafeArea(expanded ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
-                        .modifier(MobileDismissGesture(enabled: expanded, onDismiss: closePlayer))
+                        .modifier(MobileDismissGesture(
+                            enabled: expanded,
+                            onBeginExit: { playback.freezePictureForExit() },
+                            onDismiss: closePlayer))
                     }
                 }
             }
