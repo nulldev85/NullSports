@@ -270,14 +270,22 @@ final class SportsLibrary: ObservableObject {
         let currentCategories = categories
         let currentStreams = streams
         let currentPrograms = programsByChannel
-        let index = await Task.detached(priority: .utility) {
-            Self.makeSportsIndex(categories: currentCategories, streams: currentStreams, programs: currentPrograms)
-        }.value
+        // Timed apart from the matching that follows it. One number for the
+        // pair could not say which half was slow, and for two rounds it was
+        // read as though it were all the matching's.
+        let index = await StartupTrace.shared.measure("build sports index") {
+            await Task.detached(priority: .utility) {
+                Self.makeSportsIndex(categories: currentCategories, streams: currentStreams,
+                                     programs: currentPrograms)
+            }.value
+        }
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: indexGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         professionalStreams = index.professional
         leagueStreamCache = index.leagues
         sportsIndexReady = true
+        StartupTrace.shared.note("index built",
+                                 "\(index.professional.count) sports channels of \(currentStreams.count)")
         await rebuildGameStreamCache(force: true)
     }
 
@@ -462,8 +470,19 @@ final class SportsLibrary: ObservableObject {
                     await trace.measure("rematch games", { await rebuildGameStreamCache() })
                 }
             } else {
-                await trace.measure("rebuild sports index",
-                                    detail: "cached index missing or stale",
+                // Say which of the two it was. "Missing or stale" covered a
+                // file that was not there, an index that did not cover every
+                // league, and a state file that never arrived -- and guessing
+                // between them cost a round of testing.
+                let why: String
+                if restored.channels.sportsIndex == nil {
+                    why = state == nil
+                        ? "no index in the cache, and no state file either"
+                        : "no index in the cache"
+                } else {
+                    why = "index in the cache does not cover every league"
+                }
+                await trace.measure("rebuild sports index", detail: why,
                                     { await rebuildProfessionalStreams() })
             }
         }
