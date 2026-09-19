@@ -259,3 +259,38 @@ final class GluedAcronymTests: XCTestCase {
         XCTAssertTrue(SportsLeague.nfl.matches(listings("bears at packers")))
     }
 }
+
+/// Whether a college candidate is disqualified on its name alone is settled
+/// when the candidate is built now, instead of inside a score that runs once
+/// per game. These check it settles it the same way.
+final class CollegeBlockedNameTests: XCTestCase {
+    private func candidate(_ name: String) -> CollegeChannelMatcher.Candidate {
+        CollegeChannelMatcher.Candidate(id: 1, name: name, listings: [])
+    }
+
+    /// The check as it was written inside the score.
+    private func legacyBlocked(_ name: String) -> Bool {
+        let normalized = CollegeChannelMatcher.normalized(name)
+        return ["radio", "audio", "sirius", "podcast", "music", "nfhs", "news", "business",
+                "high school", "basketball", "baseball", "soccer", "volleyball", "softball",
+                "lacrosse", "hockey", "tennis", "replay", "classic"]
+            .contains { CollegeChannelMatcher.contains(normalized, phrase: $0) }
+    }
+
+    func testItBlocksExactlyWhatItUsedTo() {
+        for name in ["US| ESPN HD", "US| ESPNU FHD", "SiriusXM College Sports",
+                     "US| CBS SPORTS NETWORK", "NFHS Network — Texas", "US| ESPN CLASSIC",
+                     "College Baseball Replay", "US| SEC NETWORK 4K", "beIN SPORTS",
+                     "US| ACC NETWORK", "High School Football Weekly", "ESPN Radio",
+                     "US| FS1", "Business News Tonight", "Big Ten Hockey"] {
+            XCTAssertEqual(candidate(name).isBlocked, legacyBlocked(name), name)
+        }
+    }
+
+    // The ones it must keep: a plain national sports network is a candidate.
+    func testTheChannelsCollegeGamesActuallyLandOnAreNotBlocked() {
+        for name in ["US| ESPN HD", "US| ESPNU FHD", "US| ABC EAST", "US| FOX SPORTS 1"] {
+            XCTAssertFalse(candidate(name).isBlocked, name)
+        }
+    }
+}
