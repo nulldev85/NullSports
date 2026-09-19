@@ -1323,7 +1323,7 @@ struct GuideView: View {
                             } else {
                                 ScrollViewReader { proxy in
                                 ScrollView {
-                                    LazyVStack(alignment: .leading, spacing: 8) {
+                                    LazyVStack(alignment: .leading, spacing: 0) {
                                         ForEach(filtered) { stream in
                                             GuideChannelRow(
                                                 stream: stream,
@@ -1854,7 +1854,12 @@ private struct GuideLayout {
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 28) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
-    var rowHeight: CGFloat { 132 * slotWidth / 245 }
+    // A guide is worth having in proportion to how much of it you can see at
+    // once, and at 132 this showed four channels on a 1080 screen. Ninety-two
+    // is what a row needs for a title and a time under it at this type size
+    // and no more, which is six or seven channels -- enough to scan without
+    // the rows becoming a list of hairlines.
+    var rowHeight: CGFloat { 92 * slotWidth / 245 }
 }
 
 private struct GuideLayoutKey: EnvironmentKey {
@@ -1924,12 +1929,7 @@ private struct GuideChannelRow: View {
     var body: some View {
         HStack(spacing: 0) {
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
-            .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(
-                LinearGradient(colors: [GuidePalette.channelTile.opacity(0.9), GuidePalette.panel.opacity(0.72)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: layout.channelWidth - 8, height: layout.rowHeight)
             .padding(.trailing, 8)
             .clipped()
 
@@ -1952,16 +1952,18 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
-        .background(GuidePalette.surface.opacity(0.88))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(GuidePalette.line.opacity(0.72), lineWidth: 1))
+        .background(GuidePalette.background)
+        // One hairline between channels, and nothing else. The card, its
+        // border and its shadow made every row an object; a guide wants to
+        // read as one grid a viewer runs their eye down.
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(GuidePalette.line.opacity(0.55)).frame(height: 1)
+        }
         .overlay {
             if multiviewPrimaryID == stream.id {
-                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
+                Rectangle().stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
             }
         }
-        .lineupShadow(.restingQuiet)
         .contentShape(Rectangle())
         .contextMenu {
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
@@ -1985,47 +1987,42 @@ private struct GuideChannelRow: View {
     }
 }
 
-/// Artwork stays prominent, while the full channel name remains visible below
-/// it so regional, quality, and alternate feeds are never ambiguous.
+/// The channel's own logo, filling the column, with its name only where there
+/// is no logo to show -- the way the phone does it.
+///
+/// It used to be the logo at half size with the full name set under it in two
+/// lines. That name cost thirty-odd points of every row on a screen where the
+/// rows were already too tall to see more than four of, and it was answering a
+/// question the guide answers anyway: the focused channel's name is written
+/// across the preview panel above, in type read from ten feet.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(spacing: 3) {
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)),
-                              width: max(1, proxy.size.width - 44)) { loaded in
-                    if let image = loaded {
-                        image.resizable().scaledToFit()
-                            .frame(width: max(1, proxy.size.width - 44),
-                                   height: max(1, proxy.size.height - 56))
-                    } else {
-                        Image(systemName: "tv")
-                            .font(.inter(24, .light))
-                            .foregroundStyle(GuidePalette.secondary)
-                            .frame(width: max(1, proxy.size.width - 44),
-                                   height: max(1, proxy.size.height - 56))
-                    }
+            let art = max(1, proxy.size.width - 28)
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: art) { loaded in
+                if let image = loaded {
+                    image.resizable().scaledToFit()
+                } else {
+                    Text(stream.name)
+                        .font(.inter(13, .semibold))
+                        .lineLimit(2).minimumScaleFactor(0.5)
+                        .allowsTightening(true)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(GuidePalette.text)
                 }
-                .transaction { $0.animation = nil }
-                Text(stream.name)
-                    .font(.inter(12, .semibold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.4)
-                    .allowsTightening(true)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: proxy.size.width - 14, minHeight: 32, maxHeight: 36)
-                    .foregroundStyle(GuidePalette.text)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transaction { $0.animation = nil }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .overlay(alignment: .topLeading) {
                 if isFavorite {
                     Image(systemName: "star.fill")
-                        .font(.inter(10, .bold))
-                        .padding(7)
-                        .background(GuidePalette.background.opacity(0.88), in: Circle())
-                        .padding(6)
+                        .font(.inter(9, .bold))
+                        .foregroundStyle(GuidePalette.text.opacity(0.85))
+                        .padding(2)
                 }
             }
         }
@@ -2286,14 +2283,14 @@ private struct GuideProgramCell: View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 HStack(spacing: 6) {
-                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
+                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.subheadline, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
                     if isOnNow { GuideLiveDot() }
                     else if program.isNew == true { GuideInlineStatus(title: "NEW") }
                 }
                 if showsTime {
                     HStack(spacing: 7) {
                         Text(guideTimeRange(program)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.interDigits(.callout)).foregroundStyle(GuidePalette.secondary)
+                            .font(.interDigits(.subheadline)).foregroundStyle(GuidePalette.secondary)
                         if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     }
                 }
@@ -2301,16 +2298,14 @@ private struct GuideProgramCell: View {
                 Text(empty).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(GuidePalette.secondary)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 12)
+        .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: layout.rowHeight - 8, alignment: .topLeading)
+        .frame(height: layout.rowHeight - 7, alignment: .topLeading)
         .background {
             GeometryReader { geometry in
-                LinearGradient(
-                    colors: isFocused
-                        ? [GuidePalette.cardFocused, GuidePalette.cardFocused.opacity(0.88)]
-                        : [GuidePalette.card, GuidePalette.card.opacity(0.88)],
-                    startPoint: .top, endPoint: .bottom)
+                // Flat. The two-stop wash on every cell was invisible at this
+                // size and cost a gradient per cell per frame.
+                (isFocused ? GuidePalette.cardFocused : GuidePalette.card)
                 // Filled in behind the line, in a lighter shade of it. The
                 // accent itself was tried here and covers most of every cell
                 // in an evening, which read as the ground having gone blue.
@@ -2327,12 +2322,11 @@ private struct GuideProgramCell: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(
             isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
             lineWidth: isFocused ? 2 : 0.5
         ))
-        .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.14) : .clear, radius: 12, y: 5)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
