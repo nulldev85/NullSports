@@ -425,9 +425,20 @@ private struct LiveEmptySlateDashboard: View {
     }
 }
 
+/// The Live screen: a rail of games, and the television.
+///
+/// It used to be a dashboard -- a column of seven league buttons, a modest
+/// preview, and a grid of matchup cards under it. Three things competing for a
+/// screen whose whole job is to show one of them. The league buttons were
+/// permanent furniture for a filter most people set once, and the grid was a
+/// second way to browse games beside the rail that was already there.
+///
+/// So there is one list, and it is a list of games rather than of leagues:
+/// yours at the top, everything else beneath. The league filter moves to the
+/// foot of it, where something you set once belongs. Everything that is left
+/// over is the picture.
 private struct LiveSlateDashboard: View {
     @EnvironmentObject private var library: SportsLibrary
-    @State private var gameFocusRequest: UUID?
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
@@ -440,136 +451,361 @@ private struct LiveSlateDashboard: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
 
+    @State private var gameFocusRequest: UUID?
+
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 4) {
-                LiveBoardHeading()
-                HStack(alignment: .top, spacing: 28) {
-                    ScrollView(.vertical) {
-                        LiveBoardRail(selectedLeague: $selectedLeague, onChoose: {
-                            focusedGame = nil
-                            gameFocusRequest = nil
-                        }, onEnterGames: { gameFocusRequest = UUID() })
-                    }
-                    .frame(width: 180)
-                    HStack {
-                        Spacer(minLength: 0)
-                        ZStack {
-                            Color.black
-                            if let previewStream {
-                                LiveSelectedPreview(stream: previewStream, urls: previewURLs)
-                                    .id(previewStream.id)
-                            } else {
-                                LinearGradient(colors: [LineupStyle.lightPurple.opacity(0.025), .clear, .black],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                                // Waiting is what this screen is for while it
-                                // is dark, and the dark screen is the one place
-                                // the viewer is already looking. Tucked into
-                                // the corner of the heading it was easy to miss
-                                // and easier to mistake for nothing happening.
-                                if isPreparingStreams {
-                                    LiveTVSignalSweep()
-                                    RefreshingStreamsLabel(size: .screen)
-                                }
-                            }
-                        }
-                        .frame(width: screenHeight(in: geometry.size) * 16 / 9,
-                               height: screenHeight(in: geometry.size))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .padding(4)
-                        .background(
-                            LinearGradient(colors: [LineupStyle.focused, LineupStyle.surface],
-                                startPoint: .top, endPoint: .bottom),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(LineupStyle.lightPurple.opacity(0.08), lineWidth: 1)
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            if previewStream == nil && !isPreparingStreams {
-                                LiveTVStandbyLight().padding(.trailing, 17).padding(.bottom, 1)
-                            }
-                        }
-                        .lineupShadow(.resting)
-                        .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
-                        Spacer(minLength: 0)
-                    }
+            HStack(spacing: 0) {
+                LiveGameRail(events: events, selectedLeague: $selectedLeague,
+                             focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
+                             onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(width: 330)
+                Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
+                VStack(spacing: 0) {
+                    screen.frame(height: screenHeight(in: geometry.size))
+                    matchups
                 }
-                .frame(height: screenHeight(in: geometry.size) + 8)
-                HStack(spacing: 14) {
-                    Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME").foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(12, .bold)).tracking(2.5)
-                    Text("\(events.count)").foregroundColor(LineupStyle.lightPurple).font(.interDigits(12, .bold))
-                        .foregroundStyle(LiveBoardStyle.muted)
-                    Spacer()
-                    if multiviewTitle != nil {
-                        GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
-                    } else if banner == .background {
-                        // Everything on the board already works, so this is a
-                        // footnote and nothing more.
-                        Text("UPDATING IN BACKGROUND")
-                            .font(.inter(11, .bold)).tracking(2)
-                            .foregroundStyle(LiveBoardStyle.muted)
-                    } else {
-                        Text("Select to preview  ·  Hold for multiview").foregroundColor(LineupStyle.lightPurple)
-                            .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
-                    }
-                }
-                .foregroundStyle(LineupStyle.lightPurple)
-                .padding(.top, 4).padding(.bottom, 8)
-                LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
-                    multiviewPrimaryID: multiviewPrimaryID, columns: 4,
-                    onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 38).padding(.bottom, 10)
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
-    /// The same rule the phone uses, from the same file. Matching keeps
-    /// running after the schedule and library finish and every game reads as
-    /// unmatched until it lands, so that window counts as work in flight --
-    /// but work in flight is only a wait when there is nothing behind it.
-    private var banner: LiveSyncBanner {
-        LiveSyncBanner.choose(isInitialProviderSync: library.isInitialProviderSync,
-                              hasContent: library.hasRestoredCache,
-                              isScheduleLoading: library.isScheduleLoading,
-                              isLoading: library.isLoading,
-                              channelsAreSyncing: !library.automaticMatchingReady)
+    /// Everything that is not one of the viewer's teams, in the grid it has
+    /// always been in, under the picture where it has always been.
+    private var matchups: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                Text(multiviewTitle == nil ? "THE MATCHUPS" : "CHOOSE YOUR SECOND GAME")
+                    .font(.inter(12, .bold)).tracking(2.5)
+                Text("\(events.count)").font(.interDigits(12, .bold))
+                    .foregroundStyle(LiveBoardStyle.muted)
+                Spacer()
+                if multiviewTitle != nil {
+                    GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                } else {
+                    // The filter sits with the thing it filters. It used to be
+                    // seven buttons in the left rail, which is now the viewer's
+                    // teams and has nothing to do with leagues.
+                    LiveRailLeagueFilter(selectedLeague: $selectedLeague)
+                }
+            }
+            .foregroundStyle(LineupStyle.lightPurple)
+            .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 8)
+            LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
+                          multiviewPrimaryID: multiviewPrimaryID, columns: 4,
+                          onPlay: onPlay, onStartMultiview: onStartMultiview)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal, 22)
+        }
     }
 
-    /// The dark screen says the set is looking for channels only while it
-    /// genuinely has none. With channels restored behind it, the sweep was
-    /// telling a viewer to wait for something they could already watch.
-    private var isPreparingStreams: Bool {
-        banner == .initialSync || banner == .refreshing
-    }
-
+    /// The picture keeps the height it has now and the grid takes what is
+    /// left -- about one row of cards, which scrolls for the rest.
     private func screenHeight(in size: CGSize) -> CGFloat {
-        // Fill the upper area while reserving room for the heading and a full
-        // matchup row. Width grows with height so the screen stays 16:9.
-        let availableHeight = max(0, size.height - 300)
-        let availableWidth = max(0, size.width - 300)
-        return min(availableHeight, availableWidth * 9 / 16)
+        max(260, size.height - 300)
+    }
+
+    /// Whatever is left after the rail. No fixed size: the picture takes the
+    /// screen, which is the point of the rearrangement.
+    private var screen: some View {
+        ZStack {
+            Color.black
+            if let previewStream {
+                LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                    .id(previewStream.id)
+            } else {
+                LinearGradient(colors: [LineupStyle.lightPurple.opacity(0.03), .clear, .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                // Waiting is what this screen is for while it is dark, and a
+                // dark screen is where the viewer is already looking.
+                if isPreparingStreams {
+                    LiveTVSignalSweep()
+                    RefreshingStreamsLabel(size: .screen)
+                } else {
+                    LiveTVStandbyLight()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .bottom) { caption }
+        .accessibilityLabel(previewStream == nil ? "TV screen off" : "TV preview")
+    }
+
+    /// What is on, over the foot of the picture. It describes whatever the
+    /// remote is sitting on, so arrowing down the rail reads the slate without
+    /// opening anything.
+    @ViewBuilder
+    private var caption: some View {
+        // `events` rather than asking the library again: the list is already
+        // in hand, and this is read on every frame the picture draws.
+        if let game = focusedGame ?? events.first(where: { $0.isLive }) ?? events.first {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        if game.isLive {
+                            PulsingLiveDot(size: 7)
+                            Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
+                                .font(.inter(13, .bold)).tracking(1.6)
+                        } else {
+                            Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                                .font(.interDigits(13, .bold)).tracking(1.2)
+                        }
+                        Text(game.league.shortName).font(.inter(13, .bold)).tracking(1.2)
+                            .foregroundStyle(LiveBoardStyle.muted)
+                    }
+                    .foregroundStyle(LineupStyle.lightPurple)
+                    Text(headline(game)).font(.inter(30, .bold))
+                        .foregroundStyle(LineupStyle.text).lineLimit(1).minimumScaleFactor(0.7)
+                    if let place = game.placeLine {
+                        Text(place).font(.inter(15)).foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 24)
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let stream = library.stream(for: game) {
+                        Text(stream.name).font(.inter(15, .semibold))
+                            .foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
+                    } else if !game.broadcast.isEmpty {
+                        Text(game.broadcast).font(.inter(15, .semibold))
+                            .foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
+                    }
+                    if multiviewTitle != nil {
+                        GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
+                    } else {
+                        Text(previewStream == nil ? "SELECT TO PREVIEW" : "SELECT AGAIN FOR FULL SCREEN")
+                            .font(.inter(12, .bold)).tracking(1.6)
+                            .foregroundStyle(LiveBoardStyle.accent)
+                    }
+                }
+            }
+            .padding(.horizontal, 44).padding(.vertical, 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: [.clear, .black.opacity(0.82)],
+                                       startPoint: .top, endPoint: .bottom))
+        }
+    }
+
+    private func headline(_ game: SportsGame) -> String {
+        if game.isEvent { return game.eventName ?? game.league.shortName }
+        guard game.isLive else { return "\(game.awayTeam) at \(game.homeTeam)" }
+        return "\(game.awayAbbreviation) \(game.awayScore)  ·  \(game.homeAbbreviation) \(game.homeScore)"
+    }
+
+    /// The same rule the phone uses, from the same file: work in flight is
+    /// only a wait when there is nothing behind it.
+    private var isPreparingStreams: Bool {
+        let banner = LiveSyncBanner.choose(isInitialProviderSync: library.isInitialProviderSync,
+                                           hasContent: library.hasRestoredCache,
+                                           isScheduleLoading: library.isScheduleLoading,
+                                           isLoading: library.isLoading,
+                                           channelsAreSyncing: !library.automaticMatchingReady)
+        return banner == .initialSync || banner == .refreshing
     }
 }
 
-private struct LiveTVStandbyLight: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var glowing = false
+/// Tonight's games, yours first.
+///
+/// One list doing what a league rail and a grid of cards did between them.
+private struct LiveGameRail: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @FocusState private var focusedRowID: String?
+    let events: [SportsGame]
+    @Binding var selectedLeague: SportsLeague?
+    @Binding var focusedGame: SportsGame?
+    let multiviewPrimaryID: Int?
+    let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
+
+    /// Only the viewer's own games. Everything else is in the grid below the
+    /// picture, which is where it has always been.
+    private var mine: [SportsGame] { events.filter { library.isFollowing($0) } }
 
     var body: some View {
-        Circle()
-            .fill(LineupStyle.liveDot)
-            .frame(width: 4, height: 4)
-            .opacity(reduceMotion || glowing ? 0.85 : 0.3)
-            .shadow(color: LineupStyle.liveDot.opacity(reduceMotion || glowing ? 0.35 : 0.1), radius: 3)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 2).repeatForever(autoreverses: true), value: glowing)
-            .onAppear { glowing = true }
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    if mine.isEmpty { empty } else { ForEach(mine) { row($0) } }
+                } header: {
+                    heading("MY TEAMS", detail: mine.isEmpty ? "" : "\(mine.filter(\.isLive).count) LIVE")
+                }
+            }
+            .padding(.horizontal, 16).padding(.bottom, 20)
+        }
+        .focusSection()
+        .onChange(of: focusedRowID) { value in
+            guard let value, let game = events.first(where: { $0.id == value }) else { return }
+            focusedGame = game
+        }
+    }
+
+    /// Nobody followed yet, or nobody playing. Says which, and says where the
+    /// following happens, because it happens in a menu nobody finds by accident.
+    private var empty: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "star").font(.system(size: 30, weight: .light))
+                .foregroundStyle(LiveBoardStyle.muted)
+            Text(library.followedTeams.isEmpty ? "No teams followed" : "None of yours are on")
+                .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
+            Text(library.followedTeams.isEmpty
+                 ? "Hold Select on any game below to follow a team. Their games appear here."
+                 : "Your teams are not playing in this range.")
+                .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10).padding(.top, 8)
+    }
+
+    private func heading(_ title: String, detail: String) -> some View {
+        HStack {
+            Text(title).tracking(2.2)
+            Spacer()
+            Text(detail).tracking(1)
+        }
+        .font(.inter(11, .bold))
+        .foregroundStyle(LiveBoardStyle.muted)
+        .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 8)
+        .background(LiveBoardStyle.canvas)
+    }
+
+    private func row(_ game: SportsGame) -> some View {
+        LiveRailRow(game: game, rowFocus: $focusedRowID,
+                    isPrimary: multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id,
+                    onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
+            .id(game.id)
+    }
+}
+
+/// One game in the rail. Two sides and a score, or an event and its name.
+private struct LiveRailRow: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @EnvironmentObject private var reminders: GameReminders
+    let game: SportsGame
+    let rowFocus: FocusState<String?>.Binding
+    let isPrimary: Bool
+    let onPlay: () -> Void
+    let onStartMultiview: () -> Void
+    private var isFocused: Bool { rowFocus.wrappedValue == game.id }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if game.isEvent {
+                Text(game.eventName ?? "").font(.inter(16, .semibold))
+                    .foregroundStyle(LineupStyle.text).lineLimit(2).minimumScaleFactor(0.8)
+            } else {
+                side(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayScore)
+                side(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeScore)
+            }
+            HStack(spacing: 8) {
+                if game.isLive {
+                    PulsingLiveDot(size: 5)
+                    Text(game.status.isEmpty ? "LIVE" : game.status.uppercased()).lineLimit(1)
+                } else {
+                    Text(game.start.formatted(.dateTime.hour().minute()))
+                }
+                Text(game.league.shortName).foregroundStyle(LiveBoardStyle.muted)
+                Spacer(minLength: 0)
+                if library.isFollowing(game) {
+                    Image(systemName: "star.fill").font(.system(size: 9))
+                        .foregroundStyle(LineupStyle.highlight.opacity(0.9))
+                }
+            }
+            .font(.inter(11, .semibold))
+            .foregroundStyle(isFocused ? LineupStyle.text : LiveBoardStyle.muted)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .leading) {
+            if game.isLive {
+                RoundedRectangle(cornerRadius: 2).fill(LineupStyle.live)
+                    .frame(width: 3).padding(.vertical, 12)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : .clear,
+                              lineWidth: isFocused ? 2.5 : 2)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
+        .onTapGesture(perform: onPlay)
+        .accessibilityAddTraits(.isButton)
+        .animation(.easeOut(duration: 0.16), value: isFocused)
+        .contextMenu {
+            if game.isUpcoming {
+                Button(reminders.reminds(game) ? "Remove Reminder" : "Remind Me",
+                       systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                }
+            }
+            ForEach(library.followableSides(of: game)) { team in
+                let following = library.isFollowing(team.key)
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(team)
+                }
+            }
+            if library.stream(for: game) != nil {
+                Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
+                    .disabled(isPrimary)
+            }
+        }
+    }
+
+    private func side(_ name: String, _ abbreviation: String, _ logo: String, _ score: String) -> some View {
+        HStack(spacing: 9) {
+            TeamBadge(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
+                      size: 22)
+            Text(name).font(.inter(14, .medium)).foregroundStyle(LineupStyle.text)
+                .lineLimit(1).minimumScaleFactor(0.75)
+            Spacer(minLength: 6)
+            if game.isLive, !score.isEmpty {
+                Text(score).font(.interDigits(16, .bold)).foregroundStyle(LineupStyle.text)
+            }
+        }
+    }
+}
+
+/// The league filter, at the foot of the rail rather than at the head of the
+/// screen. It is a thing a viewer sets once and then scrolls past forever.
+private struct LiveRailLeagueFilter: View {
+    @Binding var selectedLeague: SportsLeague?
+    @State private var choosing = false
+
+    private var title: String {
+        guard let selectedLeague else { return "All sports" }
+        return selectedLeague == .ncaaf ? "College" : selectedLeague.shortName
+    }
+
+    var body: some View {
+        // Not a Menu. A Menu renders through the television's own chrome
+        // whatever style it is handed, which puts a focus plate the size of
+        // the whole control behind something that already draws its own --
+        // the bulky frame this app spent a long time removing. TVSelectable
+        // over a confirmation dialog is the shape the rest of it uses.
+        TVSelectable(scale: LineupStyle.controlLift, fill: LineupStyle.focused, fillRadius: 23,
+                     action: { choosing = true }) {
+            HStack(spacing: 10) {
+                Image(systemName: "line.3.horizontal.decrease")
+                Text(title).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.inter(14, .semibold))
+            .foregroundStyle(LiveBoardStyle.muted)
+            .padding(.horizontal, 18).frame(height: 46)
+            .background(LiveBoardStyle.panel,
+                        in: Capsule())
+        }
+        .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
+            Button("All sports") { selectedLeague = nil }
+            ForEach(SportsLeague.allCases) { league in
+                Button(league == .ncaaf ? "College" : league.shortName) { selectedLeague = league }
+            }
+        }
+        .accessibilityLabel("Filter by sport")
     }
 }
 
@@ -597,18 +833,6 @@ private struct LiveBoardTeam: View {
                     .foregroundStyle(LineupStyle.lightPurple)
             }
         }
-    }
-}
-
-private struct LiveSelectedPreview: View {
-    @StateObject private var controller = VLCPlaybackController()
-    let stream: XtreamStream
-    let urls: [URL]
-
-    var body: some View {
-        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
-        .onAppear { controller.start(urls: urls, muted: false) }
-        .onDisappear { controller.stop() }
     }
 }
 
@@ -755,6 +979,17 @@ private struct LiveSlateRow: View {
                     reminders.toggleGame(game)
                 }
             }
+            // Following is offered wherever a game is, not only in the rail.
+            // The rail is empty until somebody is followed, so a follow action
+            // that lived only there could never be reached from a fresh install.
+            ForEach(library.followableSides(of: game)) { team in
+                let following = library.isFollowing(team.key)
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(team)
+                }
+            }
             if stream != nil {
                 Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
                     .disabled(isPrimary)
@@ -764,7 +999,33 @@ private struct LiveSlateRow: View {
     }
 }
 
+private struct LiveTVStandbyLight: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var glowing = false
 
+    var body: some View {
+        Circle()
+            .fill(LineupStyle.liveDot)
+            .frame(width: 4, height: 4)
+            .opacity(reduceMotion || glowing ? 0.85 : 0.3)
+            .shadow(color: LineupStyle.liveDot.opacity(reduceMotion || glowing ? 0.35 : 0.1), radius: 3)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 2).repeatForever(autoreverses: true), value: glowing)
+            .onAppear { glowing = true }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+    }
+}
+private struct LiveSelectedPreview: View {
+    @StateObject private var controller = VLCPlaybackController()
+    let stream: XtreamStream
+    let urls: [URL]
+
+    var body: some View {
+        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+        .onAppear { controller.start(urls: urls, muted: false) }
+        .onDisappear { controller.stop() }
+    }
+}
 private struct PulsingLiveDot: View {
     let size: CGFloat
     @State private var isPulsing = false
@@ -1107,6 +1368,17 @@ private struct GameEventCard: View {
                     reminders.toggleGame(event)
                 }
             }
+            // Following is offered wherever a game is, not only in the rail.
+            // The rail is empty until somebody is followed, so a follow action
+            // that lived only there could never be reached from a fresh install.
+            ForEach(library.followableSides(of: event)) { team in
+                let following = library.isFollowing(team.key)
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(team)
+                }
+            }
             if stream != nil {
                 Button(multiviewPrimaryID == stream?.id ? "First Multiview Game" : "Start Multiview", systemImage: "rectangle.split.2x1") {
                     onStartMultiview()
@@ -1323,7 +1595,7 @@ struct GuideView: View {
                             } else {
                                 ScrollViewReader { proxy in
                                 ScrollView {
-                                    LazyVStack(alignment: .leading, spacing: 8) {
+                                    LazyVStack(alignment: .leading, spacing: 0) {
                                         ForEach(filtered) { stream in
                                             GuideChannelRow(
                                                 stream: stream,
@@ -1854,7 +2126,12 @@ private struct GuideLayout {
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 28) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
-    var rowHeight: CGFloat { 132 * slotWidth / 245 }
+    // A guide is worth having in proportion to how much of it you can see at
+    // once, and at 132 this showed four channels on a 1080 screen. Ninety-two
+    // is what a row needs for a title and a time under it at this type size
+    // and no more, which is six or seven channels -- enough to scan without
+    // the rows becoming a list of hairlines.
+    var rowHeight: CGFloat { 92 * slotWidth / 245 }
 }
 
 private struct GuideLayoutKey: EnvironmentKey {
@@ -1924,12 +2201,7 @@ private struct GuideChannelRow: View {
     var body: some View {
         HStack(spacing: 0) {
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
-            .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(
-                LinearGradient(colors: [GuidePalette.channelTile.opacity(0.9), GuidePalette.panel.opacity(0.72)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: layout.channelWidth - 8, height: layout.rowHeight)
             .padding(.trailing, 8)
             .clipped()
 
@@ -1952,16 +2224,18 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
-        .background(GuidePalette.surface.opacity(0.88))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(GuidePalette.line.opacity(0.72), lineWidth: 1))
+        .background(GuidePalette.background)
+        // One hairline between channels, and nothing else. The card, its
+        // border and its shadow made every row an object; a guide wants to
+        // read as one grid a viewer runs their eye down.
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(GuidePalette.line.opacity(0.55)).frame(height: 1)
+        }
         .overlay {
             if multiviewPrimaryID == stream.id {
-                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
+                Rectangle().stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
             }
         }
-        .lineupShadow(.restingQuiet)
         .contentShape(Rectangle())
         .contextMenu {
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
@@ -1985,47 +2259,42 @@ private struct GuideChannelRow: View {
     }
 }
 
-/// Artwork stays prominent, while the full channel name remains visible below
-/// it so regional, quality, and alternate feeds are never ambiguous.
+/// The channel's own logo, filling the column, with its name only where there
+/// is no logo to show -- the way the phone does it.
+///
+/// It used to be the logo at half size with the full name set under it in two
+/// lines. That name cost thirty-odd points of every row on a screen where the
+/// rows were already too tall to see more than four of, and it was answering a
+/// question the guide answers anyway: the focused channel's name is written
+/// across the preview panel above, in type read from ten feet.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(spacing: 3) {
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)),
-                              width: max(1, proxy.size.width - 44)) { loaded in
-                    if let image = loaded {
-                        image.resizable().scaledToFit()
-                            .frame(width: max(1, proxy.size.width - 44),
-                                   height: max(1, proxy.size.height - 56))
-                    } else {
-                        Image(systemName: "tv")
-                            .font(.inter(24, .light))
-                            .foregroundStyle(GuidePalette.secondary)
-                            .frame(width: max(1, proxy.size.width - 44),
-                                   height: max(1, proxy.size.height - 56))
-                    }
+            let art = max(1, proxy.size.width - 28)
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: art) { loaded in
+                if let image = loaded {
+                    image.resizable().scaledToFit()
+                } else {
+                    Text(stream.name)
+                        .font(.inter(13, .semibold))
+                        .lineLimit(2).minimumScaleFactor(0.5)
+                        .allowsTightening(true)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(GuidePalette.text)
                 }
-                .transaction { $0.animation = nil }
-                Text(stream.name)
-                    .font(.inter(12, .semibold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.4)
-                    .allowsTightening(true)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: proxy.size.width - 14, minHeight: 32, maxHeight: 36)
-                    .foregroundStyle(GuidePalette.text)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transaction { $0.animation = nil }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .overlay(alignment: .topLeading) {
                 if isFavorite {
                     Image(systemName: "star.fill")
-                        .font(.inter(10, .bold))
-                        .padding(7)
-                        .background(GuidePalette.background.opacity(0.88), in: Circle())
-                        .padding(6)
+                        .font(.inter(9, .bold))
+                        .foregroundStyle(GuidePalette.text.opacity(0.85))
+                        .padding(2)
                 }
             }
         }
@@ -2286,14 +2555,14 @@ private struct GuideProgramCell: View {
         VStack(alignment: .leading, spacing: 3) {
             if let program {
                 HStack(spacing: 6) {
-                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
+                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.subheadline, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
                     if isOnNow { GuideLiveDot() }
                     else if program.isNew == true { GuideInlineStatus(title: "NEW") }
                 }
                 if showsTime {
                     HStack(spacing: 7) {
                         Text(guideTimeRange(program)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.interDigits(.callout)).foregroundStyle(GuidePalette.secondary)
+                            .font(.interDigits(.subheadline)).foregroundStyle(GuidePalette.secondary)
                         if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     }
                 }
@@ -2301,16 +2570,14 @@ private struct GuideProgramCell: View {
                 Text(empty).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(GuidePalette.secondary)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 12)
+        .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: layout.rowHeight - 8, alignment: .topLeading)
+        .frame(height: layout.rowHeight - 7, alignment: .topLeading)
         .background {
             GeometryReader { geometry in
-                LinearGradient(
-                    colors: isFocused
-                        ? [GuidePalette.cardFocused, GuidePalette.cardFocused.opacity(0.88)]
-                        : [GuidePalette.card, GuidePalette.card.opacity(0.88)],
-                    startPoint: .top, endPoint: .bottom)
+                // Flat. The two-stop wash on every cell was invisible at this
+                // size and cost a gradient per cell per frame.
+                (isFocused ? GuidePalette.cardFocused : GuidePalette.card)
                 // Filled in behind the line, in a lighter shade of it. The
                 // accent itself was tried here and covers most of every cell
                 // in an evening, which read as the ground having gone blue.
@@ -2327,12 +2594,11 @@ private struct GuideProgramCell: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(
             isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
             lineWidth: isFocused ? 2 : 0.5
         ))
-        .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.14) : .clear, radius: 12, y: 5)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }

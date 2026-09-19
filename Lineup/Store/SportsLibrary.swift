@@ -103,6 +103,7 @@ final class SportsLibrary: ObservableObject {
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
     private let teamPreferencesKey = "NullSports.teamChannelPreferences"
+    private let followedTeamsKey = "NullSports.followedTeams"
     private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
@@ -1546,6 +1547,66 @@ final class SportsLibrary: ObservableObject {
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
+    // MARK: - Followed teams
+
+    /// Whose games these are. Read by the Live tab to decide what goes at the
+    /// top, and by reminders to decide what is worth saying.
+    @Published private(set) var followedTeams = FollowedTeams()
+
+    func isFollowing(_ game: SportsGame) -> Bool {
+        FollowedSlate.follows(Self.preferenceGame(game), in: followedTeams)
+    }
+
+    func isFollowing(_ key: TeamChannelKey) -> Bool { followedTeams.contains(key) }
+
+    /// The sides of this game that can be followed, with what it takes to draw
+    /// one. An event has none, which is what leaves the menu off a fight card.
+    func followableSides(of game: SportsGame) -> [FollowedTeam] {
+        guard !game.isEvent else { return [] }
+        let preference = Self.preferenceGame(game)
+        return [(preference.awayKey, game.awayTeam, game.awayAbbreviation, game.awayLogo),
+                (preference.homeKey, game.homeTeam, game.homeAbbreviation, game.homeLogo)]
+            .filter { $0.0.isUsable }
+            .map { FollowedTeam(key: $0.0, name: $0.1, abbreviation: $0.2, logo: $0.3) }
+    }
+
+    func toggleFollow(_ team: FollowedTeam) {
+        var teams = followedTeams
+        teams.toggle(team)
+        followedTeams = teams
+        persistFollowedTeams()
+    }
+
+    func unfollow(_ key: TeamChannelKey) {
+        var teams = followedTeams
+        teams.unfollow(key)
+        followedTeams = teams
+        persistFollowedTeams()
+    }
+
+    private func persistFollowedTeams() {
+        guard let profile = activeProfile else { return }
+        let key = followedTeamsKey + "." + profile.id.uuidString
+        if let data = try? JSONEncoder().encode(followedTeams) {
+            profileDefaults.set(data, forKey: key)
+        }
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    private func restoreFollowedTeams() {
+        guard let profile = activeProfile else {
+            followedTeams = FollowedTeams()
+            return
+        }
+        let key = followedTeamsKey + "." + profile.id.uuidString
+        guard let data = profileDefaults.data(forKey: key),
+              let saved = try? JSONDecoder().decode(FollowedTeams.self, from: data) else {
+            followedTeams = FollowedTeams()
+            return
+        }
+        followedTeams = saved
+    }
+
     // MARK: - Preferred channels by team
 
     /// The teams in a game, in the form the pure preference model works with.
@@ -1731,6 +1792,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func restoreFavorites() {
+        restoreFollowedTeams()
         guard let profile = activeProfile else {
             favoriteStreamOrder = []
             return

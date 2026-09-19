@@ -5,6 +5,9 @@ struct MobileLiveView: View {
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @State private var league: SportsLeague?
+    /// The star at the head of the league strip. Narrows the whole tab to the
+    /// viewer's teams rather than adding another section to scroll past.
+    @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
@@ -33,6 +36,9 @@ struct MobileLiveView: View {
     /// That is what a tab switch was waiting for.
     struct Slate {
         let all: [SportsGame]
+        /// The viewer's own games, live first and soonest next. Held out of
+        /// the sections below rather than repeated in them.
+        let mine: [SportsGame]
         let live: [SportsGame]
         /// Upcoming games already grouped, so the section loop does not filter
         /// the whole list again for each day it draws.
@@ -40,17 +46,31 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league)
+        let all = library.games(for: league).filter { !onlyFollowed || library.isFollowing($0) }
         let calendar = Calendar.current
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
+        var mine: [SportsGame] = []
+        // With the tab already narrowed to followed teams, a section for them
+        // would be the whole list under a second heading.
+        let separatesMine = !onlyFollowed
         for game in all {
+            if separatesMine, library.isFollowing(game) {
+                mine.append(game)
+                continue
+            }
             if game.isLive { live.append(game) }
             if game.isUpcoming {
                 byDay[calendar.startOfDay(for: game.start), default: []].append(game)
             }
         }
-        return Slate(all: all, live: live,
+        // On now first, then by kick-off. Whatever a viewer can watch this
+        // second outranks whatever they are waiting for.
+        mine.sort { left, right in
+            if left.isLive != right.isLive { return left.isLive }
+            return left.start < right.start
+        }
+        return Slate(all: all, mine: mine, live: live,
                      days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
     }
 
@@ -104,6 +124,15 @@ struct MobileLiveView: View {
                                 .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                                 .padding(16)
                         }
+                        if !slate.mine.isEmpty {
+                            Section {
+                                ForEach(slate.mine) { matchup($0) }
+                            } header: {
+                                let onNow = slate.mine.filter(\.isLive).count
+                                sectionTitle("MY TEAMS",
+                                             detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
+                            }
+                        }
                         if !slate.live.isEmpty {
                             Section {
                                 ForEach(slate.live) { matchup($0) }
@@ -117,7 +146,12 @@ struct MobileLiveView: View {
                                              detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                             }
                         }
-                        if slate.all.isEmpty && !library.isScheduleLoading {
+                        if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
+                            ContentUnavailableView("Nothing for your teams",
+                                systemImage: "star",
+                                description: Text("None of the teams you follow are playing in this range. Tap the star again to see everything."))
+                                .padding(.top, 40)
+                        } else if slate.all.isEmpty && !library.isScheduleLoading {
                             ContentUnavailableView(library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                                 systemImage: "sportscourt",
                                 description: Text("Pull down to refresh, or find your channels in Guide."))
@@ -250,11 +284,34 @@ struct MobileLiveView: View {
     private var leagueTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 25) {
+                if !library.followedTeams.isEmpty { followedTab }
                 leagueTab(value: nil)
                 ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
             }.padding(.horizontal, 20)
         }
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
+    }
+
+    /// Only appears once there is somebody to follow. An empty filter is a
+    /// control that can only disappoint.
+    private var followedTab: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { onlyFollowed.toggle() }
+        } label: {
+            Image(systemName: onlyFollowed ? "star.fill" : "star")
+                .font(.system(size: 19))
+                .foregroundStyle(onlyFollowed ? LineupStyle.highlight : LineupStyle.lightPurple)
+                .opacity(onlyFollowed ? 1 : 0.38)
+                .frame(minWidth: 44, minHeight: 48)
+                .overlay(alignment: .bottom) {
+                    if onlyFollowed {
+                        Rectangle().fill(LineupStyle.highlight).frame(height: 2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("My teams")
+        .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
     private func leagueTab(value: SportsLeague?) -> some View {
@@ -308,6 +365,16 @@ struct MobileLiveView: View {
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
         .contextMenu {
             Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+            // Following happens here rather than on a settings screen: this is
+            // where the team is already in front of the viewer.
+            ForEach(library.followableSides(of: game)) { side in
+                let following = library.isFollowing(side.key)
+                Button(following ? "Remove \(side.name) from My Teams"
+                                 : "Add \(side.name) to My Teams",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(side)
+                }
+            }
         }
     }
 
