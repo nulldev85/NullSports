@@ -869,7 +869,29 @@ private final class MobilePictureInPictureDelegate: NSObject, AVPictureInPicture
 
 extension MobilePlaybackController {
     /// Hold the last frame still while the player is dismissed.
-    func freezePictureForExit() { videoViewForExit?.freezePicture() }
+    ///
+    /// The picture trails the frame on the way out because it is not drawn by
+    /// the thing moving it: the renderer draws on its own clock while the
+    /// dismissal moves and scales the frame at display rate, so it arrives
+    /// late to each position.
+    ///
+    /// Stopping the decoder is what actually settles it. A paused renderer
+    /// leaves its last frame on the drawable, and a layer whose contents are
+    /// not changing moves with its parent exactly. The snapshot below is tried
+    /// first and usually comes back empty for VLC -- an OpenGL drawable is not
+    /// something UIKit can copy -- which is why that alone did not fix it.
+    ///
+    /// Picture in Picture is the exception: the viewer moved the stream to
+    /// another window and it must keep playing there.
+    func freezePictureForExit() {
+        guard !pictureInPictureActive else { return }
+        switch engine {
+        case .vlc: if player.isPlaying { player.pause() }
+        case .system: systemPlayer.pause()
+        }
+        videoViewForExit?.freezePicture()
+    }
+
     func thawPictureAfterCancelledExit() { videoViewForExit?.thawPicture() }
 }
 
