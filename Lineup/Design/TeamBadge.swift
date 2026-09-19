@@ -25,10 +25,14 @@ struct TeamBadge: View {
     private var rim: CGFloat { max(2, size * 0.1) }
 
     var body: some View {
-        AsyncImage(url: URL(string: url)) { phase in
-            if let image = phase.image {
+        LineupArtView(url: URL(string: url), width: size) { loaded in
+            if let image = loaded {
                 let art = image.resizable().scaledToFit().padding(inset)
-                art.background { halo(art) }
+                // The halo is two blurred copies of the badge, and a blur is an
+                // offscreen pass the compositor redoes whenever what is under
+                // it changes. Flattened here, the three layers are rasterised
+                // once and that one picture is what scrolls.
+                art.background { halo(art) }.drawingGroup()
             } else {
                 Text(fallback)
                     .font(.inter(max(7, size * 0.3), .black))

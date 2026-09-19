@@ -153,8 +153,8 @@ private struct MobileChannelBadge: View {
     let stream: XtreamStream
 
     var body: some View {
-        AsyncImage(url: stream.streamIcon.flatMap(URL.init(string:))) { phase in
-            if let image = phase.image {
+        LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 44) { loaded in
+            if let image = loaded {
                 image.resizable().scaledToFit()
             } else {
                 Text(stream.name.prefix(3).uppercased())

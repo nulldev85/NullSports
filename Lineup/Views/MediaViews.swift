@@ -25,6 +25,20 @@ struct MediaServersView: View {
                     }
                 } else if media.shelves.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
+                } else if media.shelves.isEmpty && media.loadFailed {
+                    // Not "Choose Your Shelves". An attempt that failed and a
+                    // server with nothing selected look identical from here,
+                    // and telling a viewer to pick shelves that could not be
+                    // fetched sends them looking for a setting to fix.
+                    ContentUnavailableView {
+                        Label("Can't Reach Your Server", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text("Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")
+                    } actions: {
+                        Button("Try Again", systemImage: "arrow.clockwise") {
+                            Task { await media.reload() }
+                        }
+                    }
                 } else {
                     MediaCatalogsScreen(catalogs: media.shelves)
                 }
@@ -46,11 +60,12 @@ struct MediaServersView: View {
             .sheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environmentObject(media)
             }
-            .task {
-                if media.activeProfile != nil && media.roots.isEmpty {
-                    await media.reload()
-                }
-            }
+            // Not `.task`. A task belongs to the view, and this work does not:
+            // leaving the tab mid-load used to cancel it and leave the tab
+            // stuck on its spinner. The store owns the load and decides whether
+            // one is needed; appearing only asks.
+            .onAppear { media.loadShelvesIfNeeded() }
+            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
                 set: { if !$0 { media.errorMessage = nil } }
@@ -1182,8 +1197,8 @@ private struct MediaDetailScreen: View {
                         Image(uiImage: preparedHero).resizable().scaledToFill()
                     }
                     #else
-                    AsyncImage(url: heroURL) { phase in
-                        if let image = phase.image { image.resizable().scaledToFill() }
+                    LineupArtView(url: heroURL, width: heroWidth) { loaded in
+                        if let image = loaded { image.resizable().scaledToFill() }
                     }
                     #endif
                 }
@@ -1418,9 +1433,9 @@ private struct MediaDetailScreen: View {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 12)
                                             .fill(LineupStyle.surface)
-                                        AsyncImage(url: trailers[index].2
-                                            ?? media.backdropURL(for: subject)) { phase in
-                                            if let image = phase.image {
+                                        LineupArtView(url: trailers[index].2
+                                            ?? media.backdropURL(for: subject), width: 260) { loaded in
+                                            if let image = loaded {
                                                 image.resizable().scaledToFill()
                                             }
                                         }
@@ -1457,8 +1472,8 @@ private struct MediaDetailScreen: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
-                                    AsyncImage(url: media.personImageURL(for: person)) { phase in
-                                        if let image = phase.image {
+                                    LineupArtView(url: media.personImageURL(for: person), width: 112) { loaded in
+                                        if let image = loaded {
                                             image.resizable().scaledToFill()
                                         } else {
                                             Image(systemName: "person.fill")
@@ -1622,6 +1637,10 @@ private struct MediaDetailScreen: View {
         media.imageURL(for: subject, width: 900)
         #endif
     }
+    /// Wider than any iPhone, so the hero is never decoded short of the screen
+    /// it fills. It is one picture on one page; the saving is not worth a
+    /// measurement pass to get it exact.
+    private var heroWidth: CGFloat { 460 }
     #if os(tvOS)
     nonisolated private static func fetchHeroData(from urls: [URL]) async -> Data? {
         for url in urls {
@@ -1716,8 +1735,8 @@ private struct MediaEpisodeCard: View {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
-                        AsyncImage(url: media.imageURL(for: episode, width: 640)) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
+                        LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
+                            if let image = loaded { image.resizable().scaledToFill() }
                             else { Image(systemName: "film.fill").font(.largeTitle) }
                         }
                     }
@@ -2312,8 +2331,8 @@ private struct MediaItemCard: View {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
-                        AsyncImage(url: media.imageURL(for: item)) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
+                        LineupArtView(url: media.imageURL(for: item), width: artWidth) { loaded in
+                            if let image = loaded { image.resizable().scaledToFill() }
                             else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                         }
                     }
@@ -2335,6 +2354,17 @@ private struct MediaItemCard: View {
         .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
+    /// The widest this card is ever drawn -- the top of the grid's adaptive
+    /// range, which is wider than the fixed width a shelf gives it. One size
+    /// per shape means a title scrolled past in a shelf and met again in a
+    /// grid is the same cached picture both times.
+    private var artWidth: CGFloat {
+        #if os(tvOS)
+        shape == .poster ? 310 : 460
+        #else
+        shape == .poster ? 210 : 300
+        #endif
+    }
     private var cardRadius: CGFloat {
         #if os(tvOS)
         18

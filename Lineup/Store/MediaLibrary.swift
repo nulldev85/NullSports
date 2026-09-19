@@ -49,6 +49,15 @@ final class MediaLibrary: ObservableObject {
     // on the next launch rather than sitting in defaults forever.
     private static let retiredKeys = ["Lineup.stremioAddons", "Lineup.stremioShelves"]
     private var loadID = UUID()
+    /// The profile whose shelves are on screen, and the load that put them
+    /// there. Both belong to the store rather than to the tab: a load owned by
+    /// a view's task is cancelled the moment the viewer looks at another tab,
+    /// which is most of a slow one.
+    private var loadedProfileID: UUID?
+    private var shelfLoad: Task<Void, Never>?
+    /// Set when the last attempt ended without shelves, so the tab can say so
+    /// and offer to try again instead of claiming there is nothing to show.
+    @Published private(set) var loadFailed = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -106,6 +115,8 @@ final class MediaLibrary: ObservableObject {
 
     func select(_ profile: MediaServerProfile) async {
         loadID = UUID()
+        loadedProfileID = nil
+        loadFailed = false
         activeProfile = profile
         roots = []
         collections = []
@@ -119,6 +130,8 @@ final class MediaLibrary: ObservableObject {
 
     func remove(_ profile: MediaServerProfile) {
         loadID = UUID()
+        loadedProfileID = nil
+        loadFailed = false
         MediaKeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
         if activeProfile?.id == profile.id {
@@ -135,10 +148,33 @@ final class MediaLibrary: ObservableObject {
         if activeProfile != nil { Task { await reload() } }
     }
 
+    /// What the Media Servers tab asks for when it appears.
+    ///
+    /// Not `await`ed from the tab, and deliberately: the load is several
+    /// requests deep and a viewer who switches tabs while it runs used to
+    /// cancel it, come back, and find the work neither finished nor running.
+    /// The store holds the task instead, so looking away costs nothing and
+    /// looking back finds it done.
+    ///
+    /// It starts nothing when the shelves for this profile are already loaded,
+    /// and starts again after an attempt that failed, which is the retry a
+    /// viewer would otherwise have to find in a menu.
+    func loadShelvesIfNeeded() {
+        guard let profile = activeProfile else { return }
+        guard MediaShelfLoad.shouldStart(profile: profile.id, loaded: loadedProfileID,
+                                         alreadyRunning: shelfLoad != nil,
+                                         lastAttemptFailed: loadFailed) else { return }
+        shelfLoad = Task { [weak self] in
+            await self?.reload()
+            self?.shelfLoad = nil
+        }
+    }
+
     func reload() async {
         guard let profile = activeProfile else {
             roots = []; collections = []; catalogs = []; isLoading = false
             libraryCounts = nil; lastRefreshedAt = nil; isConnected = false
+            loadedProfileID = nil; loadFailed = false
             return
         }
         let requestID = UUID()
@@ -182,6 +218,8 @@ final class MediaLibrary: ObservableObject {
             collections = loadedCollections
             catalogs = loadedCatalogs
             isConnected = true
+            loadFailed = false
+            loadedProfileID = profile.id
             lastRefreshedAt = Date()
             errorMessage = nil
             Task {
@@ -196,9 +234,19 @@ final class MediaLibrary: ObservableObject {
             // it started. Reporting it put an alert reading "cancelled" in
             // front of a viewer who had simply opened the tab, and marked a
             // server offline that was never asked.
-            guard !Self.isCancellation(error) else { return }
-            isConnected = false
-            errorMessage = error.localizedDescription
+            //
+            // It is still a load that stopped, though, and returning here
+            // without saying so left the flag raised with nothing running
+            // behind it -- the tab reading "Loading libraries…" for the rest
+            // of the session, and every later attempt declining to start
+            // because one was apparently already under way.
+            if !Self.isCancellation(error) {
+                isConnected = false
+                errorMessage = error.localizedDescription
+            }
+            loadFailed = true
+            isLoading = false
+            return
         }
         if loadID == requestID { isLoading = false }
         // After the libraries, not before: this is one request per enabled
@@ -669,5 +717,26 @@ final class MediaLibrary: ObservableObject {
         } else {
             activeProfile = selected
         }
+    }
+}
+
+/// Whether opening the Media Servers tab should start a load.
+///
+/// Four pieces of state decide it, and getting the combination wrong is not a
+/// crash -- it is a tab that shows a spinner forever, or one that reloads the
+/// whole library every time it is looked at. Both have happened, so the rule
+/// lives somewhere a test can reach rather than inside the view.
+enum MediaShelfLoad {
+    static func shouldStart(profile: UUID, loaded: UUID?, alreadyRunning: Bool,
+                            lastAttemptFailed: Bool) -> Bool {
+        if alreadyRunning { return false }
+        // A different provider than the one on screen always loads, whatever
+        // happened to the last one.
+        if loaded != profile { return true }
+        // Same provider, already loaded: only worth doing again if the last
+        // attempt did not finish. This is the retry, and it is why a viewer who
+        // was on another network when the tab first opened gets their library
+        // by returning to it rather than by relaunching the app.
+        return lastAttemptFailed
     }
 }
