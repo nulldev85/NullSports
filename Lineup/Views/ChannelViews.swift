@@ -2447,6 +2447,8 @@ struct AccountView: View {
                     }
                     NavigationLink("Channel matching") { MatchDiagnosticsView() }
                         .lineupButtonStyle()
+                    NavigationLink("Launch timing") { TVStartupTraceView() }
+                        .lineupButtonStyle()
                     DetailPanel(title: "ABOUT") {
                         AccountRow(label: "iCloud", value: cloud.status)
                         AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
@@ -2456,16 +2458,38 @@ struct AccountView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(LineupStyle.background)
-            .task {
-                if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
-                    await media.reload()
-                }
-            }
+            // The store decides and the store owns it, as on the Media
+            // Servers tab: a load tied to this screen was cancelled by
+            // leaving it, and left the flag raised behind.
+            .onAppear { media.loadShelvesIfNeeded() }
+            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
             }
         }
+    }
+}
+
+/// The last launch, step by step -- the same trace the phone shows.
+///
+/// It was being recorded on the television all along and thrown away, because
+/// only the phone had a screen to read it on. Which meant the one question
+/// worth asking about a slow start on a set -- which part is slow -- could
+/// only be guessed at, and guessing is what cost days on the phone.
+private struct TVStartupTraceView: View {
+    @ObservedObject private var trace = StartupTrace.shared
+
+    var body: some View {
+        ScrollView {
+            Text(trace.report)
+                .font(.system(size: 21, design: .monospaced))
+                .foregroundStyle(LineupStyle.lightPurple)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(40)
+        }
+        .focusable()
+        .background(LineupStyle.background)
     }
 }
 
