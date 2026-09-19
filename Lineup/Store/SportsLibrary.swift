@@ -130,6 +130,8 @@ final class SportsLibrary: ObservableObject {
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
     private var guideRefresh: Task<Void, Never>?
+    /// Discards the answer from a promote pass that a newer one has overtaken.
+    private var promoteGeneration = UUID()
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
@@ -643,7 +645,7 @@ final class SportsLibrary: ObservableObject {
             }
             guard activeProfile?.id == profile.id else { return }
             channelsValidatedThisSession = true
-            promoteCachedMatchesIfSafe()
+            await promoteCachedMatchesIfSafe()
             isLoading = false
             saveCache(profileID: profile.id)
         } catch {
@@ -961,7 +963,7 @@ final class SportsLibrary: ObservableObject {
                 }
                 guard self.activeProfile?.id == profileID else { return }
                 self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
-                self.promoteCachedMatchesIfSafe()
+                await self.promoteCachedMatchesIfSafe()
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
                 if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
             }
@@ -1373,7 +1375,7 @@ final class SportsLibrary: ObservableObject {
         let newIdentities = identities.filter { result.0[$0.key] != nil }
         let identityChanged = newIdentities != matchedGameIdentities
         matchedGameIdentities = newIdentities
-        promoteCachedMatchesIfSafe()
+        await promoteCachedMatchesIfSafe()
         // Save changed matching results without rewriting the full guide on
         // every score/clock update. Writes remain serialized and atomic.
         if let profileID, force || result.2 || identityChanged || matchIdentities(now: now) != lastSavedMatchIdentities
@@ -1386,43 +1388,75 @@ final class SportsLibrary: ObservableObject {
     // evidence while the replacement downloads, but only for a freshly returned
     // channel whose ID, name and EPG binding are all unchanged. The ordinary
     // matcher still rechecks the game, preserving every evidence threshold.
-    private func promoteCachedMatchesIfSafe() {
+    /// Re-confirm the matches restored from cache against the channel list the
+    /// server just returned.
+    ///
+    /// This used to run on the main actor, and it is not small work: a
+    /// dictionary built from every one of twenty-six thousand channels, and
+    /// then, for each game, a channel name and a day of its listings put
+    /// through folding, lowercasing, splitting and rejoining. It runs whenever
+    /// matching finishes and whenever a refresh lands, several times a launch.
+    ///
+    /// That is what froze the app. The picture kept playing -- video decodes
+    /// on its own threads -- while nothing on screen would respond, and then
+    /// the picture stopped too. The work happens in a detached task now and
+    /// only the answer comes back to the main actor.
+    private func promoteCachedMatchesIfSafe() async {
         guard channelsValidatedThisSession else {
             fastValidatedGameIDs = []
             return
         }
-        let freshByID = Dictionary(grouping: streams, by: \.id).compactMapValues { $0.first }
+        let currentStreams = streams
+        let games = gamesByLeague.values.flatMap { $0 }
+        let restored = restoredMatchGameIDs
+        let validatedLeagues = scheduleValidatedLeagues
+        let identities = matchedGameIdentities
+        let cache = gameStreamCache
+        let listings = programsByChannel
         let now = Date()
-        var validated: Set<String> = []
+        let generation = UUID()
+        promoteGeneration = generation
+
+        let found = await Task.detached(priority: .utility) {
+            let freshByID = Dictionary(grouping: currentStreams, by: \.id).compactMapValues { $0.first }
+            var matches: [String: XtreamStream] = [:]
+            var evidenceByGame: [String: Int] = [:]
+            for game in games {
+                guard restored.contains(game.id),
+                      validatedLeagues.contains(game.league),
+                      identities[game.id] == Self.matchIdentity(game),
+                      let cached = cache[game.id], let fresh = freshByID[cached.id],
+                      DailyCachePolicy.isSameChannelSlot(cachedID: cached.id, freshID: fresh.id,
+                        cachedName: cached.name, freshName: fresh.name,
+                        cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID) else { continue }
+                let freshListings = fresh.epgChannelID.flatMap { listings[$0] } ?? []
+                let evidence: Int?
+                if game.league == .ncaaf {
+                    evidence = CollegeChannelMatcher.score(channel: fresh.name,
+                        listings: Self.collegeListings(freshListings),
+                        game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
+                } else {
+                    evidence = Self.professionalScore(
+                        fresh, game: game, preparedGame: Self.prepared(game),
+                        channel: ProfessionalChannelMatcher.prepare(
+                            channel: fresh.name,
+                            listings: Self.matcherListings(["": freshListings])[""] ?? []),
+                        listings: freshListings, now: now)
+                }
+                guard let evidence else { continue }
+                matches[game.id] = fresh
+                evidenceByGame[game.id] = evidence
+            }
+            return (matches, evidenceByGame)
+        }.value
+
+        // A newer pass, or a different provider, owns the answer now.
+        guard promoteGeneration == generation else { return }
         var refreshedMatches = gameStreamCache
         var refreshedEvidence = matchEvidenceScores
-        for game in gamesByLeague.values.flatMap({ $0 }) {
-            guard restoredMatchGameIDs.contains(game.id),
-                  scheduleValidatedLeagues.contains(game.league),
-                  matchedGameIdentities[game.id] == Self.matchIdentity(game),
-                  let cached = gameStreamCache[game.id], let fresh = freshByID[cached.id],
-                  DailyCachePolicy.isSameChannelSlot(cachedID: cached.id, freshID: fresh.id,
-                    cachedName: cached.name, freshName: fresh.name,
-                    cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID) else { continue }
-            let evidence: Int?
-            if game.league == .ncaaf {
-                evidence = CollegeChannelMatcher.score(channel: fresh.name,
-                    listings: Self.collegeListings(programs(for: fresh)),
-                    game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
-            } else {
-                let freshListings = programs(for: fresh)
-                evidence = Self.professionalScore(
-                    fresh, game: game, preparedGame: Self.prepared(game),
-                    channel: ProfessionalChannelMatcher.prepare(
-                        channel: fresh.name,
-                        listings: Self.matcherListings(["": freshListings])[""] ?? []),
-                    listings: freshListings, now: now)
-            }
-            guard let evidence else { continue }
-            refreshedMatches[game.id] = fresh
-            refreshedEvidence[game.id] = evidence
-            validated.insert(game.id)
-        }
+        for (id, stream) in found.0 { refreshedMatches[id] = stream }
+        for (id, evidence) in found.1 { refreshedEvidence[id] = evidence }
+        let validated = Set(found.0.keys)
         if refreshedMatches != gameStreamCache { gameStreamCache = refreshedMatches }
         if refreshedEvidence != matchEvidenceScores { matchEvidenceScores = refreshedEvidence }
         if validated != fastValidatedGameIDs { fastValidatedGameIDs = validated }
