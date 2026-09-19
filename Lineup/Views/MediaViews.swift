@@ -1351,7 +1351,7 @@ private struct MediaDetailScreen: View {
 
     private var actions: some View {
         HStack(spacing: 12) {
-            Button { chosen = playTarget } label: { playLabel }
+            Button { chosen = playTarget } label: { playLabel.modifier(MediaChromeFocus()) }
             .lineupFlatButton()
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
@@ -1379,39 +1379,31 @@ private struct MediaDetailScreen: View {
 
     /// The play button.
     ///
-    /// On a television it is as wide as what it says and no paler than anything
-    /// else on the page: a full-width filled bar was the loudest thing on the
-    /// screen for a control that starts one episode, and at that size the white
-    /// read as a slab rather than a button. A phone keeps the filled bar --
-    /// there it is the one thing a thumb goes for, and a full-width primary
-    /// action is how every other app on the platform says so.
+    /// The same surface as the heart, the eye and the shuffle beside it. It
+    /// used to be filled on the phone, on the theory that a primary action
+    /// should be the one thing a thumb goes for -- but the fill is a pale slab
+    /// against a dark page, sitting directly beside three dark controls, and
+    /// what it read as was a mistake rather than an emphasis. The television
+    /// had already dropped it for the same reason.
+    ///
+    /// It is still the widest thing in the row, which is how it says it is the
+    /// main one. Width is the emphasis now; brightness was too much of it.
     @ViewBuilder
     private var playLabel: some View {
         let text = HStack(spacing: 8) {
             Image(systemName: "play.fill")
             Text("Play").font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
-                Text(code).foregroundStyle(playCodeTint)
+                // Quieter than the word beside it, on the same dark surface
+                // both platforms now use.
+                Text(code).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
         }
         .font(.inter(17))
         #if os(tvOS)
         text.padding(.horizontal, 22).frame(height: buttonHeight)
-            .modifier(MediaChromeFocus())
         #else
         text.frame(maxWidth: .infinity).frame(height: buttonHeight)
-            .modifier(MediaChromeFocus(prominent: true))
-        #endif
-    }
-
-    /// The episode code beside "Play", quieter than the word itself -- which
-    /// means a dark tint on the phone's filled bar and a pale one on the
-    /// television's outlined button.
-    private var playCodeTint: Color {
-        #if os(tvOS)
-        LineupStyle.lightPurple.opacity(0.55)
-        #else
-        LineupStyle.background.opacity(0.5)
         #endif
     }
 
