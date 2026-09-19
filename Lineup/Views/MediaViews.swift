@@ -137,7 +137,7 @@ struct LineupAccountCard<Actions: View>: View {
             HStack(spacing: 0) {
                 ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
                     if index > 0 {
-                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: 26)
+                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: rule)
                     }
                     statistic(stat)
                 }
@@ -151,17 +151,37 @@ struct LineupAccountCard<Actions: View>: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(16)
-        .frame(maxWidth: 720, alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous),
+        .padding(cardPadding)
+        .frame(maxWidth: maxCardWidth, alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
     }
+
+    // A television is not a large phone. The type scales itself -- a text style
+    // resolves bigger there -- but padding, a glyph circle and a corner do not,
+    // and a card built to phone measurements reads as a postage stamp from
+    // across a room.
+    #if os(tvOS)
+    private var cardPadding: CGFloat { 30 }
+    private var maxCardWidth: CGFloat { 900 }
+    private var cardRadius: CGFloat { 26 }
+    private var glyph: CGFloat { 72 }
+    private var glyphSize: CGFloat { 32 }
+    private var rule: CGFloat { 44 }
+    #else
+    private var cardPadding: CGFloat { 16 }
+    private var maxCardWidth: CGFloat { 720 }
+    private var cardRadius: CGFloat { 20 }
+    private var glyph: CGFloat { 42 }
+    private var glyphSize: CGFloat { 20 }
+    private var rule: CGFloat { 26 }
+    #endif
 
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 20, weight: .semibold))
-                .frame(width: 42, height: 42)
+                .font(.system(size: glyphSize, weight: .semibold))
+                .frame(width: glyph, height: glyph)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
             VStack(alignment: .leading, spacing: 3) {
@@ -196,6 +216,53 @@ struct LineupAccountCard<Actions: View>: View {
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The provider, told the same way the media server is told.
+///
+/// The tab used to give the media server a card and the provider a plain row,
+/// which was backwards: the provider is the thing the app is mostly about. Both
+/// are cards now, and both are the same card -- one view, two sets of figures
+/// -- so neither can drift into looking like the other's poor relation.
+///
+/// Shared, because the phone and the television show the same two cards and
+/// there is no version of this that should differ between them.
+struct ProviderAccountCard: View {
+    @EnvironmentObject private var library: SportsLibrary
+    let profile: XtreamProfile
+    let openGuide: () -> Void
+
+    /// Channels in hand is what "ready" means here. A provider mid-sync still
+    /// has whatever it restored from disk, and that is worth watching.
+    private var ready: Bool { !library.streams.isEmpty }
+
+    private var status: String {
+        if library.channelsAreSyncing { return "Updating…" }
+        return ready ? "Connected" : "Offline"
+    }
+
+    var body: some View {
+        LineupAccountCard(
+            symbol: "antenna.radiowaves.left.and.right",
+            title: profile.name,
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            connected: ready,
+            status: status,
+            statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
+            stats: [
+                LineupCardStat("Channels", library.streams.count),
+                LineupCardStat("Favorites", library.favoriteStreamOrder.count),
+                LineupCardStat("Teams", library.teamPreferences.listed().count)
+            ],
+            refreshed: library.lastRefreshedAt
+        ) {
+            LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
+                Task { await library.reload() }
+            }
+            .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
+            LineupCardAction(title: "Guide", symbol: "calendar", action: openGuide)
+        }
     }
 }
 
@@ -240,7 +307,11 @@ struct LineupCardAction: View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
+                #if os(tvOS)
+                .frame(maxWidth: .infinity, minHeight: 66)
+                #else
                 .frame(maxWidth: .infinity, minHeight: 38)
+                #endif
                 .lineupLiquidGlass(Capsule(),
                                    fallback: focused ? LineupStyle.focused : LineupStyle.raised,
                                    border: LineupStyle.line)
@@ -254,7 +325,11 @@ struct LineupStatusDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
 
+    #if os(tvOS)
+    private static let size: CGFloat = 16
+    #else
     private static let size: CGFloat = 9
+    #endif
 
     private var tint: Color {
         connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
@@ -264,19 +339,23 @@ struct LineupStatusDot: View {
         // A bead rather than a filled circle: a lit upper face, a deeper base,
         // a hairline rim and one small specular. That is what reads as glass at
         // nine points, where a material effect would show nothing at all.
+        // Every measurement below is a fraction of the bead rather than a
+        // number, because the television draws it at nearly twice the size and
+        // a specular highlight fixed at two and a half points would vanish
+        // there while the rim stayed hairline-thin.
         Circle()
             .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
                                  center: UnitPoint(x: 0.34, y: 0.28),
-                                 startRadius: 0, endRadius: 8))
-            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
+                                 startRadius: 0, endRadius: Self.size * 0.9))
+            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: Self.size * 0.056))
             .overlay(alignment: .topLeading) {
                 Circle().fill(.white.opacity(0.55))
-                    .frame(width: 2.6, height: 2.6)
-                    .blur(radius: 0.6)
-                    .offset(x: 1.5, y: 1.3)
+                    .frame(width: Self.size * 0.29, height: Self.size * 0.29)
+                    .blur(radius: Self.size * 0.067)
+                    .offset(x: Self.size * 0.167, y: Self.size * 0.144)
             }
             .frame(width: Self.size, height: Self.size)
-            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: 3)
+            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: Self.size / 3)
             // Underneath, not over: the halo comes out from beneath the bead
             // and travels outward, which is the only way round that reads as
             // the dot giving something off. Drawn over the bead it washed the
