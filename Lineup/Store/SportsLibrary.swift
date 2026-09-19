@@ -316,16 +316,13 @@ final class SportsLibrary: ObservableObject {
         // Prepared once per guide channel rather than once per stream. A
         // provider lists the same channel several times over -- HD, FHD, SD,
         // a backup feed -- and every one of them points at these same listings.
-        let programText = time("listing text") {
-            programs.mapValues { listings in
-                // Not scannable: this is the several-thousand-character half,
-                // and searching it for every term is what cost the launch
-                // thirty-five seconds.
-                SportsMatchText(alreadyLowercased:
-                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased(),
-                    scannable: false)
-            }
-        }
+        // Deliberately not prepared up front. Preparing all of them held a
+        // word set for every guide channel at once -- five thousand days of
+        // television, something like a hundred megabytes -- for the length of
+        // the build, on a phone that is also holding twenty-six thousand
+        // channels, a guide, and whatever the viewer is watching. Each one is
+        // built where it is needed and dropped once it has answered, so one
+        // exists at a time instead of five thousand.
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
 
@@ -343,8 +340,14 @@ final class SportsLibrary: ObservableObject {
         var collegeStreamIDs: Set<Int> = []
 
         func leagues(listedOn stream: XtreamStream) -> Set<SportsLeague> {
-            guard let epgID = stream.epgChannelID, let text = programText[epgID] else { return [] }
+            guard let epgID = stream.epgChannelID, let listings = programs[epgID] else { return [] }
             if let known = listingLeagues[epgID] { return known }
+            // Built here and gone at the end of this call. What is kept is the
+            // answer: at most six league cases, against a day of listings.
+            let text = SportsMatchText(
+                alreadyLowercased: listings.map { "\($0.title) \($0.detail)" }
+                    .joined(separator: " ").lowercased(),
+                scannable: false)
             let found = Set(SportsLeague.allCases.filter { $0.matches(text) })
             listingLeagues[epgID] = found
             return found
