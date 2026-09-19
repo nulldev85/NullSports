@@ -701,7 +701,7 @@ private struct LiveRailRow: View {
                     PulsingLiveDot(size: 5)
                     Text(game.status.isEmpty ? "LIVE" : game.status.uppercased()).lineLimit(1)
                 } else {
-                    Text(game.start.formatted(.dateTime.hour().minute()))
+                    Text(game.startLabel)
                 }
                 Text(game.league.shortName).foregroundStyle(LiveBoardStyle.muted)
                 Spacer(minLength: 0)
