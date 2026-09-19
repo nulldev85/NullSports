@@ -141,3 +141,50 @@ final class SplitMatchTextTests: XCTestCase {
         XCTAssertTrue(SportsLeague.mlb.matches(listings))
     }
 }
+
+/// Sorting channels into leagues is now done once in the filter pass and
+/// looked up afterwards, instead of every league re-asking every channel.
+/// These check the lookup answers what the asking used to.
+final class LeagueBucketTests: XCTestCase {
+    private func leaguesFound(name: String, listings: String?) -> Set<SportsLeague> {
+        let base = SportsMatchText(alreadyLowercased: name.lowercased())
+        let fromName = Set(SportsLeague.allCases.filter { $0.matches(base) })
+        guard let listings else { return fromName }
+        let text = SportsMatchText(alreadyLowercased: listings.lowercased())
+        return fromName.union(SportsLeague.allCases.filter { $0.matches(text) })
+    }
+
+    // The union is the same answer the per-league pass used to reach, because
+    // that pass asked exactly these two questions of exactly these two strings.
+    func testTheUnionIsWhatEachLeagueWouldHaveAnsweredAnyway() {
+        let samples: [(String, String?)] = [
+            ("us| nfl network hd", "chiefs at bills"),
+            ("us| regional sports 4", "dodgers at padres"),
+            ("us| espn hd", "college football and nfl live"),
+            ("us| movies", nil),
+            ("us| nba tv", nil)
+        ]
+        for (name, listings) in samples {
+            let found = leaguesFound(name: name, listings: listings)
+            for league in SportsLeague.allCases {
+                let base = SportsMatchText(alreadyLowercased: name.lowercased())
+                let asked = league.matches(base)
+                    || (listings.map { league.matches(SportsMatchText(alreadyLowercased: $0.lowercased())) } ?? false)
+                XCTAssertEqual(found.contains(league), asked,
+                               "\(league.rawValue) disagreed about \"\(name)\"")
+            }
+        }
+    }
+
+    // A channel in no league at all is dropped, which is what keeps twenty-two
+    // thousand of twenty-six thousand channels out of the sports index.
+    func testAChannelInNoLeagueIsNotASportsChannel() {
+        XCTAssertTrue(leaguesFound(name: "us| home shopping", listings: "jewellery hour").isEmpty)
+    }
+
+    // Listings alone are enough, which is the case a channel name can never
+    // cover: a numbered regional feed carrying a game.
+    func testListingsAloneAreEnough() {
+        XCTAssertEqual(leaguesFound(name: "us| rsn 12", listings: "maple leafs at bruins"), [.nhl])
+    }
+}

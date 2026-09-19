@@ -129,6 +129,11 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
+    /// One matching pass at a time, and at most one more queued behind it.
+    /// nil means nothing is waiting; the Bool carries whether that waiting
+    /// request wanted a forced rematch.
+    private var matchInFlight = false
+    private var pendingMatch: Bool?
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
@@ -273,11 +278,15 @@ final class SportsLibrary: ObservableObject {
         // Timed apart from the matching that follows it. One number for the
         // pair could not say which half was slow, and for two rounds it was
         // read as though it were all the matching's.
-        let index = await StartupTrace.shared.measure("build sports index") {
+        let built = await StartupTrace.shared.measure("build sports index") {
             await Task.detached(priority: .utility) {
                 Self.makeSportsIndex(categories: currentCategories, streams: currentStreams,
                                      programs: currentPrograms)
             }.value
+        }
+        let index = built.index
+        for phase in built.phases {
+            StartupTrace.shared.append("    " + phase.name, seconds: phase.seconds, detail: nil)
         }
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: indexGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
@@ -289,60 +298,84 @@ final class SportsLibrary: ObservableObject {
         await rebuildGameStreamCache(force: true)
     }
 
+    /// The index, and how long each part of building it took.
+    ///
+    /// The timings come back rather than being recorded in place because this
+    /// runs off the main actor, and because one number for the whole thing was
+    /// read wrongly twice.
     nonisolated private static func makeSportsIndex(
         categories: [XtreamCategory], streams: [XtreamStream], programs: [String: [CurrentProgram]]
-    ) -> SportsIndex {
+    ) -> (index: SportsIndex, phases: [(name: String, seconds: Double)]) {
+        var phases: [(name: String, seconds: Double)] = []
+        func time<T>(_ name: String, _ work: () -> T) -> T {
+            let start = ProcessInfo.processInfo.systemUptime
+            let value = work()
+            phases.append((name, ProcessInfo.processInfo.systemUptime - start))
+            return value
+        }
+
         let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
         // Prepared once per guide channel rather than once per stream. A
         // provider lists the same channel several times over -- HD, FHD, SD,
-        // a backup feed -- and every one of them points at these same
-        // listings. There are five thousand of these and twenty-six thousand
-        // streams.
-        let programText = programs.mapValues { listings in
-            SportsMatchText(alreadyLowercased:
-                listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased())
+        // a backup feed -- and every one of them points at these same listings.
+        let programText = time("listing text") {
+            programs.mapValues { listings in
+                SportsMatchText(alreadyLowercased:
+                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased())
+            }
         }
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
-        // A channel's own words, and the listings it points at, kept apart.
+
+        // Which leagues a guide channel's listings point at, worked out once
+        // for the channel rather than once for every stream that carries it.
         //
-        // They used to be joined into one string per stream -- a channel name
-        // glued to a whole day of television -- which was then tokenized, and
-        // held, and written to the cache file. Twenty-six thousand times.
-        // Asking the two halves separately answers the same question: the
-        // join was a space, so the words are the same words, and the only
-        // thing lost is a phrase that happened to straddle the seam between a
-        // channel's name and its first listing, which was never a real match.
-        var matchText: [Int: (base: SportsMatchText, listings: SportsMatchText?)] = [:]
+        // This is the shape of the thing: five thousand guide channels behind
+        // twenty-six thousand streams, and the answer for a channel's listings
+        // is the same whichever stream is asking. It used to be recomputed per
+        // stream, and then a second pass recomputed all of it again per
+        // league. A day of television was scanned for thirty team names, over
+        // and over, for an answer already known.
+        var listingLeagues: [String: Set<SportsLeague>] = [:]
+        var streamLeagues: [Int: Set<SportsLeague>] = [:]
         var collegeStreamIDs: Set<Int> = []
 
-        func isSport(_ prepared: (base: SportsMatchText, listings: SportsMatchText?),
-                     _ league: SportsLeague) -> Bool {
-            league.matches(prepared.base) || prepared.listings.map { league.matches($0) } ?? false
+        func leagues(listedOn stream: XtreamStream) -> Set<SportsLeague> {
+            guard let epgID = stream.epgChannelID, let text = programText[epgID] else { return [] }
+            if let known = listingLeagues[epgID] { return known }
+            let found = Set(SportsLeague.allCases.filter { $0.matches(text) })
+            listingLeagues[epgID] = found
+            return found
         }
 
-        let professional = streams.filter { stream in
-            let category = categoryNames[stream.categoryID ?? ""] ?? ""
-            let type = stream.streamType?.lowercased()
-            guard type != "radio_streams", type != "radio" else { return false }
-            let base = "\(stream.name) \(category)".lowercased()
-            guard !blocked.contains(where: { base.contains($0) }) else { return false }
-            if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
-            // Already lowercase, and short: a name and a category, nothing more.
-            let prepared = (base: SportsMatchText(alreadyLowercased: base),
-                            listings: stream.epgChannelID.flatMap { programText[$0] })
-            guard SportsLeague.allCases.contains(where: { isSport(prepared, $0) }) else { return false }
-            matchText[stream.id] = prepared
-            return true
+        let professional = time("channel filter") {
+            streams.filter { stream in
+                let category = categoryNames[stream.categoryID ?? ""] ?? ""
+                let type = stream.streamType?.lowercased()
+                guard type != "radio_streams", type != "radio" else { return false }
+                let base = "\(stream.name) \(category)".lowercased()
+                guard !blocked.contains(where: { base.contains($0) }) else { return false }
+                if college.contains(where: { base.contains($0) }) { collegeStreamIDs.insert(stream.id) }
+                // Short: a name and a category, and already lowercase.
+                let baseText = SportsMatchText(alreadyLowercased: base)
+                let found = Set(SportsLeague.allCases.filter { $0.matches(baseText) })
+                    .union(leagues(listedOn: stream))
+                guard !found.isEmpty else { return false }
+                streamLeagues[stream.id] = found
+                return true
+            }
         }
-        let leagues = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
-            (league, professional.filter { stream in
-                guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
-                guard let prepared = matchText[stream.id] else { return league.matches(stream.name) }
-                return isSport(prepared, league)
+        // No matching happens here any more. The filter above already settled
+        // which leagues each channel belongs to; this only sorts them.
+        let leagueBuckets = time("league buckets") {
+            Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+                (league, professional.filter { stream in
+                    guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
+                    return streamLeagues[stream.id]?.contains(league) ?? false
+                })
             })
-        })
-        return SportsIndex(professional: professional, leagues: leagues)
+        }
+        return (SportsIndex(professional: professional, leagues: leagueBuckets), phases)
     }
 
     func addProfile(name: String, serverURL: String, username: String, password: String) async -> Bool {
@@ -1101,7 +1134,35 @@ final class SportsLibrary: ObservableObject {
         return best?.stream
     }
 
+    /// Match today's games to channels, one pass at a time.
+    ///
+    /// Several things ask for this at once on a launch: the restored index, a
+    /// schedule arriving, a finished refresh, a score poll. Each was starting
+    /// its own full pass over every game and every candidate channel, and the
+    /// trace caught four of them on a single launch -- twenty seconds apiece,
+    /// overlapping, all working out the same answer. There was a generation
+    /// token to throw away the stale results, but the work had already been
+    /// done by the time it was consulted.
+    ///
+    /// Now a request that arrives while a pass is running is remembered rather
+    /// than run: one more pass follows the current one, with the latest state,
+    /// which is what all of those overlapping passes were racing to produce.
     private func rebuildGameStreamCache(force: Bool = false) async {
+        guard sportsIndexReady else { return }
+        guard !matchInFlight else {
+            pendingMatch = (pendingMatch ?? false) || force
+            return
+        }
+        matchInFlight = true
+        defer { matchInFlight = false }
+        await matchGamesToChannels(force: force)
+        while let again = pendingMatch {
+            pendingMatch = nil
+            await matchGamesToChannels(force: again)
+        }
+    }
+
+    private func matchGamesToChannels(force: Bool) async {
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
         guard sportsIndexReady else { return }
