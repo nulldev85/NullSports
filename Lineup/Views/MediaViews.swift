@@ -1278,6 +1278,11 @@ private struct MediaDetailScreen: View {
                     #else
                     LineupArtView(url: heroURL, width: heroWidth) { loaded in
                         if let image = loaded { image.resizable().scaledToFill() }
+                        // The gradient behind is the placeholder, so there is
+                        // nothing to draw here -- but something has to be
+                        // returned. A closure that can produce no view at all
+                        // is what left this blank once already.
+                        else { Color.clear }
                     }
                     #endif
                 }
@@ -1516,6 +1521,8 @@ private struct MediaDetailScreen: View {
                                             ?? media.backdropURL(for: subject), width: 260) { loaded in
                                             if let image = loaded {
                                                 image.resizable().scaledToFill()
+                                            } else {
+                                                Color.clear
                                             }
                                         }
                                         Image(systemName: "play.fill")

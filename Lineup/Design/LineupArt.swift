@@ -214,12 +214,32 @@ struct LineupArtView<Content: View>: View {
     }
 
     var body: some View {
-        // The cache is asked again here, not just in `init`. A view rebuilt
-        // while its own load was in flight keeps its identity and its empty
-        // state, so without this it would sit blank over a picture that had
-        // since been made and put away.
-        content((loaded ?? LineupArt.ready(url, pixels: pixels)).map { Image(uiImage: $0) })
-            .task(id: url) { await load() }
+        // The loader hangs off a view of this view's own, never off the
+        // content, and that is the whole point of the ZStack.
+        //
+        // A content closure is free to produce nothing -- `if let image =
+        // loaded { ... }` with no else is the obvious way to write a picture
+        // that has no placeholder, and two call sites did. SwiftUI does not
+        // run `.task` on a view that renders nothing, so those two deadlocked
+        // on themselves: no picture, so an empty body, so no load, so no
+        // picture. The hero on the detail page and the trailer thumbnails
+        // beside it were blank for exactly that reason, and every call site
+        // that happened to write an `else` was fine.
+        //
+        // This host renders either way and is where the load lives now, so
+        // what the content closure returns cannot decide whether the picture
+        // is ever fetched. It is 0x0, so the ZStack still takes the content's
+        // size and no layout moves.
+        ZStack {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .task(id: url) { await load() }
+            // The cache is asked again here, not just in `init`. A view
+            // rebuilt while its own load was in flight keeps its identity and
+            // its empty state, so without this it would sit blank over a
+            // picture that had since been made and put away.
+            content((loaded ?? LineupArt.ready(url, pixels: pixels)).map { Image(uiImage: $0) })
+        }
     }
 
     private func load() async {
