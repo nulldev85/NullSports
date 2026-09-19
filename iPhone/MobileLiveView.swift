@@ -129,7 +129,7 @@ struct MobileLiveView: View {
                                 ForEach(slate.mine) { matchup($0) }
                             } header: {
                                 let onNow = slate.mine.filter(\.isLive).count
-                                sectionTitle("YOUR TEAMS",
+                                sectionTitle("MY TEAMS",
                                              detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
                             }
                         }
@@ -310,7 +310,7 @@ struct MobileLiveView: View {
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Your teams")
+        .accessibilityLabel("My teams")
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
@@ -369,7 +369,8 @@ struct MobileLiveView: View {
             // where the team is already in front of the viewer.
             ForEach(library.followableSides(of: game)) { side in
                 let following = library.isFollowing(side.key)
-                Button(following ? "Unfollow \(side.name)" : "Follow \(side.name)",
+                Button(following ? "Remove \(side.name) from My Teams"
+                                 : "Add \(side.name) to My Teams",
                        systemImage: following ? "star.slash" : "star") {
                     library.toggleFollow(side)
                 }

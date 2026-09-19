@@ -742,7 +742,8 @@ private struct LiveRailRow: View {
             }
             ForEach(library.followableSides(of: game)) { team in
                 let following = library.isFollowing(team.key)
-                Button(following ? "Unfollow \(team.name)" : "Follow \(team.name)",
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
                        systemImage: following ? "star.slash" : "star") {
                     library.toggleFollow(team)
                 }
@@ -983,7 +984,8 @@ private struct LiveSlateRow: View {
             // that lived only there could never be reached from a fresh install.
             ForEach(library.followableSides(of: game)) { team in
                 let following = library.isFollowing(team.key)
-                Button(following ? "Unfollow \(team.name)" : "Follow \(team.name)",
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
                        systemImage: following ? "star.slash" : "star") {
                     library.toggleFollow(team)
                 }
@@ -1371,7 +1373,8 @@ private struct GameEventCard: View {
             // that lived only there could never be reached from a fresh install.
             ForEach(library.followableSides(of: event)) { team in
                 let following = library.isFollowing(team.key)
-                Button(following ? "Unfollow \(team.name)" : "Follow \(team.name)",
+                Button(following ? "Remove \(team.name) from My Teams"
+                                 : "Add \(team.name) to My Teams",
                        systemImage: following ? "star.slash" : "star") {
                     library.toggleFollow(team)
                 }
