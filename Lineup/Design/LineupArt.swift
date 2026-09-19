@@ -33,6 +33,12 @@ enum LineupArt {
     /// Art the app asked for and the server did not have. A channel list is
     /// full of these, and without remembering them every recycled row asks
     /// again and waits for the same 404.
+    ///
+    /// Only a real answer goes in here. Recording a cancelled request as
+    /// missing is how the detail page lost its artwork: opening it tears the
+    /// hero down and rebuilds it once as the page settles, the first request
+    /// was cancelled by that, and the rebuilt view then found the address
+    /// marked as having nothing behind it -- for the rest of the session.
     private static let missing = Missing()
 
     private final class Missing: @unchecked Sendable {
@@ -45,6 +51,43 @@ enum LineupArt {
         func insert(_ key: String) {
             lock.lock(); defer { lock.unlock() }
             keys.insert(key)
+        }
+    }
+
+    /// Loads already running, by key.
+    ///
+    /// Two things come from this. A picture two views want at once is fetched
+    /// once, and -- the reason it exists -- a fetch outlives whoever asked for
+    /// it. A view's `.task` dies when the view does, and a download killed
+    /// halfway leaves nothing behind for the view that replaces it.
+    private static let running = Running()
+
+    private final class Running: @unchecked Sendable {
+        private var tasks: [String: Task<UIImage?, Never>] = [:]
+        private let lock = NSLock()
+
+        /// The task for this key, starting one only if there is not one
+        /// already. Unstructured on purpose: an unstructured task is not
+        /// cancelled when the caller awaiting it is.
+        func task(_ key: String, start: @escaping () async -> UIImage?) -> Task<UIImage?, Never> {
+            lock.lock()
+            if let existing = tasks[key] {
+                lock.unlock()
+                return existing
+            }
+            let task = Task { [weak self] () -> UIImage? in
+                let image = await start()
+                self?.finish(key)
+                return image
+            }
+            tasks[key] = task
+            lock.unlock()
+            return task
+        }
+
+        private func finish(_ key: String) {
+            lock.lock(); defer { lock.unlock() }
+            tasks[key] = nil
         }
     }
 
@@ -81,18 +124,40 @@ enum LineupArt {
     }
 
     static func load(_ url: URL, pixels: Int) async -> UIImage? {
-        let key = key(url, pixels)
-        if let held = cache.object(forKey: key) { return held }
-        if missing.contains(key as String) { return nil }
-        // A file:// or data: URL reaches this too; URLSession handles both.
-        guard let data = try? await session.data(from: url).0,
-              let image = await decode(data, to: pixels) else {
-            missing.insert(key as String)
+        let key = key(url, pixels) as String
+        if let held = cache.object(forKey: key as NSString) { return held }
+        if missing.contains(key) { return nil }
+        return await running.task(key) { await fetch(url, pixels: pixels, key: key) }.value
+    }
+
+    /// One trip for one picture: bytes, then pixels, then kept.
+    private static func fetch(_ url: URL, pixels: Int, key: String) async -> UIImage? {
+        do {
+            // A file:// or data: URL reaches this too; URLSession handles both.
+            let (data, response) = try await session.data(from: url)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                // Only an answer that will not change is worth remembering.
+                // The server saying it has no such picture is one; the server
+                // having a bad minute is not, and writing those down would
+                // empty every shelf in the app for anyone who opened it on a
+                // weak connection.
+                if http.statusCode == 404 || http.statusCode == 410 { missing.insert(key) }
+                return nil
+            }
+            guard let image = await decode(data, to: pixels) else {
+                // Bytes that are not a picture will not become one.
+                missing.insert(key)
+                return nil
+            }
+            let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+            cache.setObject(image, forKey: key as NSString, cost: cost)
+            return image
+        } catch {
+            // Cancelled, timed out, no route to the host: none of it is an
+            // answer about the picture, so none of it is remembered. Asking
+            // again later is the whole point.
             return nil
         }
-        let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
-        cache.setObject(image, forKey: key, cost: cost)
-        return image
     }
 
     /// Decoding happens here and not at the point it is drawn, which is the
@@ -149,7 +214,11 @@ struct LineupArtView<Content: View>: View {
     }
 
     var body: some View {
-        content(loaded.map { Image(uiImage: $0) })
+        // The cache is asked again here, not just in `init`. A view rebuilt
+        // while its own load was in flight keeps its identity and its empty
+        // state, so without this it would sit blank over a picture that had
+        // since been made and put away.
+        content((loaded ?? LineupArt.ready(url, pixels: pixels)).map { Image(uiImage: $0) })
             .task(id: url) { await load() }
     }
 
@@ -168,8 +237,6 @@ struct LineupArtView<Content: View>: View {
         // point and no further: showing the last one under the new name is
         // worse than showing none.
         if loaded != nil { loaded = nil }
-        let image = await LineupArt.load(url, pixels: pixels)
-        guard !Task.isCancelled else { return }
-        loaded = image
+        loaded = await LineupArt.load(url, pixels: pixels)
     }
 }
