@@ -294,3 +294,34 @@ final class CollegeBlockedNameTests: XCTestCase {
         }
     }
 }
+
+/// A phrase is only searched for once its words are known to be present. The
+/// scan still decides, so adjacency and punctuation are judged as before.
+final class PhraseGateTests: XCTestCase {
+    private func listings(_ value: String) -> SportsMatchText {
+        SportsMatchText(alreadyLowercased: value.lowercased(), scannable: false)
+    }
+
+    func testAPhraseWhoseWordsAreAllPresentAndAdjacentMatches() {
+        XCTAssertTrue(SportsLeague.mlb.matches(listings("toronto blue jays at boston")))
+        XCTAssertTrue(SportsLeague.ncaaf.matches(listings("saturday college football tonight")))
+    }
+
+    // The words are there, the phrase is not. The gate lets this through to
+    // the scan, and the scan says no -- which is the old answer.
+    func testWordsPresentButNotAsAPhraseDoesNotMatch() {
+        XCTAssertFalse(SportsLeague.mlb.matches(listings("jays fan wears blue to the game")))
+        XCTAssertFalse(SportsLeague.nhl.matches(listings("wings are red tonight on the grill")))
+    }
+
+    // Punctuation inside a phrase is still matched literally by the scan.
+    func testAHyphenatedPhraseIsStillJudgedByTheText() {
+        XCTAssertTrue(SportsLeague.ncaaf.matches(listings("pac-12 after dark")))
+        XCTAssertTrue(SportsLeague.ufc.matches(listings("tonight on pay-per-view")))
+    }
+
+    func testAPhraseWithAWordMissingIsNeverScannedForAndNeverMatches() {
+        XCTAssertFalse(SportsLeague.mlb.matches(listings("an evening of nothing in particular")))
+        XCTAssertFalse(SportsLeague.nhl.matches(listings("cooking show reruns")))
+    }
+}
