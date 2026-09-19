@@ -506,12 +506,17 @@ private struct LiveSlateDashboard: View {
         }
     }
 
-    /// The matchups need room for a row, a lift, and a glimpse of the row
-    /// under it -- without that glimpse nothing invites a viewer to press Down,
-    /// and a grid one row tall is a shelf wearing a grid's clothes. The picture
-    /// takes everything else.
+    /// One row of four, and no more.
+    ///
+    /// Four across is what a viewer wants to see at once; Down is how they
+    /// reach the next four. Sized off the card rather than guessed at: about
+    /// 215 points for a matchup, a dozen for the lift it grows by when
+    /// focused, the grid's own padding either side, and a heading carrying a
+    /// filter capsule. Anything beyond that is height taken from the picture
+    /// to show part of a row nobody asked to see -- which is what 440 was
+    /// doing, and why the screen looked wrong.
     private func screenHeight(in size: CGSize) -> CGFloat {
-        max(240, size.height - 440)
+        max(240, size.height - 330)
     }
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
