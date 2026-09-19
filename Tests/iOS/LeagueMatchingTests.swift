@@ -188,3 +188,40 @@ final class LeagueBucketTests: XCTestCase {
         XCTAssertEqual(leaguesFound(name: "us| rsn 12", listings: "maple leafs at bruins"), [.nhl])
     }
 }
+
+/// Single-word terms are looked up in the channel's words now, instead of
+/// being searched for anywhere in its text. That is a real change, and this is
+/// what it does and does not alter.
+final class WordLookupTests: XCTestCase {
+    private func text(_ value: String) -> SportsMatchText {
+        SportsMatchText(alreadyLowercased: value.lowercased())
+    }
+
+    // The point of the change: a team name inside a longer word is not that
+    // team. It used to match, because the check was "appears anywhere".
+    func testATeamNameInsideALongerWordNoLongerMatches() {
+        XCTAssertFalse(SportsLeague.nfl.matches(text("bearsville community access")))
+        XCTAssertFalse(SportsLeague.mlb.matches(text("metsuki japanese cinema")))
+    }
+
+    // Everything a listing actually says still matches, whatever punctuation
+    // it is wrapped in, because the text is split on anything non-alphanumeric.
+    func testATeamNameTheListingActuallySaysStillMatches() {
+        for wrapping in ["chicago bears at green bay",
+                         "bears/packers",
+                         "(bears) vs packers",
+                         "live: bears!",
+                         "nfl — bears"] {
+            XCTAssertTrue(SportsLeague.nfl.matches(text(wrapping)), wrapping)
+        }
+    }
+
+    // Terms that cannot survive tokenizing keep searching the text. These are
+    // the ones a word lookup would silently never find.
+    func testHyphenatedAndMultiWordTermsStillSearchTheText() {
+        XCTAssertTrue(SportsLeague.ufc.matches(text("tonight: pay-per-view main card")))
+        XCTAssertTrue(SportsLeague.ncaaf.matches(text("pac-12 after dark")))
+        XCTAssertTrue(SportsLeague.mlb.matches(text("blue jays at red sox")))
+        XCTAssertTrue(SportsLeague.nhl.matches(text("golden knights vs maple leafs")))
+    }
+}

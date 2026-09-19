@@ -129,11 +129,6 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0
     private var cacheWriteTask: Task<Void, Never>?
-    /// One matching pass at a time, and at most one more queued behind it.
-    /// nil means nothing is waiting; the Bool carries whether that waiting
-    /// request wanted a forced rematch.
-    private var matchInFlight = false
-    private var pendingMatch: Bool?
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
@@ -1134,35 +1129,20 @@ final class SportsLibrary: ObservableObject {
         return best?.stream
     }
 
-    /// Match today's games to channels, one pass at a time.
+    /// Match today's games to channels.
     ///
     /// Several things ask for this at once on a launch: the restored index, a
-    /// schedule arriving, a finished refresh, a score poll. Each was starting
-    /// its own full pass over every game and every candidate channel, and the
-    /// trace caught four of them on a single launch -- twenty seconds apiece,
-    /// overlapping, all working out the same answer. There was a generation
-    /// token to throw away the stale results, but the work had already been
-    /// done by the time it was consulted.
+    /// schedule arriving, a finished refresh, a score poll. I tried queueing
+    /// them -- one pass at a time, one more behind it -- and made the launch
+    /// twice as slow: four passes that had been overlapping at twenty seconds
+    /// each, for twenty-two seconds of wall clock between them, became four
+    /// runs end to end for eighty-five. Queueing was the wrong lever. They
+    /// overlap again, and the generation token throws away whichever results
+    /// arrive stale, as it always did.
     ///
-    /// Now a request that arrives while a pass is running is remembered rather
-    /// than run: one more pass follows the current one, with the latest state,
-    /// which is what all of those overlapping passes were racing to produce.
+    /// The cost worth removing is inside a single pass, not in how many of
+    /// them there are.
     private func rebuildGameStreamCache(force: Bool = false) async {
-        guard sportsIndexReady else { return }
-        guard !matchInFlight else {
-            pendingMatch = (pendingMatch ?? false) || force
-            return
-        }
-        matchInFlight = true
-        defer { matchInFlight = false }
-        await matchGamesToChannels(force: force)
-        while let again = pendingMatch {
-            pendingMatch = nil
-            await matchGamesToChannels(force: again)
-        }
-    }
-
-    private func matchGamesToChannels(force: Bool) async {
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
         guard sportsIndexReady else { return }
@@ -1201,7 +1181,8 @@ final class SportsLibrary: ObservableObject {
         // rematches against a newly installed channel index.
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
-        let result = await trace.measure("match games to channels") {
+        let result = await trace.measure("match games to channels",
+                                         detail: "\(games.count) games, \(leagues.values.map(\.count).reduce(0, +)) candidates") {
             await Task.detached(priority: .utility) {
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }

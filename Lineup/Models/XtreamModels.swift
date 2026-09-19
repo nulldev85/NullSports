@@ -263,21 +263,58 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     /// league about the same text should prepare it once instead.
     func matches(_ text: String) -> Bool { matches(SportsMatchText(text)) }
 
+    /// One word is looked up; only a phrase is searched for.
+    ///
+    /// A day of a channel's listings is thousands of characters, and asking
+    /// "does this contain 'bears'" scanned all of them. Thirty team names, six
+    /// leagues, five thousand channels: thirty-five seconds of a launch spent
+    /// scanning the same text for words already sitting in a set beside it.
+    ///
+    /// Single words are now a set lookup, which is stricter than the scan it
+    /// replaces: "bears" no longer matches inside "bearsville". For a team
+    /// name that is the answer anyone wanted -- a listing says Bears, it does
+    /// not say Bearsville -- and phrases like "blue jays" still search the
+    /// text, because a set of words cannot hold them.
     func matches(_ text: SportsMatchText) -> Bool {
         switch self {
         case .ncaaf:
             // Include shared broadcasters as candidates; game matching still
             // requires team evidence before offering playback.
             return text.words.contains(rawValue)
-                || Self.ncaafTerms.contains { text.value.contains($0) }
                 || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
+                || !text.words.isDisjoint(with: Self.ncaafWords)
+                || Self.ncaafPhrases.contains { text.value.contains($0) }
         case .ufc:
-            return Self.ufcTerms.contains { text.value.contains($0) }
+            return !text.words.isDisjoint(with: Self.ufcWords)
+                || Self.ufcPhrases.contains { text.value.contains($0) }
         default:
             return text.words.contains(rawValue)
-                || (Self.teamTerms[self] ?? []).contains { text.value.contains($0) }
+                || !text.words.isDisjoint(with: Self.teamWords[self] ?? [])
+                || (Self.teamPhrases[self] ?? []).contains { text.value.contains($0) }
         }
     }
+
+    /// A term can be looked up only if it survives tokenizing as one piece.
+    /// "pay-per-view" has no space in it but splits into three words, so it
+    /// has to keep searching the text; "76ers" does not.
+    private static func isOneWord(_ term: String) -> Bool {
+        !term.isEmpty && term.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
+    }
+
+    private static func words(_ terms: [String]) -> Set<String> {
+        Set(terms.filter(isOneWord))
+    }
+
+    private static func phrases(_ terms: [String]) -> [String] {
+        terms.filter { !isOneWord($0) }
+    }
+
+    private static let ncaafWords = words(ncaafTerms)
+    private static let ncaafPhrases = phrases(ncaafTerms)
+    private static let ufcWords = words(ufcTerms)
+    private static let ufcPhrases = phrases(ufcTerms)
+    private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }
+    private static let teamPhrases: [SportsLeague: [String]] = teamTerms.mapValues { phrases($0) }
 
     private static let ncaafTerms = ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"]
     private static let ncaafBroadcasters: Set<String> = ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"]
