@@ -462,27 +462,29 @@ private struct LiveSlateDashboard: View {
     private let edge: CGFloat = 38
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // The rail and the picture share the top; the matchups have the
-                // full width underneath. Running the rail the whole height put
-                // the grid beside its foot rather than below it, and Down out
-                // of the last team found nothing there to move to.
-                HStack(spacing: 0) {
-                    LiveGameRail(events: events, selectedLeague: $selectedLeague,
-                                 focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
-                                 onPlay: onPlay, onStartMultiview: onStartMultiview)
-                        .frame(width: 330)
-                    Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
-                    screen
-                }
-                .frame(height: screenHeight(in: geometry.size))
-                Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(height: 1)
-                matchups
-                    .onPreferenceChange(MatchupRowHeight.self) { height in
-                        if height > 0 { matchupRow = height }
-                    }
+        VStack(spacing: 0) {
+            // The rail and the picture share the top; the matchups have the
+            // full width underneath. Running the rail the whole height put
+            // the grid beside its foot rather than below it, and Down out
+            // of the last team found nothing there to move to.
+            HStack(spacing: 0) {
+                LiveGameRail(events: events, selectedLeague: $selectedLeague,
+                             focusedGame: $focusedGame, multiviewPrimaryID: multiviewPrimaryID,
+                             onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(width: 330)
+                Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1)
+                screen
             }
+            // The picture takes whatever the matchups do not. Nothing here
+            // works out how much that is: the matchups are one row tall by
+            // construction, and this absorbs the remainder. Every version of
+            // this that computed a height got the height wrong.
+            .frame(maxHeight: .infinity)
+            Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(height: 1)
+            matchups
+                .onPreferenceChange(MatchupRowHeight.self) { height in
+                    if height > 0 { matchupRow = height }
+                }
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
@@ -512,22 +514,17 @@ private struct LiveSlateDashboard: View {
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
                           multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity)
+                .frame(height: matchupRow + Self.gridPadding * 2)
                 .padding(.horizontal, edge - 5)   // the grid adds five of its own
         }
     }
 
-    /// One row of four, and no more.
-    ///
-    /// Four across is what a viewer wants at once; Down is how they reach the
-    /// next four. The row measures itself and reports back, so the only thing
-    /// left to add is what surrounds it: the grid's padding either side, the
-    /// lift a focused card grows by, and the heading with its filter capsule.
-    /// Everything else is the picture.
-    private func screenHeight(in size: CGSize) -> CGFloat {
-        let chrome: CGFloat = 32 + 14 + 62      // padding, lift, heading
-        return max(240, size.height - (matchupRow + chrome))
-    }
+    /// The breathing room above and below the row, which is also what the
+    /// focused card's lift grows into. The grid uses it for its padding and
+    /// the strip adds it twice to arrive at its own height, so the two cannot
+    /// disagree about how tall one row is.
+    static let gridPadding: CGFloat = 16
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
     /// screen, which is the point of the rearrangement.
@@ -931,7 +928,8 @@ private struct LiveGameSlate: View {
                 .frame(maxWidth: .infinity)
                 // Room for a focused card to lift into. Five points was not
                 // enough and the television clipped the card being looked at.
-                .padding(.horizontal, 5).padding(.vertical, 16)
+                .padding(.horizontal, 5)
+                .padding(.vertical, LiveSlateDashboard.gridPadding)
             }
             .focusSection()
             .task(id: focusRequest) {
