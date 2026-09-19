@@ -302,8 +302,8 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         Set(terms.filter(isOneWord))
     }
 
-    private static func phrases(_ terms: [String]) -> [String] {
-        terms.filter { !isOneWord($0) }
+    private static func phrases(_ terms: [String]) -> [SportsPhrase] {
+        terms.filter { !isOneWord($0) }.map(SportsPhrase.init)
     }
 
     private static let ncaafWords = words(ncaafTerms)
@@ -311,7 +311,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let ufcWords = words(ufcTerms)
     private static let ufcPhrases = phrases(ufcTerms)
     private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }
-    private static let teamPhrases: [SportsLeague: [String]] = teamTerms.mapValues { phrases($0) }
+    private static let teamPhrases: [SportsLeague: [SportsPhrase]] = teamTerms.mapValues { phrases($0) }
 
     private static let ncaafTerms = ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"]
     private static let ncaafBroadcasters: Set<String> = ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"]
@@ -338,6 +338,21 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
 /// listings, and the caller had already lowercased it. Six redundant lowercase
 /// passes and seven tokenizations per channel, across twenty-six thousand
 /// channels, is where a launch spent most of a minute.
+/// A term of more than one word, and the words it is made of.
+///
+/// Checking the words first is what stops a several-thousand-character scan
+/// happening for every team name of every league on every channel.
+struct SportsPhrase: Sendable {
+    let text: String
+    let words: [String]
+
+    init(_ text: String) {
+        self.text = text
+        words = text.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+    }
+}
+
 struct SportsMatchText {
     let value: String
     let words: Set<String>
@@ -367,9 +382,16 @@ struct SportsMatchText {
 
     /// Whether any of these terms is here: the words by lookup, the phrases by
     /// search, and -- only where searching is cheap -- the words by search too.
-    func has(_ words: Set<String>, _ phrases: [String]) -> Bool {
+    func has(_ words: Set<String>, _ phrases: [SportsPhrase]) -> Bool {
         if !self.words.isDisjoint(with: words) { return true }
-        if phrases.contains(where: { value.contains($0) }) { return true }
+        // A phrase cannot be here unless every word of it is here, and that is
+        // two hash lookups against a scan of several thousand characters. For
+        // the phrases that are absent -- which is nearly all of them, nearly
+        // always -- the scan never happens. The scan still decides the ones
+        // that pass, so adjacency and punctuation are judged exactly as before.
+        if phrases.contains(where: { phrase in
+            phrase.words.allSatisfy(self.words.contains) && value.contains(phrase.text)
+        }) { return true }
         // Acronyms are searched for even in the long text. A provider writes
         // "UFC299" and "PPV01", and tokenizing cannot find a term glued to its
         // neighbour -- which is how five hundred channels fell out of the

@@ -8,13 +8,20 @@ enum CollegeChannelMatcher {
         let start: Date
         let end: Date
         let text: String
+        /// Padded and split once. Both were being redone inside the matching,
+        /// which runs once per game per candidate channel.
+        let padded: String
+        let words: Set<String>
 
         init(title: String, detail: String, start: Date, end: Date) {
             self.title = title
             self.detail = detail
             self.start = start
             self.end = end
-            text = CollegeChannelMatcher.normalized(title + " " + detail)
+            let normalized = CollegeChannelMatcher.normalized(title + " " + detail)
+            text = normalized
+            padded = " " + normalized + " "
+            words = Set(normalized.split(separator: " ").map(String.init))
         }
     }
 
@@ -30,6 +37,10 @@ enum CollegeChannelMatcher {
         let expectedNetworks: Set<String>
         let awayAliases: [String]
         let homeAliases: [String]
+        /// The words of each alias. An alias cannot be in a title unless all
+        /// of its words are, and that is a lookup rather than a search.
+        let awayAliasWords: [Set<String>]
+        let homeAliasWords: [Set<String>]
 
         init(broadcast: String, away: String, home: String, awayAbbreviation: String,
              homeAbbreviation: String, kickoff: Date, isLive: Bool, status: String = "") {
@@ -49,6 +60,8 @@ enum CollegeChannelMatcher {
             expectedNetworks = CollegeChannelMatcher.networks(broadcast)
             awayAliases = CollegeChannelMatcher.teamAliases(away, abbreviation: awayAbbreviation)
             homeAliases = CollegeChannelMatcher.teamAliases(home, abbreviation: homeAbbreviation)
+            awayAliasWords = awayAliases.map { Set($0.split(separator: " ").map(String.init)) }
+            homeAliasWords = homeAliases.map { Set($0.split(separator: " ").map(String.init)) }
         }
     }
 
@@ -126,13 +139,17 @@ enum CollegeChannelMatcher {
         let delayActive = game.isDelayed && game.kickoff <= now
             && now.timeIntervalSince(game.kickoff) < 12 * 60 * 60
         if game.isDelayed && now.timeIntervalSince(game.kickoff) >= 12 * 60 * 60 { return nil }
-        func teams(_ text: String) -> Bool {
-            titleMatches(text, awayNames: game.awayAliases, homeNames: game.homeAliases)
+        func teams(_ listing: Listing) -> Bool {
+            titleMatches(padded: listing.padded, words: listing.words, game: game)
+        }
+        func teamsInName() -> Bool {
+            titleMatches(padded: " " + name + " ",
+                         words: Set(name.split(separator: " ").map(String.init)), game: game)
         }
         let point = (game.isLive || delayActive) ? now : game.kickoff
         let current = listings.filter { $0.start <= point && point < $0.end }
         if delayActive && current.contains(where: { listing in
-            !teams(listing.text) && ["vs", "versus", "at"].contains(where: { contains(listing.text, phrase: $0) })
+            !teams(listing) && ["vs", "versus", "at"].contains(where: { contains(listing.text, phrase: $0) })
         }) { return nil }
         let relevant = listings.filter {
             $0.end > $0.start && $0.start <= game.kickoff.addingTimeInterval(1800)
@@ -140,9 +157,9 @@ enum CollegeChannelMatcher {
                 && (!(game.isLive || delayActive) || ($0.start <= now &&
                     (now < $0.end.addingTimeInterval(90 * 60) || (delayActive && networkMatch))))
         }
-        if relevant.contains(where: {
-            let text = $0.text
-            return !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) && teams(text)
+        if relevant.contains(where: { listing in
+            let text = listing.text
+            return !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) && teams(listing)
         }) { return networkMatch ? 400 : 300 }
 
         // Generic or absent listings are common. An explicit different program
@@ -174,7 +191,7 @@ enum CollegeChannelMatcher {
         guard genericGuide || delayCoverage || partialGuide else { return nil }
 
         // A specifically named event feed can work without XMLTV metadata.
-        if genericGuide && teams(name) { return networkMatch ? 250 : 200 }
+        if genericGuide && teamsInName() { return networkMatch ? 250 : 200 }
 
         // One identified school outranks a blind network match but never a feed
         // that names the matchup outright.
@@ -305,9 +322,11 @@ enum CollegeChannelMatcher {
     static func titleMatches(_ title: String, away: String, home: String,
                              awayAbbreviation: String = "", homeAbbreviation: String = "") -> Bool {
         let text = normalized(title)
-        let awayNames = teamAliases(away, abbreviation: awayAbbreviation)
-        let homeNames = teamAliases(home, abbreviation: homeAbbreviation)
-        return titleMatches(text, awayNames: awayNames, homeNames: homeNames)
+        let game = Matchup(broadcast: "", away: away, home: home,
+                           awayAbbreviation: awayAbbreviation, homeAbbreviation: homeAbbreviation,
+                           kickoff: .distantPast, isLive: false)
+        return titleMatches(padded: " " + text + " ",
+                            words: Set(text.split(separator: " ").map(String.init)), game: game)
     }
 
     // The first occurrence of `phrase` that names the school itself rather than
@@ -332,12 +351,35 @@ enum CollegeChannelMatcher {
     // alongside one we cannot. Callers supply normalized text.
     static func sideMatches(_ text: String, names: [String]) -> Bool {
         let padded = " " + text + " "
-        return names.contains { schoolRange(padded, phrase: $0) != nil }
+        let words = Set(text.split(separator: " ").map(String.init))
+        return sideMatches(padded: padded, words: words, names: names,
+                           aliasWords: names.map { Set($0.split(separator: " ").map(String.init)) })
     }
 
-    private static func titleMatches(_ title: String, awayNames: [String], homeNames: [String]) -> Bool {
-        let text = title // Callers supply normalized channel/guide text.
-        guard sideMatches(text, names: awayNames), sideMatches(text, names: homeNames) else { return false }
+    /// The same question, asked of text that has already been padded and split.
+    ///
+    /// A school's name cannot be in a title unless every word of it is, and
+    /// that is a couple of hash lookups against a scan that copies the text
+    /// either side of every hit it finds. The scan still decides the aliases
+    /// that get past the gate, so the qualifier rules -- Washington State not
+    /// supplying Washington -- are applied exactly as before.
+    static func sideMatches(padded: String, words: Set<String>,
+                            names: [String], aliasWords: [Set<String>]) -> Bool {
+        for (index, name) in names.enumerated() {
+            guard index >= aliasWords.count || aliasWords[index].isSubset(of: words) else { continue }
+            if schoolRange(padded, phrase: name) != nil { return true }
+        }
+        return false
+    }
+
+    private static func titleMatches(padded: String, words: Set<String>, game: Matchup) -> Bool {
+        let awayNames = game.awayAliases
+        let homeNames = game.homeAliases
+        guard sideMatches(padded: padded, words: words, names: awayNames,
+                          aliasWords: game.awayAliasWords),
+              sideMatches(padded: padded, words: words, names: homeNames,
+                          aliasWords: game.homeAliasWords) else { return false }
+        let text = String(padded.dropFirst().dropLast())
         // Consume the longer occurrence first so Washington State cannot also
         // supply Washington, and no shared mascot can establish a match.
         for first in awayNames {
