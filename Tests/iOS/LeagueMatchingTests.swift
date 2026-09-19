@@ -197,11 +197,25 @@ final class WordLookupTests: XCTestCase {
         SportsMatchText(alreadyLowercased: value.lowercased())
     }
 
-    // The point of the change: a team name inside a longer word is not that
-    // team. It used to match, because the check was "appears anywhere".
-    func testATeamNameInsideALongerWordNoLongerMatches() {
-        XCTAssertFalse(SportsLeague.nfl.matches(text("bearsville community access")))
-        XCTAssertFalse(SportsLeague.mlb.matches(text("metsuki japanese cinema")))
+    private func listings(_ value: String) -> SportsMatchText {
+        SportsMatchText(alreadyLowercased: value.lowercased(), scannable: false)
+    }
+
+    // In a day of listings, a team name inside a longer word is noise, and
+    // scanning for it is what cost the launch thirty-five seconds.
+    func testATeamNameInsideALongerWordIsNotAMatchInListings() {
+        XCTAssertFalse(SportsLeague.nfl.matches(listings("bearsville community access")))
+        XCTAssertFalse(SportsLeague.mlb.matches(listings("metsuki japanese cinema")))
+    }
+
+    // A channel name is a few dozen characters, so it keeps the old, looser
+    // rule. This is where terms turn up glued to their neighbours, and where
+    // being strict quietly dropped five hundred channels out of the index.
+    func testAChannelNameKeepsTheLooserRule() {
+        XCTAssertTrue(SportsLeague.ufc.matches(text("us| ppv01 hd")))
+        XCTAssertTrue(SportsLeague.ufc.matches(text("ppv4k events")))
+        XCTAssertTrue(SportsLeague.nfl.matches(listings("chicago bears at green bay")),
+                      "and a real listing still matches on its words")
     }
 
     // Everything a listing actually says still matches, whatever punctuation

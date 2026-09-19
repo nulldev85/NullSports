@@ -282,15 +282,12 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
             // requires team evidence before offering playback.
             return text.words.contains(rawValue)
                 || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
-                || !text.words.isDisjoint(with: Self.ncaafWords)
-                || Self.ncaafPhrases.contains { text.value.contains($0) }
+                || text.has(Self.ncaafWords, Self.ncaafPhrases)
         case .ufc:
-            return !text.words.isDisjoint(with: Self.ufcWords)
-                || Self.ufcPhrases.contains { text.value.contains($0) }
+            return text.has(Self.ufcWords, Self.ufcPhrases)
         default:
             return text.words.contains(rawValue)
-                || !text.words.isDisjoint(with: Self.teamWords[self] ?? [])
-                || (Self.teamPhrases[self] ?? []).contains { text.value.contains($0) }
+                || text.has(Self.teamWords[self] ?? [], Self.teamPhrases[self] ?? [])
         }
     }
 
@@ -345,15 +342,35 @@ struct SportsMatchText {
     let value: String
     let words: Set<String>
 
+    /// Whether scanning the whole string for a term is affordable here.
+    ///
+    /// A channel's name is a few dozen characters and a day of its listings is
+    /// several thousand. Scanning the short one is free, and it is also where
+    /// terms turn up glued to their neighbours -- a channel called "PPV01" is
+    /// a pay-per-view channel, and no amount of tokenizing will say so. The
+    /// long one is where the same scan cost thirty-five seconds of a launch,
+    /// and where a term glued inside a word is noise rather than a match.
+    let scannable: Bool
+
     /// Hoisted: `inverted` builds a new character set every time it is read,
     /// and this was read once per league per channel.
     private static let wordSeparators = CharacterSet.alphanumerics.inverted
 
     /// For text the caller has already lowercased, which is the hot path.
-    init(alreadyLowercased value: String) {
+    init(alreadyLowercased value: String, scannable: Bool = true) {
         self.value = value
         self.words = Set(value.components(separatedBy: Self.wordSeparators))
+        self.scannable = scannable
     }
 
     init(_ text: String) { self.init(alreadyLowercased: text.lowercased()) }
+
+    /// Whether any of these terms is here: the words by lookup, the phrases by
+    /// search, and -- only where searching is cheap -- the words by search too.
+    func has(_ words: Set<String>, _ phrases: [String]) -> Bool {
+        if !self.words.isDisjoint(with: words) { return true }
+        if phrases.contains(where: { value.contains($0) }) { return true }
+        guard scannable else { return false }
+        return words.contains { value.contains($0) }
+    }
 }

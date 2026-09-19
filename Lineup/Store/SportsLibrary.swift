@@ -315,8 +315,12 @@ final class SportsLibrary: ObservableObject {
         // a backup feed -- and every one of them points at these same listings.
         let programText = time("listing text") {
             programs.mapValues { listings in
+                // Not scannable: this is the several-thousand-character half,
+                // and searching it for every term is what cost the launch
+                // thirty-five seconds.
                 SportsMatchText(alreadyLowercased:
-                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased())
+                    listings.map { "\($0.title) \($0.detail)" }.joined(separator: " ").lowercased(),
+                    scannable: false)
             }
         }
         let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
@@ -1052,7 +1056,9 @@ final class SportsLibrary: ObservableObject {
                 game: Self.collegeMatchup(game), now: now,
                 allowNetworkFallback: false) != nil
         }
-        return Self.professionalScore(stream, game: game, listings: listings, now: now) != nil
+        return Self.professionalScore(stream, game: game, listings: listings,
+                                      prepared: Self.matcherListings(["": listings])[""] ?? [],
+                                      now: now) != nil
     }
 
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
@@ -1065,14 +1071,29 @@ final class SportsLibrary: ObservableObject {
         programs.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
     }
 
+    /// The matcher's own view of a channel's listings, built once per channel.
+    ///
+    /// This used to be built inside the score, which is called for every
+    /// candidate channel of every game -- sixty-six games against five
+    /// thousand channels is three hundred thousand times, each one rebuilding
+    /// the same array of the same listings for the same channel.
+    nonisolated private static func matcherListings(
+        _ programs: [String: [CurrentProgram]]
+    ) -> [String: [ProfessionalChannelMatcher.Listing]] {
+        programs.mapValues { listings in
+            listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
+        }
+    }
+
     nonisolated private static func professionalScore(_ stream: XtreamStream, game: SportsGame,
-                                                       listings: [CurrentProgram], now: Date) -> Int? {
+                                                       listings: [CurrentProgram],
+                                                       prepared: [ProfessionalChannelMatcher.Listing],
+                                                       now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
-        return ProfessionalChannelMatcher.score(channel: stream.name,
-            listings: listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) },
+        return ProfessionalChannelMatcher.score(channel: stream.name, listings: prepared,
             game: .init(away: game.awayTeam, home: game.homeTeam,
                 awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
                 start: game.start, isLive: game.isLive), now: now)
@@ -1116,11 +1137,14 @@ final class SportsLibrary: ObservableObject {
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream],
-                                                  programs: [String: [CurrentProgram]], now: Date) -> XtreamStream? {
+                                                  programs: [String: [CurrentProgram]],
+                                                  prepared: [String: [ProfessionalChannelMatcher.Listing]],
+                                                  now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
         for candidate in candidates {
+            let key = candidate.epgChannelID ?? ""
             guard let score = professionalScore(candidate, game: game,
-                listings: programs[candidate.epgChannelID ?? ""] ?? [], now: now) else { continue }
+                listings: programs[key] ?? [], prepared: prepared[key] ?? [], now: now) else { continue }
             if let current = best {
                 guard score > current.score || (score == current.score && candidate.id < current.stream.id) else { continue }
             }
@@ -1198,6 +1222,9 @@ final class SportsLibrary: ObservableObject {
                 if collegePrograms[key] == nil { collegePrograms[key] = Self.collegeListings(programs[key] ?? []) }
                 return CollegeChannelMatcher.Candidate(id: stream.id, name: stream.name, listings: collegePrograms[key] ?? [])
             }
+            // Built once for the whole pass, rather than rebuilt inside every
+            // one of three hundred thousand scores.
+            let preparedListings = Self.matcherListings(programs)
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -1226,17 +1253,21 @@ final class SportsLibrary: ObservableObject {
                 let reused: (stream: XtreamStream, evidence: Int)? = DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
                     currentSignature: signature, hasMatch: matches[game.id] != nil)
                     ? matches[game.id].flatMap { cached in
-                        Self.professionalScore(cached, game: game,
-                            listings: programs[cached.epgChannelID ?? ""] ?? [], now: now).map { (cached, $0) }
+                        let key = cached.epgChannelID ?? ""
+                        return Self.professionalScore(cached, game: game, listings: programs[key] ?? [],
+                                                      prepared: preparedListings[key] ?? [], now: now)
+                            .map { (cached, $0) }
                     }
                     : nil
                 var evidence = reused?.evidence
                 if reused == nil {
-                    if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [], programs: programs, now: now) {
+                    if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [],
+                                                       programs: programs, prepared: preparedListings, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
-                        evidence = Self.professionalScore(stream, game: game,
-                            listings: programs[stream.epgChannelID ?? ""] ?? [], now: now)
+                        let key = stream.epgChannelID ?? ""
+                        evidence = Self.professionalScore(stream, game: game, listings: programs[key] ?? [],
+                                                          prepared: preparedListings[key] ?? [], now: now)
                     } else {
                         matches.removeValue(forKey: game.id)
                         signatures.removeValue(forKey: game.id)
@@ -1298,8 +1329,10 @@ final class SportsLibrary: ObservableObject {
                     listings: Self.collegeListings(programs(for: fresh)),
                     game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
             } else {
-                evidence = Self.professionalScore(fresh, game: game,
-                    listings: programs(for: fresh), now: now)
+                let freshListings = programs(for: fresh)
+                evidence = Self.professionalScore(fresh, game: game, listings: freshListings,
+                                                  prepared: Self.matcherListings(["": freshListings])[""] ?? [],
+                                                  now: now)
             }
             guard let evidence else { continue }
             refreshedMatches[game.id] = fresh
