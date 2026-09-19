@@ -1233,8 +1233,15 @@ final class SportsLibrary: ObservableObject {
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
         let result = await trace.measure("match games to channels",
-                                         detail: "\(games.count) games, \(leagues.values.map(\.count).reduce(0, +)) candidates") {
+                                         detail: "\(games.count) games, \(leagues.values.map(\.count).reduce(0, +)) league candidates") {
             await Task.detached(priority: .utility) {
+            // Timed in two halves. The detail above counts only the league
+            // buckets, and four rounds of tuning went into the half they
+            // describe while the other half -- college, which casts its net
+            // over every channel the provider has -- went unmeasured.
+            var collegeSeconds = 0.0
+            var professionalSeconds = 0.0
+            func clock() -> Double { ProcessInfo.processInfo.systemUptime }
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
@@ -1263,6 +1270,8 @@ final class SportsLibrary: ObservableObject {
             for game in games {
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
+                    let collegeStart = clock()
+                    defer { collegeSeconds += clock() - collegeStart }
                     let matchup = Self.collegeMatchup(game)
                     let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
                         allowNetworkFallback: false)
@@ -1280,6 +1289,8 @@ final class SportsLibrary: ObservableObject {
                     Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
                     continue
                 }
+                let professionalStart = clock()
+                defer { professionalSeconds += clock() - professionalStart }
                 // Worked out once for this game, not once per candidate.
                 let preparedGame = Self.prepared(game)
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
@@ -1320,9 +1331,13 @@ final class SportsLibrary: ObservableObject {
                 let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") evidence=\(evidence?.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=\(reused == nil ? "professional-fresh" : "professional-reused")"
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
-            return (matches, signatures, matches != previousMatches, evidenceByGame)
+            return (matches, signatures, matches != previousMatches, evidenceByGame,
+                    collegeSlate.count, collegeCandidates.count, collegeSeconds, professionalSeconds)
             }.value
         }
+        trace.note("  college", "\(result.4) games over \(result.5) candidates, "
+                   + String(format: "%.1fs", result.6))
+        trace.note("  professional", String(format: "%.1fs", result.7))
         guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
