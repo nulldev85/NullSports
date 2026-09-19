@@ -871,7 +871,7 @@ extension LiveGameSlate: Equatable {
     static func == (lhs: LiveGameSlate, rhs: LiveGameSlate) -> Bool {
         lhs.multiviewPrimaryID == rhs.multiviewPrimaryID
             && lhs.columns == rhs.columns
-            && lhs.focusRequest.wrappedValue == rhs.focusRequest.wrappedValue
+            && lhs.focusRequest == rhs.focusRequest
             && lhs.events.count == rhs.events.count
             && zip(lhs.events, rhs.events).allSatisfy {
                 $0.id == $1.id && $0.awayScore == $1.awayScore
