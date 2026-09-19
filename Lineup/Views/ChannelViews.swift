@@ -514,6 +514,7 @@ private struct LiveSlateDashboard: View {
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
                           multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
+                .equatable()
                 .frame(maxWidth: .infinity)
                 .frame(height: matchupRow + Self.gridPadding * 2)
                 .padding(.horizontal, edge - 5)   // the grid adds five of its own
@@ -857,6 +858,28 @@ private struct LiveBoardTeam: View {
     }
 }
 
+extension LiveGameSlate: Equatable {
+    /// Rebuilt when the slate changes, and not when focus moves.
+    ///
+    /// The focused game is held by the view above this one, so every press of
+    /// an arrow invalidated that view, and this one with it -- seventy-odd
+    /// cards rebuilt to move a highlight between two of them. Focus is drawn
+    /// by each card from its own FocusState and needs nobody rebuilt at all.
+    ///
+    /// Scores and status are compared as well as identity, so a goal still
+    /// redraws the card it was scored on.
+    static func == (lhs: LiveGameSlate, rhs: LiveGameSlate) -> Bool {
+        lhs.multiviewPrimaryID == rhs.multiviewPrimaryID
+            && lhs.columns == rhs.columns
+            && lhs.focusRequest.wrappedValue == rhs.focusRequest.wrappedValue
+            && lhs.events.count == rhs.events.count
+            && zip(lhs.events, rhs.events).allSatisfy {
+                $0.id == $1.id && $0.awayScore == $1.awayScore
+                    && $0.homeScore == $1.homeScore && $0.status == $1.status
+            }
+    }
+}
+
 /// How tall a row of matchups turned out to be.
 ///
 /// The strip that holds them has to be that plus the lift a focused card grows
@@ -900,7 +923,7 @@ private struct LiveGameSlate: View {
                                 let index = rowStart + column
                                 if events.indices.contains(index) {
                                     let game = events[index]
-                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
+                                    LiveSlateRow(game: game, rowFocus: $focusedRowID,
                                         multiviewPrimaryID: multiviewPrimaryID,
                                         onFocus: { focusedGame = game; focusRequest = nil },
                                         onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
@@ -949,7 +972,6 @@ private struct LiveSlateRow: View {
     let game: SportsGame
     let rowFocus: FocusState<String?>.Binding
     private var isFocused: Bool { rowFocus.wrappedValue == game.id }
-    let selected: Bool
     let multiviewPrimaryID: Int?
     let onFocus: () -> Void
     let onPlay: () -> Void
@@ -1009,7 +1031,7 @@ private struct LiveSlateRow: View {
                         in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
-                    .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
+                    .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(0.06),
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }
