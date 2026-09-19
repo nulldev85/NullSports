@@ -90,7 +90,7 @@ struct MobileLiveView: View {
                         // quiet line, because everything below it already works.
                         switch MobileLiveBanner.choose(
                             isInitialProviderSync: library.isInitialProviderSync,
-                            isRefreshingInBackground: library.isRefreshingInBackground,
+                            hasContent: library.hasRestoredCache,
                             isScheduleLoading: library.isScheduleLoading,
                             isLoading: library.isLoading,
                             channelsAreSyncing: library.channelsAreSyncing) {

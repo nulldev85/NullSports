@@ -10,11 +10,12 @@ import Foundation
 
 /// Which of the Live tab's three waits to say, if any.
 ///
-/// Three states overlap, and the order they are asked in decides what a viewer
-/// is told. A refresh running behind restored cache sets *both* the background
-/// flag and the general syncing one, so asking about syncing first made the
-/// quiet banner unreachable. The order is the whole logic, which is why it
-/// lives somewhere a test can reach.
+/// What decides between the loud line and the quiet one is whether there are
+/// channels on screen, not which function started the work. Keying off the
+/// background-refresh flag looked the same in the one case it was written for
+/// and was wrong everywhere else: that flag is raised by the launch refresh
+/// alone, so a schedule poll, a score update, or any matching pass fell
+/// through to the loud pulsing line -- over a tab with a stream playing in it.
 enum MobileLiveBanner: Equatable {
     /// Nothing on screen yet. The only wait a viewer genuinely has to sit out.
     case initialSync
@@ -24,13 +25,14 @@ enum MobileLiveBanner: Equatable {
     case refreshing
     case none
 
-    static func choose(isInitialProviderSync: Bool, isRefreshingInBackground: Bool,
+    static func choose(isInitialProviderSync: Bool, hasContent: Bool,
                        isScheduleLoading: Bool, isLoading: Bool,
                        channelsAreSyncing: Bool) -> MobileLiveBanner {
-        if isInitialProviderSync { return .initialSync }
-        if isRefreshingInBackground { return .background }
-        if isScheduleLoading || isLoading || channelsAreSyncing { return .refreshing }
-        return .none
+        if isInitialProviderSync && !hasContent { return .initialSync }
+        guard isScheduleLoading || isLoading || channelsAreSyncing else { return .none }
+        // Channels on screen are channels that play. Whatever is still running
+        // is the app's business, not the viewer's.
+        return hasContent ? .background : .refreshing
     }
 }
 

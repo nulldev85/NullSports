@@ -146,10 +146,9 @@ final class SportsLibrary: ObservableObject {
     /// Set when a one-file cache was read, cleared once the three files that
     /// replace it have been written.
     private var legacyCacheNeedsRetiring = false
-    /// Set while a provider refresh is running *behind* restored cache. The
-    /// screen stays usable, so this deliberately does not feed
-    /// `channelsAreSyncing`, which gates playback and the picker.
-    @Published private(set) var isRefreshingInBackground = false
+    /// Held while a provider refresh is running *behind* restored cache, so a
+    /// second one cannot start on top of it. The screen stays usable
+    /// throughout, which is why nothing here feeds `channelsAreSyncing`.
     private var backgroundRefresh: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
     private var scheduleRefreshInFlight = false
@@ -546,11 +545,9 @@ final class SportsLibrary: ObservableObject {
 
     private func refreshInBackground() {
         guard backgroundRefresh == nil, let profileID = activeProfile?.id else { return }
-        isRefreshingInBackground = true
         backgroundRefresh = Task { [weak self] in
             await self?.refreshLibrary(forceGuide: true, refreshChannels: true)
             guard let self, self.activeProfile?.id == profileID else { return }
-            self.isRefreshingInBackground = false
             self.backgroundRefresh = nil
         }
     }
@@ -1833,7 +1830,6 @@ final class SportsLibrary: ObservableObject {
         // provider's own keys afterwards.
         backgroundRefresh?.cancel()
         backgroundRefresh = nil
-        isRefreshingInBackground = false
         errorMessage = nil
         indexGeneration = UUID()
         matchGeneration = UUID()
