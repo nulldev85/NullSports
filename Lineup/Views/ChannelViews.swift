@@ -493,7 +493,7 @@ private struct LiveSlateDashboard: View {
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 8)
             LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
-                          multiviewPrimaryID: multiviewPrimaryID,
+                          multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.horizontal, 22)
