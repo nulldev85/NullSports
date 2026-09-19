@@ -725,8 +725,8 @@ private struct LiveRailRow: View {
 /// The league filter, at the foot of the rail rather than at the head of the
 /// screen. It is a thing a viewer sets once and then scrolls past forever.
 private struct LiveRailLeagueFilter: View {
-    @FocusState private var isFocused: Bool
     @Binding var selectedLeague: SportsLeague?
+    @State private var choosing = false
 
     private var title: String {
         guard let selectedLeague else { return "All sports" }
@@ -734,26 +734,31 @@ private struct LiveRailLeagueFilter: View {
     }
 
     var body: some View {
-        Menu {
-            Button("All sports") { selectedLeague = nil }
-            ForEach(SportsLeague.allCases) { league in
-                Button(league == .ncaaf ? "College" : league.shortName) { selectedLeague = league }
-            }
-        } label: {
+        // Not a Menu. A Menu renders through the television's own chrome
+        // whatever style it is handed, which puts a focus plate the size of
+        // the whole control behind something that already draws its own --
+        // the bulky frame this app spent a long time removing. TVSelectable
+        // over a confirmation dialog is the shape the rest of it uses.
+        TVSelectable(scale: LineupStyle.controlLift, fill: LineupStyle.focused, fillRadius: 10,
+                     action: { choosing = true }) {
             HStack(spacing: 10) {
                 Image(systemName: "line.3.horizontal.decrease")
                 Text(title).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .font(.inter(14, .semibold))
-            .foregroundStyle(isFocused ? LineupStyle.text : LiveBoardStyle.muted)
+            .foregroundStyle(LiveBoardStyle.muted)
             .padding(.horizontal, 14).frame(height: 52)
             .frame(maxWidth: .infinity)
-            .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
+            .background(LiveBoardStyle.panel,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .focused($isFocused)
+        .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
+            Button("All sports") { selectedLeague = nil }
+            ForEach(SportsLeague.allCases) { league in
+                Button(league == .ncaaf ? "College" : league.shortName) { selectedLeague = league }
+            }
+        }
         .accessibilityLabel("Filter by sport")
     }
 }
