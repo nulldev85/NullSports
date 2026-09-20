@@ -451,10 +451,6 @@ private struct LiveSlateDashboard: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
 
-    @State private var gameFocusRequest: UUID?
-    /// Set by the first row once it has been laid out. The starting value is
-    /// only what to draw with before that happens.
-    @State private var matchupRow: CGFloat = 246
     /// The margin the picture and the matchups both stop at. A television
     /// overscans, so nothing should run to the very edge -- and when the
     /// picture did and the cards under it did not, the black carried on past
@@ -482,16 +478,13 @@ private struct LiveSlateDashboard: View {
             .frame(maxHeight: .infinity)
             Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(height: 1)
             matchups
-                .onPreferenceChange(MatchupRowHeight.self) { height in
-                    if height > 0 { matchupRow = height }
-                }
         }
         .background(LiveBoardStyle.canvas)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
-    /// Everything that is not one of the viewer's teams, in the grid it has
-    /// always been in, under the picture where it has always been.
+    /// Everything that is not one of the viewer's teams, in a four-column grid
+    /// under the picture.
     private var matchups: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
@@ -511,11 +504,11 @@ private struct LiveSlateDashboard: View {
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, edge).padding(.top, 12).padding(.bottom, 4)
-            LiveGameSlate(events: events, focusedGame: $focusedGame, focusRequest: $gameFocusRequest,
+                LiveGameSlate(events: events, focusedGame: $focusedGame,
                           multiviewPrimaryID: multiviewPrimaryID, columns: 4,
                           onPlay: onPlay, onStartMultiview: onStartMultiview)
                 .frame(maxWidth: .infinity)
-                .frame(height: matchupRow + Self.gridPadding * 2)
+                .frame(height: Self.matchupCardHeight + Self.gridPadding * 2)
                 .padding(.horizontal, edge - 5)   // the grid adds five of its own
         }
     }
@@ -525,6 +518,10 @@ private struct LiveSlateDashboard: View {
     /// the strip adds it twice to arrive at its own height, so the two cannot
     /// disagree about how tall one row is.
     static let gridPadding: CGFloat = 16
+    /// One complete card, including its venue and channel line. Keeping the
+    /// shelf fixed to this height prevents tvOS focus scrolling from moving
+    /// the row vertically and clipping either edge against the ticker.
+    static let matchupCardHeight: CGFloat = 246
 
     /// Whatever is left after the rail. No fixed size: the picture takes the
     /// screen, which is the point of the rearrangement.
@@ -862,24 +859,9 @@ private struct LiveBoardTeam: View {
     }
 }
 
-/// How tall a row of matchups turned out to be.
-///
-/// The strip that holds them has to be that plus the lift a focused card grows
-/// by, and I have now picked that number three times and been wrong three
-/// times -- too short and the television clips the card being looked at, too
-/// tall and it eats the picture. The row is the only thing that knows, so it
-/// says.
-private struct MatchupRowHeight: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 private struct LiveGameSlate: View {
     let events: [SportsGame]
     @Binding var focusedGame: SportsGame?
-    @Binding var focusRequest: UUID?
     @FocusState private var focusedRowID: String?
     let multiviewPrimaryID: Int?
     let columns: Int
@@ -887,62 +869,61 @@ private struct LiveGameSlate: View {
     let onStartMultiview: (SportsGame) -> Void
 
     private var rowStarts: [Int] {
-        Array(stride(from: 0, to: events.count, by: columns))
+        Array(stride(from: 0, to: events.count, by: max(columns, 1)))
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // Keep every row in the focus tree. LazyVGrid removes rows just
-                // outside the viewport; after scrolling back up, tvOS can then
-                // see the tab bar or league rail before it recreates the card
-                // directly above. The first press escapes and the second works
-                // only because that press caused the missing row to be loaded.
-                Grid(horizontalSpacing: 18, verticalSpacing: 18) {
-                    ForEach(rowStarts, id: \.self) { rowStart in
-                        GridRow {
-                            ForEach(0..<columns, id: \.self) { column in
-                                let index = rowStart + column
-                                if events.indices.contains(index) {
-                                    let game = events[index]
-                                    LiveSlateRow(game: game, rowFocus: $focusedRowID, selected: focusedGame?.id == game.id,
-                                        multiviewPrimaryID: multiviewPrimaryID,
-                                        onFocus: { focusedGame = game; focusRequest = nil },
-                                        onPlay: { onPlay(game) }, onStartMultiview: { onStartMultiview(game) })
-                                    .id(game.id)
-                                    .background {
-                                        if rowStart == 0, column == 0 {
-                                            GeometryReader { row in
-                                                Color.clear.preference(key: MatchupRowHeight.self,
-                                                                       value: row.size.height)
-                                            }
-                                        }
+        GeometryReader { shelf in
+            let spacing: CGFloat = 18
+            let sidePadding: CGFloat = 5
+            let visible = max(columns, 1)
+            let cardWidth = max(1, (shelf.size.width - sidePadding * 2
+                                    - spacing * CGFloat(visible - 1)) / CGFloat(visible))
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    // Every row occupies exactly the viewport's card height.
+                    // Focus can move down through the grid, but it can never
+                    // leave half of the selected row above or below the strip.
+                    VStack(spacing: 0) {
+                        ForEach(rowStarts, id: \.self) { rowStart in
+                            HStack(spacing: spacing) {
+                                ForEach(0..<visible, id: \.self) { column in
+                                    let index = rowStart + column
+                                    if events.indices.contains(index) {
+                                        let game = events[index]
+                                        LiveSlateRow(game: game, rowFocus: $focusedRowID,
+                                            selected: focusedGame?.id == game.id,
+                                            multiviewPrimaryID: multiviewPrimaryID,
+                                            cardHeight: LiveSlateDashboard.matchupCardHeight,
+                                            onFocus: { focusedGame = game },
+                                            onPlay: { onPlay(game) },
+                                            onStartMultiview: { onStartMultiview(game) })
+                                        .frame(width: cardWidth)
+                                        .id(game.id)
+                                    } else {
+                                        Color.clear
+                                            .frame(width: cardWidth,
+                                                   height: LiveSlateDashboard.matchupCardHeight)
+                                            .accessibilityHidden(true)
                                     }
-                                    .onAppear {
-                                        if focusRequest != nil, game.id == events.first?.id { focusedRowID = game.id }
-                                    }
-                                } else {
-                                    Color.clear
-                                        .frame(maxWidth: .infinity, minHeight: 1)
-                                        .accessibilityHidden(true)
                                 }
                             }
+                            .padding(.horizontal, sidePadding)
+                            .padding(.vertical, LiveSlateDashboard.gridPadding)
+                            .frame(height: LiveSlateDashboard.matchupCardHeight
+                                           + LiveSlateDashboard.gridPadding * 2)
+                            .id(rowStart)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
-                // Room for a focused card to lift into. Five points was not
-                // enough and the television clipped the card being looked at.
-                .padding(.horizontal, 5)
-                .padding(.vertical, LiveSlateDashboard.gridPadding)
-            }
-            .focusSection()
-            .task(id: focusRequest) {
-                guard let request = focusRequest, let firstID = events.first?.id else { return }
-                proxy.scrollTo(firstID, anchor: .top)
-                await Task.yield()
-                guard !Task.isCancelled, focusRequest == request, events.first?.id == firstID else { return }
-                focusedRowID = firstID
+                .scrollIndicators(.hidden)
+                .focusSection()
+                .onChange(of: focusedRowID) { _, gameID in
+                    guard let gameID,
+                          let index = events.firstIndex(where: { $0.id == gameID }) else { return }
+                    let rowStart = (index / visible) * visible
+                    proxy.scrollTo(rowStart, anchor: .top)
+                }
             }
         }
     }
@@ -956,6 +937,7 @@ private struct LiveSlateRow: View {
     private var isFocused: Bool { rowFocus.wrappedValue == game.id }
     let selected: Bool
     let multiviewPrimaryID: Int?
+    let cardHeight: CGFloat
     let onFocus: () -> Void
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
@@ -1009,7 +991,8 @@ private struct LiveSlateRow: View {
                 .font(.inter(11, .semibold)).foregroundStyle(isFocused ? LiveBoardStyle.accent : LiveBoardStyle.muted)
             }
             .padding(18)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: cardHeight, maxHeight: cardHeight,
+                   alignment: .topLeading)
             .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
                         in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
             .overlay {
