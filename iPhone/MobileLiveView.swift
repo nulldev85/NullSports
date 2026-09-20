@@ -535,9 +535,14 @@ private struct MobileMatchupRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(game.eventName ?? "")
-                            .font(.inter(.body, .semibold))
-                            .lineLimit(2).multilineTextAlignment(.leading)
+                        HStack(spacing: 9) {
+                            if game.isNFLRedZone {
+                                MobileLeagueLogo(league: .nfl, size: 28)
+                            }
+                            Text(game.eventName ?? "")
+                                .font(.inter(.body, .semibold))
+                                .lineLimit(2).multilineTextAlignment(.leading)
+                        }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {

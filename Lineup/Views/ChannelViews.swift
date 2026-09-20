@@ -711,8 +711,13 @@ private struct LiveRailRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if game.isEvent {
-                Text(game.eventName ?? "").font(.inter(16, .semibold))
-                    .foregroundStyle(LineupStyle.text).lineLimit(2).minimumScaleFactor(0.8)
+                HStack(spacing: 8) {
+                    if game.isNFLRedZone {
+                        LeagueLogo(league: .nfl, size: 24)
+                    }
+                    Text(game.eventName ?? "").font(.inter(16, .semibold))
+                        .foregroundStyle(LineupStyle.text).lineLimit(2).minimumScaleFactor(0.8)
+                }
             } else {
                 side(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayScore)
                 side(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeScore)
