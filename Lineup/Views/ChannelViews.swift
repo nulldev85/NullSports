@@ -575,28 +575,28 @@ private struct LiveSlateDashboard: View {
                         Text(game.league.shortName).font(.inter(13, .bold)).tracking(1.2)
                             .foregroundStyle(LiveBoardStyle.muted)
                     }
-                    .foregroundStyle(LineupStyle.lightPurple)
+                    .foregroundStyle(LineupStyle.mediaAccent)
                     Text(headline(game)).font(.inter(30, .bold))
-                        .foregroundStyle(LineupStyle.text).lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundStyle(LineupStyle.mediaText).lineLimit(1).minimumScaleFactor(0.7)
                     if let place = game.placeLine {
-                        Text(place).font(.inter(15)).foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
+                        Text(place).font(.inter(15)).foregroundStyle(LineupStyle.mediaSecondary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 24)
                 VStack(alignment: .trailing, spacing: 8) {
                     if let stream = library.stream(for: game) {
                         Text(stream.name).font(.inter(15, .semibold))
-                            .foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
+                            .foregroundStyle(LineupStyle.mediaAccent).lineLimit(1)
                     } else if !game.broadcast.isEmpty {
                         Text(game.broadcast).font(.inter(15, .semibold))
-                            .foregroundStyle(LiveBoardStyle.muted).lineLimit(1)
+                            .foregroundStyle(LineupStyle.mediaSecondary).lineLimit(1)
                     }
                     if multiviewTitle != nil {
                         GuideHeaderButton(title: "Cancel multiview", symbol: "xmark", action: onCancelMultiview)
                     } else {
                         Text(previewStream == nil ? "SELECT TO PREVIEW" : "SELECT AGAIN FOR FULL SCREEN")
                             .font(.inter(12, .bold)).tracking(1.6)
-                            .foregroundStyle(LiveBoardStyle.accent)
+                            .foregroundStyle(LineupStyle.mediaAccent)
                     }
                 }
             }
@@ -3168,17 +3168,17 @@ private struct MultiviewPane: View {
             if urls.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle").font(.title2)
-                    Text("Stream unavailable").foregroundColor(LineupStyle.lightPurple).font(.inter(.headline))
+                    Text("Stream unavailable").foregroundColor(LineupStyle.mediaText).font(.inter(.headline))
                 }
-                .foregroundStyle(LineupStyle.lightPurple).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(LineupStyle.mediaText).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack(spacing: 10) {
                 Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(1)
+                Text(title).foregroundColor(LineupStyle.mediaText).font(.inter(.callout, .semibold)).lineLimit(1)
                 Spacer()
-                if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.1) }
+                if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.mediaText).font(.inter(.caption2, .bold)).tracking(1.1) }
             }
-            .foregroundStyle(LineupStyle.lightPurple)
+            .foregroundStyle(LineupStyle.mediaText)
             .padding(.horizontal, 18).frame(height: 50)
             .background(Color.black.opacity(0.56))
         }
@@ -3187,11 +3187,11 @@ private struct MultiviewPane: View {
         .overlay {
             if !expanded {
                 RoundedRectangle(cornerRadius: 0, style: .continuous)
-                    .stroke(audible ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.lightPurple.opacity(0.18), lineWidth: audible ? 3 : 1)
+                    .stroke(audible ? LineupStyle.mediaAccent.opacity(0.92) : LineupStyle.mediaAccent.opacity(0.18), lineWidth: audible ? 3 : 1)
             }
         }
         .scaleEffect(!expanded && audible ? 1.012 : 1)
-        .shadow(color: !expanded && audible ? LineupStyle.lightPurple.opacity(0.16) : .clear, radius: 18)
+        .shadow(color: !expanded && audible ? LineupStyle.mediaAccent.opacity(0.16) : .clear, radius: 18)
         .animation(.easeOut(duration: 0.18), value: audible)
         .contentShape(Rectangle()).onTapGesture(perform: onExpand)
         .contextMenu {
@@ -3251,7 +3251,7 @@ struct PlayerView: View {
             }
             if urls.isEmpty {
                 Text("This stream is unavailable").font(.inter(.title2))
-                    .foregroundStyle(LineupStyle.lightPurple).padding(60)
+                    .foregroundStyle(LineupStyle.mediaText).padding(60)
             }
         }
         .background(Color.black)
@@ -3319,7 +3319,7 @@ private struct TVPlayerChrome: View {
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 9) {
-                            Circle().fill(LineupStyle.lightPurple).frame(width: 8, height: 8)
+                            Circle().fill(LineupStyle.mediaAccent).frame(width: 8, height: 8)
                             Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
                                 .font(.inter(15, .bold)).tracking(1.5)
                         }
@@ -3329,7 +3329,7 @@ private struct TVPlayerChrome: View {
                             Text(detail).font(.inter(16)).opacity(0.62).lineLimit(1)
                         }
                     }
-                    .foregroundStyle(LineupStyle.lightPurple)
+                    .foregroundStyle(LineupStyle.mediaText)
                     .padding(.horizontal, 72).padding(.top, 48)
                 }
             Spacer()

@@ -76,7 +76,7 @@ struct SportsScheduleClient: Sendable {
                 failed.insert(league)
                 continue
             }
-            result[league] = remoteGames.compactMap { game in
+            var games = remoteGames.compactMap { game in
                 guard let start = Self.parseDate(game.start) else { return nil }
                 return SportsGame(
                     id: "\(league.rawValue)-\(game.id)", league: league, start: start,
@@ -90,7 +90,11 @@ struct SportsScheduleClient: Sendable {
                     status: game.status, state: game.state, broadcast: game.broadcast,
                     eventName: nil
                 )
-            }.sorted { $0.start < $1.start }
+            }
+            if league == .nfl, let redZone = NFLRedZoneSchedule.event(for: games) {
+                games.append(redZone)
+            }
+            result[league] = games.sorted { $0.start < $1.start }
         }
         let loaded = Set(SportsLeague.allCases.filter { $0 != .ufc }).subtracting(failed)
         let errorMessage = failed.isEmpty ? nil : "Temporarily unavailable: \(failed.map(\.shortName).sorted().joined(separator: ", "))."

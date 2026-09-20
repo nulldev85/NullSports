@@ -56,6 +56,13 @@ enum ProfessionalChannelMatcherChecks {
                      "Big Inning is never carrying one game")
         precondition(score("US: NFL RedZone", [listing("Yankees vs Red Sox")]) == nil,
                      "RedZone is never carrying one game")
+
+        precondition(NFLRedZoneChannelMatcher.score(channel: "US: NFL RedZone FHD") != nil,
+                     "The dedicated RedZone event selects a RedZone channel")
+        precondition(NFLRedZoneChannelMatcher.score(channel: "US: NFL Network") == nil,
+                     "NFL Network is not RedZone")
+        precondition(NFLRedZoneChannelMatcher.score(channel: "NFL RedZone Replay") == nil,
+                     "A replay is not the live Sunday feed")
         print("Professional matchup regression checks passed")
     }
 }

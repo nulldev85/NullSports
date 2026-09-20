@@ -158,6 +158,7 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
 
     // How long a game can run before an unchanged status is stale rather than late.
     static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
+    static let nflRedZoneWindow: TimeInterval = 7 * 60 * 60
 
     // The schedule feed's own status can lag the first pitch by minutes, and
     // while it does the game is neither live nor upcoming to anything that asks:
@@ -172,7 +173,8 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         if state == "in" { return true }
         guard state == "pre" else { return false }
         let now = Date()
-        let duration = league == .ufc ? 9 * 60 * 60 : Self.longestPlausibleGame
+        let duration = isNFLRedZone ? Self.nflRedZoneWindow
+            : (league == .ufc ? 9 * 60 * 60 : Self.longestPlausibleGame)
         return start <= now && now < start.addingTimeInterval(duration)
     }
 
@@ -182,6 +184,13 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     /// bouts behind one broadcast, so naming one of them is both arbitrary and
     /// wrong: nobody tunes in for the fight the feed happens to list first.
     var isEvent: Bool { !(eventName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// RedZone is one all-afternoon NFL event rather than one of the games it
+    /// moves between. Keeping that identity on the model lets channel matching
+    /// handle it explicitly without weakening matchup checks for team games.
+    var isNFLRedZone: Bool {
+        id.hasPrefix("nfl-redzone-") || eventName?.caseInsensitiveCompare("NFL RedZone") == .orderedSame
+    }
 
     /// Where it is being held, in one short line or not at all.
     ///
@@ -338,7 +347,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let teamTerms: [SportsLeague: [String]] = [
         // NCAAF is left out on purpose: ambiguous shared mascots such as
         // Tigers and Bulldogs.
-        .nfl: ["49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"],
+        .nfl: ["redzone", "red zone", "49ers", "bears", "bengals", "bills", "broncos", "browns", "buccaneers", "cardinals", "chargers", "chiefs", "colts", "commanders", "cowboys", "dolphins", "eagles", "falcons", "giants", "jaguars", "jets", "lions", "packers", "panthers", "patriots", "raiders", "rams", "ravens", "saints", "seahawks", "steelers", "texans", "titans", "vikings"],
         .nba: ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"],
         .nhl: ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"],
         .mlb: ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"]

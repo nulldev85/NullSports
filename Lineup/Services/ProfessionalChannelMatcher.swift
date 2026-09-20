@@ -146,3 +146,21 @@ enum ProfessionalChannelMatcher {
         return listingConfirms ? 300 : nil
     }
 }
+
+/// RedZone is intentionally excluded from ordinary matchup matching above: a
+/// whip-around feed is never the correct channel for one team game. Its own
+/// schedule event can, however, select the dedicated channel by exact identity.
+enum NFLRedZoneChannelMatcher {
+    private static let blocked = ["replay", "classic", "highlights", "radio", "audio", "preview"]
+
+    static func score(channel: String) -> Int? {
+        let normalized = ProfessionalChannelMatcher.normalize(channel)
+        let padded = ProfessionalChannelMatcher.pad(normalized)
+        guard !blocked.contains(where: { padded.contains(ProfessionalChannelMatcher.pad($0)) }) else {
+            return nil
+        }
+        let identifiesRedZone = padded.contains(" redzone ") || padded.contains(" red zone ")
+        guard identifiesRedZone, padded.contains(" nfl ") else { return nil }
+        return 500
+    }
+}

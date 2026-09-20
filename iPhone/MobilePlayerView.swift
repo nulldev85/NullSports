@@ -150,7 +150,7 @@ struct MobilePlayerView: View {
         // badges and the scrubber underneath the Dynamic Island — which a
         // screenshot does not capture, so it only showed up on the device.
         .background(Color.black.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupStyle.mediaText)
         .modifier(MobileDismissGesture(enabled: true,
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
@@ -244,13 +244,13 @@ struct MobilePlayerView: View {
             if let detail = synopsis.detail, !detail.isEmpty {
                 Text(detail)
                     .font(.inter(.caption2, .semibold))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                    .foregroundStyle(LineupStyle.mediaSecondary.opacity(0.82))
                     .lineLimit(1)
             }
             if let overview = synopsis.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.inter(.caption))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.82))
+                    .foregroundStyle(LineupStyle.mediaText.opacity(0.82))
                     // A narrower column is a taller one, and in landscape the
                     // height is what runs into the controls. Two lines there.
                     .lineLimit(verticalSizeClass == .compact ? 2 : 3)
@@ -276,7 +276,7 @@ struct MobilePlayerView: View {
                 let width = track.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.18))
-                    Capsule().fill(LineupStyle.lightPurple)
+                    Capsule().fill(LineupStyle.mediaAccent)
                         .frame(width: max(0, width * fraction))
                     Circle()
                         .fill(.white)
@@ -311,7 +311,7 @@ struct MobilePlayerView: View {
                 Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
             }
             .font(.inter(.caption2, .semibold).monospacedDigit())
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
+            .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))

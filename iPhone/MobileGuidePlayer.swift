@@ -116,6 +116,7 @@ struct MobileGuidePlayer: View {
                     }
                 }
             }
+            .foregroundStyle(LineupStyle.mediaText)
             .animation(.easeInOut(duration: 0.2), value: controlsVisible)
             .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
             .frame(height: videoHeight).background(.black).clipped()
@@ -160,7 +161,7 @@ struct MobileGuidePlayer: View {
                 .accessibilityElement(children: .combine)
             }
         }
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupStyle.text)
         .background(LineupStyle.background)
         .onChange(of: stream.id) { _, _ in showControls() }
         .onChange(of: controller.isPlaying) { _, playing in

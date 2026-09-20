@@ -6,6 +6,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     case signal
     case graphiteIce
     case velvet
+    case seaGlass
 
     static let storageKey = "lineup.appearance.theme"
     var id: String { rawValue }
@@ -15,6 +16,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
         case .signal: "Signal"
         case .graphiteIce: "Graphite Ice"
         case .velvet: "Velvet"
+        case .seaGlass: "Sea Glass"
         }
     }
 
@@ -23,6 +25,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
         case .signal: "Charcoal & electric blue"
         case .graphiteIce: "Graphite & ice blue"
         case .velvet: "Plum & lilac"
+        case .seaGlass: "Seafoam & eucalyptus"
         }
     }
 
@@ -57,6 +60,23 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 leagues: LeagueColors(
                     football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
                     hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8), combat: rgb(0xD20A0A)
+                )
+            )
+        case .seaGlass:
+            // A daylight palette that stays soft without becoming washed out.
+            // Its ink is deliberately green-black rather than pure black, so
+            // the contrast is comfortable while text remains easy to scan.
+            LineupPalette(
+                accent: rgb(0x253432), background: rgb(0x7F9694), surface: rgb(0x93AAA6),
+                raised: rgb(0xA7BDB7), sidebar: rgb(0x899F9C), selected: rgb(0xAAC2BC),
+                focused: rgb(0xBED7CF), warning: rgb(0xA7633E),
+                highlight: rgb(0xC0E4D3), highlightSoft: rgb(0xD9EEE6),
+                selectionBorder: rgb(0xE4FFF3),
+                liveDot: rgb(0xD8737F), positive: rgb(0x4F8068), logoPlate: rgb(0xE8F1ED),
+                line: rgb(0x253432).opacity(0.18),
+                leagues: LeagueColors(
+                    football: rgb(0xC7B6E5), college: rgb(0x8FCDBB), basketball: rgb(0xE8AE86),
+                    hockey: rgb(0xE3A0B9), baseball: rgb(0xA8D6A4), combat: rgb(0xD99096)
                 )
             )
         case .signal:
@@ -186,6 +206,7 @@ enum LineupStyle {
         case .velvet: rgb(0xF6F2F8)
         case .graphiteIce: rgb(0xF1F5F9)
         case .signal: lightPurple
+        case .seaGlass: rgb(0x172523)
         }
     }
     static var secondary: Color {
@@ -193,8 +214,15 @@ enum LineupStyle {
         case .velvet: rgb(0xA9A1AE)
         case .graphiteIce: rgb(0x8491A3)
         case .signal: lightPurple.opacity(0.66)
+        case .seaGlass: rgb(0x1D2C2A)
         }
     }
+    /// Video always sits on black, even when the chosen app palette is light.
+    /// Sea Glass therefore keeps a pale media tint while using dark ink on
+    /// its pastel screens.
+    static var mediaText: Color { theme == .seaGlass ? rgb(0xF2FAF7) : text }
+    static var mediaSecondary: Color { theme == .seaGlass ? rgb(0xC0D4CE) : secondary }
+    static var mediaAccent: Color { theme == .seaGlass ? rgb(0xC0E4D3) : lightPurple }
     static var field: Color { lightPurple }
     static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }

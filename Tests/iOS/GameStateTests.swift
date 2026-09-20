@@ -51,6 +51,53 @@ final class GameStateTests: XCTestCase {
     }
 }
 
+final class NFLRedZoneScheduleTests: XCTestCase {
+    private var eastern: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar
+    }
+
+    private func nflGame(_ hour: Int, id: Int) -> SportsGame {
+        let start = eastern.date(from: DateComponents(
+            timeZone: eastern.timeZone, year: 2026, month: 9, day: 20, hour: hour
+        ))!
+        return SportsGame(
+            id: "nfl-\(id)", league: .nfl, start: start,
+            awayTeam: "Away \(id)", homeTeam: "Home \(id)",
+            awayAbbreviation: "AWY", homeAbbreviation: "HME",
+            awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+            venue: nil, location: nil, status: "Scheduled", state: "pre",
+            broadcast: "CBS", eventName: nil
+        )
+    }
+
+    func testNormalSundaySlateCreatesOneAfternoonEvent() {
+        let event = NFLRedZoneSchedule.event(for: [
+            nflGame(13, id: 1), nflGame(13, id: 2),
+            nflGame(16, id: 3), nflGame(16, id: 4)
+        ])
+        XCTAssertNotNil(event)
+        XCTAssertTrue(event?.isNFLRedZone == true)
+        XCTAssertTrue(event?.isEvent == true)
+        XCTAssertEqual(event?.eventName, "NFL RedZone")
+        XCTAssertEqual(event.map { eastern.component(.hour, from: $0.start) }, 13)
+        XCTAssertEqual(SportsGame.nflRedZoneWindow, 7 * 60 * 60)
+    }
+
+    func testSparseSundayDoesNotCreateRedZone() {
+        XCTAssertNil(NFLRedZoneSchedule.event(for: [
+            nflGame(13, id: 1), nflGame(16, id: 2), nflGame(16, id: 3)
+        ]))
+    }
+
+    func testRedZoneChannelBelongsToNFLCategory() {
+        XCTAssertTrue(SportsLeague.nfl.matches("US: NFL RedZone FHD"))
+        XCTAssertTrue(SportsLeague.nfl.matches("RedZone"))
+    }
+}
+
 /// What a Live card says about where a game is being played, for every sport
 /// the app carries -- not only the one that prompted it.
 final class GamePlaceLineTests: XCTestCase {

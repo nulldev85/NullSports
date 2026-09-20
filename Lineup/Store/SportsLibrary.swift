@@ -1129,6 +1129,9 @@ final class SportsLibrary: ObservableObject {
                                                        listings: [CurrentProgram],
                                                        now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
+        if game.isNFLRedZone {
+            return NFLRedZoneChannelMatcher.score(channel: stream.name)
+        }
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
