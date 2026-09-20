@@ -4,6 +4,7 @@ struct MobileLiveView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var league: SportsLeague?
     /// The star at the head of the league strip. Narrows the whole tab to the
     /// viewer's teams rather than adding another section to scroll past.
@@ -14,6 +15,7 @@ struct MobileLiveView: View {
     @State private var upcomingGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
+    @State private var expanded = false
     /// The game the preview belongs to. Needed to offer "Choose another
     /// channel" and to scope a saved preference after the picker returns.
     @State private var previewGame: SportsGame?
@@ -24,6 +26,7 @@ struct MobileLiveView: View {
     @State private var playback = MobilePlaybackController()
     @Namespace private var selection
     var isActive = true
+    var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
 
     /// Today's games, sorted into what the screen actually draws.
@@ -78,92 +81,68 @@ struct MobileLiveView: View {
         // Once, at the top, and passed down. Everything below reads from it.
         let slate = slate()
         return NavigationStack {
-            VStack(spacing: 0) {
-                masthead(slate)
-                leagueTabs
-                if let stream = previewStream {
-                    TimelineView(.periodic(from: .now, by: 30)) { clock in
-                        MobileGuidePlayer(
-                            controller: playback,
-                            stream: stream,
-                            program: library.guidePrograms(for: stream).first {
-                                $0.start <= clock.date && clock.date < $0.end
-                            },
-                            expanded: false,
-                            showsMetadata: true,
-                            videoHeight: UIScreen.main.bounds.width * 9 / 16,
-                            onClose: closePreview,
-                            onExpand: { onPlay(stream) },
-                            onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
-                            onChooseChannel: chooseAnotherChannelAction
-                        )
+            GeometryReader { viewport in
+                let videoHeight = viewport.size.width * 9 / 16
+                let metadataHeight: CGFloat = 106
+                // The preview normally begins below the 62-point masthead and
+                // 48-point league strip, then moves to the top as it expands.
+                let previewTop: CGFloat = 110
+                let fullHeight = MobilePlayerLayout.fullscreenHeight(
+                    containerHeight: viewport.size.height,
+                    safeAreaTop: viewport.safeAreaInsets.top,
+                    safeAreaBottom: viewport.safeAreaInsets.bottom)
+                ZStack(alignment: .top) {
+                    VStack(spacing: 0) {
+                        masthead(slate)
+                        leagueTabs
+                        if previewStream != nil {
+                            Color.clear.frame(height: videoHeight + metadataHeight)
+                        }
+                        slateList(slate)
+                    }
+                    .allowsHitTesting(!expanded)
+                    .accessibilityHidden(expanded)
+
+                    if let stream = previewStream {
+                        TimelineView(.periodic(from: .now, by: 30)) { clock in
+                            MobileGuidePlayer(
+                                controller: playback,
+                                stream: stream,
+                                program: library.guidePrograms(for: stream).first {
+                                    $0.start <= clock.date && clock.date < $0.end
+                                },
+                                expanded: expanded,
+                                showsMetadata: true,
+                                videoHeight: expanded ? fullHeight : videoHeight,
+                                screenInsets: viewport.safeAreaInsets,
+                                onClose: closePreview,
+                                onExpand: { setExpanded(!expanded) },
+                                onRetry: {
+                                    playback.start(urls: library.playbackURLs(for: stream),
+                                                   channelID: stream.id)
+                                },
+                                onChooseChannel: chooseAnotherChannelAction
+                            )
+                            .frame(height: expanded ? fullHeight : videoHeight + metadataHeight,
+                                   alignment: .top)
+                            .background(LineupStyle.background)
+                        }
+                        .offset(y: expanded ? 0 : previewTop)
+                        .ignoresSafeArea(expanded ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
+                        .modifier(MobileDismissGesture(
+                            enabled: expanded,
+                            onBeginExit: { playback.freezePictureForExit() },
+                            onDismiss: closePreview))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        // Three different waits, said three different ways. The
-                        // first sync of a new provider is the only one with an
-                        // empty screen behind it, so it explains itself at
-                        // length; a refresh running behind restored cache is a
-                        // quiet line, because everything below it already works.
-                        switch LiveSyncBanner.choose(
-                            isInitialProviderSync: library.isInitialProviderSync,
-                            hasContent: library.hasRestoredCache,
-                            isScheduleLoading: library.isScheduleLoading,
-                            isLoading: library.isLoading,
-                            channelsAreSyncing: library.channelsAreSyncing) {
-                        case .initialSync: InitialSyncBanner()
-                        case .background: BackgroundRefreshBanner()
-                        case .refreshing: RefreshingStreamsBanner()
-                        case .none: EmptyView()
-                        }
-                        if let error = library.scheduleErrorMessage {
-                            Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                                .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
-                                .padding(16)
-                        }
-                        if !slate.mine.isEmpty {
-                            Section {
-                                ForEach(slate.mine) { matchup($0, showsDay: true) }
-                            } header: {
-                                let onNow = slate.mine.filter(\.isLive).count
-                                sectionTitle("MY TEAMS",
-                                             detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
-                            }
-                        }
-                        if !slate.live.isEmpty {
-                            Section {
-                                ForEach(slate.live) { matchup($0) }
-                            } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
-                        }
-                        ForEach(slate.days, id: \.day) { day, dayGames in
-                            Section {
-                                ForEach(dayGames) { matchup($0) }
-                            } header: {
-                                sectionTitle(Calendar.current.isDateInToday(day) ? "UP NEXT" : day.formatted(.dateTime.weekday(.wide)).uppercased(),
-                                             detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
-                            }
-                        }
-                        if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
-                            ContentUnavailableView("Nothing for your teams",
-                                systemImage: "star",
-                                description: Text("None of the teams you follow are playing in this range. Tap the star again to see everything."))
-                                .padding(.top, 40)
-                        } else if slate.all.isEmpty && !library.isScheduleLoading {
-                            ContentUnavailableView(library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
-                                systemImage: "sportscourt",
-                                description: Text("Pull down to refresh, or find your channels in Guide."))
-                                .padding(.top, 40)
-                        }
-                    }
-                    .padding(.bottom, 16)
-                }
-                .refreshable { library.refreshSchedule(showsLoading: true) }
             }
             .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
+            .toolbar(expanded ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(expanded)
+            .persistentSystemOverlays(expanded ? .hidden : .automatic)
             .alert("Game has not started yet", isPresented: Binding(
                 get: { upcomingGame != nil },
                 set: { if !$0 { upcomingGame = nil } }
@@ -352,6 +331,71 @@ struct MobileLiveView: View {
         .background(LineupStyle.background)
     }
 
+    /// The list stays mounted underneath the player while it expands. Only the
+    /// player's frame changes, so the controller, decoder, PiP layer and network
+    /// connection all remain the same objects throughout the transition.
+    private func slateList(_ slate: Slate) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                switch LiveSyncBanner.choose(
+                    isInitialProviderSync: library.isInitialProviderSync,
+                    hasContent: library.hasRestoredCache,
+                    isScheduleLoading: library.isScheduleLoading,
+                    isLoading: library.isLoading,
+                    channelsAreSyncing: library.channelsAreSyncing) {
+                case .initialSync: InitialSyncBanner()
+                case .background: BackgroundRefreshBanner()
+                case .refreshing: RefreshingStreamsBanner()
+                case .none: EmptyView()
+                }
+                if let error = library.scheduleErrorMessage {
+                    Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                        .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
+                        .padding(16)
+                }
+                if !slate.mine.isEmpty {
+                    Section {
+                        ForEach(slate.mine) { matchup($0, showsDay: true) }
+                    } header: {
+                        let onNow = slate.mine.filter(\.isLive).count
+                        sectionTitle("MY TEAMS",
+                                     detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
+                    }
+                }
+                if !slate.live.isEmpty {
+                    Section {
+                        ForEach(slate.live) { matchup($0) }
+                    } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
+                }
+                ForEach(slate.days, id: \.day) { day, dayGames in
+                    Section {
+                        ForEach(dayGames) { matchup($0) }
+                    } header: {
+                        sectionTitle(
+                            Calendar.current.isDateInToday(day)
+                                ? "UP NEXT"
+                                : day.formatted(.dateTime.weekday(.wide)).uppercased(),
+                            detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
+                    }
+                }
+                if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
+                    ContentUnavailableView("Nothing for your teams",
+                        systemImage: "star",
+                        description: Text("None of the teams you follow are playing in this range. Tap the star again to see everything."))
+                        .padding(.top, 40)
+                } else if slate.all.isEmpty && !library.isScheduleLoading {
+                    ContentUnavailableView(
+                        library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
+                        systemImage: "sportscourt",
+                        description: Text("Pull down to refresh, or find your channels in Guide."))
+                        .padding(.top, 40)
+                }
+            }
+            .padding(.bottom, 16)
+        }
+        .refreshable { library.refreshSchedule(showsLoading: true) }
+    }
+
     private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
         Button {
             guard !game.isUpcoming else {
@@ -409,6 +453,7 @@ struct MobileLiveView: View {
     }
 
     private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
+        setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
         previewStream = stream
@@ -433,9 +478,22 @@ struct MobileLiveView: View {
     }
 
     private func closePreview() {
+        setExpanded(false)
         playback.shutdown()
         previewStream = nil
         previewGame = nil
+    }
+
+    /// Full screen is a layout state of the existing preview, not a new player.
+    /// Starting a second controller here was the source of the reconnect, the
+    /// doubled background audio, and the disappearing PiP button.
+    private func setExpanded(_ value: Bool) {
+        guard expanded != value else { return }
+        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
+        withAnimation(animation) {
+            expanded = value
+            onFullscreenChange(value)
+        }
     }
 
     /// A channel came back from the picker. Play it now, and ask whether it

@@ -7,7 +7,7 @@ struct MainView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
     @State private var playing: XtreamStream?
-    @State private var guideFullscreen = false
+    @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
@@ -16,10 +16,10 @@ struct MainView: View {
         // redrawn. The guide keeps its own identity on the active profile,
         // which the theme scope sits outside of.
         TabView(selection: $tab) {
-            MobileLiveView(isActive: tab == 0) { playing = $0 }
+            MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setGuideFullscreen($0) }) { playing = $0 }
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
@@ -36,13 +36,13 @@ struct MainView: View {
         .lineupTabBarBackground(LineupStyle.background)
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
-        .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
+        .ignoresSafeArea(inlinePlayerFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in
             playing = nil
-            guideFullscreen = false
+            inlinePlayerFullscreen = false
         }
-        .statusBarHidden(guideFullscreen)
-        .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
+        .statusBarHidden(inlinePlayerFullscreen)
+        .persistentSystemOverlays(inlinePlayerFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
             MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
@@ -55,13 +55,12 @@ struct MainView: View {
         }
     }
 
-    // The guide raises this from inside its own animated change, so the tab bar
-    // and status bar leave in the same movement the video grows in, rather than
-    // snapping away a frame ahead of it.
-    private func setGuideFullscreen(_ value: Bool) {
-        guard guideFullscreen != value else { return }
+    // An inline player raises this from inside its own animated change, so the
+    // tab bar and status bar leave in the same movement the video grows in.
+    private func setInlinePlayerFullscreen(_ value: Bool) {
+        guard inlinePlayerFullscreen != value else { return }
         let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
-        withAnimation(animation) { guideFullscreen = value }
+        withAnimation(animation) { inlinePlayerFullscreen = value }
     }
 }
 
