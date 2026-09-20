@@ -76,7 +76,7 @@ struct SportsScheduleClient: Sendable {
                 failed.insert(league)
                 continue
             }
-            var games = remoteGames.compactMap { game in
+            var games: [SportsGame] = remoteGames.compactMap { game -> SportsGame? in
                 guard let start = Self.parseDate(game.start) else { return nil }
                 return SportsGame(
                     id: "\(league.rawValue)-\(game.id)", league: league, start: start,
