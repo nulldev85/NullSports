@@ -2783,12 +2783,13 @@ struct AccountView: View {
     private var appearance: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("APPEARANCE")
-            HStack(spacing: 20) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 20), GridItem(.flexible())], spacing: 20) {
                 ForEach(LineupTheme.allCases) { theme in
                     TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
                         action: { selectedTheme = theme.rawValue }) {
                         ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -2947,6 +2948,8 @@ private struct AccountAction: View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .font(.inter(.callout, .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
                 .foregroundStyle(isFocused ? LineupStyle.text : tint)
                 .padding(.horizontal, 30).frame(height: 66)
                 .frame(maxWidth: .infinity)
@@ -2958,6 +2961,7 @@ private struct AccountAction: View {
         .lineupFlatButton()
         .focused($isFocused)
         .animation(.easeOut(duration: 0.18), value: isFocused)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -2993,8 +2997,9 @@ private struct ThemeCard: View {
         HStack(spacing: 16) {
             LineupThemeSwatch(theme: theme)
             VStack(alignment: .leading, spacing: 3) {
-                Text(theme.name).font(.inter(21, .semibold))
+                Text(theme.name).font(.inter(21, .semibold)).lineLimit(1)
                 Text(theme.detail).font(.inter(14)).opacity(0.6)
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
             Spacer(minLength: 12)
             Image(systemName: active ? "checkmark.circle.fill" : "circle")
@@ -3003,7 +3008,7 @@ private struct ThemeCard: View {
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 22).padding(.vertical, 18)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
         .background(active ? LineupStyle.raised : LineupStyle.surface,
             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
