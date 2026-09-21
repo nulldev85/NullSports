@@ -252,10 +252,15 @@ struct MobileLiveView: View {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                     .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
                 HStack(spacing: 5) {
-                    Circle().fill(slate.live.isEmpty ? LineupStyle.secondary : LineupStyle.liveDot).frame(width: 5, height: 5)
+                    if slate.live.isEmpty {
+                        Circle().fill(LineupStyle.secondary).frame(width: 5, height: 5)
+                    } else {
+                        MobileLiveDot()
+                    }
                     Text(slate.live.isEmpty ? "\(slate.all.count) MATCHUPS" : "\(slate.live.count) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
+                .foregroundStyle(slate.live.isEmpty ? LineupStyle.secondary : LineupStyle.liveStatus)
             }
         }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 17)
     }
@@ -559,7 +564,9 @@ private struct MobileMatchupRow: View {
                         MobileLiveDot()
                         Text(game.status.isEmpty ? "Live now" : game.status)
                             .font(.inter(.caption, .semibold)).lineLimit(2)
-                    }.accessibilityElement(children: .ignore)
+                    }
+                    .foregroundStyle(LineupStyle.liveStatus)
+                    .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Live. \(game.status)")
                 } else {
                     // A bare time only reads correctly under a heading that
@@ -628,8 +635,8 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
     }
 }
 
-/// Small pulsing red dot used to mark something as live. Shared across the
-/// schedule list and the player controls (MobilePlayerView/MobileGuidePlayer).
+/// A crisp red LED with a breathing halo. The red core stays steady so the
+/// status never blinks; only the light around it moves.
 struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
@@ -637,13 +644,23 @@ struct MobileLiveDot: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(red.opacity(0.4))
-                .scaleEffect(pulsing && !reduceMotion ? 1.8 : 1)
-                .opacity(pulsing && !reduceMotion ? 0 : 1)
-                .animation(reduceMotion ? nil : .easeOut(duration: 1.6).repeatForever(autoreverses: false), value: pulsing)
-            Circle().fill(red).frame(width: 5, height: 5)
+            Circle().fill(red.opacity(0.3))
+                .frame(width: 10, height: 10)
+                .scaleEffect(reduceMotion ? 0.75 : (pulsing ? 1.05 : 0.68))
+                .opacity(reduceMotion ? 0.34 : (pulsing ? 0 : 0.5))
+            Circle()
+                .fill(RadialGradient(stops: [
+                    .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
+                    .init(color: red, location: 0.28),
+                    .init(color: Color(red: 0.58, green: 0.025, blue: 0.09), location: 1)
+                ], center: .topLeading, startRadius: 0, endRadius: 5))
+                .frame(width: 5, height: 5)
+                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.4))
+                .shadow(color: red.opacity(0.48), radius: 2.5)
         }
         .frame(width: 8, height: 8)
+        .animation(reduceMotion ? nil
+            : .easeOut(duration: 1.8).repeatForever(autoreverses: false), value: pulsing)
         .accessibilityHidden(true)
         .onAppear { pulsing = !reduceMotion }
         .onDisappear { pulsing = false }

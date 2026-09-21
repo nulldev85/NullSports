@@ -565,6 +565,7 @@ private struct LiveSlateDashboard: View {
                             PulsingLiveDot(size: 7)
                             Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
                                 .font(.inter(13, .bold)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.liveStatus)
                         } else {
                             Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
                                 .font(.interDigits(13, .bold)).tracking(1.2)
@@ -722,7 +723,8 @@ private struct LiveRailRow: View {
             HStack(spacing: 8) {
                 if game.isLive {
                     PulsingLiveDot(size: 5)
-                    Text(game.status.isEmpty ? "LIVE" : game.status.uppercased()).lineLimit(1)
+                    Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
+                        .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
                 } else {
                     Text(game.startLabel)
                 }
@@ -742,7 +744,7 @@ private struct LiveRailRow: View {
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .leading) {
             if game.isLive {
-                RoundedRectangle(cornerRadius: 2).fill(LineupStyle.live)
+                RoundedRectangle(cornerRadius: 2).fill(LineupStyle.liveDot)
                     .frame(width: 3).padding(.vertical, 12)
             }
         }
@@ -954,7 +956,9 @@ private struct LiveSlateRow: View {
                     Spacer()
                     if game.isLive {
                         PulsingLiveDot(size: 6)
-                        Text(game.status.uppercased()).foregroundColor(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
+                            .foregroundStyle(LineupStyle.liveStatus)
+                            .lineLimit(1).minimumScaleFactor(0.7)
                     } else {
                         Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundColor(LineupStyle.lightPurple)
                             .font(.interDigits(17, .semibold))
@@ -1060,20 +1064,39 @@ private struct LiveSelectedPreview: View {
         .onDisappear { controller.stop() }
     }
 }
+/// A steady broadcast-red core with a slow halo around it. The core never
+/// blinks or changes size, so it remains a crisp status mark; only the light
+/// it casts breathes. That reads as an illuminated indicator rather than a
+/// generic animated circle.
 private struct PulsingLiveDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGFloat
-    @State private var isPulsing = false
+    @State private var haloExpanded = false
 
     var body: some View {
-        Circle()
-            .fill(LineupStyle.live)
-            .frame(width: size, height: size)
-            .scaleEffect(isPulsing ? 1.22 : 0.92)
-            .opacity(isPulsing ? 0.58 : 1)
-            .shadow(color: LineupStyle.live.opacity(isPulsing ? 0.25 : 0.72), radius: isPulsing ? 7 : 3)
-            .animation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true), value: isPulsing)
-            .onAppear { isPulsing = true }
-            .accessibilityHidden(true)
+        ZStack {
+            Circle()
+                .fill(LineupStyle.liveDot.opacity(0.3))
+                .frame(width: size * 2.2, height: size * 2.2)
+                .scaleEffect(reduceMotion ? 0.82 : (haloExpanded ? 1.08 : 0.7))
+                .opacity(reduceMotion ? 0.34 : (haloExpanded ? 0 : 0.5))
+            Circle()
+                .fill(RadialGradient(stops: [
+                    .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
+                    .init(color: LineupStyle.liveDot, location: 0.28),
+                    .init(color: Color(red: 0.58, green: 0.025, blue: 0.09), location: 1)
+                ], center: .topLeading, startRadius: 0, endRadius: size))
+                .frame(width: size, height: size)
+                .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.5))
+                .shadow(color: LineupStyle.liveDot.opacity(0.52), radius: size * 0.55)
+        }
+        .frame(width: size * 1.25, height: size * 1.25)
+        .animation(reduceMotion ? nil
+            : .easeOut(duration: 1.8).repeatForever(autoreverses: false), value: haloExpanded)
+        .onAppear { haloExpanded = !reduceMotion }
+        .onDisappear { haloExpanded = false }
+        .onChange(of: reduceMotion) { _, reduced in haloExpanded = !reduced }
+        .accessibilityHidden(true)
     }
 }
 
@@ -1163,7 +1186,7 @@ private struct LiveTicker: View {
                             .frame(width: 48, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL").foregroundColor(LineupStyle.lightPurple)
                             .font(.inter(.caption2, .bold)).tracking(1.2)
-                            .foregroundStyle(game.isLive ? LineupStyle.live : LineupStyle.secondary)
+                            .foregroundStyle(game.isLive ? LineupStyle.liveStatus : LineupStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .font(.callout.monospaced()).lineLimit(1)
@@ -1435,12 +1458,12 @@ private struct GameStatusBadge: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            if event.isLive { Circle().fill(LineupStyle.live).frame(width: 7, height: 7) }
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.1)
+            if event.isLive { PulsingLiveDot(size: 7) }
+            Text(title).font(.inter(.caption, .bold)).tracking(1.1)
         }
-        .foregroundStyle(event.isLive ? LineupStyle.lightPurple : LineupStyle.text)
+        .foregroundStyle(event.isLive ? LineupStyle.liveStatus : LineupStyle.text)
         .padding(.horizontal, 13).frame(height: 34)
-        .background(event.isLive ? LineupStyle.live.opacity(0.28) : LineupStyle.lightPurple.opacity(0.06))
+        .background(event.isLive ? LineupStyle.liveDot.opacity(0.12) : LineupStyle.lightPurple.opacity(0.06))
         .clipShape(Capsule())
         .nullGlass(clear: event.isLive, cornerRadius: 17)
     }
@@ -1529,8 +1552,6 @@ private enum GuidePalette {
     /// blue over it has something to read against.
     static var card: Color { LineupStyle.raised }
     static var cardFocused: Color { LineupStyle.focused }
-    /// The on-air badge.
-    static var liveMark: Color { LineupStyle.highlight }
     /// The edge and glow on whatever the remote is sitting on.
     static var focusRing: Color { LineupStyle.highlight }
     /// A badge for something that has not started, which must not be mistaken
@@ -1666,15 +1687,6 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
-
-                        // One precise mark through the header and schedule is
-                        // easier to scan than a separate "live" treatment on
-                        // every row. It stays out while the category drawer is
-                        // open so the drawer reads as a clean layer of its own.
-                        if !sidebarVisible {
-                            GuideNowIndicator(now: guideNow)
-                                .allowsHitTesting(false)
-                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -1965,9 +1977,9 @@ private struct GuidePreviewPanel: View {
                     if item.program.isLive {
                         HStack(spacing: 5) {
                             GuideLiveDot(size: 9)
-                            Text("ON NOW").font(.inter(9, .bold)).tracking(1)
+                            Text("LIVE").font(.inter(9, .bold)).tracking(1)
                         }
-                        .foregroundStyle(GuidePalette.text)
+                        .foregroundStyle(LineupStyle.liveStatus)
                     }
                 }
                 HStack(spacing: 10) {
@@ -2189,41 +2201,6 @@ private struct GuideTimelineHeader: View {
         .background(GuidePalette.surface.opacity(0.72))
         .overlay(alignment: .bottom) {
             Rectangle().fill(GuidePalette.line.opacity(0.9)).frame(height: 1)
-        }
-    }
-}
-
-/// Broadcast guides are read against time first. A single rule that crosses
-/// the header and every visible row makes "what is on right now" immediate,
-/// while the small label prevents the accent from looking like a stray border.
-private struct GuideNowIndicator: View {
-    @Environment(\.guideLayout) private var layout
-    let now: Date
-
-    private var x: CGFloat {
-        let elapsed = max(0, now.timeIntervalSince(guideTimelineAnchor(now)))
-        return 14 + layout.channelWidth + CGFloat(elapsed / 1800) * layout.slotWidth
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
-                Rectangle()
-                    .fill(GuidePalette.highlight.opacity(0.82))
-                    .frame(width: 2, height: max(0, proxy.size.height - 54))
-                    .offset(x: x, y: 54)
-                Circle()
-                    .fill(GuidePalette.highlight)
-                    .frame(width: 8, height: 8)
-                    .offset(x: x - 3, y: 51)
-                    .shadow(color: GuidePalette.highlight.opacity(0.5), radius: 6)
-                Text("NOW")
-                    .font(.inter(9, .bold)).tracking(1.1)
-                    .foregroundStyle(GuidePalette.background)
-                    .frame(width: 38, height: 18)
-                    .background(GuidePalette.highlight, in: Capsule())
-                    .offset(x: x - 18, y: 32)
-            }
         }
     }
 }
@@ -2753,6 +2730,7 @@ private struct GuideProgramCell: View {
         .zIndex(isFocused ? 2 : 0)
         .animation(.easeOut(duration: 0.16), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .accessibilityValue(isOnNow ? "On now" : "")
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
         .modifier(GuideLeftBoundary(enabled: opensSidebar, onOpen: onOpenSidebar))
@@ -2767,22 +2745,10 @@ private struct GuideProgramCell: View {
 /// title beside it. A dot says it instead, and the pulse is the part that
 /// means *now* -- a still dot is a bullet point.
 private struct GuideLiveDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
     var size: CGFloat = 10
 
     var body: some View {
-        Circle()
-            .fill(GuidePalette.highlight)
-            .frame(width: size, height: size)
-            // Reduced motion keeps the dot, at the brighter end of the pulse.
-            .opacity(reduceMotion || pulsing ? 1 : 0.38)
-            .shadow(color: GuidePalette.highlight.opacity(reduceMotion || pulsing ? 0.55 : 0.12),
-                    radius: size * 0.55)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
-                       value: pulsing)
-            .onAppear { pulsing = true }
-            .accessibilityLabel("On now")
+        PulsingLiveDot(size: size)
     }
 }
 
@@ -3431,9 +3397,10 @@ private struct TVPlayerChrome: View {
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 9) {
-                            Circle().fill(LineupStyle.mediaAccent).frame(width: 8, height: 8)
+                            if isLive { PulsingLiveDot(size: 8) }
                             Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
                                 .font(.inter(15, .bold)).tracking(1.5)
+                                .foregroundStyle(isLive ? LineupStyle.liveStatus : LineupStyle.mediaText)
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }

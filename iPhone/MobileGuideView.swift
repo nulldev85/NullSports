@@ -443,9 +443,7 @@ struct MobileGuideView: View {
                             if let program {
                                 HStack(spacing: 5) {
                                     if live {
-                                        Circle().fill(LineupStyle.liveDot)
-                                            .frame(width: 4, height: 4)
-                                            .accessibilityHidden(true)
+                                        MobileLiveDot()
                                         Text("LIVE")
                                     } else {
                                         Text(program.start, format: .dateTime.hour().minute())
@@ -453,7 +451,7 @@ struct MobileGuideView: View {
                                     if program.isNew == true { Text("NEW") }
                                 }
                                 .font(.inter(9, .medium))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
+                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary)
                                 .lineLimit(1)
                             }
                         }
