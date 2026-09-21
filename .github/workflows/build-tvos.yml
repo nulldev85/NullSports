@@ -38,6 +38,12 @@ jobs:
           swiftc NullSports/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/nullsports-daily-cache-checks
           /tmp/nullsports-daily-cache-checks
 
+      - name: Check stream startup policy
+        run: |
+          set -euo pipefail
+          swiftc NullSports/Services/StreamStartupPolicy.swift Tests/StreamStartupPolicyChecks.swift -o /tmp/nullsports-startup-checks
+          /tmp/nullsports-startup-checks
+
       - name: Install project generator
         run: brew install xcodegen
 

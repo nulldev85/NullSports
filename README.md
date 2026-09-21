@@ -88,3 +88,22 @@ scrollers from adding duplicate navigation insets, and disables horizontal
 rubber-banding while preserving vertical pull-to-refresh. Account displays the
 installed version/build so an older IPA can be distinguished from a new build.
 The EPG remains progress-fill-only, with no triangle or vertical time marker.
+
+iPhone 0.17.11 cuts the wait before a live channel is watchable. Streams used
+to open behind a flat five-second buffer and sit on a dead URL for a full
+thirty seconds before the second one was tried; both numbers were sized for the
+worst provider on the worst link, so every viewer paid them on every channel.
+Playback now starts from a short buffer with VLC's live clock jitter handling
+disabled, and only steps back up — 1.5s, 3s, then the original 5s — when a feed
+actually starves mid-playback, which is the failure the five seconds existed to
+prevent. A candidate URL that has shown nothing is abandoned after six seconds
+while another remains; the last candidate still gets the full thirty. The app
+remembers, per provider, which format played and how much buffer that link
+needed, so the second channel onward skips a format that hangs. Opening is
+polled ten times a second instead of twice, so the spinner no longer outlives
+the first frame. The Apple TV player gets the same fast start plus a stall
+watchdog to back it. Nothing waits less than before on the last URL it has, and
+a provider that genuinely needs five seconds still settles there. Device checks:
+time a cold channel open and a channel switch, confirm a bad channel still falls
+back and still reports failure, watch a full period for mid-stream stalls, and
+check Multiview panes and Guide/Live previews on Apple TV.

@@ -2000,18 +2000,103 @@ struct PlayerView: View {
 
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
+    private var monitor: Task<Void, Never>?
+    private var url: URL?
+    private var muted = false
+    private var host: String?
+    private var lastPlaybackTimeMs: Int32?
+    private var timeUnchangedSince: Date?
+    private var playingSince: Date?
+    private var recordedSustained = false
+
     func start(urls: [URL], muted: Bool = false) {
         stop()
         guard let url = urls.last ?? urls.first else { return }
+        self.url = url
+        self.muted = muted
+        host = StreamStartupMemory.host(for: url)
+        // Open at whatever buffer this provider's link has already shown it
+        // needs. Nothing learned yet means the fastest rung.
+        openStream(level: StreamStartupMemory.shared.bufferLevel(for: host))
+    }
+
+    private func openStream(level: Int) {
+        player.stop()
+        guard let url else { return }
         // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0.
         let media = VLCMedia(url: url)
-        media.addOption(":network-caching=5000"); media.addOption(":live-caching=5000"); media.addOption(":http-reconnect=true")
+        for option in StreamStartupPolicy.mediaOptions(bufferLevel: level,
+                                                       isHLS: StreamStartupPolicy.isHLS(url)) {
+            media.addOption(option)
+        }
         if muted { media.addOption(":no-audio") }
         player.media = media; player.play(); setMuted(muted)
+        lastPlaybackTimeMs = nil
+        timeUnchangedSince = nil
+        playingSince = nil
+        watchForStalls()
     }
-    func setMuted(_ muted: Bool) { player.audio?.isMuted = muted }
+
+    /// Opening from a short buffer is only safe because a link that turns out to
+    /// need a deeper one says so by starving mid-playback. Watching for that is
+    /// what keeps the five-second buffer this player used to start every stream
+    /// with available to the links that actually need it.
+    private func watchForStalls() {
+        monitor?.cancel()
+        monitor = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(StreamStartupPolicy.steadyPollInterval)) } catch { return }
+                guard let self else { return }
+                guard self.player.isPlaying, self.player.hasVideoOut else {
+                    // Paused or not up yet: no clock to judge, and a pause must
+                    // never bank time toward a stall.
+                    self.playingSince = nil
+                    self.lastPlaybackTimeMs = nil
+                    self.timeUnchangedSince = nil
+                    continue
+                }
+                if self.playingSince == nil { self.playingSince = Date() }
+                if !self.recordedSustained, let since = self.playingSince,
+                   Date().timeIntervalSince(since) > StreamStartupPolicy.cleanPlaybackBeforeDecay {
+                    StreamStartupMemory.shared.recordSustainedPlayback(host: self.host)
+                    self.recordedSustained = true
+                }
+                // A frozen picture on a live feed keeps reading as playing right
+                // up until someone notices. The clock standing still is the tell.
+                let currentMs = self.player.time.intValue
+                if let last = self.lastPlaybackTimeMs, last == currentMs {
+                    if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
+                    if let since = self.timeUnchangedSince, Date().timeIntervalSince(since) > 10 {
+                        self.openStream(level: StreamStartupMemory.shared.recordStall(host: self.host))
+                        continue
+                    }
+                } else {
+                    self.timeUnchangedSince = nil
+                }
+                self.lastPlaybackTimeMs = currentMs
+            }
+        }
+    }
+
+    // Tracked, not just applied: a stall reconnect rebuilds the media from
+    // scratch and has to honour the pane's current focus, not whatever it
+    // was muted to when the stream was first opened.
+    func setMuted(_ muted: Bool) {
+        self.muted = muted
+        player.audio?.isMuted = muted
+    }
     func togglePlayback() { player.isPlaying ? player.pause() : player.play() }
-    func stop() { player.stop(); player.media = nil }
+    func stop() {
+        monitor?.cancel()
+        monitor = nil
+        url = nil
+        lastPlaybackTimeMs = nil
+        timeUnchangedSince = nil
+        playingSince = nil
+        recordedSustained = false
+        player.stop()
+        player.media = nil
+    }
 }
 
 private struct VLCVideoSurface: UIViewRepresentable {
