@@ -27,6 +27,8 @@ jobs:
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
+          swiftc NullSports/Services/StreamStartupPolicy.swift Tests/StreamStartupPolicyChecks.swift -o /tmp/startup-checks
+          /tmp/startup-checks
       - name: Generate project
         run: |
           set -euo pipefail

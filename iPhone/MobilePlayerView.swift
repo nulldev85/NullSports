@@ -159,6 +159,15 @@ final class MobilePlaybackController: ObservableObject {
     private var waitingSince: Date?
     private var lastPlaybackTimeMs: Int32?
     private var timeUnchangedSince: Date?
+    /// The provider this session is talking to, plus what earlier sessions
+    /// learned about it: which stream format plays, and how much buffer the
+    /// link to it actually needs.
+    private var host: String?
+    private var bufferLevel = 0
+    private var currentURL: URL?
+    private var playingSince: Date?
+    private var recordedFormat = false
+    private var recordedSustained = false
 
     /// "1080p", "720p", etc., derived from the source video track. Nil until
     /// VLC reports track info, which only happens once a video is decoding.
@@ -208,7 +217,14 @@ final class MobilePlaybackController: ObservableObject {
         stop()
         error = nil
         originalURLs = urls
-        candidates = Array(urls.reversed()) // Prefer transport streams, as on Apple TV.
+        host = StreamStartupMemory.host(for: urls.first)
+        // What earlier connections to this provider taught us: lead with the
+        // format that actually played, and open at the buffer its link turned
+        // out to need. With nothing learned yet that is the transport stream at
+        // the fastest rung — the same URL the app has always tried first.
+        bufferLevel = StreamStartupMemory.shared.bufferLevel(for: host)
+        candidates = StreamStartupPolicy.orderedCandidates(
+            urls, preferring: StreamStartupMemory.shared.preferredExtension(for: host))
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -219,9 +235,16 @@ final class MobilePlaybackController: ObservableObject {
         }
         openNext()
         monitor = Task { [weak self] in
+            var interval = StreamStartupPolicy.startupPollInterval
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
                 guard let self else { return }
+                // Close attention while opening, relaxed again once there is a
+                // steady picture and only the stall watchdogs are left to run.
+                // On the old flat half-second grid the spinner could outlive the
+                // first decoded frame, and a surface that was ready the whole
+                // time could sit unplayed for just as long.
+                interval = StreamStartupPolicy.pollInterval(isStartingUp: self.loading || self.waitingForVideo)
                 guard !self.suspended else { continue }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {
@@ -236,11 +259,14 @@ final class MobilePlaybackController: ObservableObject {
                     }
                     continue
                 }
-                self.isPlaying = self.player.isPlaying
+                // Watched ten times a second while opening, so only publish on
+                // a real change — an unchanged @Published write still re-renders.
+                if self.isPlaying != self.player.isPlaying { self.isPlaying = self.player.isPlaying }
                 if self.player.isPlaying && self.player.hasVideoOut {
-                    self.loading = false
+                    if self.loading { self.loading = false }
                     self.missingVideoSince = nil
                     self.refreshStats()
+                    self.notePictureIsUp()
                     // Some provider drops don't close the connection or raise a VLC
                     // error — the feed just goes quiet and the last frame freezes
                     // while isPlaying/hasVideoOut both still read true. Watch the
@@ -253,6 +279,12 @@ final class MobilePlaybackController: ObservableObject {
                     if let last = self.lastPlaybackTimeMs, last == currentMs {
                         if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
                         if Date().timeIntervalSince(self.timeUnchangedSince!) > 10 {
+                            // Playback started and then starved — the one signal
+                            // that means this link cannot sustain the current
+                            // buffer, and the exact failure a flat five seconds
+                            // was there to prevent. Reconnect a rung deeper
+                            // rather than straight back into the same starvation.
+                            StreamStartupMemory.shared.recordStall(host: self.host)
                             self.goLive()
                             continue
                         }
@@ -261,17 +293,46 @@ final class MobilePlaybackController: ObservableObject {
                     }
                     self.lastPlaybackTimeMs = currentMs
                 } else if self.player.isPlaying {
-                    self.loading = true
+                    if !self.loading { self.loading = true }
+                    self.playingSince = nil
                     if self.missingVideoSince == nil { self.missingVideoSince = Date() }
                 }
-                if let since = self.missingVideoSince, Date().timeIntervalSince(since) > 15 {
+                // Playing but no picture yet: unchanged, because this is also
+                // where a healthy stream waits while it decodes its first frame.
+                if let since = self.missingVideoSince,
+                   Date().timeIntervalSince(since) > StreamStartupPolicy.audioOnlyTimeout {
                     self.openNext()
                     continue
                 }
-                if self.error == nil && (self.player.state == .error || (self.loading && Date().timeIntervalSince(self.started) > 30)) {
+                // Never reached playback at all — a hanging connection, which is
+                // where the thirty seconds actually hurt. Cut that short only
+                // while another candidate is still in hand; on the last one this
+                // is the same wait the app has always allowed.
+                let openTimeout = StreamStartupPolicy.firstVideoTimeout(
+                    bufferLevel: self.bufferLevel, hasAlternative: !self.candidates.isEmpty)
+                if self.error == nil && (self.player.state == .error
+                    || (self.loading && Date().timeIntervalSince(self.started) > openTimeout)) {
                     self.openNext()
                 }
             }
+        }
+    }
+
+    /// Bookkeeping for a picture that is genuinely on screen: remember the
+    /// format that produced it, and once this link has held it long enough,
+    /// let the provider try one rung less buffer next time.
+    private func notePictureIsUp() {
+        if playingSince == nil { playingSince = Date() }
+        guard let since = playingSince else { return }
+        let held = Date().timeIntervalSince(since)
+        if !recordedFormat, held > StreamStartupPolicy.heldPictureBeforeTrustingFormat,
+           let ext = currentURL?.pathExtension, !ext.isEmpty {
+            StreamStartupMemory.shared.recordPlayed(host: host, format: ext)
+            recordedFormat = true
+        }
+        if !recordedSustained, held > StreamStartupPolicy.cleanPlaybackBeforeDecay {
+            StreamStartupMemory.shared.recordSustainedPlayback(host: host)
+            recordedSustained = true
         }
     }
 
@@ -282,11 +343,14 @@ final class MobilePlaybackController: ObservableObject {
         waitingSince = nil
         lastPlaybackTimeMs = nil
         timeUnchangedSince = nil
+        playingSince = nil
+        recordedFormat = false
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
         guard !candidates.isEmpty else {
             loading = false
+            currentURL = nil
             UIApplication.shared.isIdleTimerDisabled = false
             error = "This stream is unavailable. Try again or choose another channel."
             return
@@ -294,12 +358,13 @@ final class MobilePlaybackController: ObservableObject {
         // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0
         // (the 4.0 alpha we moved off of made it failable), so no optional
         // binding here.
-        let media = VLCMedia(url: candidates.removeFirst())
-        // Matches tvOS's buffer size — 3s was too tight for some providers and
-        // read as a stall/drop after several minutes on a slightly slower link.
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
-        media.addOption(":http-reconnect=true")
+        let url = candidates.removeFirst()
+        currentURL = url
+        let media = VLCMedia(url: url)
+        for option in StreamStartupPolicy.mediaOptions(bufferLevel: bufferLevel,
+                                                       isHLS: StreamStartupPolicy.isHLS(url)) {
+            media.addOption(option)
+        }
         player.media = media
         started = Date()
         loading = true
@@ -342,6 +407,7 @@ final class MobilePlaybackController: ObservableObject {
         suspended = false
         started = Date()
         missingVideoSince = nil
+        playingSince = nil // Time spent backgrounded is not time this link held a picture.
         if waitingForVideo {
             waitingSince = Date() // Give it a fresh 8s window instead of counting time spent backgrounded.
             startWhenVideoIsReady()
@@ -357,6 +423,10 @@ final class MobilePlaybackController: ObservableObject {
         waitingSince = nil
         lastPlaybackTimeMs = nil
         timeUnchangedSince = nil
+        playingSince = nil
+        recordedFormat = false
+        recordedSustained = false
+        currentURL = nil
         player.stop()
         player.media = nil
         suspended = false
