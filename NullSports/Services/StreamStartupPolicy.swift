@@ -37,25 +37,32 @@ enum StreamStartupPolicy {
     /// all in this run, so a rung can never oscillate within a session.
     static let cleanPlaybackBeforeDecay: TimeInterval = 90
 
-    /// The wait for the first decoded frame before moving to the next candidate
-    /// URL. Short only while there is somewhere better to go: on the last
-    /// candidate this is the same thirty seconds the app has always waited,
-    /// because giving up early there fails sooner rather than playing sooner.
+    /// The wait on a URL that has not reached playback at all — a connection
+    /// that is hanging rather than one that is slow to show a picture. Short
+    /// only while there is somewhere better to go: on the last candidate this
+    /// is the same thirty seconds the app has always waited, because giving up
+    /// early there fails sooner rather than playing sooner.
+    ///
+    /// Twelve seconds, not six. A connection that is merely slow still has to
+    /// resolve, handshake and fill its buffer, and abandoning one that would
+    /// have played to try a URL that might be dead trades a slow channel for a
+    /// broken one. Two and a half times faster than before is worth having;
+    /// shaving the last few seconds is not worth that risk.
     static func firstVideoTimeout(bufferLevel: Int, hasAlternative: Bool) -> TimeInterval {
         guard hasAlternative else { return lastCandidateTimeout }
-        // Connect, handshake and fill the buffer, plus slack — never less than
-        // six seconds even on the fastest rung.
-        return max(6, Double(bufferMs(for: bufferLevel)) / 1000 + 4)
+        return max(12, Double(bufferMs(for: bufferLevel)) / 1000 + 6)
     }
 
     static let lastCandidateTimeout: TimeInterval = 30
 
-    /// Audio arrived but no picture. With another URL in hand, six seconds is
-    /// long enough to tell this one is audio-only; on the last candidate keep
-    /// the fifteen seconds the app already allowed.
-    static func audioOnlyTimeout(hasAlternative: Bool) -> TimeInterval {
-        hasAlternative ? 6 : 15
-    }
+    /// Playing, but no picture yet. This is deliberately unchanged at the
+    /// fifteen seconds the app has always allowed, and it is not a spare few
+    /// seconds to be reclaimed: VLC reports playing as soon as it starts, so
+    /// this same window is what a healthy stream sits in while it decodes its
+    /// first frame. Shortening it abandons streams that were about to play.
+    /// The slow path worth fixing is the hanging connection above, which never
+    /// reaches playback at all.
+    static let audioOnlyTimeout: TimeInterval = 15
 
     /// Opening is the only phase worth watching closely. Polling twice a second
     /// throughout meant up to half a second of dead spinner after the picture

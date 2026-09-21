@@ -57,17 +57,19 @@ struct StreamStartupPolicyChecks {
               "The last candidate still gets the full thirty seconds")
         check(StreamStartupPolicy.firstVideoTimeout(bufferLevel: 2, hasAlternative: false) == 30,
               "That holds at every rung")
-        check(StreamStartupPolicy.audioOnlyTimeout(hasAlternative: false) == 15,
-              "Audio-only on the last candidate still gets fifteen seconds")
-        check(StreamStartupPolicy.firstVideoTimeout(bufferLevel: 0, hasAlternative: true) == 6,
-              "A dead first URL costs six seconds, not thirty")
-        check(StreamStartupPolicy.audioOnlyTimeout(hasAlternative: true) == 6,
-              "So does a first URL that only carries audio")
+        // Playing-but-no-picture is also where a healthy stream decodes its
+        // first frame, so this window is not a few spare seconds to reclaim.
+        check(StreamStartupPolicy.audioOnlyTimeout == 15,
+              "A stream that is playing keeps every second it had to show a picture")
+        check(StreamStartupPolicy.firstVideoTimeout(bufferLevel: 0, hasAlternative: true) == 12,
+              "A hanging first URL costs twelve seconds, not thirty")
         for rung in 0..<StreamStartupPolicy.bufferLadderMs.count {
             let timeout = StreamStartupPolicy.firstVideoTimeout(bufferLevel: rung, hasAlternative: true)
             let buffer = Double(StreamStartupPolicy.bufferMs(for: rung)) / 1000
-            check(timeout >= buffer + 4,
-                  "Every rung is given time to connect and fill its buffer before being abandoned")
+            check(timeout >= buffer + 6,
+                  "Every rung is given time to resolve, handshake and fill its buffer")
+            check(timeout >= StreamStartupPolicy.audioOnlyTimeout - 3,
+                  "Reaching playback is never held to a tighter bar than showing a picture")
             check(timeout <= StreamStartupPolicy.lastCandidateTimeout,
                   "Switching candidates is never slower than waiting one out")
         }

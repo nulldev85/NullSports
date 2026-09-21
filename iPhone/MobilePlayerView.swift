@@ -297,18 +297,19 @@ final class MobilePlaybackController: ObservableObject {
                     self.playingSince = nil
                     if self.missingVideoSince == nil { self.missingVideoSince = Date() }
                 }
-                // Patience is only worth paying when there is nothing better to
-                // switch to. While another candidate is still in hand, moving on
-                // beats sitting on a connection that has produced nothing; on the
-                // last one these are the same waits the app has always allowed.
-                let hasAlternative = !self.candidates.isEmpty
+                // Playing but no picture yet: unchanged, because this is also
+                // where a healthy stream waits while it decodes its first frame.
                 if let since = self.missingVideoSince,
-                   Date().timeIntervalSince(since) > StreamStartupPolicy.audioOnlyTimeout(hasAlternative: hasAlternative) {
+                   Date().timeIntervalSince(since) > StreamStartupPolicy.audioOnlyTimeout {
                     self.openNext()
                     continue
                 }
+                // Never reached playback at all — a hanging connection, which is
+                // where the thirty seconds actually hurt. Cut that short only
+                // while another candidate is still in hand; on the last one this
+                // is the same wait the app has always allowed.
                 let openTimeout = StreamStartupPolicy.firstVideoTimeout(
-                    bufferLevel: self.bufferLevel, hasAlternative: hasAlternative)
+                    bufferLevel: self.bufferLevel, hasAlternative: !self.candidates.isEmpty)
                 if self.error == nil && (self.player.state == .error
                     || (self.loading && Date().timeIntervalSince(self.started) > openTimeout)) {
                     self.openNext()
