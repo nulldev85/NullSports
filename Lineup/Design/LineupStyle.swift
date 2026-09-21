@@ -6,7 +6,9 @@ enum LineupTheme: String, CaseIterable, Identifiable {
     case signal
     case graphiteIce
     case velvet
-    case seaGlass
+    // Keep the former Sea Glass raw value so existing selections upgrade to
+    // OLED instead of unexpectedly falling back to the default theme.
+    case oled = "seaGlass"
 
     static let storageKey = "lineup.appearance.theme"
     var id: String { rawValue }
@@ -16,7 +18,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
         case .signal: "Signal"
         case .graphiteIce: "Graphite Ice"
         case .velvet: "Velvet"
-        case .seaGlass: "Sea Glass"
+        case .oled: "OLED"
         }
     }
 
@@ -25,7 +27,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
         case .signal: "Charcoal & electric blue"
         case .graphiteIce: "Graphite & ice blue"
         case .velvet: "Plum & lilac"
-        case .seaGlass: "Seafoam & eucalyptus"
+        case .oled: "Pure black & electric cyan"
         }
     }
 
@@ -62,21 +64,21 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                     hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8), combat: rgb(0xD20A0A)
                 )
             )
-        case .seaGlass:
-            // A daylight palette that stays soft without becoming washed out.
-            // Its ink is deliberately green-black rather than pure black, so
-            // the contrast is comfortable while text remains easy to scan.
+        case .oled:
+            // Pure black lets OLED pixels switch completely off. Cards stay
+            // only a breath above the canvas, while cyan is reserved for
+            // focus and live states so navigation remains unmistakable.
             LineupPalette(
-                accent: rgb(0x253432), background: rgb(0x7F9694), surface: rgb(0x93AAA6),
-                raised: rgb(0xA7BDB7), sidebar: rgb(0x899F9C), selected: rgb(0xAAC2BC),
-                focused: rgb(0xBED7CF), warning: rgb(0xA7633E),
-                highlight: rgb(0xC0E4D3), highlightSoft: rgb(0xD9EEE6),
-                selectionBorder: rgb(0xE4FFF3),
-                liveDot: rgb(0xD8737F), positive: rgb(0x4F8068), logoPlate: rgb(0xE8F1ED),
-                line: rgb(0x253432).opacity(0.18),
+                accent: rgb(0xFFFFFF), background: rgb(0x000000), surface: rgb(0x07090C),
+                raised: rgb(0x11151A), sidebar: rgb(0x000000), selected: rgb(0x0B1620),
+                focused: rgb(0x102A3A), warning: rgb(0xFFB020),
+                highlight: rgb(0x00C8FF), highlightSoft: rgb(0x8DEBFF),
+                selectionBorder: rgb(0x37D7FF),
+                liveDot: rgb(0xFF375F), positive: rgb(0x32D583), logoPlate: rgb(0xF4F7FA),
+                line: rgb(0xFFFFFF).opacity(0.13),
                 leagues: LeagueColors(
-                    football: rgb(0xC7B6E5), college: rgb(0x8FCDBB), basketball: rgb(0xE8AE86),
-                    hockey: rgb(0xE3A0B9), baseball: rgb(0xA8D6A4), combat: rgb(0xD99096)
+                    football: rgb(0xA78BFA), college: rgb(0x2DD4BF), basketball: rgb(0xFF8A3D),
+                    hockey: rgb(0xF472B6), baseball: rgb(0x4ADE80), combat: rgb(0xFF4D4D)
                 )
             )
         case .signal:
@@ -175,7 +177,7 @@ private func rgb(_ value: UInt32) -> Color {
 enum LineupStyle {
     /// Both platforms read the same stored choice. The television used to be
     /// pinned to Velvet because the themes it could have picked were not
-    /// finished for it; the two that remain are, and each has its own settings
+    /// finished for it; the available themes are, and each has its own settings
     /// entry to choose from.
     /// Signal is what the app looks like out of the box. A device that has
     /// been through the settings screen keeps whatever was chosen there --
@@ -206,7 +208,7 @@ enum LineupStyle {
         case .velvet: rgb(0xF6F2F8)
         case .graphiteIce: rgb(0xF1F5F9)
         case .signal: lightPurple
-        case .seaGlass: rgb(0x172523)
+        case .oled: rgb(0xF7FAFC)
         }
     }
     static var secondary: Color {
@@ -214,15 +216,14 @@ enum LineupStyle {
         case .velvet: rgb(0xA9A1AE)
         case .graphiteIce: rgb(0x8491A3)
         case .signal: lightPurple.opacity(0.66)
-        case .seaGlass: rgb(0x1D2C2A)
+        case .oled: rgb(0x8D98A5)
         }
     }
-    /// Video always sits on black, even when the chosen app palette is light.
-    /// Sea Glass therefore keeps a pale media tint while using dark ink on
-    /// its pastel screens.
-    static var mediaText: Color { theme == .seaGlass ? rgb(0xF2FAF7) : text }
-    static var mediaSecondary: Color { theme == .seaGlass ? rgb(0xC0D4CE) : secondary }
-    static var mediaAccent: Color { theme == .seaGlass ? rgb(0xC0E4D3) : lightPurple }
+    /// Playback chrome stays legible against video. OLED carries its cyan
+    /// accent into playback while the other themes retain their text tint.
+    static var mediaText: Color { text }
+    static var mediaSecondary: Color { secondary }
+    static var mediaAccent: Color { theme == .oled ? highlight : lightPurple }
     static var field: Color { lightPurple }
     static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
