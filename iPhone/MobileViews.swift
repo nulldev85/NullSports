@@ -25,7 +25,7 @@ struct MainView: View {
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Media Servers", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
+                .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
             MobileAccountView(selectedTab: $tab)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)

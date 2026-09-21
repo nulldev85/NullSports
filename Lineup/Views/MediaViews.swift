@@ -44,7 +44,7 @@ struct MediaServersView: View {
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
-            .navigationTitle("Media Servers")
+            .navigationTitle("Library")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     mediaOptionsMenu
@@ -93,7 +93,7 @@ struct MediaServersView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .accessibilityLabel("Media options")
+        .accessibilityLabel("Library options")
     }
     #endif
 }
@@ -420,7 +420,7 @@ private struct TVMediaServersHome: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .center, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("MEDIA SERVERS")
+                    Text("LIBRARY")
                         .font(.inter(13, .bold)).tracking(2.2)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                     Text(media.activeProfile?.name ?? "Your library")
@@ -442,7 +442,7 @@ private struct TVMediaServersHome: View {
             }
             .padding(.horizontal, 54).padding(.top, 18)
             .lineupFocusRegion()
-            .confirmationDialog("Media Options", isPresented: $optionsVisible, titleVisibility: .visible) {
+            .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
                 Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
                     .disabled(!media.hasAnySource)
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
@@ -977,7 +977,7 @@ private struct MediaShelfPicker: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("ADD A SHELF").font(.inter(12, .heavy)).tracking(1.6)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                Text("Pick a row for the Media Servers tab")
+                Text("Pick a row for the Library tab")
                     .font(.inter(22, .semibold)).lineLimit(1)
             }
             .padding(.horizontal, 28).padding(.top, 36).padding(.bottom, 18)

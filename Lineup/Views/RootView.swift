@@ -80,7 +80,7 @@ struct MainView: View {
                 .tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Media Servers", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
+                .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
                 .tag(2)
             AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
