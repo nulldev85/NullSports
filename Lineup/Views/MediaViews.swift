@@ -1197,6 +1197,10 @@ private struct MediaDetailScreen: View {
     @State private var loading = true
     @State private var error: String?
     @State private var chosen: MediaItem?
+    // tvOS media cards push through state instead of NavigationLink. Besides
+    // avoiding the system's oversized focus plate, this lets the Related row
+    // participate in the same focus-region routing as every library shelf.
+    @State private var pushed: MediaItem?
     @FocusState private var seasonFocused: Bool
     #if os(tvOS)
     @FocusState private var backFocused: Bool
@@ -1224,6 +1228,7 @@ private struct MediaDetailScreen: View {
         .modifier(FullBleedHeader())
         .task(id: item.id) { await load() }
         #if os(tvOS)
+        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #else
@@ -1588,19 +1593,50 @@ private struct MediaDetailScreen: View {
                     .font(sectionTitleFont)
                     .padding(.horizontal, horizontalPadding)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
+                    LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
                         ForEach(related) { title in
+                            #if os(tvOS)
+                            TVSelectable(action: { pushed = title }) {
+                                MediaItemCard(item: title, shape: .poster)
+                            }
+                            #else
                             NavigationLink(destination: MediaBrowseDestination(item: title)) {
                                 MediaItemCard(item: title, shape: .poster)
-                                    .frame(width: 145)
                             }
                             .lineupFlatButton()
+                            #endif
+                            .frame(width: relatedCardWidth, alignment: .topLeading)
                         }
                     }
-                    .padding(.horizontal, horizontalPadding)
+                    // Give the focused card's lift room without changing the
+                    // top edge shared by every poster in the row.
+                    .padding(.vertical, 8)
                 }
+                .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+                // After a viewer scrolls far sideways there may be no control
+                // geometrically above that poster. Treating the shelf as one
+                // focus region lets an Up press return to the rows above.
+                .lineupFocusRegion()
             }
         }
+    }
+
+    private var relatedCardWidth: CGFloat {
+        #if os(tvOS)
+        // Match the poster shelves in MediaCatalogsScreen. The old 145-point
+        // phone width made TV artwork cramped and visually uneven.
+        230
+        #else
+        145
+        #endif
+    }
+
+    private var relatedItemSpacing: CGFloat {
+        #if os(tvOS)
+        22
+        #else
+        14
+        #endif
     }
 
     @ViewBuilder

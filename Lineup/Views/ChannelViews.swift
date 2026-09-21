@@ -1517,8 +1517,8 @@ private enum GuidePalette {
     static var raised: Color { LineupStyle.raised }
     static var channelTile: Color { LineupStyle.selected }
     static var line: Color { LineupStyle.line }
-    static var text: Color { LineupStyle.lightPurple }
-    static var secondary: Color { LineupStyle.lightPurple }
+    static var text: Color { LineupStyle.text }
+    static var secondary: Color { LineupStyle.secondary }
     /// An eyebrow over a panel, the line down the grid: the theme speaking.
     static var highlight: Color { LineupStyle.highlight }
     /// How far a programme has run, kept neutral so schedule progress does not
@@ -1535,7 +1535,7 @@ private enum GuidePalette {
     static var focusRing: Color { LineupStyle.highlight }
     /// A badge for something that has not started, which must not be mistaken
     /// for the on-air one, so it stays the quiet text tint.
-    static var upcomingMark: Color { LineupStyle.lightPurple }
+    static var upcomingMark: Color { LineupStyle.secondary }
 }
 
 struct GuideView: View {
@@ -1591,7 +1591,7 @@ struct GuideView: View {
         GeometryReader { container in
             let layout = GuideLayout(width: container.size.width - 40)
             NavigationStack {
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 12) {
                     GuideControlBar(
                         title: selectedTitle,
                         channelCount: filtered.count,
@@ -1613,12 +1613,12 @@ struct GuideView: View {
                             previewURLs: previewPlaybackStream?.id == previewItem.stream.id ? library.playbackURLs(for: previewItem.stream) : nil,
                             now: guideNow
                         )
-                        .frame(height: 204)
+                        .frame(height: 216)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
                     ZStack(alignment: .topLeading) {
-                        VStack(alignment: .leading, spacing: 7) {
+                        VStack(alignment: .leading, spacing: 0) {
                             GuideTimelineHeader(now: guideNow)
                             if filtered.isEmpty {
                                 Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.").foregroundColor(LineupStyle.lightPurple)
@@ -1666,10 +1666,15 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
-                        // Above the grid and below the header, where it reads as
-                        // one mark rather than a mark per row. The sidebar
-                        // covers the channel column when it is out, and the line
-                        // would stand on top of it saying nothing.
+
+                        // One precise mark through the header and schedule is
+                        // easier to scan than a separate "live" treatment on
+                        // every row. It stays out while the category drawer is
+                        // open so the drawer reads as a clean layer of its own.
+                        if !sidebarVisible {
+                            GuideNowIndicator(now: guideNow)
+                                .allowsHitTesting(false)
+                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -1691,6 +1696,12 @@ struct GuideView: View {
                             .focusSection()
                         }
                     }
+                    .background(GuidePalette.panel.opacity(0.58),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(GuidePalette.line.opacity(0.9), lineWidth: 1))
+                    .lineupShadow(.restingQuiet)
                 }
                 .padding(.horizontal, 20).padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1853,29 +1864,52 @@ private struct GuideControlBar: View {
     let onCancelMultiview: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             if let multiviewTitle {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.3).foregroundStyle(GuidePalette.secondary)
-                    Text(multiviewTitle).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL")
+                        .font(.inter(.caption2, .bold)).tracking(1.3)
+                        .foregroundStyle(GuidePalette.highlight)
+                    Text(multiviewTitle).font(.inter(.title3, .semibold)).lineLimit(1)
                 }
             } else if searchActive {
                 TextField("Search channels", text: $query)
                     .textFieldStyle(.plain).focusEffectDisabled()
                     .font(.inter(22, .medium))
-                    .padding(.horizontal, 14).frame(maxWidth: 520, minHeight: 40)
-                    .background(GuidePalette.raised).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.horizontal, 16).frame(maxWidth: 560, minHeight: 48)
+                    .background(GuidePalette.raised,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(GuidePalette.line, lineWidth: 1))
             } else {
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(24, .semibold)).lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LIVE GUIDE")
+                        .font(.inter(10, .bold)).tracking(2.2)
+                        .foregroundStyle(GuidePalette.highlight)
+                    Text(title).font(.inter(28, .semibold)).lineLimit(1)
+                }
             }
             Spacer()
-            if isLoading { ProgressView().controlSize(.small) }
-            Text("\(channelCount) CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.4).foregroundStyle(GuidePalette.secondary)
-            Rectangle().fill(GuidePalette.line).frame(width: 1, height: 22)
+            if isLoading {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("UPDATING").font(.inter(10, .bold)).tracking(1.2)
+                }
+                .foregroundStyle(GuidePalette.secondary)
+            }
+            Label("\(channelCount) CHANNELS", systemImage: "rectangle.stack")
+                .font(.inter(.caption2, .bold)).tracking(1.2)
+                .foregroundStyle(GuidePalette.secondary)
+                .padding(.horizontal, 14).frame(height: 40)
+                .background(GuidePalette.surface.opacity(0.72), in: Capsule())
+                .overlay(Capsule().stroke(GuidePalette.line, lineWidth: 1))
             Label(now.formatted(date: .omitted, time: .shortened), systemImage: "clock")
                 .font(.interDigits(18, .medium))
                 .foregroundStyle(GuidePalette.text)
                 .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 14).frame(height: 40)
+                .background(GuidePalette.surface.opacity(0.72), in: Capsule())
+                .overlay(Capsule().stroke(GuidePalette.line, lineWidth: 1))
                 .accessibilityLabel("Current time, \(now.formatted(date: .omitted, time: .shortened))")
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                 searchActive.toggle()
@@ -1884,7 +1918,7 @@ private struct GuideControlBar: View {
             if multiviewTitle != nil { GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview) }
         }
         .foregroundStyle(GuidePalette.text)
-        .frame(height: 44)
+        .frame(height: 58)
     }
 
 }
@@ -1903,7 +1937,7 @@ private struct GuidePreviewPanel: View {
     }
 
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 26) {
             Group {
                 if let previewURLs {
                     GuidePreviewVideo(urls: previewURLs)
@@ -1912,49 +1946,59 @@ private struct GuidePreviewPanel: View {
                     GuidePreviewArtwork(stream: item.stream)
                 }
             }
-                .frame(width: 330, height: 174)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: 344, height: 184)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(alignment: .top) {
-                    LinearGradient(colors: [GuidePalette.text.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [Color.black.opacity(0.24), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(height: 46)
                         .allowsHitTesting(false)
                 }
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(GuidePalette.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(GuidePalette.line, lineWidth: 1))
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 9) {
-                    Text("‹ \(categoryName.uppercased())  ·  \(item.stream.name.uppercased())").foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(.caption2, .bold)).tracking(1.15).foregroundStyle(GuidePalette.highlight).lineLimit(1)
+                    Text("\(categoryName.uppercased())  ·  \(item.stream.name.uppercased())")
+                        .font(.inter(.caption2, .bold)).tracking(1.15)
+                        .foregroundStyle(GuidePalette.highlight).lineLimit(1)
                     if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
-                    if item.program.isLive { GuideLiveDot(size: 11) }
+                    if item.program.isLive {
+                        HStack(spacing: 5) {
+                            GuideLiveDot(size: 9)
+                            Text("ON NOW").font(.inter(9, .bold)).tracking(1)
+                        }
+                        .foregroundStyle(GuidePalette.text)
+                    }
                 }
                 HStack(spacing: 10) {
-                    Text(item.program.title.isEmpty ? "Untitled" : item.program.title).foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(27, .semibold)).lineLimit(1)
+                    Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
+                        .font(.inter(30, .semibold)).lineLimit(1)
                     if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.raised) }
                 }
                 HStack(spacing: 12) {
-                    Text(guideTimeRange(item.program)).foregroundColor(LineupStyle.lightPurple).font(.interDigits(.callout)).foregroundStyle(GuidePalette.secondary)
+                    Text(guideTimeRange(item.program))
+                        .font(.interDigits(.callout, .medium)).foregroundStyle(GuidePalette.secondary)
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             Capsule().fill(GuidePalette.raised)
                             Capsule().fill(GuidePalette.highlight).frame(width: proxy.size.width * progress)
                         }
-                    }.frame(width: 170, height: 4)
+                    }.frame(maxWidth: 220).frame(height: 4)
                 }
-                Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail).foregroundColor(LineupStyle.lightPurple)
-                    .font(.inter(.callout)).foregroundStyle(GuidePalette.secondary).lineLimit(1)
-                Text("Press Menu to hide preview").foregroundColor(LineupStyle.lightPurple)
-                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.lightPurple)
+                Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail)
+                    .font(.inter(.callout)).foregroundStyle(GuidePalette.secondary).lineLimit(2)
+                Label("Menu hides preview", systemImage: "chevron.backward.circle")
+                    .font(.inter(.caption2, .medium)).foregroundStyle(GuidePalette.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(LinearGradient(colors: [GuidePalette.text.opacity(0.05), GuidePalette.text.opacity(0.015)], startPoint: .top, endPoint: .bottom))
+        .padding(14)
+        .background(LinearGradient(colors: [GuidePalette.surface, GuidePalette.panel],
+            startPoint: .topLeading, endPoint: .bottomTrailing))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(GuidePalette.text.opacity(0.08), lineWidth: 1))
-        .lineupShadow(.overlay)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(GuidePalette.line, lineWidth: 1))
+        .lineupShadow(.resting)
     }
 }
 
@@ -2128,26 +2172,58 @@ private struct GuideTimelineHeader: View {
         let anchor = guideTimelineAnchor(now)
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                Text("TODAY").foregroundColor(LineupStyle.lightPurple)
+                Text(now.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()).uppercased())
                     .foregroundStyle(GuidePalette.highlight)
                     .frame(width: layout.channelWidth, alignment: .leading)
                 ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
-                    Text(anchor.addingTimeInterval(Double(step) * 1800).formatted(date: .omitted, time: .shortened)).foregroundColor(LineupStyle.lightPurple)
+                    Text(anchor.addingTimeInterval(Double(step) * 1800)
+                        .formatted(date: .omitted, time: .shortened))
                         .foregroundStyle(GuidePalette.secondary)
                         .frame(width: layout.slotWidth, alignment: .leading)
                 }
             }
-            .padding(.top, 24)
+            .padding(.top, 22)
         }
         .font(.inter(.caption2, .bold)).tracking(1.4)
-        .padding(.horizontal, 14).frame(height: 58)
-        .background(
-            LinearGradient(colors: [GuidePalette.panel.opacity(0.72), GuidePalette.surface.opacity(0.38)],
-                startPoint: .leading, endPoint: .trailing),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
+        .padding(.horizontal, 14).frame(height: 56)
+        .background(GuidePalette.surface.opacity(0.72))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(GuidePalette.line).frame(height: 1).padding(.horizontal, 14)
+            Rectangle().fill(GuidePalette.line.opacity(0.9)).frame(height: 1)
+        }
+    }
+}
+
+/// Broadcast guides are read against time first. A single rule that crosses
+/// the header and every visible row makes "what is on right now" immediate,
+/// while the small label prevents the accent from looking like a stray border.
+private struct GuideNowIndicator: View {
+    @Environment(\.guideLayout) private var layout
+    let now: Date
+
+    private var x: CGFloat {
+        let elapsed = max(0, now.timeIntervalSince(guideTimelineAnchor(now)))
+        return 14 + layout.channelWidth + CGFloat(elapsed / 1800) * layout.slotWidth
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .fill(GuidePalette.highlight.opacity(0.82))
+                    .frame(width: 2, height: max(0, proxy.size.height - 54))
+                    .offset(x: x, y: 54)
+                Circle()
+                    .fill(GuidePalette.highlight)
+                    .frame(width: 8, height: 8)
+                    .offset(x: x - 3, y: 51)
+                    .shadow(color: GuidePalette.highlight.opacity(0.5), radius: 6)
+                Text("NOW")
+                    .font(.inter(9, .bold)).tracking(1.1)
+                    .foregroundStyle(GuidePalette.background)
+                    .frame(width: 38, height: 18)
+                    .background(GuidePalette.highlight, in: Capsule())
+                    .offset(x: x - 18, y: 32)
+            }
         }
     }
 }
@@ -2235,11 +2311,17 @@ private struct GuideChannelRow: View {
     var body: some View {
         HStack(spacing: 0) {
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
-            .frame(width: layout.channelWidth - 8, height: layout.rowHeight)
+            .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
+            .background(GuidePalette.surface.opacity(0.64),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(GuidePalette.line.opacity(0.7), lineWidth: 0.5))
+            .padding(.vertical, 4)
             .padding(.trailing, 8)
             .clipped()
 
             ZStack(alignment: .leading) {
+                GuideTimelineGrid()
                 if visiblePrograms.isEmpty {
                     GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: nil), opensSidebar: canOpenSidebar, onOpenSidebar: onOpenSidebar)
                         .frame(width: layout.slotWidth - 6, alignment: .leading)
@@ -2248,7 +2330,6 @@ private struct GuideChannelRow: View {
                         let width = guideProgramWidth(program, now: now, layout: layout)
                         GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: program.start), opensSidebar: canOpenSidebar && index == 0, onOpenSidebar: onOpenSidebar)
                             .frame(width: width, alignment: .leading)
-                            .clipped()
                             .offset(x: guideProgramX(program, now: now, layout: layout))
                     }
                 }
@@ -2258,7 +2339,7 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
-        .background(GuidePalette.background)
+        .background(GuidePalette.background.opacity(0.62))
         // One hairline between channels, and nothing else. The card, its
         // border and its shadow made every row an object; a guide wants to
         // read as one grid a viewer runs their eye down.
@@ -2290,6 +2371,26 @@ private struct GuideChannelRow: View {
                 Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
             }
         }
+    }
+}
+
+/// Fine, fixed half-hour rules give the schedule the precision of a broadcast
+/// rundown without adding another stack of views to every visible row.
+private struct GuideTimelineGrid: View {
+    @Environment(\.guideLayout) private var layout
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            for step in 0...guideVisibleSlotCount {
+                let x = CGFloat(step) * layout.slotWidth
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(path, with: .color(GuidePalette.line.opacity(0.28)), lineWidth: 0.5)
+        }
+        .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), height: layout.rowHeight)
+        .accessibilityHidden(true)
     }
 }
 
@@ -2328,7 +2429,17 @@ private struct GuideChannelArtwork: View {
                     Image(systemName: "star.fill")
                         .font(.inter(9, .bold))
                         .foregroundStyle(GuidePalette.text.opacity(0.85))
-                        .padding(2)
+                        .padding(6)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let number = stream.num {
+                    Text("\(number)")
+                        .font(.interDigits(10, .semibold))
+                        .foregroundStyle(GuidePalette.secondary)
+                        .padding(.horizontal, 6).frame(height: 18)
+                        .background(GuidePalette.background.opacity(0.86), in: Capsule())
+                        .padding(5)
                 }
             }
         }
@@ -2596,7 +2707,7 @@ private struct GuideProgramCell: View {
                 if showsTime {
                     HStack(spacing: 7) {
                         Text(guideTimeRange(program)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.interDigits(.subheadline)).foregroundStyle(GuidePalette.secondary)
+                            .font(.interDigits(.caption)).foregroundStyle(GuidePalette.secondary)
                         if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
                     }
                 }
@@ -2628,11 +2739,19 @@ private struct GuideProgramCell: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(
             isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
             lineWidth: isFocused ? 2 : 0.5
         ))
+        .overlay(alignment: .leading) {
+            if isFocused {
+                Capsule().fill(GuidePalette.focusRing)
+                    .frame(width: 4).padding(.vertical, 10).offset(x: 3)
+            }
+        }
+        .zIndex(isFocused ? 2 : 0)
+        .animation(.easeOut(duration: 0.16), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
