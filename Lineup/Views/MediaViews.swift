@@ -1595,16 +1595,18 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
                         ForEach(related) { title in
-                            #if os(tvOS)
-                            TVSelectable(action: { pushed = title }) {
-                                MediaItemCard(item: title, shape: .poster)
+                            Group {
+                                #if os(tvOS)
+                                TVSelectable(action: { pushed = title }) {
+                                    MediaItemCard(item: title, shape: .poster)
+                                }
+                                #else
+                                NavigationLink(destination: MediaBrowseDestination(item: title)) {
+                                    MediaItemCard(item: title, shape: .poster)
+                                }
+                                .lineupFlatButton()
+                                #endif
                             }
-                            #else
-                            NavigationLink(destination: MediaBrowseDestination(item: title)) {
-                                MediaItemCard(item: title, shape: .poster)
-                            }
-                            .lineupFlatButton()
-                            #endif
                             .frame(width: relatedCardWidth, alignment: .topLeading)
                         }
                     }
