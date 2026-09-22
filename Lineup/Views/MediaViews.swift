@@ -1641,12 +1641,14 @@ private struct MediaDetailScreen: View {
             media.setLocallyPlayed(!watched, for: episode)
             Task { await media.setPlayed(!watched, for: episode) }
         }
+        .lineupFlatButton()
         let favorite = media.isLocalFavorite(episode)
         Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
                systemImage: favorite ? "heart.slash" : "heart.fill") {
             media.setLocalFavorite(!favorite, for: episode)
             Task { await media.setFavorite(!favorite, for: episode) }
         }
+        .lineupFlatButton()
     }
 
     @ViewBuilder
@@ -2054,12 +2056,14 @@ private struct MediaPlayableCard: View {
                 media.setLocallyPlayed(!watched, for: item)
                 Task { await media.setPlayed(!watched, for: item) }
             }
+            .lineupFlatButton()
             let favorite = media.isLocalFavorite(item)
             Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
                    systemImage: favorite ? "heart.slash" : "heart.fill") {
                 media.setLocalFavorite(!favorite, for: item)
                 Task { await media.setFavorite(!favorite, for: item) }
             }
+            .lineupFlatButton()
         }
     }
 }
