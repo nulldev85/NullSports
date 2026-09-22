@@ -2011,7 +2011,8 @@ private struct MediaEpisodeCard: View {
     let episode: MediaItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        let playback = playbackPresentation
+        return VStack(alignment: .leading, spacing: 7) {
             Color.clear
                 .frame(maxWidth: .infinity)
                 .aspectRatio(16 / 9, contentMode: .fit)
@@ -2037,15 +2038,9 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let record = media.displayedPlaybackRecord(for: episode),
-               !record.completed, (record.fraction > 0 || record.isUpNext == true),
-               let status = media.playbackStatus(for: episode) {
-                MediaPlaybackProgress(fraction: record.fraction, label: status, height: 6)
-            } else if media.displayedPlaybackRecord(for: episode)?.completed == true,
-                      let status = media.playbackStatus(for: episode) {
-                Text(status).font(.inter(.caption, .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.72)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+            if let playback {
+                MediaPlaybackProgress(fraction: playback.fraction,
+                    label: playback.label, height: 6)
             } else if let label = episode.episodeCode ?? episode.episodeLabel {
                 Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
@@ -2064,6 +2059,16 @@ private struct MediaEpisodeCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: LineupStyle.cardLift)
+    }
+
+    private var playbackPresentation: (fraction: Double, label: String)? {
+        if let record = media.displayedPlaybackRecord(for: episode),
+           record.completed || record.fraction > 0 || record.isUpNext == true,
+           let label = media.playbackStatus(for: episode) {
+            return (record.completed ? 1 : record.fraction, label)
+        }
+        guard media.isWatched(episode), let label = media.playbackStatus(for: episode) else { return nil }
+        return (1, label)
     }
 
     private var footer: String {
@@ -2643,7 +2648,8 @@ private struct MediaItemCard: View {
     var shape: MediaArtShape = .poster
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let playback = playbackPresentation
+        return VStack(alignment: .leading, spacing: 10) {
             // A resizable image keeps its own pixel size as its ideal size, so an
             // aspect box built around the art still took the shape of whatever the
             // server sent: shelves stayed ragged, and a 16:9 episode still grew
@@ -2668,7 +2674,7 @@ private struct MediaItemCard: View {
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .bottomTrailing) {
-                    if media.displayedPlaybackRecord(for: item)?.completed == true {
+                    if media.isWatched(item) || playback?.label.hasSuffix("Watched") == true {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .heavy))
                             .foregroundStyle(LineupStyle.background)
@@ -2677,24 +2683,14 @@ private struct MediaItemCard: View {
                             .padding(9)
                     }
                 }
-            if let record = media.displayedPlaybackRecord(for: item),
-               !record.completed, (record.fraction > 0 || record.isUpNext == true),
-               let status = media.playbackStatus(for: item) {
-                MediaPlaybackProgress(fraction: record.fraction, label: status,
+            if let playback {
+                MediaPlaybackProgress(fraction: playback.fraction, label: playback.label,
                     height: progressHeight)
             }
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
-            if media.displayedPlaybackRecord(for: item)?.completed == true,
-               let status = media.playbackStatus(for: item) {
-                Text(status)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .font(.inter(.caption2, .semibold))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
-            } else if let record = media.displayedPlaybackRecord(for: item),
-                      !record.completed, (record.fraction > 0 || record.isUpNext == true) {
+            if playback != nil {
                 EmptyView()
             } else {
                 HStack(spacing: 7) {
@@ -2708,6 +2704,16 @@ private struct MediaItemCard: View {
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: LineupStyle.cardLift)
+    }
+
+    private var playbackPresentation: (fraction: Double, label: String)? {
+        if let record = media.displayedPlaybackRecord(for: item),
+           record.completed || record.fraction > 0 || record.isUpNext == true,
+           let label = media.playbackStatus(for: item) {
+            return (record.completed ? 1 : record.fraction, label)
+        }
+        guard media.isWatched(item), let label = media.playbackStatus(for: item) else { return nil }
+        return (1, label)
     }
 
     /// The widest this card is ever drawn -- the top of the grid's adaptive

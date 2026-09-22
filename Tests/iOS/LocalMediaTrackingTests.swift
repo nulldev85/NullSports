@@ -48,6 +48,17 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertEqual(library.playbackStatus(for: series),
                        "S01E04 · 34 minutes left")
         XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, episode.id)
+
+        let serverWatchedEpisode = MediaItem(id: "episode-2", name: "Second", type: "Episode",
+            overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 1,
+            userData: MediaUserData(played: true, isFavorite: false, playedPercentage: 100))
+        XCTAssertEqual(library.playbackStatus(for: serverWatchedEpisode), "S01E02 · Watched")
+
+        let serverWatchedMovie = MediaItem(id: "movie-2", name: "Movie", type: "Movie",
+            overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            userData: MediaUserData(played: true, isFavorite: false, playedPercentage: 100))
+        XCTAssertEqual(library.playbackStatus(for: serverWatchedMovie), "Watched")
     }
 
     func testFavoritesPersistAndLocalUnwatchedOverridesServer() throws {

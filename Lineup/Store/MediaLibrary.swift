@@ -521,7 +521,13 @@ final class MediaLibrary: ObservableObject {
 
     /// One consistent line under artwork throughout the Library.
     func playbackStatus(for item: MediaItem) -> String? {
-        guard let record = displayedPlaybackRecord(for: item) else { return nil }
+        guard let record = displayedPlaybackRecord(for: item) else {
+            // A server-supplied watched flag may predate local tracking. It
+            // still deserves the same visible treatment as a locally watched
+            // title instead of leaving the checkmark to carry the state alone.
+            guard isWatched(item) else { return nil }
+            return item.episodeCode.map { $0 + " · Watched" } ?? "Watched"
+        }
         let trackedItem = record.item
         let episodePrefix: String? = trackedItem.type == "Episode"
             ? (trackedItem.episodeCode ?? "S01E01")
