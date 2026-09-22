@@ -60,6 +60,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let indexNumber: Int?
     let parentIndexNumber: Int?
     let seriesName: String?
+    let seriesID: String?
     let userData: MediaUserData?
     let imageTags: [String: String]?
     let backdropImageTags: [String]?
@@ -85,7 +86,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          communityRating: Double? = nil, criticRating: Double? = nil,
          runTimeTicks: Int64? = nil, premiereDate: String? = nil,
          indexNumber: Int? = nil, parentIndexNumber: Int? = nil,
-         seriesName: String? = nil, userData: MediaUserData? = nil,
+         seriesName: String? = nil, seriesID: String? = nil, userData: MediaUserData? = nil,
          imageTags: [String: String]? = nil, backdropImageTags: [String]? = nil,
          status: String? = nil, endDate: String? = nil, tags: [String]? = nil,
          studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
@@ -108,6 +109,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.indexNumber = indexNumber
         self.parentIndexNumber = parentIndexNumber
         self.seriesName = seriesName
+        self.seriesID = seriesID
         self.userData = userData
         self.imageTags = imageTags
         self.backdropImageTags = backdropImageTags
@@ -209,6 +211,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case indexNumber = "IndexNumber"
         case parentIndexNumber = "ParentIndexNumber"
         case seriesName = "SeriesName"
+        case seriesID = "SeriesId"
         case userData = "UserData"
         case imageTags = "ImageTags"
         case backdropImageTags = "BackdropImageTags"
@@ -293,6 +296,9 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     var duration: TimeInterval
     var updatedAt: Date
     var completed: Bool
+    /// A local "Remove from Watched" must outrank stale server user data.
+    /// Optional keeps records written by the first tracking build decodable.
+    var explicitlyUnwatched: Bool? = nil
 
     var id: String { profileID.uuidString + "|" + item.id }
 
@@ -300,6 +306,14 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
         guard duration > 0 else { return 0 }
         return min(max(position / duration, 0), 1)
     }
+}
+
+struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
+    let profileID: UUID
+    let item: MediaItem
+    let addedAt: Date
+
+    var id: String { profileID.uuidString + "|" + item.id }
 }
 
 enum LocalMediaTrackingPolicy {
@@ -311,7 +325,7 @@ enum LocalMediaTrackingPolicy {
     }
 
     static func resumePosition(for record: LocalMediaPlayback) -> TimeInterval? {
-        guard !record.completed, record.position >= 10,
+        guard !record.completed, record.explicitlyUnwatched != true, record.position >= 10,
               record.duration - record.position > 30 else { return nil }
         return record.position
     }

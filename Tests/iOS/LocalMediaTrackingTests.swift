@@ -1,6 +1,7 @@
 import XCTest
 @testable import LineupiOS
 
+@MainActor
 final class LocalMediaTrackingTests: XCTestCase {
     private func record(position: TimeInterval, duration: TimeInterval,
                         completed: Bool = false) -> LocalMediaPlayback {
@@ -28,5 +29,51 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertTrue(LocalMediaTrackingPolicy.isComplete(position: 5520, duration: 6000))
         XCTAssertTrue(LocalMediaTrackingPolicy.isComplete(position: 3500, duration: 3600))
         XCTAssertFalse(LocalMediaTrackingPolicy.isComplete(position: 30, duration: 100))
+    }
+
+    func testStatusTextAndSeriesCardUseEpisodeProgress() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6240)
+        XCTAssertEqual(library.playbackStatus(for: movie), "1h 34m remaining")
+
+        let episode = MediaItem(id: "episode", name: "Fourth", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 4, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        library.trackPlayback(of: episode, position: 1560, duration: 3600)
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        XCTAssertEqual(library.playbackStatus(for: series),
+                       "Season 1, Episode 4 · 34 minutes left")
+        XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, episode.id)
+    }
+
+    func testFavoritesPersistAndLocalUnwatchedOverridesServer() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let episode = MediaItem(id: "episode", name: "Episode", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            userData: MediaUserData(played: true, isFavorite: false, playedPercentage: 100))
+        library.setLocalFavorite(true, for: episode)
+        XCTAssertEqual(library.favoriteMedia.map(\.id), [episode.id])
+        library.setLocallyPlayed(false, for: episode)
+        XCTAssertFalse(library.isWatched(episode))
+        XCTAssertTrue(library.continueWatching.isEmpty)
+
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.favoriteMedia.map(\.id), [episode.id])
+        XCTAssertFalse(restored.isWatched(episode))
+    }
+
+    private func makeLibrary() throws -> (MediaLibrary, UserDefaults, String) {
+        let suite = "LocalMediaTrackingTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let profile = MediaServerProfile(name: "Server", serverURL: "http://server",
+            username: "viewer", userID: "user")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        defaults.set(profile.id.uuidString, forKey: "NullSports.activeMediaServer")
+        return (MediaLibrary(defaults: defaults), defaults, suite)
     }
 }

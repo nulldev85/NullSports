@@ -581,6 +581,8 @@ private struct MediaCatalogsScreen: View {
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
     private var watchHistory: [LocalMediaPlayback] { Array(media.watchHistory.prefix(20)) }
+    private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
+    private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -631,16 +633,23 @@ private struct MediaCatalogsScreen: View {
                     MediaGridScreen(title: "Search Results", items: results)
                 }
             } else {
-                if catalogs.isEmpty && continueWatching.isEmpty && watchHistory.isEmpty {
+                if catalogs.isEmpty && continueWatching.isEmpty && watchHistory.isEmpty
+                    && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
                     ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
                 } else { ScrollView {
                     LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                         if !continueWatching.isEmpty {
-                            trackingShelf(title: "Continue Watching", records: continueWatching)
+                            localShelf(title: "Continue Watching", items: continueWatching.map(\.item))
+                        }
+                        if !favoriteTitles.isEmpty {
+                            localShelf(title: "Favorites", items: favoriteTitles)
+                        }
+                        if !favoriteEpisodes.isEmpty {
+                            localShelf(title: "Favorite Episodes", items: favoriteEpisodes)
                         }
                         if !watchHistory.isEmpty {
-                            trackingShelf(title: "Recently Watched", records: watchHistory)
+                            localShelf(title: "Recently Watched", items: watchHistory.map(\.item))
                         }
                         ForEach(catalogs) { catalog in
                             VStack(alignment: .leading, spacing: 14) {
@@ -739,7 +748,7 @@ private struct MediaCatalogsScreen: View {
     /// Local rows use the same cards, spacing and focus regions as server
     /// shelves. They should look like part of the Library, not a utility panel
     /// bolted above it.
-    private func trackingShelf(title: String, records: [LocalMediaPlayback]) -> some View {
+    private func localShelf(title: String, items: [MediaItem]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(sectionTitleFont)
@@ -750,12 +759,10 @@ private struct MediaCatalogsScreen: View {
             }
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
-            let items = records.map(\.item)
             let shape = MediaArtShape.forItems(items)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
-                    ForEach(records) { record in
-                        let trackedItem = record.item
+                    ForEach(items) { trackedItem in
                         Group {
                             if trackedItem.opensPage {
                                 #if os(tvOS)
@@ -1440,15 +1447,17 @@ private struct MediaDetailScreen: View {
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            // The server keeps the viewer's account of what is marked, so
-            // these write through to it rather than to anything local.
+            // Keep the Library useful even when a server cannot write user
+            // state, while still mirroring the choice back when it can.
             Group {
                 iconButton(favorite ? "heart.fill" : "heart") {
                     favorite.toggle()
+                    media.setLocalFavorite(favorite, for: subject)
                     Task { await media.setFavorite(favorite, for: subject) }
                 }
                 iconButton(watched ? "eye.fill" : "eye") {
                     watched.toggle()
+                    media.setLocallyPlayed(watched, for: subject)
                     Task { await media.setPlayed(watched, for: subject) }
                 }
             }
@@ -1553,6 +1562,7 @@ private struct MediaDetailScreen: View {
                     ForEach(episodes) { episode in
                         Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
                             .lineupFlatButton()
+                            .contextMenu { episodeLibraryActions(episode) }
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -1564,6 +1574,7 @@ private struct MediaDetailScreen: View {
                             Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
                                 .lineupFlatButton()
                                 .frame(width: 265)
+                                .contextMenu { episodeLibraryActions(episode) }
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
@@ -1619,6 +1630,22 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func episodeLibraryActions(_ episode: MediaItem) -> some View {
+        let watched = media.isWatched(episode)
+        Button(watched ? "Remove from Watched" : "Mark Watched",
+               systemImage: watched ? "eye.slash" : "eye.fill") {
+            media.setLocallyPlayed(!watched, for: episode)
+            Task { await media.setPlayed(!watched, for: episode) }
+        }
+        let favorite = media.isLocalFavorite(episode)
+        Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
+               systemImage: favorite ? "heart.slash" : "heart.fill") {
+            media.setLocalFavorite(!favorite, for: episode)
+            Task { await media.setFavorite(!favorite, for: episode) }
         }
     }
 
@@ -1774,8 +1801,8 @@ private struct MediaDetailScreen: View {
         #endif
         let loaded = try? await media.details(of: item)
         detail = loaded ?? item
-        favorite = (loaded ?? item).isFavorite
-        watched = (loaded ?? item).isPlayed
+        favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
+        watched = media.isWatched(loaded ?? item)
         let detailedItem = subject
         #if os(tvOS)
         // Build the complete first frame before focus enters the page. The
@@ -1940,8 +1967,24 @@ private struct MediaEpisodeCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
+                .overlay(alignment: .bottom) {
+                    if let record = media.displayedPlaybackRecord(for: episode),
+                       !record.completed, record.fraction > 0 {
+                        GeometryReader { geometry in
+                            VStack(spacing: 0) {
+                                Spacer()
+                                ZStack(alignment: .leading) {
+                                    Rectangle().fill(.black.opacity(0.58))
+                                    Rectangle().fill(LineupStyle.lightPurple)
+                                        .frame(width: geometry.size.width * record.fraction)
+                                }
+                                .frame(height: 6)
+                            }
+                        }
+                    }
+                }
                 .overlay(alignment: .topLeading) {
-                    if episode.isPlayed {
+                    if media.isWatched(episode) {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 26, height: 26)
@@ -1949,7 +1992,11 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let label = episode.episodeLabel {
+            if let status = media.playbackStatus(for: episode) {
+                Text(status).font(.inter(.caption, .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.72)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+            } else if let label = episode.episodeLabel {
                 Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
@@ -1976,6 +2023,7 @@ private struct MediaEpisodeCard: View {
 }
 
 private struct MediaPlayableCard: View {
+    @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem
     var shape: MediaArtShape = .poster
     @State private var choosingSource = false
@@ -1983,16 +2031,36 @@ private struct MediaPlayableCard: View {
     var body: some View {
         #if os(tvOS)
         TVSelectable(action: { choosingSource = true }) { MediaItemCard(item: item, shape: shape) }
+            .contextMenu { libraryActions }
             .fullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #else
         Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
             .lineupFlatButton()
+            .contextMenu { libraryActions }
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #endif
+    }
+
+    @ViewBuilder
+    private var libraryActions: some View {
+        if item.type == "Episode" {
+            let watched = media.isWatched(item)
+            Button(watched ? "Remove from Watched" : "Mark Watched",
+                   systemImage: watched ? "eye.slash" : "eye.fill") {
+                media.setLocallyPlayed(!watched, for: item)
+                Task { await media.setPlayed(!watched, for: item) }
+            }
+            let favorite = media.isLocalFavorite(item)
+            Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
+                   systemImage: favorite ? "heart.slash" : "heart.fill") {
+                media.setLocalFavorite(!favorite, for: item)
+                Task { await media.setFavorite(!favorite, for: item) }
+            }
+        }
     }
 }
 
@@ -2543,7 +2611,7 @@ private struct MediaItemCard: View {
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .bottom) {
-                    if let record = media.localPlaybackRecord(for: item) {
+                    if let record = media.displayedPlaybackRecord(for: item) {
                         if record.completed {
                             HStack {
                                 Spacer()
@@ -2572,12 +2640,21 @@ private struct MediaItemCard: View {
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
-            HStack(spacing: 7) {
-                Text(item.type.uppercased())
-                if let year = item.productionYear { Text("· \(String(year))") }
-                if let count = item.childCount { Text("· \(count)") }
+            if let status = media.playbackStatus(for: item) {
+                Text(status)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .font(.inter(.caption2, .semibold))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+            } else {
+                HStack(spacing: 7) {
+                    Text(item.type.uppercased())
+                    if let year = item.productionYear { Text("· \(String(year))") }
+                    if let count = item.childCount { Text("· \(count)") }
+                }
+                .font(.inter(.caption2, .medium))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
             }
-            .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .focusLift(focused, scale: LineupStyle.cardLift)

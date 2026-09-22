@@ -59,7 +59,7 @@ struct JellyfinClient: Sendable {
     // Asked for once, so no screen has to go back for a second round.
     static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"
         + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount,"
-        + "People,Studios,ProductionLocations,Tags,RemoteTrailers"
+        + "People,Studios,ProductionLocations,Tags,RemoteTrailers,SeriesId"
 
     func items(userID: String, parentID: String,
                sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {

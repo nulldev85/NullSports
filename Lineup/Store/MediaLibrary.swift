@@ -41,6 +41,7 @@ final class MediaLibrary: ObservableObject {
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
     @Published private(set) var localPlayback: [LocalMediaPlayback] = []
+    @Published private(set) var localFavorites: [LocalMediaFavorite] = []
 
     private let defaults: UserDefaults
     // Named for the app's old name on purpose: this is where existing installs
@@ -50,6 +51,7 @@ final class MediaLibrary: ObservableObject {
     private let deviceKey = "NullSports.mediaDeviceID"
     private let shelvesKey = "NullSports.mediaShelves"
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
+    private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     // Written by a version that could install media sources the app talked to
     // directly. That feature is gone, so the state it left behind is cleared
     // on the next launch rather than sitting in defaults forever.
@@ -77,6 +79,10 @@ final class MediaLibrary: ObservableObject {
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
             localPlayback = saved
         }
+        if let data = defaults.data(forKey: localFavoritesKey),
+           let saved = try? JSONDecoder().decode([LocalMediaFavorite].self, from: data) {
+            localFavorites = saved
+        }
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -91,13 +97,20 @@ final class MediaLibrary: ObservableObject {
     /// not in Continue Watching, even if its final saved position is shy of the
     /// exact file duration.
     var continueWatching: [LocalMediaPlayback] {
-        playbackForActiveProfile.filter { !$0.completed }.sorted { $0.updatedAt > $1.updatedAt }
+        playbackForActiveProfile.filter { !$0.completed && $0.explicitlyUnwatched != true && $0.position >= 5 }
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// Finished titles stay useful as a short, local history without taking
     /// over the Library. The stored collection itself is capped as well.
     var watchHistory: [LocalMediaPlayback] {
         playbackForActiveProfile.filter(\.completed).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    var favoriteMedia: [MediaItem] {
+        guard let profileID = activeProfile?.id else { return [] }
+        return localFavorites.filter { $0.profileID == profileID }
+            .sorted { $0.addedAt > $1.addedAt }.map(\.item)
     }
 
     /// Every row on the Media Servers tab.
@@ -159,6 +172,8 @@ final class MediaLibrary: ObservableObject {
         profiles.removeAll { $0.id == profile.id }
         localPlayback.removeAll { $0.profileID == profile.id }
         persistLocalPlayback()
+        localFavorites.removeAll { $0.profileID == profile.id }
+        persistLocalFavorites()
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
             roots = []
@@ -372,6 +387,52 @@ final class MediaLibrary: ObservableObject {
         return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
     }
 
+    /// The progress a card should present. Films and episodes match directly;
+    /// a series poster represents the newest episode being watched in that
+    /// show. Prefer an unfinished episode so a recently completed one never
+    /// hides the actual place to continue.
+    func displayedPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
+        if let exact = localPlaybackRecord(for: item) {
+            if exact.explicitlyUnwatched != true { return exact }
+            if !item.isSeries { return nil }
+        }
+        guard item.isSeries else { return nil }
+        let matches = playbackForActiveProfile.filter { record in
+            guard record.item.type == "Episode", record.explicitlyUnwatched != true else { return false }
+            if let seriesID = record.item.seriesID { return seriesID == item.id }
+            return record.item.seriesName?.localizedCaseInsensitiveCompare(item.name) == .orderedSame
+        }
+        return matches.sorted { left, right in
+            if left.completed != right.completed { return !left.completed }
+            return left.updatedAt > right.updatedAt
+        }.first
+    }
+
+    /// One consistent line under artwork throughout the Library.
+    func playbackStatus(for item: MediaItem) -> String? {
+        guard let record = displayedPlaybackRecord(for: item) else { return nil }
+        let trackedItem = record.item
+        let episodePrefix: String? = trackedItem.type == "Episode"
+            ? "Season \(trackedItem.parentIndexNumber ?? 1), Episode \(trackedItem.indexNumber ?? 1)"
+            : nil
+        if record.completed {
+            return episodePrefix.map { $0 + " · Watched" } ?? "Watched"
+        }
+        let remaining = max(0, record.duration - record.position)
+        let minutes = max(1, Int(ceil(remaining / 60)))
+        let time: String
+        if trackedItem.type == "Episode" {
+            time = minutes == 1 ? "1 minute left" : "\(minutes) minutes left"
+        } else if minutes >= 60 {
+            let hours = minutes / 60
+            let rest = minutes % 60
+            time = rest == 0 ? "\(hours)h remaining" : "\(hours)h \(rest)m remaining"
+        } else {
+            time = "\(minutes)m remaining"
+        }
+        return episodePrefix.map { $0 + " · " + time } ?? time
+    }
+
     func resumePosition(for item: MediaItem) -> TimeInterval? {
         guard let record = localPlaybackRecord(for: item) else { return nil }
         return LocalMediaTrackingPolicy.resumePosition(for: record)
@@ -409,6 +470,38 @@ final class MediaLibrary: ObservableObject {
         persistLocalPlayback()
     }
 
+    func isLocalFavorite(_ item: MediaItem) -> Bool {
+        guard let profileID = activeProfile?.id else { return false }
+        return localFavorites.contains { $0.profileID == profileID && $0.item.id == item.id }
+    }
+
+    func setLocalFavorite(_ favorite: Bool, for item: MediaItem) {
+        guard let profileID = activeProfile?.id else { return }
+        localFavorites.removeAll { $0.profileID == profileID && $0.item.id == item.id }
+        if favorite {
+            localFavorites.append(LocalMediaFavorite(profileID: profileID, item: item, addedAt: Date()))
+        }
+        persistLocalFavorites()
+    }
+
+    func setLocallyPlayed(_ played: Bool, for item: MediaItem) {
+        guard let profileID = activeProfile?.id else { return }
+        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
+        let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
+        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: item,
+            position: played ? duration : 0, duration: duration, updatedAt: Date(),
+            completed: played, explicitlyUnwatched: played ? nil : true))
+        persistLocalPlayback()
+    }
+
+    func isWatched(_ item: MediaItem) -> Bool {
+        if let local = localPlaybackRecord(for: item) {
+            if local.explicitlyUnwatched == true { return false }
+            if local.completed { return true }
+        }
+        return item.isPlayed
+    }
+
     private var playbackForActiveProfile: [LocalMediaPlayback] {
         guard let profileID = activeProfile?.id else { return [] }
         return localPlayback.filter { $0.profileID == profileID }
@@ -419,6 +512,14 @@ final class MediaLibrary: ObservableObject {
             defaults.removeObject(forKey: localPlaybackKey)
         } else if let data = try? JSONEncoder().encode(localPlayback) {
             defaults.set(data, forKey: localPlaybackKey)
+        }
+    }
+
+    private func persistLocalFavorites() {
+        if localFavorites.isEmpty {
+            defaults.removeObject(forKey: localFavoritesKey)
+        } else if let data = try? JSONEncoder().encode(localFavorites) {
+            defaults.set(data, forKey: localFavoritesKey)
         }
     }
 
