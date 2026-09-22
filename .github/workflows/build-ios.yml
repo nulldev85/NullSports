@@ -127,9 +127,10 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$plist")" = "LineupAppIcon"
           icons=$(find "$app" -maxdepth 1 -name 'LineupAppIcon*.png')
           test -n "$icons"
+          legacy_icons=$(find "$app" -maxdepth 1 -name 'AppIcon*.png')
+          test -z "$legacy_icons"
 
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'
