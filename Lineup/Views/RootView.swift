@@ -87,6 +87,12 @@ struct MainView: View {
                 .tabItem { Label("Account", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }
+        // The four tabs are Lineup's primary navigation, not transient
+        // playback chrome. Leaving visibility on automatic lets tvOS hide the
+        // bar during a Library push or full-screen player and occasionally
+        // fail to restore it afterward. Keep the route back to every section
+        // present; focus can still move down into content normally.
+        .toolbar(.visible, for: .tabBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
     }

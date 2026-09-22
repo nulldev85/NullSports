@@ -1636,15 +1636,13 @@ private struct MediaDetailScreen: View {
     @ViewBuilder
     private func episodeLibraryActions(_ episode: MediaItem) -> some View {
         let watched = media.isWatched(episode)
-        Button(watched ? "Remove from Watched" : "Mark Watched",
-               systemImage: watched ? "eye.slash" : "eye.fill") {
+        Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
             media.setLocallyPlayed(!watched, for: episode)
             Task { await media.setPlayed(!watched, for: episode) }
         }
         .lineupFlatButton()
         let favorite = media.isLocalFavorite(episode)
-        Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
-               systemImage: favorite ? "heart.slash" : "heart.fill") {
+        Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
             media.setLocalFavorite(!favorite, for: episode)
             Task { await media.setFavorite(!favorite, for: episode) }
         }
@@ -2051,15 +2049,13 @@ private struct MediaPlayableCard: View {
     private var libraryActions: some View {
         if item.type == "Episode" {
             let watched = media.isWatched(item)
-            Button(watched ? "Remove from Watched" : "Mark Watched",
-                   systemImage: watched ? "eye.slash" : "eye.fill") {
+            Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
                 media.setLocallyPlayed(!watched, for: item)
                 Task { await media.setPlayed(!watched, for: item) }
             }
             .lineupFlatButton()
             let favorite = media.isLocalFavorite(item)
-            Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library",
-                   systemImage: favorite ? "heart.slash" : "heart.fill") {
+            Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
                 media.setLocalFavorite(!favorite, for: item)
                 Task { await media.setFavorite(!favorite, for: item) }
             }
