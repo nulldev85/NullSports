@@ -281,6 +281,42 @@ struct MediaUserData: Codable, Hashable, Sendable {
     }
 }
 
+/// Lineup's on-device account of a title's playback. Jellyfin-compatible
+/// servers do not all expose or reliably update resume state, so the Library
+/// keeps this small record itself as well. The server profile is part of the
+/// identity: two people can connect servers whose item ids happen to match
+/// without seeing one another's history.
+struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
+    let profileID: UUID
+    let item: MediaItem
+    var position: TimeInterval
+    var duration: TimeInterval
+    var updatedAt: Date
+    var completed: Bool
+
+    var id: String { profileID.uuidString + "|" + item.id }
+
+    var fraction: Double {
+        guard duration > 0 else { return 0 }
+        return min(max(position / duration, 0), 1)
+    }
+}
+
+enum LocalMediaTrackingPolicy {
+    static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
+        guard duration > 0, position >= 0 else { return false }
+        let safePosition = min(position, duration)
+        let remaining = duration - safePosition
+        return safePosition / duration >= 0.92 || (safePosition >= 60 && remaining <= 120)
+    }
+
+    static func resumePosition(for record: LocalMediaPlayback) -> TimeInterval? {
+        guard !record.completed, record.position >= 10,
+              record.duration - record.position > 30 else { return nil }
+        return record.position
+    }
+}
+
 /// A score from one metrics addon, as `GET /remux/metrics/{id}` returns it.
 /// Only a Nullfin server has that route; a Jellyfin server answers 404 and the
 /// row simply does not appear.

@@ -63,6 +63,8 @@ final class MobilePlaybackController: ObservableObject {
 
     private var monitor: Task<Void, Never>?
     private var isScrubbing = false
+    private var requestedInitialPosition: TimeInterval?
+    private var appliedInitialPosition = false
     /// A channel runs at the live edge and is buffered for a link that may
     /// wobble; a title is a file on a server that will be scrubbed through.
     /// The two want opposite buffers, so the caller says which this is.
@@ -226,6 +228,11 @@ final class MobilePlaybackController: ObservableObject {
             let position = Double(player.time.intValue) / 1000
             progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
         }
+        if !appliedInitialPosition, let requestedInitialPosition, let progress,
+           requestedInitialPosition >= 10, requestedInitialPosition < progress.duration - 30 {
+            appliedInitialPosition = true
+            seek(to: requestedInitialPosition)
+        }
     }
 
     /// Hold the sampled position still while a finger is on the scrubber, so
@@ -367,12 +374,15 @@ final class MobilePlaybackController: ObservableObject {
     ///     selection, Retry, or jumping back to live — which makes the channels
     ///     that failed earlier eligible again. Only an automatic switch passes
     ///     false, so one bad game cannot loop through the same dead feeds.
-    func start(urls: [URL], channelID: Int? = nil, resetFailover: Bool = true) {
+    func start(urls: [URL], channelID: Int? = nil, resetFailover: Bool = true,
+               initialPosition: TimeInterval? = nil) {
         diag.beginSession("start channel=\(channelID.map(String.init) ?? "—") urls=\(urls.count) resetFailover=\(resetFailover)")
         for url in MobileEngineSelection.ordered(urls) {
             diag.record("  candidate \(url.lastPathComponent) -> \(MobileEngineSelection.engine(for: url).rawValue)")
         }
         stop()
+        requestedInitialPosition = initialPosition
+        appliedInitialPosition = false
         error = nil
         originalURLs = urls
         if let channelID { currentChannelID = channelID }

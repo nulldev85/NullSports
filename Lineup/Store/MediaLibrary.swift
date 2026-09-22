@@ -37,6 +37,11 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
+    /// Playback state owned by this device. It deliberately does not travel
+    /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
+    /// can keep separate places without surprising one another.
+    @Published private(set) var localPlayback: [LocalMediaPlayback] = []
+
     private let defaults: UserDefaults
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
@@ -44,6 +49,7 @@ final class MediaLibrary: ObservableObject {
     private let activeKey = "NullSports.activeMediaServer"
     private let deviceKey = "NullSports.mediaDeviceID"
     private let shelvesKey = "NullSports.mediaShelves"
+    private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
     // Written by a version that could install media sources the app talked to
     // directly. That feature is gone, so the state it left behind is cleared
     // on the next launch rather than sitting in defaults forever.
@@ -67,6 +73,10 @@ final class MediaLibrary: ObservableObject {
         }
         let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
         activeProfile = profiles.first { $0.id == activeID } ?? profiles.first
+        if let data = defaults.data(forKey: localPlaybackKey),
+           let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
+            localPlayback = saved
+        }
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -76,6 +86,19 @@ final class MediaLibrary: ObservableObject {
 
     /// Whether there is anything to show at all.
     var hasAnySource: Bool { activeProfile != nil }
+
+    /// In-progress titles, newest first. A completed title belongs in History,
+    /// not in Continue Watching, even if its final saved position is shy of the
+    /// exact file duration.
+    var continueWatching: [LocalMediaPlayback] {
+        playbackForActiveProfile.filter { !$0.completed }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Finished titles stay useful as a short, local history without taking
+    /// over the Library. The stored collection itself is capped as well.
+    var watchHistory: [LocalMediaPlayback] {
+        playbackForActiveProfile.filter(\.completed).sorted { $0.updatedAt > $1.updatedAt }
+    }
 
     /// Every row on the Media Servers tab.
     var shelves: [MediaCatalog] { catalogs }
@@ -134,6 +157,8 @@ final class MediaLibrary: ObservableObject {
         loadFailed = false
         MediaKeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
+        localPlayback.removeAll { $0.profileID == profile.id }
+        persistLocalPlayback()
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
             roots = []
@@ -337,6 +362,63 @@ final class MediaLibrary: ObservableObject {
                 .setPlayed(userID: profile.userID, itemID: item.id, isPlayed: isPlayed)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Local playback tracking
+
+    func localPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
+        guard let profileID = activeProfile?.id else { return nil }
+        return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
+    }
+
+    func resumePosition(for item: MediaItem) -> TimeInterval? {
+        guard let record = localPlaybackRecord(for: item) else { return nil }
+        return LocalMediaTrackingPolicy.resumePosition(for: record)
+    }
+
+    func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval) {
+        guard let profileID = activeProfile?.id, position.isFinite, duration.isFinite,
+              position >= 0, duration > 0 else { return }
+
+        let safePosition = min(position, duration)
+        // A title only becomes history after somebody has genuinely started it.
+        // This also prevents opening and immediately closing a stream from
+        // displacing something the viewer was actually watching.
+        guard safePosition >= 5 else { return }
+        let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
+        let record = LocalMediaPlayback(profileID: profileID, item: item,
+            position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
+        if let index = localPlayback.firstIndex(where: { $0.id == record.id }) {
+            localPlayback[index] = record
+        } else {
+            localPlayback.append(record)
+        }
+        // Keep plenty of useful history without letting artwork-rich item
+        // records grow defaults forever. Each profile retains its newest 200.
+        let retained = Dictionary(grouping: localPlayback, by: \.profileID).values.flatMap { records in
+            records.sorted { $0.updatedAt > $1.updatedAt }.prefix(200)
+        }
+        localPlayback = Array(retained)
+        persistLocalPlayback()
+    }
+
+    func clearLocalPlayback() {
+        guard let profileID = activeProfile?.id else { return }
+        localPlayback.removeAll { $0.profileID == profileID }
+        persistLocalPlayback()
+    }
+
+    private var playbackForActiveProfile: [LocalMediaPlayback] {
+        guard let profileID = activeProfile?.id else { return [] }
+        return localPlayback.filter { $0.profileID == profileID }
+    }
+
+    private func persistLocalPlayback() {
+        if localPlayback.isEmpty {
+            defaults.removeObject(forKey: localPlaybackKey)
+        } else if let data = try? JSONEncoder().encode(localPlayback) {
+            defaults.set(data, forKey: localPlaybackKey)
         }
     }
 

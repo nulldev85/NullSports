@@ -3344,11 +3344,14 @@ struct PlayerView: View {
     var title: String = "Live TV"
     var program: CurrentProgram?
     var isLive = true
+    var initialPosition: TimeInterval? = nil
+    var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     @StateObject private var controller = VLCPlaybackController()
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
+    @State private var lastReportedPosition: TimeInterval = 0
 
     var body: some View {
         ZStack {
@@ -3389,9 +3392,13 @@ struct PlayerView: View {
         }
         .background(Color.black)
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        .onExitCommand { controller.stop(); dismiss() }
-        .onAppear { controller.start(urls: urls); revealControls(focus: true) }
-        .onDisappear { hideControlsTask?.cancel(); controller.stop() }
+        .onExitCommand { reportProgress(force: true); controller.stop(); dismiss() }
+        .onAppear {
+            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+            revealControls(focus: true)
+        }
+        .onDisappear { reportProgress(force: true); hideControlsTask?.cancel(); controller.stop() }
+        .onChange(of: controller.elapsed) { _, _ in reportProgress() }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -3408,6 +3415,13 @@ struct PlayerView: View {
     }
 
     private func keepControlsVisible() { controlsVisible = true; scheduleAutoHide() }
+
+    private func reportProgress(force: Bool = false) {
+        guard !isLive, controller.duration > 0 else { return }
+        guard force || abs(controller.elapsed - lastReportedPosition) >= 5 else { return }
+        lastReportedPosition = controller.elapsed
+        onProgress?(controller.elapsed, controller.duration)
+    }
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
@@ -3645,6 +3659,8 @@ private struct TVPlayerMenuLabel: View {
     private var urlIndex = 0
     private var muted = false
     private var pausedByUser = false
+    private var requestedInitialPosition: TimeInterval?
+    private var appliedInitialPosition = false
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
@@ -3662,10 +3678,12 @@ private struct TVPlayerMenuLabel: View {
         }
     }
 
-    func start(urls: [URL], muted: Bool = false) {
+    func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil) {
         stop()
         self.urls = Array(urls.reversed())
         self.muted = muted
+        requestedInitialPosition = initialPosition
+        appliedInitialPosition = false
         retries.reset()
         urlIndex = 0
         error = nil
@@ -3699,6 +3717,14 @@ private struct TVPlayerMenuLabel: View {
     private func updateProgress() {
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 { duration = length }
+        if duration > 0, !appliedInitialPosition, let requestedInitialPosition,
+           requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
+            let target = min(max(requestedInitialPosition, 0), duration - 1)
+            player.position = Float(target / duration)
+            elapsed = target
+            appliedInitialPosition = true
+            return
+        }
         let time = Double(player.time.intValue) / 1000
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
@@ -3778,6 +3804,8 @@ private struct TVPlayerMenuLabel: View {
         reconnecting = false
         isPlaying = false
         videoHeight = 0
+        duration = 0
+        elapsed = 0
         player.stop()
         player.media = nil
     }

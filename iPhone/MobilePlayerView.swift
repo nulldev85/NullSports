@@ -25,7 +25,10 @@ struct MobilePlayerView: View {
     var sourceQuality: String? = nil
     /// What is playing, shown beside the controls while they are up.
     var synopsis: MobilePlayerSynopsis? = nil
+    var initialPosition: TimeInterval? = nil
+    var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     @State private var scrubTarget: Double?
+    @State private var lastReportedPosition: TimeInterval = 0
 
     var body: some View {
         ZStack {
@@ -44,7 +47,9 @@ struct MobilePlayerView: View {
             if let error = controller.error {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
-                    Button("Retry", systemImage: "arrow.clockwise") { controller.start(urls: urls) }
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+                    }
                         .buttonStyle(.borderedProminent)
                 }.padding(32)
             } else if controller.loading {
@@ -157,9 +162,14 @@ struct MobilePlayerView: View {
         .persistentSystemOverlays(.hidden)
         .onAppear {
             controller.isLive = isLive
-            controller.start(urls: urls)
+            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
-        .onDisappear { controller.shutdown(); hideControlsTask?.cancel() }
+        .onDisappear {
+            reportProgress(force: true)
+            controller.shutdown()
+            hideControlsTask?.cancel()
+        }
+        .onChange(of: controller.progress) { _, _ in reportProgress() }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
         // whether this transition touches playback at all.
         .onChange(of: scenePhase) { _, phase in
@@ -182,6 +192,13 @@ struct MobilePlayerView: View {
     private func showControls() {
         controlsVisible = true
         scheduleAutoHide()
+    }
+
+    private func reportProgress(force: Bool = false) {
+        guard !isLive, let progress = controller.progress, progress.duration > 0 else { return }
+        guard force || abs(progress.position - lastReportedPosition) >= 5 else { return }
+        lastReportedPosition = progress.position
+        onProgress?(progress.position, progress.duration)
     }
 
     private func scheduleAutoHide() {

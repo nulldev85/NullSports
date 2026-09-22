@@ -7,6 +7,7 @@ struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingServer = false
     @State private var choosingShelf = false
+    @State private var clearingHistory = false
 
     var body: some View {
         NavigationStack {
@@ -72,6 +73,13 @@ struct MediaServersView: View {
             )) {
                 Button("OK", role: .cancel) {}
             } message: { Text(media.errorMessage ?? "Unknown error") }
+            .confirmationDialog("Clear local watch history?", isPresented: $clearingHistory,
+                                titleVisibility: .visible) {
+                Button("Clear Watch History", role: .destructive) { media.clearLocalPlayback() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes Continue Watching and Recently Watched from this device for the current media server.")
+            }
         }
     }
 
@@ -90,6 +98,11 @@ struct MediaServersView: View {
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
                 .disabled(media.isLoading || !media.hasAnySource)
             Button("Add Server", systemImage: "plus") { addingServer = true }
+            if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+                Button("Clear Watch History", systemImage: "clock.arrow.circlepath", role: .destructive) {
+                    clearingHistory = true
+                }
+            }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
@@ -415,6 +428,7 @@ private struct TVMediaServersHome: View {
     @Binding var addingServer: Bool
     @Binding var choosingShelf: Bool
     @State private var optionsVisible = false
+    @State private var clearingHistory = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -451,7 +465,17 @@ private struct TVMediaServersHome: View {
                 ForEach(media.shelves) { shelf in
                     Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
                 }
+                if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+                    Button("Clear Watch History", role: .destructive) { clearingHistory = true }
+                }
                 Button("Cancel", role: .cancel) { }
+            }
+            .confirmationDialog("Clear local watch history?", isPresented: $clearingHistory,
+                                titleVisibility: .visible) {
+                Button("Clear Watch History", role: .destructive) { media.clearLocalPlayback() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes Continue Watching and Recently Watched from this Apple TV for the current media server.")
             }
 
             if !media.hasAnySource {
@@ -555,6 +579,9 @@ private struct MediaCatalogsScreen: View {
     @State private var pushed: MediaItem?
     @State private var editingQuery = false
 
+    private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
+    private var watchHistory: [LocalMediaPlayback] { Array(media.watchHistory.prefix(20)) }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
@@ -604,11 +631,17 @@ private struct MediaCatalogsScreen: View {
                     MediaGridScreen(title: "Search Results", items: results)
                 }
             } else {
-                if catalogs.isEmpty {
+                if catalogs.isEmpty && continueWatching.isEmpty && watchHistory.isEmpty {
                     ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
                 } else { ScrollView {
                     LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                        if !continueWatching.isEmpty {
+                            trackingShelf(title: "Continue Watching", records: continueWatching)
+                        }
+                        if !watchHistory.isEmpty {
+                            trackingShelf(title: "Recently Watched", records: watchHistory)
+                        }
                         ForEach(catalogs) { catalog in
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack(alignment: .firstTextBaseline) {
@@ -700,6 +733,52 @@ private struct MediaCatalogsScreen: View {
                 results = []; searchError = error.localizedDescription
             }
             searching = false
+        }
+    }
+
+    /// Local rows use the same cards, spacing and focus regions as server
+    /// shelves. They should look like part of the Library, not a utility panel
+    /// bolted above it.
+    private func trackingShelf(title: String, records: [LocalMediaPlayback]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(sectionTitleFont)
+                Text("ON THIS DEVICE")
+                    .font(.inter(10, .bold)).tracking(1.2)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                Spacer()
+            }
+            .padding(.horizontal, horizontalPadding)
+            .lineupFocusRegion()
+            let items = records.map(\.item)
+            let shape = MediaArtShape.forItems(items)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: itemSpacing) {
+                    ForEach(records) { record in
+                        let trackedItem = record.item
+                        Group {
+                            if trackedItem.opensPage {
+                                #if os(tvOS)
+                                TVSelectable(action: { pushed = trackedItem }) {
+                                    MediaItemCard(item: trackedItem, shape: shape)
+                                }
+                                #else
+                                NavigationLink(value: trackedItem) {
+                                    MediaItemCard(item: trackedItem, shape: shape)
+                                }
+                                .lineupFlatButton()
+                                #endif
+                            } else {
+                                MediaPlayableCard(item: trackedItem, shape: shape)
+                            }
+                        }
+                        .frame(width: cardWidth(shape))
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+            .lineupFocusRegion()
         }
     }
 
@@ -1397,7 +1476,8 @@ private struct MediaDetailScreen: View {
     private var playLabel: some View {
         let text = HStack(spacing: 8) {
             Image(systemName: "play.fill")
-            Text("Play").font(.inter(17, .semibold))
+            Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+                .font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
                 // Quieter than the word beside it, on the same dark surface
                 // both platforms now use.
@@ -2080,12 +2160,18 @@ private struct MediaSourcePicker: View {
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             #if os(tvOS)
-            PlayerView(urls: [url], title: item.name, isLive: false)
+            PlayerView(urls: [url], title: item.name, isLive: false,
+                       initialPosition: media.resumePosition(for: item)) { position, duration in
+                media.trackPlayback(of: item, position: position, duration: duration)
+            }
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
-                             synopsis: playerSynopsis)
+                             synopsis: playerSynopsis,
+                             initialPosition: media.resumePosition(for: item)) { position, duration in
+                media.trackPlayback(of: item, position: position, duration: duration)
+            }
             #endif
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
@@ -2456,6 +2542,33 @@ private struct MediaItemCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
+                .overlay(alignment: .bottom) {
+                    if let record = media.localPlaybackRecord(for: item) {
+                        if record.completed {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 11, weight: .heavy))
+                                    .foregroundStyle(LineupStyle.background)
+                                    .frame(width: 25, height: 25)
+                                    .background(LineupStyle.lightPurple, in: Circle())
+                                    .padding(9)
+                            }
+                        } else if record.fraction > 0 {
+                            GeometryReader { geometry in
+                                VStack(spacing: 0) {
+                                    Spacer()
+                                    ZStack(alignment: .leading) {
+                                        Rectangle().fill(.black.opacity(0.58))
+                                        Rectangle().fill(LineupStyle.lightPurple)
+                                            .frame(width: geometry.size.width * record.fraction)
+                                    }
+                                    .frame(height: progressHeight)
+                                }
+                            }
+                        }
+                    }
+                }
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
@@ -2493,6 +2606,13 @@ private struct MediaItemCard: View {
         .inter(.headline)
         #else
         .inter(.subheadline, .semibold)
+        #endif
+    }
+    private var progressHeight: CGFloat {
+        #if os(tvOS)
+        6
+        #else
+        4
         #endif
     }
 }
