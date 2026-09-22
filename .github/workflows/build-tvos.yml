@@ -1,4 +1,5 @@
 name: Build Lineup tvOS IPA
+run-name: Build Lineup tvOS IPA · ${{ github.ref_name }} · ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -63,6 +64,9 @@ jobs:
       - name: Generate project
         run: |
           set -euo pipefail
+          test -d 'Lineup/Assets.xcassets/Lineup App Icon & Top Shelf Image.brandassets'
+          test ! -e 'Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
+          grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"' project.yml
           xcodegen generate
 
       - name: Build unsigned app
@@ -107,6 +111,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$plist" | grep -qx true
           # The generated keys have to survive the merge with that file.
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
 
       - name: Build for tvOS Simulator

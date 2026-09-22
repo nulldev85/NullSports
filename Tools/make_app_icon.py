@@ -108,16 +108,16 @@ def write(image, *parts):
 
 
 def main():
-    ios = os.path.join("iPhone", "Assets.xcassets", "AppIcon.appiconset")
+    ios = os.path.join("iPhone", "Assets.xcassets", "LineupAppIcon.appiconset")
     print("iPhone")
     # Full bleed and square: iOS applies its own corner, and a picture that
     # brings its own gets rounded twice and sits inside a dark ring.
-    write(square(1024).convert("RGB"), ios, "AppIcon.png")
-    write(square(1024, background=False), ios, "AppIcon-Dark.png")
-    write(square(1024, background=False, tinted=True), ios, "AppIcon-Tinted.png")
+    write(square(1024).convert("RGB"), ios, "LineupAppIcon.png")
+    write(square(1024, background=False), ios, "LineupAppIcon-Dark.png")
+    write(square(1024, background=False, tinted=True), ios, "LineupAppIcon-Tinted.png")
 
     brand = os.path.join("Lineup", "Assets.xcassets",
-                         "App Icon & Top Shelf Image.brandassets")
+                         "Lineup App Icon & Top Shelf Image.brandassets")
     print("tvOS")
     # Layered, and the split is the point: the television slides the
     # foreground against the background as the icon takes focus, so the

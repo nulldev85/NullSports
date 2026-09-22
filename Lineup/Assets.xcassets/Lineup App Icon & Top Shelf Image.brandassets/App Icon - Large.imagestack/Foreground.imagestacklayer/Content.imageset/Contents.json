@@ -2,5 +2,5 @@
   "images" : [
     { "filename" : "Foreground.png", "idiom" : "tv", "scale" : "1x" }
   ],
-  "info" : { "author" : "com.nulldev85.NullSports", "version" : 1 }
+  "info" : { "author" : "com.nulldev85.Lineup", "version" : 1 }
 }

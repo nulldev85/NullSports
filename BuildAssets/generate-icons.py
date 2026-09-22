@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
-TV = ROOT / "Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets"
+TV = ROOT / "Lineup/Assets.xcassets/Lineup App Icon & Top Shelf Image.brandassets"
 GROUND = (34, 29, 39)
 MARK = (242, 237, 244)
 SS = 3
@@ -40,7 +40,7 @@ def save(image, path):
 
 def main():
     save(artwork((1024, 1024), 1024).convert("RGB"),
-         ROOT / "iPhone/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+         ROOT / "iPhone/Assets.xcassets/LineupAppIcon.appiconset/LineupAppIcon.png")
     save(artwork((1600, 960), 1250).convert("RGB"), ROOT / "BuildAssets/LineupMark.png")
 
     for folder, size, suffix in [

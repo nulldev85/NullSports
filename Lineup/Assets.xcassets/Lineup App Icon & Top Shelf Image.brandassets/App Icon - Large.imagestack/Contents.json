@@ -3,5 +3,5 @@
     { "filename" : "Foreground.imagestacklayer" },
     { "filename" : "Background.imagestacklayer" }
   ],
-  "info" : { "author" : "com.nulldev85.NullSports", "version" : 1 }
+  "info" : { "author" : "com.nulldev85.Lineup", "version" : 1 }
 }

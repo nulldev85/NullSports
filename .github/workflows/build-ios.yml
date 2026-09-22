@@ -1,4 +1,5 @@
 name: Build Lineup iPhone IPA
+run-name: Build Lineup iPhone IPA · ${{ github.ref_name }} · ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -63,6 +64,9 @@ jobs:
       - name: Generate project
         run: |
           set -euo pipefail
+          test -d iPhone/Assets.xcassets/LineupAppIcon.appiconset
+          test ! -e iPhone/Assets.xcassets/AppIcon.appiconset
+          grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon' project.yml
           brew install xcodegen
           xcodegen generate
       - name: Check playback lifecycle in iPhone simulator
@@ -120,7 +124,12 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$plist" | grep -qx audio
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" != ""
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$plist")" = "LineupAppIcon"
+          icons=$(find "$app" -maxdepth 1 -name 'LineupAppIcon*.png')
+          test -n "$icons"
 
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'
