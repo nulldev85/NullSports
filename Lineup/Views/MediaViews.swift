@@ -73,12 +73,12 @@ struct MediaServersView: View {
             )) {
                 Button("OK", role: .cancel) {}
             } message: { Text(media.errorMessage ?? "Unknown error") }
-            .confirmationDialog("Clear local watch history?", isPresented: $clearingHistory,
+            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
                                 titleVisibility: .visible) {
-                Button("Clear Watch History", role: .destructive) { media.clearLocalPlayback() }
+                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("This removes Continue Watching and Recently Watched from this device for the current media server.")
+                Text("This removes Continue Watching and local watched status from this device for the current media server.")
             }
         }
     }
@@ -99,7 +99,7 @@ struct MediaServersView: View {
                 .disabled(media.isLoading || !media.hasAnySource)
             Button("Add Server", systemImage: "plus") { addingServer = true }
             if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                Button("Clear Watch History", systemImage: "clock.arrow.circlepath", role: .destructive) {
+                Button("Clear Local Tracking", systemImage: "clock.arrow.circlepath", role: .destructive) {
                     clearingHistory = true
                 }
             }
@@ -466,16 +466,16 @@ private struct TVMediaServersHome: View {
                     Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
                 }
                 if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                    Button("Clear Watch History", role: .destructive) { clearingHistory = true }
+                    Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
                 }
                 Button("Cancel", role: .cancel) { }
             }
-            .confirmationDialog("Clear local watch history?", isPresented: $clearingHistory,
+            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
                                 titleVisibility: .visible) {
-                Button("Clear Watch History", role: .destructive) { media.clearLocalPlayback() }
+                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("This removes Continue Watching and Recently Watched from this Apple TV for the current media server.")
+                Text("This removes Continue Watching and local watched status from this Apple TV for the current media server.")
             }
 
             if !media.hasAnySource {
@@ -580,7 +580,6 @@ private struct MediaCatalogsScreen: View {
     @State private var editingQuery = false
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
-    private var watchHistory: [LocalMediaPlayback] { Array(media.watchHistory.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
 
@@ -633,7 +632,7 @@ private struct MediaCatalogsScreen: View {
                     MediaGridScreen(title: "Search Results", items: results)
                 }
             } else {
-                if catalogs.isEmpty && continueWatching.isEmpty && watchHistory.isEmpty
+                if catalogs.isEmpty && continueWatching.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
                     ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
@@ -647,9 +646,6 @@ private struct MediaCatalogsScreen: View {
                         }
                         if !favoriteEpisodes.isEmpty {
                             localShelf(title: "Favorite Episodes", items: favoriteEpisodes)
-                        }
-                        if !watchHistory.isEmpty {
-                            localShelf(title: "Recently Watched", items: watchHistory.map(\.item))
                         }
                         ForEach(catalogs) { catalog in
                             VStack(alignment: .leading, spacing: 14) {
@@ -2632,6 +2628,8 @@ private enum MediaArtShape {
 
     var ratio: CGFloat { self == .poster ? 2 / 3 : 16 / 9 }
 
+    var isPoster: Bool { self == .poster }
+
     static func forItems(_ items: [MediaItem]) -> MediaArtShape {
         if items.isEmpty { return .poster }
         return items.contains(where: { $0.type != "Episode" }) ? .poster : .still
@@ -2660,7 +2658,7 @@ private struct MediaItemCard: View {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                             startPoint: .topLeading, endPoint: .bottomTrailing)
-                        LineupArtView(url: media.imageURL(for: item), width: artWidth) { loaded in
+                        LineupArtView(url: artworkURL, width: artWidth) { loaded in
                             if let image = loaded { image.resizable().scaledToFill() }
                             else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                         }
@@ -2722,6 +2720,13 @@ private struct MediaItemCard: View {
         #else
         shape == .poster ? 210 : 300
         #endif
+    }
+    private var artworkURL: URL? {
+        if shape.isPoster, item.type == "Episode" {
+            return media.seriesPosterURL(for: item, width: Int(artWidth))
+                ?? media.imageURL(for: item, width: Int(artWidth))
+        }
+        return media.imageURL(for: item, width: Int(artWidth))
     }
     private var cardRadius: CGFloat {
         #if os(tvOS)

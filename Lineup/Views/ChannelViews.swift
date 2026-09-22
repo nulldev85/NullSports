@@ -101,10 +101,11 @@ struct LiveView: View {
                     secondaryURLs: library.playbackURLs(for: session.secondary)
                 )
             }
-            .task {
+            .task(id: isActive) {
+                guard isActive else { return }
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(30))
-                    guard !Task.isCancelled else { return }
+                    do { try await Task.sleep(for: .seconds(30)) }
+                    catch { return }
                     // Live scores need refreshing every 30s; tomorrow's slate does not.
                     library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                 }
@@ -1561,6 +1562,7 @@ private enum GuidePalette {
 
 struct GuideView: View {
     @EnvironmentObject private var library: SportsLibrary
+    var isActive = true
     @FocusState private var gridFocus: GuideGridFocus?
     @FocusState private var sidebarFocus: String?
     @State private var returnGridFocus: GuideGridFocus?
@@ -1750,7 +1752,8 @@ struct GuideView: View {
                 .fullScreenCover(isPresented: $reorderingFavorites) {
                     TVFavoritesOrderView()
                 }
-                .task {
+                .task(id: isActive) {
+                    guard isActive else { return }
                     while !Task.isCancelled {
                         guideNow = Date()
                         do { try await Task.sleep(for: .seconds(5)) }
@@ -2865,7 +2868,7 @@ struct AccountView: View {
             // leaving it, and left the flag raised behind.
             .onAppear {
                 media.loadShelvesIfNeeded()
-                Task { await media.loadMDBListIntegration() }
+                media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }

@@ -41,6 +41,8 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var mdbListCatalogs: [MDBListCatalog] = []
     @Published private(set) var isMDBListConnected = false
     @Published private(set) var isMDBListLoading = false
+    private var hasLoadedMDBListIntegration = false
+    private var mdbListLoad: Task<Void, Never>?
 
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
@@ -418,6 +420,7 @@ final class MediaLibrary: ObservableObject {
             mdbListAccount = loadedAccount
             mdbListCatalogs = loadedLists
             isMDBListConnected = true
+            hasLoadedMDBListIntegration = true
             errorMessage = nil
             if let profileID = activeProfile?.id, !savedMDBListShelfIDs(for: profileID).isEmpty {
                 await reload()
@@ -455,7 +458,25 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    /// Account screens can appear repeatedly as the viewer changes tabs. The
+    /// integration belongs to the store, so load it once per launch and let an
+    /// explicit Refresh action handle later updates instead of issuing two
+    /// network requests on every visit.
+    func loadMDBListIntegrationIfNeeded() {
+        guard isMDBListConnected, !hasLoadedMDBListIntegration,
+              mdbListLoad == nil else { return }
+        mdbListLoad = Task { [weak self] in
+            guard let self else { return }
+            await self.loadMDBListIntegration()
+            self.hasLoadedMDBListIntegration = true
+            self.mdbListLoad = nil
+        }
+    }
+
     func disconnectMDBList() {
+        mdbListLoad?.cancel()
+        mdbListLoad = nil
+        hasLoadedMDBListIntegration = false
         MDBListKeychainStore.delete()
         mdbListAccount = nil
         mdbListCatalogs = []
@@ -1003,6 +1024,15 @@ final class MediaLibrary: ObservableObject {
         if let poster = item.posterURL { return URL(string: poster) }
         guard let profile = activeProfile else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
+    }
+
+    /// Episode primary art is normally a 16:9 still. A mixed Continue Watching
+    /// row uses portrait cards to stay aligned with movies, so use the parent
+    /// show's poster there instead of stretching and cropping the still.
+    func seriesPosterURL(for episode: MediaItem, width: Int = 600) -> URL? {
+        guard episode.type == "Episode", let seriesID = episode.seriesID,
+              let profile = activeProfile else { return nil }
+        return try? client(for: profile).imageURL(itemID: seriesID, maxWidth: width)
     }
 
     // Asking for art the server did not report leaves a request to 404 behind

@@ -74,7 +74,7 @@ struct MainView: View {
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Live", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
-            GuideView()
+            GuideView(isActive: selectedTab == 1)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)

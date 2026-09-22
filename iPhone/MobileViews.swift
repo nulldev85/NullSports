@@ -1,5 +1,10 @@
 import SwiftUI
 
+private struct MobileScheduleRefreshContext: Equatable {
+    let scenePhase: ScenePhase
+    let tab: Int
+}
+
 struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
@@ -46,8 +51,11 @@ struct MainView: View {
         .fullScreenCover(item: $playing) { stream in
             MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+        .task(id: MobileScheduleRefreshContext(scenePhase: scenePhase, tab: tab)) {
+            // Live scores are only visible on the first two tabs. Keeping this
+            // loop alive in Library or Account made those tabs absorb a full
+            // schedule publication every 30 seconds for no visible benefit.
+            guard scenePhase == .active, tab == 0 || tab == 1 else { return }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 library.refreshSchedule(showsLoading: false, includeTomorrow: false)
@@ -479,7 +487,7 @@ private struct MobileAccountView: View {
                 if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
                     await media.reload()
                 }
-                await media.loadMDBListIntegration()
+                media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {

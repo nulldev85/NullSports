@@ -80,7 +80,7 @@ struct MobileGuideView: View {
                         if channels.isEmpty {
                             ContentUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
-                        } else {
+                        } else if isActive {
                             TimelineView(.periodic(from: .now, by: 5)) { clock in
                                 guide(now: clock.date)
                                     .onChange(of: clock.date) { _, now in
@@ -90,6 +90,12 @@ struct MobileGuideView: View {
                                         }
                                     }
                             }
+                        } else {
+                            // TabView keeps the Guide mounted while another tab
+                            // is visible. Preserve its rows and scroll state,
+                            // but do not wake and rebuild the hidden grid every
+                            // five seconds.
+                            guide(now: window.anchor)
                         }
                     }
                     .allowsHitTesting(!expanded)
