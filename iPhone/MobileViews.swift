@@ -327,6 +327,7 @@ private struct MobileAccountView: View {
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
     @State private var addingMediaServer = false
+    @State private var configuringMDBList = false
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
     @State private var clearingPreferences = false
@@ -407,6 +408,26 @@ private struct MobileAccountView: View {
                     Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
+                    if let account = media.mdbListAccount {
+                        LabeledContent("MDBList", value: "@\(account.username)")
+                        LabeledContent("Lists", value: media.mdbListCatalogs.count.formatted())
+                        if let remaining = account.requestsRemaining {
+                            LabeledContent("API requests left", value: remaining.formatted())
+                        }
+                    } else {
+                        LabeledContent("MDBList", value: media.isMDBListConnected ? "Connected" : "Not connected")
+                    }
+                    Button(media.isMDBListConnected ? "Configure MDBList" : "Connect MDBList",
+                           systemImage: "rectangle.stack.badge.play") {
+                        configuringMDBList = true
+                    }
+                    if media.isMDBListLoading { ProgressView("Updating MDBList…") }
+                } header: {
+                    Text("Integrations").lineupSectionHeader()
+                } footer: {
+                    Text("Use your MDBList movie and show lists as Library shelves.")
+                }.listRowBackground(LineupGlassRow())
+                Section {
                     // Collapsed rather than pushed. A theme screen of its own
                     // dismissed itself as the palette changed underneath it,
                     // which is why this picker stays inline; a disclosure row
@@ -458,6 +479,7 @@ private struct MobileAccountView: View {
                 if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
                     await media.reload()
                 }
+                await media.loadMDBListIntegration()
             }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {
@@ -468,6 +490,12 @@ private struct MobileAccountView: View {
             }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView()
+                    .environmentObject(media)
+                    .tint(LineupStyle.highlight)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $configuringMDBList) {
+                MDBListIntegrationView()
                     .environmentObject(media)
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)

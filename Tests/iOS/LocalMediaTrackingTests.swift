@@ -67,6 +67,39 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertFalse(restored.isWatched(episode))
     }
 
+    func testRemoveFromContinueWatchingForgetsOnlyThatResumePoint() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        XCTAssertTrue(library.isInContinueWatching(movie))
+
+        library.removeFromContinueWatching(movie)
+
+        XCTAssertFalse(library.isInContinueWatching(movie))
+        XCTAssertNil(library.localPlaybackRecord(for: movie))
+        XCTAssertTrue(library.watchHistory.isEmpty)
+        XCTAssertFalse(library.isWatched(movie))
+    }
+
+    func testMDBListMatcherPrefersProviderIDsAndFallsBackToExactTitleYear() {
+        let providerMatch = MediaItem(id: "server-1", name: "Renamed Film", type: "Movie",
+            overview: nil, productionYear: 2024, primaryImageAspectRatio: nil, childCount: nil,
+            providerIDs: ["Imdb": "tt1234567"])
+        let titleMatch = MediaItem(id: "server-2", name: "The Show", type: "Series",
+            overview: nil, productionYear: 2022, primaryImageAspectRatio: nil, childCount: nil)
+        let entries = [
+            MDBListCatalogItem(title: "Original Film", mediaType: "movie", releaseYear: 2024,
+                imdbID: "tt1234567", tmdbID: nil, tvdbID: nil, rank: 1),
+            MDBListCatalogItem(title: "The Show", mediaType: "show", releaseYear: 2022,
+                imdbID: nil, tmdbID: nil, tvdbID: nil, rank: 2)
+        ]
+
+        XCTAssertEqual(MDBListCatalogMatcher.match(entries, to: [titleMatch, providerMatch]).map(\.id),
+                       [providerMatch.id, titleMatch.id])
+    }
+
     private func makeLibrary() throws -> (MediaLibrary, UserDefaults, String) {
         let suite = "LocalMediaTrackingTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

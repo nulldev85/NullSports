@@ -34,6 +34,14 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var addonsUnavailable = false
     private var importTasks: [String: Task<Void, Never>] = [:]
 
+    /// MDBList is an account-level discovery integration. Lists are offered in
+    /// Add Shelf, then matched to titles that the active media server can
+    /// actually play.
+    @Published private(set) var mdbListAccount: MDBListAccount?
+    @Published private(set) var mdbListCatalogs: [MDBListCatalog] = []
+    @Published private(set) var isMDBListConnected = false
+    @Published private(set) var isMDBListLoading = false
+
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -52,6 +60,7 @@ final class MediaLibrary: ObservableObject {
     private let shelvesKey = "NullSports.mediaShelves"
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
+    private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     // Written by a version that could install media sources the app talked to
     // directly. That feature is gone, so the state it left behind is cleared
     // on the next launch rather than sitting in defaults forever.
@@ -69,6 +78,7 @@ final class MediaLibrary: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
             profiles = saved
@@ -174,6 +184,7 @@ final class MediaLibrary: ObservableObject {
         persistLocalPlayback()
         localFavorites.removeAll { $0.profileID == profile.id }
         persistLocalFavorites()
+        saveMDBListShelfIDs([], profileID: profile.id)
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
             roots = []
@@ -253,10 +264,11 @@ final class MediaLibrary: ObservableObject {
                     return leftIndex < rightIndex
                 }
             }
+            let loadedMDBListCatalogs = await loadSavedMDBListShelves(source: source, profile: profile)
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
             roots = loaded
             collections = loadedCollections
-            catalogs = loadedCatalogs
+            catalogs = loadedCatalogs + loadedMDBListCatalogs
             isConnected = true
             loadFailed = false
             loadedProfileID = profile.id
@@ -295,6 +307,9 @@ final class MediaLibrary: ObservableObject {
     }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
+        if Self.isMDBListShelfID(parent.id) {
+            return catalogs.first { $0.id == parent.id }?.items ?? []
+        }
         guard let profile = activeProfile else { return [] }
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
     }
@@ -378,6 +393,78 @@ final class MediaLibrary: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - MDBList integration
+
+    func connectMDBList(apiKey: String) async -> Bool {
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else {
+            errorMessage = MDBListError.missingAPIKey.localizedDescription
+            return false
+        }
+        isMDBListLoading = true
+        defer { isMDBListLoading = false }
+        do {
+            let source = MDBListClient(apiKey: cleanKey)
+            async let account = source.account()
+            async let lists = source.lists()
+            let loadedAccount = try await account
+            let loadedLists = try await lists
+            try MDBListKeychainStore.save(apiKey: cleanKey)
+            mdbListAccount = loadedAccount
+            mdbListCatalogs = loadedLists
+            isMDBListConnected = true
+            errorMessage = nil
+            if let profileID = activeProfile?.id, !savedMDBListShelfIDs(for: profileID).isEmpty {
+                await reload()
+            }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func loadMDBListIntegration() async {
+        guard let apiKey = MDBListKeychainStore.apiKey() else {
+            isMDBListConnected = false
+            mdbListAccount = nil
+            mdbListCatalogs = []
+            return
+        }
+        guard !isMDBListLoading else { return }
+        isMDBListLoading = true
+        defer { isMDBListLoading = false }
+        do {
+            let source = MDBListClient(apiKey: apiKey)
+            async let account = source.account()
+            async let lists = source.lists()
+            mdbListAccount = try await account
+            mdbListCatalogs = try await lists
+            isMDBListConnected = true
+        } catch {
+            // A saved key still represents a configured integration. Keep it
+            // connected during a temporary outage and surface the refresh
+            // failure without throwing away the account.
+            isMDBListConnected = true
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func disconnectMDBList() {
+        MDBListKeychainStore.delete()
+        mdbListAccount = nil
+        mdbListCatalogs = []
+        isMDBListConnected = false
+        errorMessage = nil
+        catalogs.removeAll { Self.isMDBListShelfID($0.id) }
+        defaults.removeObject(forKey: mdbListShelvesKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    var availableMDBListCatalogs: [MDBListCatalog] {
+        mdbListCatalogs.filter { list in !catalogs.contains(where: { $0.id == list.shelfID }) }
     }
 
     // MARK: - Local playback tracking
@@ -467,6 +554,19 @@ final class MediaLibrary: ObservableObject {
     func clearLocalPlayback() {
         guard let profileID = activeProfile?.id else { return }
         localPlayback.removeAll { $0.profileID == profileID }
+        persistLocalPlayback()
+    }
+
+    func isInContinueWatching(_ item: MediaItem) -> Bool {
+        continueWatching.contains { $0.item.id == item.id }
+    }
+
+    /// Forget one resume point without telling the media server that the title
+    /// was watched or unwatched. Playing it again naturally creates a fresh
+    /// progress record.
+    func removeFromContinueWatching(_ item: MediaItem) {
+        guard let profileID = activeProfile?.id else { return }
+        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         persistLocalPlayback()
     }
 
@@ -560,13 +660,36 @@ final class MediaLibrary: ObservableObject {
         do { loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id) }
         catch { if !Self.isCancellation(error) { errorMessage = error.localizedDescription } }
         catalogs.append(MediaCatalog(root: root, items: loaded))
-        saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
+        saveShelfIDs(catalogs.map(\.id).filter { !Self.isMDBListShelfID($0) }, profileID: profile.id)
+    }
+
+    func addMDBListShelf(_ list: MDBListCatalog) async {
+        guard let profile = activeProfile,
+              let apiKey = MDBListKeychainStore.apiKey(),
+              !catalogs.contains(where: { $0.id == list.shelfID }) else { return }
+        do {
+            let source = try client(for: profile)
+            async let entries = MDBListClient(apiKey: apiKey).items(in: list.id)
+            async let serverTitles = source.allTitles(userID: profile.userID)
+            let matched = MDBListCatalogMatcher.match(try await entries, to: try await serverTitles)
+            catalogs.append(Self.mdbListShelf(list, items: matched))
+            var ids = savedMDBListShelfIDs(for: profile.id)
+            if !ids.contains(list.id) { ids.append(list.id) }
+            saveMDBListShelfIDs(ids, profileID: profile.id)
+            errorMessage = nil
+        } catch {
+            if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
+        }
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
         guard let profile = activeProfile else { return }
         catalogs.removeAll { $0.id == catalog.id }
-        saveShelfIDs(catalogs.map(\.id), profileID: profile.id)
+        saveShelfIDs(catalogs.map(\.id).filter { !Self.isMDBListShelfID($0) }, profileID: profile.id)
+        if Self.isMDBListShelfID(catalog.id) {
+            let ids = savedMDBListShelfIDs(for: profile.id).filter { "mdblist:\($0)" != catalog.id }
+            saveMDBListShelfIDs(ids, profileID: profile.id)
+        }
     }
 
     var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }
@@ -848,6 +971,69 @@ final class MediaLibrary: ObservableObject {
         let catalogs: [NullfinCatalog]
     }
 
+    private func loadSavedMDBListShelves(source: JellyfinClient,
+                                         profile: MediaServerProfile) async -> [MediaCatalog] {
+        let selected = savedMDBListShelfIDs(for: profile.id)
+        guard !selected.isEmpty, let apiKey = MDBListKeychainStore.apiKey() else { return [] }
+        do {
+            let mdb = MDBListClient(apiKey: apiKey)
+            let lists = try await mdb.lists()
+            mdbListCatalogs = lists
+            isMDBListConnected = true
+            let inventory = try await source.allTitles(userID: profile.userID)
+            let selectedLists = selected.compactMap { id in lists.first { $0.id == id } }
+            return await withTaskGroup(of: (Int, MediaCatalog?).self) { group in
+                for (index, list) in selectedLists.enumerated() {
+                    group.addTask {
+                        guard let entries = try? await mdb.items(in: list.id) else { return (index, nil) }
+                        let matched = MDBListCatalogMatcher.match(entries, to: inventory)
+                        return (index, Self.mdbListShelf(list, items: matched))
+                    }
+                }
+                var loaded: [(Int, MediaCatalog)] = []
+                for await (index, shelf) in group {
+                    if let shelf { loaded.append((index, shelf)) }
+                }
+                return loaded.sorted { $0.0 < $1.0 }.map { $0.1 }
+            }
+        } catch {
+            // MDBList being unavailable must never take the connected media
+            // server or its own shelves down with it.
+            return []
+        }
+    }
+
+    nonisolated private static func mdbListShelf(_ list: MDBListCatalog,
+                                                 items: [MediaItem]) -> MediaCatalog {
+        let root = MediaItem(id: list.shelfID, name: list.name, type: "Folder",
+            overview: "MDBList catalog", productionYear: nil,
+            primaryImageAspectRatio: nil, childCount: items.count)
+        return MediaCatalog(root: root, items: items)
+    }
+
+    nonisolated static func isMDBListShelfID(_ id: String) -> Bool {
+        id.hasPrefix("mdblist:")
+    }
+
+    private func savedMDBListShelves() -> [String: [Int]] {
+        guard let data = defaults.data(forKey: mdbListShelvesKey),
+              let value = try? JSONDecoder().decode([String: [Int]].self, from: data) else { return [:] }
+        return value
+    }
+
+    private func savedMDBListShelfIDs(for profileID: UUID) -> [Int] {
+        savedMDBListShelves()[profileID.uuidString] ?? []
+    }
+
+    private func saveMDBListShelfIDs(_ ids: [Int], profileID: UUID) {
+        var value = savedMDBListShelves()
+        if ids.isEmpty { value.removeValue(forKey: profileID.uuidString) }
+        else { value[profileID.uuidString] = ids }
+        if value.isEmpty { defaults.removeObject(forKey: mdbListShelvesKey) }
+        else { defaults.set(try? JSONEncoder().encode(value), forKey: mdbListShelvesKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
         let selections = savedShelves()
         if let saved = selections[profileID.uuidString] {
@@ -887,6 +1073,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func restoreCloudSettings() async {
+        isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         guard let data = defaults.data(forKey: profilesKey),
               let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
         let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))

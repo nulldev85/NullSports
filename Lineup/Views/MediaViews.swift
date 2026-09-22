@@ -769,11 +769,13 @@ private struct MediaCatalogsScreen: View {
                                 TVSelectable(action: { pushed = trackedItem }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
+                                .contextMenu { continueWatchingAction(for: trackedItem) }
                                 #else
                                 NavigationLink(value: trackedItem) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
                                 .lineupFlatButton()
+                                .contextMenu { continueWatchingAction(for: trackedItem) }
                                 #endif
                             } else {
                                 MediaPlayableCard(item: trackedItem, shape: shape)
@@ -786,6 +788,16 @@ private struct MediaCatalogsScreen: View {
             }
             .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
             .lineupFocusRegion()
+        }
+    }
+
+    @ViewBuilder
+    private func continueWatchingAction(for item: MediaItem) -> some View {
+        if media.isInContinueWatching(item) {
+            Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
+                media.removeFromContinueWatching(item)
+            }
+            .lineupFlatButton()
         }
     }
 
@@ -1054,7 +1066,7 @@ private struct MediaShelfPicker: View {
     }
 
     private var hasAnything: Bool {
-        !groups.isEmpty || !media.addonGroups.isEmpty
+        !groups.isEmpty || !media.addonGroups.isEmpty || !media.availableMDBListCatalogs.isEmpty
     }
 
     var body: some View {
@@ -1074,7 +1086,7 @@ private struct MediaShelfPicker: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
         .onExitCommand { dismiss() }
-        .task { await media.loadAddonCatalogs() }
+        .task { await loadSources() }
         #else
         NavigationStack {
             list
@@ -1086,7 +1098,7 @@ private struct MediaShelfPicker: View {
                     }
                 }
         }
-        .task { await media.loadAddonCatalogs() }
+        .task { await loadSources() }
         #endif
     }
 
@@ -1120,6 +1132,32 @@ private struct MediaShelfPicker: View {
                             Button { add(item) } label: {
                                 MediaShelfRow(title: item.name, detail: countText(item),
                                     busy: adding.contains(item.id))
+                            }
+                            .lineupFlatButton()
+                            #endif
+                        }
+                    }
+                    if !media.availableMDBListCatalogs.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("MDBLIST").font(.inter(12, .heavy)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("Your lists — playable titles found on this media server")
+                                .font(.inter(13))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                        }
+                        .padding(.top, 18).padding(.bottom, 6)
+                        ForEach(media.availableMDBListCatalogs) { catalog in
+                            let busy = adding.contains(catalog.shelfID)
+                            #if os(tvOS)
+                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                                fillRadius: 14, action: { addMDBList(catalog) }) {
+                                MediaShelfRow(title: catalog.name,
+                                    detail: catalog.itemCount.map { "\($0) list titles" }, busy: busy)
+                            }
+                            #else
+                            Button { addMDBList(catalog) } label: {
+                                MediaShelfRow(title: catalog.name,
+                                    detail: catalog.itemCount.map { "\($0) list titles" }, busy: busy)
                             }
                             .lineupFlatButton()
                             #endif
@@ -1182,6 +1220,21 @@ private struct MediaShelfPicker: View {
             await media.addShelf(item)
             adding.remove(item.id)
         }
+    }
+
+    private func addMDBList(_ catalog: MDBListCatalog) {
+        guard !adding.contains(catalog.shelfID) else { return }
+        adding.insert(catalog.shelfID)
+        Task { @MainActor in
+            await media.addMDBListShelf(catalog)
+            adding.remove(catalog.shelfID)
+        }
+    }
+
+    private func loadSources() async {
+        async let addons: Void = media.loadAddonCatalogs()
+        async let mdbList: Void = media.loadMDBListIntegration()
+        _ = await (addons, mdbList)
     }
 
     /// Switching a catalog on is the server's work, not this screen's: it can
@@ -2047,6 +2100,12 @@ private struct MediaPlayableCard: View {
 
     @ViewBuilder
     private var libraryActions: some View {
+        if media.isInContinueWatching(item) {
+            Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
+                media.removeFromContinueWatching(item)
+            }
+            .lineupFlatButton()
+        }
         if item.type == "Episode" {
             let watched = media.isWatched(item)
             Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
@@ -2758,6 +2817,89 @@ struct MediaServerSetupView: View {
             #endif
             .disabled(media.isLoading)
         }
+    }
+}
+
+struct MDBListIntegrationView: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var apiKey = ""
+    @State private var disconnecting = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let account = media.mdbListAccount {
+                    Section("Connected Account") {
+                        LabeledContent("Account", value: "@\(account.username)")
+                        if let plan = account.plan { LabeledContent("Plan", value: plan) }
+                        LabeledContent("Lists", value: media.mdbListCatalogs.count.formatted())
+                        if let remaining = account.requestsRemaining {
+                            LabeledContent("API requests left", value: remaining.formatted())
+                        }
+                    }
+                }
+
+                Section {
+                    SecureField("MDBList API key", text: $apiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button(connectTitle) {
+                        Task {
+                            if await media.connectMDBList(apiKey: apiKey) {
+                                apiKey = ""
+                                dismiss()
+                            }
+                        }
+                    }
+                    .lineupButtonStyle()
+                    .disabled(media.isMDBListLoading
+                        || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } header: {
+                    Text(media.isMDBListConnected ? "Replace API Key" : "Connect MDBList")
+                } footer: {
+                    Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Library → Add Shelf.")
+                }
+
+                Section {
+                    Link("Open MDBList Preferences", destination: URL(string: "https://mdblist.com/preferences/")!)
+                    if media.isMDBListConnected {
+                        Button("Disconnect MDBList", role: .destructive) { disconnecting = true }
+                            .lineupButtonStyle()
+                    }
+                }
+
+                #if os(tvOS)
+                Section {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                        .lineupButtonStyle()
+                }
+                #endif
+
+                if let error = media.errorMessage {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("MDBList")
+            #if !os(tvOS)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            #endif
+            .confirmationDialog("Disconnect MDBList?", isPresented: $disconnecting,
+                                titleVisibility: .visible) {
+                Button("Disconnect", role: .destructive) {
+                    media.disconnectMDBList()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("MDBList shelves will be removed. Your lists on MDBList will not be changed.")
+            }
+        }
+    }
+
+    private var connectTitle: String {
+        if media.isMDBListLoading { return "Connecting…" }
+        return media.isMDBListConnected ? "Save New Key" : "Connect"
     }
 }
 

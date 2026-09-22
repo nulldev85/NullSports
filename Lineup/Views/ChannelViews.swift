@@ -2839,6 +2839,7 @@ struct AccountView: View {
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingMediaServer = false
+    @State private var configuringMDBList = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     private let columnWidth: CGFloat = 900
@@ -2849,6 +2850,7 @@ struct AccountView: View {
                 VStack(alignment: .leading, spacing: 44) {
                     ScreenHeading(title: "Account", detail: "Your sources, how they look, and what the app is doing")
                     sources
+                    integrations
                     appearance
                     diagnostics
                     about
@@ -2861,11 +2863,17 @@ struct AccountView: View {
             // The store decides and the store owns it, as on the Media
             // Servers tab: a load tied to this screen was cancelled by
             // leaving it, and left the flag raised behind.
-            .onAppear { media.loadShelvesIfNeeded() }
+            .onAppear {
+                media.loadShelvesIfNeeded()
+                Task { await media.loadMDBListIntegration() }
+            }
             .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
+            }
+            .sheet(isPresented: $configuringMDBList) {
+                MDBListIntegrationView().environmentObject(media)
             }
         }
     }
@@ -2915,6 +2923,45 @@ struct AccountView: View {
                     AccountAction(title: "Remove Provider", symbol: "trash", destructive: true) {
                         library.removeActiveProfile()
                     }
+                }
+            }
+        }
+    }
+
+    private var integrations: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("INTEGRATIONS")
+            if media.isMDBListConnected {
+                let account = media.mdbListAccount
+                LineupAccountCard(
+                    symbol: "rectangle.stack.badge.play",
+                    title: "MDBList",
+                    subtitle: account.map { "@\($0.username) · \($0.plan ?? "Connected")" }
+                        ?? "Catalog discovery",
+                    connected: true,
+                    status: media.isMDBListLoading ? "Updating…" : "Connected",
+                    statusTint: Color.green,
+                    stats: [
+                        LineupCardStat("Lists", media.mdbListCatalogs.count),
+                        LineupCardStat("Requests Left", account?.requestsRemaining),
+                        LineupCardStat("Daily Limit", account?.dailyLimit)
+                    ],
+                    refreshed: nil
+                ) {
+                    LineupCardAction(title: "Configure", symbol: "gearshape") {
+                        configuringMDBList = true
+                    }
+                    LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
+                        Task { await media.loadMDBListIntegration() }
+                    }
+                    .disabled(media.isMDBListLoading)
+                }
+            } else {
+                AccountEmptyCard(symbol: "rectangle.stack.badge.play",
+                                 title: "MDBList",
+                                 detail: "Connect MDBList to use your movie and show lists as Library shelves.")
+                AccountAction(title: "Connect MDBList", symbol: "link") {
+                    configuringMDBList = true
                 }
             }
         }

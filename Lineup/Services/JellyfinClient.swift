@@ -59,7 +59,7 @@ struct JellyfinClient: Sendable {
     // Asked for once, so no screen has to go back for a second round.
     static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"
         + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount,"
-        + "People,Studios,ProductionLocations,Tags,RemoteTrailers,SeriesId"
+        + "People,Studios,ProductionLocations,Tags,RemoteTrailers,SeriesId,ProviderIds"
 
     func items(userID: String, parentID: String,
                sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {
@@ -121,6 +121,33 @@ struct JellyfinClient: Sendable {
         let response: JellyfinItemsResponse = try await send(
             try request(path: "users/\(userID)/items", query: query))
         return response.items
+    }
+
+    /// Movies and shows in the server, including provider ids. MDBList shelves
+    /// use this one index to resolve a whole discovery list without issuing a
+    /// separate server search for every title.
+    func allTitles(userID: String, pageSize: Int = 500, maxPages: Int = 50) async throws -> [MediaItem] {
+        var all: [MediaItem] = []
+        var seen: Set<String> = []
+        for page in 0..<maxPages {
+            let query = [
+                URLQueryItem(name: "UserId", value: userID),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series"),
+                URLQueryItem(name: "Fields", value: Self.fields),
+                URLQueryItem(name: "ImageTypeLimit", value: "1"),
+                URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+                URLQueryItem(name: "Limit", value: String(pageSize)),
+                URLQueryItem(name: "StartIndex", value: String(page * pageSize)),
+                URLQueryItem(name: "SortBy", value: "SortName"),
+                URLQueryItem(name: "SortOrder", value: "Ascending")
+            ]
+            let response: JellyfinItemsResponse = try await send(
+                try request(path: "users/\(userID)/items", query: query))
+            for item in response.items where seen.insert(item.id).inserted { all.append(item) }
+            if response.items.count < pageSize { break }
+        }
+        return all
     }
 
     // MARK: - Nullfin addons

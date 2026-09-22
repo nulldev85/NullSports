@@ -41,6 +41,44 @@ struct NullfinCatalog: Codable, Identifiable, Hashable, Sendable {
     var id: String { catalogId }
 }
 
+/// A playlist owned by the connected MDBList account. The numeric list id is
+/// the stable API identity; the slug is presentation metadata and can change
+/// when somebody renames a list.
+struct MDBListCatalog: Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+    let slug: String?
+    let itemCount: Int?
+    let likes: Int?
+
+    var shelfID: String { "mdblist:\(id)" }
+}
+
+struct MDBListAccount: Equatable, Sendable {
+    let username: String
+    let name: String?
+    let plan: String?
+    let dailyLimit: Int?
+    let requestsUsed: Int?
+
+    var requestsRemaining: Int? {
+        guard let dailyLimit, let requestsUsed else { return nil }
+        return max(0, dailyLimit - requestsUsed)
+    }
+}
+
+/// The metadata needed to match an MDBList entry to the same playable title
+/// on the connected Jellyfin-compatible server.
+struct MDBListCatalogItem: Hashable, Sendable {
+    let title: String
+    let mediaType: String
+    let releaseYear: Int?
+    let imdbID: String?
+    let tmdbID: String?
+    let tvdbID: String?
+    let rank: Int?
+}
+
 struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
@@ -71,6 +109,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let productionLocations: [String]?
     let people: [MediaPerson]?
     let remoteTrailers: [MediaTrailer]?
+    let providerIDs: [String: String]?
 
     // Artwork a source names outright rather than hosting behind an image
     // route, which is how a catalog imported from elsewhere arrives.
@@ -91,6 +130,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          status: String? = nil, endDate: String? = nil, tags: [String]? = nil,
          studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
          people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
+         providerIDs: [String: String]? = nil,
          posterURL: String? = nil, backdropURL: String? = nil,
          logoArtworkURL: String? = nil) {
         self.id = id
@@ -120,6 +160,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.productionLocations = productionLocations
         self.people = people
         self.remoteTrailers = remoteTrailers
+        self.providerIDs = providerIDs
         self.posterURL = posterURL
         self.backdropURL = backdropURL
         self.logoArtworkURL = logoArtworkURL
@@ -222,6 +263,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case productionLocations = "ProductionLocations"
         case people = "People"
         case remoteTrailers = "RemoteTrailers"
+        case providerIDs = "ProviderIds"
         // Lineup's own, never sent by a server: an absent key decodes to nil,
         // so a server's answer is unaffected by their existence.
         case posterURL = "LineupPoster"
