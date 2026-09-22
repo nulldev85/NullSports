@@ -2033,22 +2033,6 @@ private struct MediaEpisodeCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
-                .overlay(alignment: .bottom) {
-                    if let record = media.displayedPlaybackRecord(for: episode),
-                       !record.completed, record.fraction > 0 {
-                        GeometryReader { geometry in
-                            VStack(spacing: 0) {
-                                Spacer()
-                                ZStack(alignment: .leading) {
-                                    Rectangle().fill(.black.opacity(0.58))
-                                    Rectangle().fill(LineupStyle.lightPurple)
-                                        .frame(width: geometry.size.width * record.fraction)
-                                }
-                                .frame(height: 6)
-                            }
-                        }
-                    }
-                }
                 .overlay(alignment: .topLeading) {
                     if media.isWatched(episode) {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
@@ -2058,7 +2042,12 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let status = media.playbackStatus(for: episode) {
+            if let record = media.displayedPlaybackRecord(for: episode),
+               !record.completed, record.fraction > 0,
+               let status = media.playbackStatus(for: episode) {
+                MediaPlaybackProgress(fraction: record.fraction, label: status, height: 6)
+            } else if media.displayedPlaybackRecord(for: episode)?.completed == true,
+                      let status = media.playbackStatus(for: episode) {
                 Text(status).font(.inter(.caption, .semibold))
                     .lineLimit(1).minimumScaleFactor(0.72)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
@@ -2682,42 +2671,35 @@ private struct MediaItemCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
-                .overlay(alignment: .bottom) {
-                    if let record = media.displayedPlaybackRecord(for: item) {
-                        if record.completed {
-                            HStack {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 11, weight: .heavy))
-                                    .foregroundStyle(LineupStyle.background)
-                                    .frame(width: 25, height: 25)
-                                    .background(LineupStyle.lightPurple, in: Circle())
-                                    .padding(9)
-                            }
-                        } else if record.fraction > 0 {
-                            GeometryReader { geometry in
-                                VStack(spacing: 0) {
-                                    Spacer()
-                                    ZStack(alignment: .leading) {
-                                        Rectangle().fill(.black.opacity(0.58))
-                                        Rectangle().fill(LineupStyle.lightPurple)
-                                            .frame(width: geometry.size.width * record.fraction)
-                                    }
-                                    .frame(height: progressHeight)
-                                }
-                            }
-                        }
+                .overlay(alignment: .bottomTrailing) {
+                    if media.displayedPlaybackRecord(for: item)?.completed == true {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(LineupStyle.background)
+                            .frame(width: 25, height: 25)
+                            .background(LineupStyle.lightPurple, in: Circle())
+                            .padding(9)
                     }
                 }
+            if let record = media.displayedPlaybackRecord(for: item),
+               !record.completed, record.fraction > 0,
+               let status = media.playbackStatus(for: item) {
+                MediaPlaybackProgress(fraction: record.fraction, label: status,
+                    height: progressHeight)
+            }
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
-            if let status = media.playbackStatus(for: item) {
+            if media.displayedPlaybackRecord(for: item)?.completed == true,
+               let status = media.playbackStatus(for: item) {
                 Text(status)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .font(.inter(.caption2, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+            } else if let record = media.displayedPlaybackRecord(for: item),
+                      !record.completed, record.fraction > 0 {
+                EmptyView()
             } else {
                 HStack(spacing: 7) {
                     Text(item.type.uppercased())
@@ -2763,6 +2745,37 @@ private struct MediaItemCard: View {
         #else
         4
         #endif
+    }
+}
+
+/// Keeps resume information visually attached to the artwork it describes.
+/// The text is outside the poster crop, so it remains readable over light and
+/// dark art while the compact track still communicates position at a glance.
+private struct MediaPlaybackProgress: View {
+    let fraction: Double
+    let label: String
+    let height: CGFloat
+
+    var body: some View {
+        HStack(spacing: 10) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(LineupStyle.lightPurple.opacity(0.2))
+                    Capsule().fill(LineupStyle.lightPurple)
+                        .frame(width: geometry.size.width * min(max(fraction, 0), 1))
+                }
+            }
+            .frame(minWidth: 38, maxWidth: .infinity)
+            .frame(height: height)
+
+            Text(label)
+                .font(.inter(.caption2, .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+                .layoutPriority(1)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
