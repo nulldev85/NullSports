@@ -1,5 +1,5 @@
 import XCTest
-@testable import Lineup
+@testable import LineupiOS
 
 final class LocalMediaTrackingTests: XCTestCase {
     private func record(position: TimeInterval, duration: TimeInterval,
