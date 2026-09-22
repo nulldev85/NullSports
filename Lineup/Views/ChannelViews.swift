@@ -1657,12 +1657,13 @@ struct GuideView: View {
                                                 favoritesMode: favoritesOnly && !searchActive,
                                                 now: guideNow,
                                                 gridFocus: $gridFocus,
-                                                canOpenSidebar: !sidebarVisible && !searchActive,
-                                                onOpenSidebar: openSidebar,
                                                 multiviewPrimaryID: multiviewPrimary?.id,
                                                 onPlay: { select(stream) },
                                                 onStartMultiview: { multiviewPrimary = stream },
                                                 onReorderFavorites: { reorderingFavorites = true },
+                                                onMoveFocus: { direction, focus in
+                                                    moveGuideFocus(direction, from: focus)
+                                                },
                                                 onFocusProgram: { program in
                                                     withAnimation(.easeOut(duration: 0.18)) {
                                                         focusedGuideItem = GuideFocusItem(stream: stream, program: program)
@@ -1799,6 +1800,59 @@ struct GuideView: View {
         let programs = library.guidePrograms(for: stream).filter { $0.end > anchor && $0.start < end }
         let restored = programs.first { $0.start == returnGridFocus?.programStart } ?? programs.first
         gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
+    }
+
+    /// Keep vertical remote movement on what is airing now.
+    ///
+    /// Program blocks have different widths from channel to channel. Native
+    /// geometric focus therefore sometimes treats a future block as the
+    /// nearest target when moving up or down. Vertical movement is channel
+    /// browsing, so it always lands on the adjacent channel's on-air block.
+    /// Horizontal movement remains schedule browsing and walks every visible
+    /// listing in the current row.
+    private func moveGuideFocus(_ direction: MoveCommandDirection, from source: GuideGridFocus) {
+        guard let row = filtered.firstIndex(where: { $0.id == source.streamID }) else { return }
+
+        switch direction {
+        case .up, .down:
+            let targetRow = direction == .up ? row - 1 : row + 1
+            guard filtered.indices.contains(targetRow) else { return }
+            focusOnAirProgram(for: filtered[targetRow])
+
+        case .left, .right:
+            let stream = filtered[row]
+            let programs = visibleGuidePrograms(for: stream)
+            guard !programs.isEmpty else {
+                if direction == .left { openSidebar() }
+                return
+            }
+            let current = source.programStart.flatMap { start in
+                programs.firstIndex(where: { $0.start == start })
+            } ?? 0
+            let target = direction == .left ? current - 1 : current + 1
+            guard programs.indices.contains(target) else {
+                if direction == .left { openSidebar() }
+                return
+            }
+            gridFocus = GuideGridFocus(streamID: stream.id, programStart: programs[target].start)
+
+        default:
+            return
+        }
+    }
+
+    private func focusOnAirProgram(for stream: XtreamStream) {
+        let programs = visibleGuidePrograms(for: stream)
+        let onAir = programs.first { $0.start <= guideNow && guideNow < $0.end }
+        gridFocus = GuideGridFocus(streamID: stream.id, programStart: (onAir ?? programs.first)?.start)
+    }
+
+    private func visibleGuidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
+        let start = guideTimelineAnchor(guideNow)
+        let end = start.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
+        return library.guidePrograms(for: stream)
+            .filter { $0.end > start && $0.start < end }
+            .sorted { $0.start < $1.start }
     }
 
     /// Put the preview back on the channel that was just full screen.
@@ -2270,12 +2324,11 @@ private struct GuideChannelRow: View {
     let favoritesMode: Bool
     let now: Date
     let gridFocus: FocusState<GuideGridFocus?>.Binding
-    let canOpenSidebar: Bool
-    let onOpenSidebar: () -> Void
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
     let onReorderFavorites: () -> Void
+    let onMoveFocus: (MoveCommandDirection, GuideGridFocus) -> Void
     let onFocusProgram: (CurrentProgram) -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
 
@@ -2283,6 +2336,7 @@ private struct GuideChannelRow: View {
         let start = guideTimelineAnchor(now)
         let end = start.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
         return programs.filter { $0.end > start && $0.start < end }
+            .sorted { $0.start < $1.start }
     }
 
     var body: some View {
@@ -2300,12 +2354,14 @@ private struct GuideChannelRow: View {
             ZStack(alignment: .leading) {
                 GuideTimelineGrid()
                 if visiblePrograms.isEmpty {
-                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: nil), opensSidebar: canOpenSidebar, onOpenSidebar: onOpenSidebar)
+                    let focusID = GuideGridFocus(streamID: stream.id, programStart: nil)
+                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                         .frame(width: layout.slotWidth - 6, alignment: .leading)
                 } else {
-                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { index, program in
+                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
                         let width = guideProgramWidth(program, now: now, layout: layout)
-                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: GuideGridFocus(streamID: stream.id, programStart: program.start), opensSidebar: canOpenSidebar && index == 0, onOpenSidebar: onOpenSidebar)
+                        let focusID = GuideGridFocus(streamID: stream.id, programStart: program.start)
+                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                             .frame(width: width, alignment: .leading)
                             .offset(x: guideProgramX(program, now: now, layout: layout))
                     }
@@ -2664,8 +2720,7 @@ private struct GuideProgramCell: View {
     let onFocus: () -> Void
     let gridFocus: FocusState<GuideGridFocus?>.Binding
     let focusID: GuideGridFocus
-    let opensSidebar: Bool
-    let onOpenSidebar: () -> Void
+    let onMove: (MoveCommandDirection) -> Void
     private var isFocused: Bool { gridFocus.wrappedValue == focusID }
 
     private var isOnNow: Bool {
@@ -2730,10 +2785,10 @@ private struct GuideProgramCell: View {
         .zIndex(isFocused ? 2 : 0)
         .animation(.easeOut(duration: 0.16), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")
         // Keep the focused block in timeline coordinates so its fill stays aligned.
         .onChange(of: isFocused) { focused in if focused { onFocus() } }
-        .modifier(GuideLeftBoundary(enabled: opensSidebar, onOpen: onOpenSidebar))
     }
 }
 
