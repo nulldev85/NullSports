@@ -2942,7 +2942,7 @@ struct AccountView: View {
                     status: media.isMDBListLoading ? "Updating…" : "Connected",
                     statusTint: Color.green,
                     stats: [
-                        LineupCardStat("Lists", media.mdbListCatalogs.count),
+                        LineupCardStat("Catalogs", media.mdbListCatalogs.count),
                         LineupCardStat("Requests Left", account?.requestsRemaining),
                         LineupCardStat("Daily Limit", account?.dailyLimit)
                     ],

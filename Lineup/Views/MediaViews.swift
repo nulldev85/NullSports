@@ -1057,12 +1057,25 @@ private struct MediaShelfPicker: View {
         let items: [MediaItem]
     }
 
+    private struct MDBListGroup: Identifiable {
+        let section: MDBListCatalogSection
+        let items: [MDBListCatalog]
+        var id: MDBListCatalogSection { section }
+    }
+
     private var groups: [Group] {
         [Group(id: "LIBRARIES", detail: "Folders this server keeps itself",
                items: media.availableLibraries),
          Group(id: "IMPORTED CATALOGS", detail: "Already on your server, ready to shelve",
                items: media.availableCatalogs)]
             .filter { !$0.items.isEmpty }
+    }
+
+    private var mdbListGroups: [MDBListGroup] {
+        MDBListCatalogSection.allCases.compactMap { section in
+            let items = media.availableMDBListCatalogs.filter { $0.section == section }
+            return items.isEmpty ? nil : MDBListGroup(section: section, items: items)
+        }
     }
 
     private var hasAnything: Bool {
@@ -1137,16 +1150,16 @@ private struct MediaShelfPicker: View {
                             #endif
                         }
                     }
-                    if !media.availableMDBListCatalogs.isEmpty {
+                    ForEach(mdbListGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("MDBLIST").font(.inter(12, .heavy)).tracking(1.6)
+                            Text(group.section.title).font(.inter(12, .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                            Text("Your lists — playable titles found on this media server")
+                            Text(group.section.detail + " — playable titles found on this media server")
                                 .font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
-                        ForEach(media.availableMDBListCatalogs) { catalog in
+                        ForEach(group.items) { catalog in
                             let busy = adding.contains(catalog.shelfID)
                             #if os(tvOS)
                             TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
@@ -2833,7 +2846,7 @@ struct MDBListIntegrationView: View {
                     Section("Connected Account") {
                         LabeledContent("Account", value: "@\(account.username)")
                         if let plan = account.plan { LabeledContent("Plan", value: plan) }
-                        LabeledContent("Lists", value: media.mdbListCatalogs.count.formatted())
+                        LabeledContent("Catalogs", value: media.mdbListCatalogs.count.formatted())
                         if let remaining = account.requestsRemaining {
                             LabeledContent("API requests left", value: remaining.formatted())
                         }

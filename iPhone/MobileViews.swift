@@ -410,7 +410,7 @@ private struct MobileAccountView: View {
                 Section {
                     if let account = media.mdbListAccount {
                         LabeledContent("MDBList", value: "@\(account.username)")
-                        LabeledContent("Lists", value: media.mdbListCatalogs.count.formatted())
+                        LabeledContent("Catalogs", value: media.mdbListCatalogs.count.formatted())
                         if let remaining = account.requestsRemaining {
                             LabeledContent("API requests left", value: remaining.formatted())
                         }

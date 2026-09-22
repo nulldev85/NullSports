@@ -100,6 +100,22 @@ final class LocalMediaTrackingTests: XCTestCase {
                        [providerMatch.id, titleMatch.id])
     }
 
+    func testMDBListCatalogsIncludeWrappedLikedListsAndDeduplicateSources() throws {
+        let owned = try MDBListClient.parseCatalogs([
+            ["id": 11, "name": "My Queue", "items": 12]
+        ], section: .yourLists)
+        let liked = try MDBListClient.parseCatalogs([
+            "lists": [
+                ["id": 11, "name": "My Queue", "items": 12],
+                ["id": 22, "name": "Great Sci-Fi", "items": 80]
+            ]
+        ], wrapperKey: "lists", section: .liked)
+
+        let merged = MDBListClient.mergeCatalogs(owned + liked)
+        XCTAssertEqual(merged.map(\.id), [11, 22])
+        XCTAssertEqual(merged.map(\.section), [.yourLists, .liked])
+    }
+
     private func makeLibrary() throws -> (MediaLibrary, UserDefaults, String) {
         let suite = "LocalMediaTrackingTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

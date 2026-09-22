@@ -41,15 +41,41 @@ struct NullfinCatalog: Codable, Identifiable, Hashable, Sendable {
     var id: String { catalogId }
 }
 
-/// A playlist owned by the connected MDBList account. The numeric list id is
-/// the stable API identity; the slug is presentation metadata and can change
-/// when somebody renames a list.
+enum MDBListCatalogSection: String, CaseIterable, Hashable, Sendable {
+    case yourLists
+    case liked
+    case curated
+    case popular
+
+    var title: String {
+        switch self {
+        case .yourLists: "YOUR MDBLIST LISTS"
+        case .liked: "LIKED LISTS"
+        case .curated: "MDBLIST CURATED"
+        case .popular: "POPULAR ON MDBLIST"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .yourLists: "Lists created or saved directly in your account"
+        case .liked: "Public lists you follow on MDBList"
+        case .curated: "Hand-picked catalogs from MDBList"
+        case .popular: "Popular, regularly updated MDBList catalogs"
+        }
+    }
+}
+
+/// A playlist offered by MDBList. The numeric list id is the stable API
+/// identity; the slug is presentation metadata and can change when a list is
+/// renamed.
 struct MDBListCatalog: Identifiable, Hashable, Sendable {
     let id: Int
     let name: String
     let slug: String?
     let itemCount: Int?
     let likes: Int?
+    let section: MDBListCatalogSection
 
     var shelfID: String { "mdblist:\(id)" }
 }

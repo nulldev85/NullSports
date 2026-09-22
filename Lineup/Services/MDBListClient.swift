@@ -29,18 +29,72 @@ struct MDBListClient: Sendable {
     }
 
     func lists() async throws -> [MDBListCatalog] {
-        let value = try await get(path: "lists/user", query: [
+        try await catalogs(path: "lists/user", query: [
             URLQueryItem(name: "sort", value: "ranked"),
             URLQueryItem(name: "unified", value: "true")
-        ])
-        guard let values = value as? [[String: Any]] else { throw MDBListError.invalidResponse }
+        ], section: .yourLists)
+    }
+
+    /// Everything useful as a Library shelf. MDBList deliberately separates
+    /// owned, liked, curated, and popular lists; requesting only `/lists/user`
+    /// leaves many connected accounts with an empty picker.
+    func catalogChoices() async throws -> [MDBListCatalog] {
+        async let owned = optionalCatalogs(path: "lists/user", query: [
+            URLQueryItem(name: "sort", value: "ranked"),
+            URLQueryItem(name: "unified", value: "true")
+        ], section: .yourLists)
+        async let liked = optionalCatalogs(path: "lists/liked", query: [
+            URLQueryItem(name: "limit", value: "100")
+        ], wrapperKey: "lists", section: .liked)
+        async let curated = optionalCatalogs(path: "lists/curated", query: [
+            URLQueryItem(name: "limit", value: "40")
+        ], section: .curated)
+        async let popular = optionalCatalogs(path: "lists/top", query: [
+            URLQueryItem(name: "limit", value: "40")
+        ], section: .popular)
+
+        let results = await (owned, liked, curated, popular)
+        let successful = [results.0, results.1, results.2, results.3].compactMap { $0 }
+        guard !successful.isEmpty else { throw MDBListError.invalidResponse }
+        return Self.mergeCatalogs(successful.flatMap { $0 })
+    }
+
+    private func optionalCatalogs(path: String, query: [URLQueryItem],
+                                  wrapperKey: String? = nil,
+                                  section: MDBListCatalogSection) async -> [MDBListCatalog]? {
+        try? await catalogs(path: path, query: query, wrapperKey: wrapperKey, section: section)
+    }
+
+    private func catalogs(path: String, query: [URLQueryItem], wrapperKey: String? = nil,
+                          section: MDBListCatalogSection) async throws -> [MDBListCatalog] {
+        let value = try await get(path: path, query: query)
+        return try Self.parseCatalogs(value, wrapperKey: wrapperKey, section: section)
+    }
+
+    static func parseCatalogs(_ value: Any, wrapperKey: String? = nil,
+                              section: MDBListCatalogSection) throws -> [MDBListCatalog] {
+        let raw: Any
+        if let wrapperKey {
+            guard let object = value as? [String: Any], let wrapped = object[wrapperKey] else {
+                throw MDBListError.invalidResponse
+            }
+            raw = wrapped
+        } else {
+            raw = value
+        }
+        guard let values = raw as? [[String: Any]] else { throw MDBListError.invalidResponse }
         return values.compactMap { object in
             guard let id = Self.integer(object["id"]),
                   let name = Self.string(object["name"]), !name.isEmpty else { return nil }
             return MDBListCatalog(id: id, name: name, slug: Self.string(object["slug"]),
                                   itemCount: Self.integer(object["items"]),
-                                  likes: Self.integer(object["likes"]))
+                                  likes: Self.integer(object["likes"]), section: section)
         }
+    }
+
+    static func mergeCatalogs(_ catalogs: [MDBListCatalog]) -> [MDBListCatalog] {
+        var seen: Set<Int> = []
+        return catalogs.filter { seen.insert($0.id).inserted }
     }
 
     func items(in listID: Int, limit: Int = 100) async throws -> [MDBListCatalogItem] {

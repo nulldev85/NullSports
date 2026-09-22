@@ -408,7 +408,7 @@ final class MediaLibrary: ObservableObject {
         do {
             let source = MDBListClient(apiKey: cleanKey)
             async let account = source.account()
-            async let lists = source.lists()
+            async let lists = source.catalogChoices()
             let loadedAccount = try await account
             let loadedLists = try await lists
             try MDBListKeychainStore.save(apiKey: cleanKey)
@@ -439,7 +439,7 @@ final class MediaLibrary: ObservableObject {
         do {
             let source = MDBListClient(apiKey: apiKey)
             async let account = source.account()
-            async let lists = source.lists()
+            async let lists = source.catalogChoices()
             mdbListAccount = try await account
             mdbListCatalogs = try await lists
             isMDBListConnected = true
@@ -977,7 +977,7 @@ final class MediaLibrary: ObservableObject {
         guard !selected.isEmpty, let apiKey = MDBListKeychainStore.apiKey() else { return [] }
         do {
             let mdb = MDBListClient(apiKey: apiKey)
-            let lists = try await mdb.lists()
+            let lists = try await mdb.catalogChoices()
             mdbListCatalogs = lists
             isMDBListConnected = true
             let inventory = try await source.allTitles(userID: profile.userID)
