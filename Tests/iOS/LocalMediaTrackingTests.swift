@@ -83,6 +83,43 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertFalse(library.isWatched(movie))
     }
 
+    func testEpisodeWatchedAdvancesAndUnwatchedRollsContinueWatchingBack() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = MediaItem(id: "e1", name: "First", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let second = MediaItem(id: "e2", name: "Second", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+
+        library.applyLocalEpisodeProgression(true, for: first, following: second)
+        XCTAssertTrue(library.isWatched(first))
+        XCTAssertEqual(library.continueWatching.map(\.item.id), [second.id])
+        XCTAssertEqual(library.localPlaybackRecord(for: second)?.isUpNext, true)
+
+        library.applyLocalEpisodeProgression(false, for: first, following: nil)
+        XCTAssertFalse(library.isWatched(first))
+        XCTAssertEqual(library.continueWatching.map(\.item.id), [first.id])
+        XCTAssertEqual(library.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
+    }
+
+    func testEpisodeProgressionCrossesSeasonsAndSkipsWatchedEpisodes() {
+        let current = MediaItem(id: "s1e2", name: "Finale", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let watched = MediaItem(id: "s2e1", name: "Return", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+        let expected = MediaItem(id: "s2e2", name: "Next", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+
+        let next = LocalEpisodeProgressionPolicy.nextEpisode(
+            after: current, in: [expected, current, watched], isWatched: { $0.id == watched.id })
+        XCTAssertEqual(next?.id, expected.id)
+    }
+
     func testMDBListMatcherPrefersProviderIDsAndFallsBackToExactTitleYear() {
         let providerMatch = MediaItem(id: "server-1", name: "Renamed Film", type: "Movie",
             overview: nil, productionYear: 2024, primaryImageAspectRatio: nil, childCount: nil,

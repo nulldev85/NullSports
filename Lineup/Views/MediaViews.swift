@@ -1703,8 +1703,7 @@ private struct MediaDetailScreen: View {
     private func episodeLibraryActions(_ episode: MediaItem) -> some View {
         let watched = media.isWatched(episode)
         Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-            media.setLocallyPlayed(!watched, for: episode)
-            Task { await media.setPlayed(!watched, for: episode) }
+            Task { await media.setEpisodePlayedAndAdvance(!watched, for: episode) }
         }
         .lineupFlatButton()
         let favorite = media.isLocalFavorite(episode)
@@ -2043,7 +2042,7 @@ private struct MediaEpisodeCard: View {
                     }
                 }
             if let record = media.displayedPlaybackRecord(for: episode),
-               !record.completed, record.fraction > 0,
+               !record.completed, (record.fraction > 0 || record.isUpNext == true),
                let status = media.playbackStatus(for: episode) {
                 MediaPlaybackProgress(fraction: record.fraction, label: status, height: 6)
             } else if media.displayedPlaybackRecord(for: episode)?.completed == true,
@@ -2111,8 +2110,7 @@ private struct MediaPlayableCard: View {
         if item.type == "Episode" {
             let watched = media.isWatched(item)
             Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-                media.setLocallyPlayed(!watched, for: item)
-                Task { await media.setPlayed(!watched, for: item) }
+                Task { await media.setEpisodePlayedAndAdvance(!watched, for: item) }
             }
             .lineupFlatButton()
             let favorite = media.isLocalFavorite(item)
@@ -2682,7 +2680,7 @@ private struct MediaItemCard: View {
                     }
                 }
             if let record = media.displayedPlaybackRecord(for: item),
-               !record.completed, record.fraction > 0,
+               !record.completed, (record.fraction > 0 || record.isUpNext == true),
                let status = media.playbackStatus(for: item) {
                 MediaPlaybackProgress(fraction: record.fraction, label: status,
                     height: progressHeight)
@@ -2698,7 +2696,7 @@ private struct MediaItemCard: View {
                     .font(.inter(.caption2, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
             } else if let record = media.displayedPlaybackRecord(for: item),
-                      !record.completed, record.fraction > 0 {
+                      !record.completed, (record.fraction > 0 || record.isUpNext == true) {
                 EmptyView()
             } else {
                 HStack(spacing: 7) {

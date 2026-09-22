@@ -123,6 +123,26 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    /// The complete episode order for a show in one request. This is used by
+    /// local Continue Watching progression and deliberately includes later
+    /// seasons, so finishing a finale can advance into the next season.
+    func episodes(userID: String, seriesID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "ParentId", value: seriesID),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: "Episode"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: "10000"),
+            URLQueryItem(name: "SortBy", value: "ParentIndexNumber,IndexNumber"),
+            URLQueryItem(name: "SortOrder", value: "Ascending")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        return LocalEpisodeProgressionPolicy.ordered(response.items)
+    }
+
     /// Movies and shows in the server, including provider ids. MDBList shelves
     /// use this one index to resolve a whole discovery list without issuing a
     /// separate server search for every title.

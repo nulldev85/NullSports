@@ -367,12 +367,35 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     /// A local "Remove from Watched" must outrank stale server user data.
     /// Optional keeps records written by the first tracking build decodable.
     var explicitlyUnwatched: Bool? = nil
+    /// An episode selected by local progression rather than by recorded
+    /// playback. Optional keeps existing on-device records decodable.
+    var isUpNext: Bool? = nil
 
     var id: String { profileID.uuidString + "|" + item.id }
 
     var fraction: Double {
         guard duration > 0 else { return 0 }
         return min(max(position / duration, 0), 1)
+    }
+}
+
+enum LocalEpisodeProgressionPolicy {
+    static func ordered(_ episodes: [MediaItem]) -> [MediaItem] {
+        episodes.filter { $0.type == "Episode" }.sorted { left, right in
+            let leftKey = (left.parentIndexNumber ?? Int.max, left.indexNumber ?? Int.max)
+            let rightKey = (right.parentIndexNumber ?? Int.max, right.indexNumber ?? Int.max)
+            if leftKey.0 != rightKey.0 { return leftKey.0 < rightKey.0 }
+            if leftKey.1 != rightKey.1 { return leftKey.1 < rightKey.1 }
+            return left.id < right.id
+        }
+    }
+
+    static func nextEpisode(after current: MediaItem, in episodes: [MediaItem],
+                            isWatched: (MediaItem) -> Bool) -> MediaItem? {
+        let values = ordered(episodes)
+        guard let currentIndex = values.firstIndex(where: { $0.id == current.id }),
+              currentIndex + 1 < values.count else { return nil }
+        return values[(currentIndex + 1)...].first { !isWatched($0) }
     }
 }
 

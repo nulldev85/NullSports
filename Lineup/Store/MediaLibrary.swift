@@ -107,7 +107,10 @@ final class MediaLibrary: ObservableObject {
     /// not in Continue Watching, even if its final saved position is shy of the
     /// exact file duration.
     var continueWatching: [LocalMediaPlayback] {
-        playbackForActiveProfile.filter { !$0.completed && $0.explicitlyUnwatched != true && $0.position >= 5 }
+        playbackForActiveProfile.filter {
+            !$0.completed && ($0.isUpNext == true
+                || ($0.explicitlyUnwatched != true && $0.position >= 5))
+        }
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -505,6 +508,9 @@ final class MediaLibrary: ObservableObject {
         if record.completed {
             return episodePrefix.map { $0 + " · Watched" } ?? "Watched"
         }
+        if record.isUpNext == true {
+            return episodePrefix.map { $0 + " · Up Next" } ?? "Up Next"
+        }
         let remaining = max(0, record.duration - record.position)
         let minutes = max(1, Int(ceil(remaining / 60)))
         let time: String
@@ -594,12 +600,91 @@ final class MediaLibrary: ObservableObject {
         persistLocalPlayback()
     }
 
+    /// Update an episode and keep Continue Watching pointed at the episode a
+    /// viewer should play next. Generated Up Next records are distinct from
+    /// genuine resume points, so rolling back never destroys real progress.
+    func setEpisodePlayedAndAdvance(_ played: Bool, for episode: MediaItem) async {
+        guard episode.type == "Episode", let profile = activeProfile else {
+            setLocallyPlayed(played, for: episode)
+            await setPlayed(played, for: episode)
+            return
+        }
+
+        let trackedEpisode: MediaItem
+        if episode.seriesID == nil, let detailed = try? await details(of: episode) {
+            trackedEpisode = detailed
+        } else {
+            trackedEpisode = episode
+        }
+
+        var following: MediaItem?
+        if played {
+            following = await followingUnwatchedEpisode(after: trackedEpisode, profile: profile)
+        }
+        guard activeProfile?.id == profile.id else { return }
+        applyLocalEpisodeProgression(played, for: trackedEpisode, following: following)
+        await setPlayed(played, for: episode)
+    }
+
+    /// Internal for regression tests as well as the async server-backed path.
+    func applyLocalEpisodeProgression(_ played: Bool, for episode: MediaItem,
+                                      following: MediaItem?) {
+        guard let profileID = activeProfile?.id else { return }
+        setLocallyPlayed(played, for: episode)
+        let seriesKey = Self.seriesKey(for: episode)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true
+                && Self.seriesKey(for: record.item) == seriesKey
+        }
+
+        if played {
+            if let following { queueAsUpNext(following, explicitlyUnwatched: false) }
+        } else {
+            queueAsUpNext(episode, explicitlyUnwatched: true)
+        }
+        persistLocalPlayback()
+    }
+
     func isWatched(_ item: MediaItem) -> Bool {
         if let local = localPlaybackRecord(for: item) {
             if local.explicitlyUnwatched == true { return false }
             if local.completed { return true }
         }
         return item.isPlayed
+    }
+
+    private func followingUnwatchedEpisode(after episode: MediaItem,
+                                           profile: MediaServerProfile) async -> MediaItem? {
+        guard let seriesID = episode.seriesID else { return nil }
+        guard let episodes = try? await client(for: profile)
+            .episodes(userID: profile.userID, seriesID: seriesID) else { return nil }
+        return LocalEpisodeProgressionPolicy.nextEpisode(after: episode, in: episodes,
+            isWatched: { [weak self] in self?.isWatched($0) == true })
+    }
+
+    private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
+        guard let profileID = activeProfile?.id else { return }
+        if let index = localPlayback.firstIndex(where: {
+            $0.profileID == profileID && $0.item.id == episode.id
+        }), localPlayback[index].position >= 5, !localPlayback[index].completed,
+           localPlayback[index].explicitlyUnwatched != true {
+            localPlayback[index].updatedAt = Date()
+            return
+        }
+        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == episode.id }
+        let duration = episode.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
+        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: episode,
+            position: 0, duration: duration, updatedAt: Date(), completed: false,
+            explicitlyUnwatched: explicitlyUnwatched, isUpNext: true))
+    }
+
+    nonisolated private static func seriesKey(for episode: MediaItem) -> String {
+        if let seriesID = episode.seriesID, !seriesID.isEmpty { return "id:" + seriesID }
+        if let name = episode.seriesName, !name.isEmpty {
+            return "name:" + name.folding(
+                options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        }
+        return "episode:" + episode.id
     }
 
     private var playbackForActiveProfile: [LocalMediaPlayback] {
