@@ -524,7 +524,7 @@ final class MediaLibrary: ObservableObject {
         guard let record = displayedPlaybackRecord(for: item) else { return nil }
         let trackedItem = record.item
         let episodePrefix: String? = trackedItem.type == "Episode"
-            ? "Season \(trackedItem.parentIndexNumber ?? 1), Episode \(trackedItem.indexNumber ?? 1)"
+            ? (trackedItem.episodeCode ?? "S01E01")
             : nil
         if record.completed {
             return episodePrefix.map { $0 + " · Watched" } ?? "Watched"

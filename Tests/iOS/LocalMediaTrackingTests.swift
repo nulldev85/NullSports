@@ -46,7 +46,7 @@ final class LocalMediaTrackingTests: XCTestCase {
         let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
         XCTAssertEqual(library.playbackStatus(for: series),
-                       "Season 1, Episode 4 · 34 minutes left")
+                       "S01E04 · 34 minutes left")
         XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, episode.id)
     }
 

@@ -2046,7 +2046,7 @@ private struct MediaEpisodeCard: View {
                 Text(status).font(.inter(.caption, .semibold))
                     .lineLimit(1).minimumScaleFactor(0.72)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
-            } else if let label = episode.episodeLabel {
+            } else if let label = episode.episodeCode ?? episode.episodeLabel {
                 Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
