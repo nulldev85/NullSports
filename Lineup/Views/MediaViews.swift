@@ -2174,7 +2174,7 @@ private struct MediaLibraryHero: View {
         Group {
             #if os(tvOS)
             if !items.isEmpty {
-                heroSlide(item: items[index], rank: index + 1)
+                heroSlide(item: items[index])
                     .overlay(alignment: .bottom) { remotePaging }
             }
             #else
@@ -2182,7 +2182,7 @@ private struct MediaLibraryHero: View {
                 GeometryReader { viewport in
                     TabView(selection: $index) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
-                            heroSlide(item: item, rank: offset + 1)
+                            heroSlide(item: item)
                                 .frame(width: viewport.size.width, height: viewport.size.height)
                                 .tag(offset)
                         }
@@ -2203,7 +2203,7 @@ private struct MediaLibraryHero: View {
         }
     }
 
-    private func heroSlide(item: MediaItem, rank: Int) -> some View {
+    private func heroSlide(item: MediaItem) -> some View {
         GeometryReader { slide in
             let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
             let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
@@ -2229,18 +2229,13 @@ private struct MediaLibraryHero: View {
                 // became opaque too early and left a dead band above Continue
                 // Watching even though the artwork itself filled the hero.
                 LinearGradient(stops: [
-                    .init(color: .clear, location: 0.64),
-                    .init(color: .black.opacity(0.18), location: 0.82),
-                    .init(color: LineupStyle.background.opacity(0.55), location: 0.96),
+                    .init(color: .clear, location: 0.72),
+                    .init(color: .black.opacity(0.12), location: 0.9),
+                    .init(color: LineupStyle.background.opacity(0.25), location: 0.98),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
 
                 VStack(alignment: .leading, spacing: heroSpacing) {
-                    Text("TOP 10 · " + String(format: "%02d OF %02d", rank, items.count))
-                        .font(.inter(eyebrowSize, .bold)).tracking(1.4)
-                        .foregroundStyle(.white.opacity(0.72))
-                        .frame(width: readableWidth, alignment: .leading)
-
                     Spacer(minLength: 0)
 
                     Text(item.name)
@@ -2312,7 +2307,6 @@ private struct MediaLibraryHero: View {
     private var heroBottomPadding: CGFloat { 76 }
     private var heroSpacing: CGFloat { 10 }
     private var titleSize: CGFloat { 48 }
-    private var eyebrowSize: CGFloat { 12 }
     private var metaSize: CGFloat { 16 }
     private var overviewSize: CGFloat { 17 }
     private var overviewLines: Int { 2 }
@@ -2327,7 +2321,6 @@ private struct MediaLibraryHero: View {
     private var heroBottomPadding: CGFloat { 58 }
     private var heroSpacing: CGFloat { 7 }
     private var titleSize: CGFloat { 34 }
-    private var eyebrowSize: CGFloat { 10 }
     private var metaSize: CGFloat { 13 }
     private var overviewSize: CGFloat { 14 }
     private var overviewLines: Int { 2 }
@@ -2342,7 +2335,7 @@ private struct MediaLibraryHero: View {
             pageIndicator
             MediaHeroIconButton(symbol: "chevron.right", label: "Next featured title") { move(1) }
         }
-        .padding(.bottom, 76)
+        .padding(.bottom, 28)
     }
     #endif
 
@@ -2355,7 +2348,7 @@ private struct MediaLibraryHero: View {
             }
         }
         #if !os(tvOS)
-        .padding(.bottom, 64)
+        .padding(.bottom, 18)
         #endif
         .animation(.easeOut(duration: 0.2), value: index)
         .accessibilityHidden(true)
