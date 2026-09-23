@@ -689,7 +689,13 @@ private struct MediaCatalogsScreen: View {
                     }
                     .padding(.bottom, 44)
                 }
-                #if !os(tvOS)
+                #if os(tvOS)
+                // The tab bar and television overscan guides should constrain
+                // controls, not cinematic artwork. Let the Library canvas run
+                // behind the bar and to both physical edges; shelf headings
+                // and cards keep their own explicit insets below the hero.
+                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                #else
                 .ignoresSafeArea(edges: .top)
                 #endif
                 }
@@ -2175,7 +2181,7 @@ private struct MediaLibraryHero: View {
             #if os(tvOS)
             if !items.isEmpty {
                 heroSlide(item: items[index])
-                    .overlay(alignment: .bottom) { remotePaging }
+                    .overlay(alignment: .bottom) { pageIndicator }
             }
             #else
             if !items.isEmpty {
@@ -2196,6 +2202,18 @@ private struct MediaLibraryHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: heroHeight)
         .clipped()
+        #if os(tvOS)
+        // Any focused control inside the hero participates in the same
+        // carousel. A left/right press therefore changes the feature directly
+        // instead of first requiring focus to land on a tiny chevron.
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: move(-1)
+            case .right: move(1)
+            default: break
+            }
+        }
+        #endif
         .onChange(of: catalog.id) { _, _ in index = 0 }
         .onChange(of: items.count) { _, count in
             if count == 0 { index = 0 }
@@ -2301,7 +2319,9 @@ private struct MediaLibraryHero: View {
 
     #if os(tvOS)
     private var artWidth: Int { 1800 }
-    private var heroHeight: CGFloat { 600 }
+    // From the physical top edge through the tab-bar chrome and down to the
+    // first shelf, this gives tvOS the same cinematic proportion as iPhone.
+    private var heroHeight: CGFloat { 700 }
     private var heroHorizontalPadding: CGFloat { 72 }
     private var heroTopPadding: CGFloat { 40 }
     private var heroBottomPadding: CGFloat { 76 }
@@ -2328,17 +2348,6 @@ private struct MediaLibraryHero: View {
     private var buttonMaxWidth: CGFloat { 145 }
     #endif
 
-    #if os(tvOS)
-    private var remotePaging: some View {
-        HStack(spacing: 12) {
-            MediaHeroIconButton(symbol: "chevron.left", label: "Previous featured title") { move(-1) }
-            pageIndicator
-            MediaHeroIconButton(symbol: "chevron.right", label: "Next featured title") { move(1) }
-        }
-        .padding(.bottom, 28)
-    }
-    #endif
-
     private var pageIndicator: some View {
         HStack(spacing: 5) {
             ForEach(items.indices, id: \.self) { page in
@@ -2347,7 +2356,9 @@ private struct MediaLibraryHero: View {
                     .frame(width: page == index ? 18 : 5, height: 5)
             }
         }
-        #if !os(tvOS)
+        #if os(tvOS)
+        .padding(.bottom, 28)
+        #else
         .padding(.bottom, 18)
         #endif
         .animation(.easeOut(duration: 0.2), value: index)
@@ -2393,35 +2404,6 @@ private struct MediaHeroButton: View {
     private var buttonFont: CGFloat { 14 }
     private var buttonInset: CGFloat { 13 }
     private var buttonHeight: CGFloat { 42 }
-    #endif
-}
-
-private struct MediaHeroIconButton: View {
-    let symbol: String
-    let label: String
-    let action: () -> Void
-
-    var body: some View {
-        #if os(tvOS)
-        TVSelectable(scale: LineupStyle.controlLift, action: action) { content.modifier(MediaChromeFocus()) }
-        #else
-        Button(action: action) { content.modifier(MediaChromeFocus()) }.lineupFlatButton()
-        #endif
-    }
-
-    private var content: some View {
-        Image(systemName: symbol).font(.system(size: iconSize, weight: .bold))
-            .frame(width: controlSize, height: controlSize)
-            .foregroundStyle(LineupStyle.lightPurple)
-            .accessibilityLabel(label)
-    }
-
-    #if os(tvOS)
-    private var iconSize: CGFloat { 17 }
-    private var controlSize: CGFloat { 50 }
-    #else
-    private var iconSize: CGFloat { 14 }
-    private var controlSize: CGFloat { 42 }
     #endif
 }
 
