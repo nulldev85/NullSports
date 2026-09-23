@@ -3088,6 +3088,10 @@ private struct MediaItemCard: View {
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
+                #if os(tvOS)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                #endif
             if playback != nil {
                 EmptyView()
             } else {
