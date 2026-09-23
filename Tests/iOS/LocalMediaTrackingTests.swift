@@ -140,7 +140,7 @@ final class LocalMediaTrackingTests: XCTestCase {
         library.applyLocalEpisodeProgression(false, for: previous, following: nil)
 
         XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, previous.id)
-        XCTAssertEqual(library.playbackStatus(for: series), "S01E02 · Up Next")
+        XCTAssertEqual(library.playbackStatus(for: series), "S01E02 · Next Ep.")
         XCTAssertEqual(library.continueWatching.map(\.item.id), [previous.id])
     }
 
@@ -158,6 +158,28 @@ final class LocalMediaTrackingTests: XCTestCase {
         let next = LocalEpisodeProgressionPolicy.nextEpisode(
             after: current, in: [expected, current, watched], isWatched: { $0.id == watched.id })
         XCTAssertEqual(next?.id, expected.id)
+    }
+
+    func testRememberedNextEpisodeBecomesTheSeriesPositionWithoutOverridingProgress() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let third = MediaItem(id: "s1e3", name: "Third", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 3, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let fourth = MediaItem(id: "s1e4", name: "Fourth", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 4, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+
+        library.rememberNextUp(third)
+        XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, third.id)
+        XCTAssertEqual(library.playbackStatus(for: series), "S01E03 · Next Ep.")
+
+        library.trackPlayback(of: third, position: 600, duration: 3_600)
+        library.rememberNextUp(fourth)
+        XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, third.id)
+        XCTAssertEqual(library.playbackStatus(for: series), "S01E03 · 50 minutes left")
     }
 
     func testMDBListMatcherPrefersProviderIDsAndFallsBackToExactTitleYear() {

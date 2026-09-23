@@ -79,6 +79,8 @@ final class MediaLibrary: ObservableObject {
     /// which is most of a slow one.
     private var loadedProfileID: UUID?
     private var shelfLoad: Task<Void, Never>?
+    private var reconciledSeriesProfileID: UUID?
+    private var seriesReconcileTask: Task<Void, Never>?
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -221,6 +223,9 @@ final class MediaLibrary: ObservableObject {
     func select(_ profile: MediaServerProfile) async {
         loadID = UUID()
         loadedProfileID = nil
+        reconciledSeriesProfileID = nil
+        seriesReconcileTask?.cancel()
+        seriesReconcileTask = nil
         loadFailed = false
         activeProfile = profile
         selectedHeroCatalogID = savedHeroCatalogs()[profile.id.uuidString]
@@ -238,6 +243,9 @@ final class MediaLibrary: ObservableObject {
     func remove(_ profile: MediaServerProfile) {
         loadID = UUID()
         loadedProfileID = nil
+        reconciledSeriesProfileID = nil
+        seriesReconcileTask?.cancel()
+        seriesReconcileTask = nil
         loadFailed = false
         MediaKeychainStore.delete(profileID: profile.id)
         profiles.removeAll { $0.id == profile.id }
@@ -280,6 +288,7 @@ final class MediaLibrary: ObservableObject {
     /// viewer would otherwise have to find in a menu.
     func loadShelvesIfNeeded() {
         guard let profile = activeProfile else { return }
+        reconcileSeriesPositionsIfNeeded(for: profile)
         guard MediaShelfLoad.shouldStart(profile: profile.id, loaded: loadedProfileID,
                                          alreadyRunning: shelfLoad != nil,
                                          lastAttemptFailed: loadFailed) else { return }
@@ -661,7 +670,7 @@ final class MediaLibrary: ObservableObject {
             return episodePrefix.map { $0 + " · Watched" } ?? "Watched"
         }
         if record.isUpNext == true {
-            return episodePrefix.map { $0 + " · Up Next" } ?? "Up Next"
+            return episodePrefix.map { $0 + " · Next Ep." } ?? "Next Ep."
         }
         let remaining = max(0, record.duration - record.position)
         let minutes = max(1, Int(ceil(remaining / 60)))
@@ -695,6 +704,7 @@ final class MediaLibrary: ObservableObject {
         let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
         let record = LocalMediaPlayback(profileID: profileID, item: item,
             position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
+        let wasCompleted = localPlayback.first(where: { $0.id == record.id })?.completed == true
         if let index = localPlayback.firstIndex(where: { $0.id == record.id }) {
             localPlayback[index] = record
         } else {
@@ -707,6 +717,11 @@ final class MediaLibrary: ObservableObject {
         }
         localPlayback = Array(retained)
         persistLocalPlayback()
+        if item.type == "Episode", completed, !wasCompleted {
+            Task { [weak self] in
+                await self?.advanceAfterCompletedPlayback(item, profileID: profileID)
+            }
+        }
     }
 
     func clearLocalPlayback() {
@@ -797,6 +812,26 @@ final class MediaLibrary: ObservableObject {
         persistLocalPlayback()
     }
 
+    /// A detail page gets the server's authoritative next episode while it is
+    /// already loading. Remember it so every poster for that series shows the
+    /// same useful position when the viewer returns to Library.
+    func rememberNextUp(_ episode: MediaItem) {
+        guard episode.type == "Episode", let profileID = activeProfile?.id else { return }
+        let key = Self.seriesKey(for: episode)
+        let hasRealProgress = localPlayback.contains { record in
+            record.profileID == profileID && Self.seriesKey(for: record.item) == key
+                && !record.completed && record.isUpNext != true && record.position >= 5
+                && record.explicitlyUnwatched != true
+        }
+        guard !hasRealProgress else { return }
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true
+                && Self.seriesKey(for: record.item) == key
+        }
+        queueAsUpNext(episode, explicitlyUnwatched: false)
+        persistLocalPlayback()
+    }
+
     func isWatched(_ item: MediaItem) -> Bool {
         if let local = localPlaybackRecord(for: item) {
             if local.explicitlyUnwatched == true { return false }
@@ -812,6 +847,76 @@ final class MediaLibrary: ObservableObject {
             .episodes(userID: profile.userID, seriesID: seriesID) else { return nil }
         return LocalEpisodeProgressionPolicy.nextEpisode(after: episode, in: episodes,
             isWatched: { [weak self] in self?.isWatched($0) == true })
+    }
+
+    private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
+        guard let profile = activeProfile, profile.id == profileID else { return }
+        let tracked = episode.seriesID == nil
+            ? ((try? await details(of: episode)) ?? episode)
+            : episode
+        let following = await followingUnwatchedEpisode(after: tracked, profile: profile)
+        guard activeProfile?.id == profileID else { return }
+        let key = Self.seriesKey(for: tracked)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true
+                && Self.seriesKey(for: record.item) == key
+        }
+        if let following { queueAsUpNext(following, explicitlyUnwatched: false) }
+        persistLocalPlayback()
+    }
+
+    /// Repair records written before automatic playback completion advanced a
+    /// series. It runs once per active profile, off the visible Library path.
+    private func reconcileSeriesPositionsIfNeeded(for profile: MediaServerProfile) {
+        guard reconciledSeriesProfileID != profile.id, seriesReconcileTask == nil else { return }
+        seriesReconcileTask = Task { [weak self] in
+            guard let self else { return }
+            await self.reconcileSeriesPositions(for: profile)
+            guard !Task.isCancelled, self.activeProfile?.id == profile.id else { return }
+            self.reconciledSeriesProfileID = profile.id
+            self.seriesReconcileTask = nil
+        }
+    }
+
+    private func reconcileSeriesPositions(for profile: MediaServerProfile) async {
+        let series = catalogs.flatMap(\.items).filter(\.isSeries)
+        let records: [(seriesID: String, record: LocalMediaPlayback)] = localPlayback.compactMap { record in
+            guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
+            if let seriesID = record.item.seriesID { return (seriesID, record) }
+            guard let name = record.item.seriesName,
+                  let matched = series.first(where: {
+                      $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+                  }) else { return nil }
+            return (matched.id, record)
+        }
+        let grouped = Dictionary(grouping: records) { $0.seriesID }
+        guard let source = try? client(for: profile) else { return }
+        for (seriesID, entries) in grouped {
+            let values = entries.map { $0.record }
+            guard !Task.isCancelled, activeProfile?.id == profile.id else { return }
+            let hasCurrentPosition = values.contains { record in
+                record.isUpNext == true || (!record.completed && record.position >= 5
+                    && record.explicitlyUnwatched != true)
+            }
+            guard !hasCurrentPosition,
+                  let anchor = values.filter(\.completed)
+                    .max(by: { $0.updatedAt < $1.updatedAt })?.item else { continue }
+
+            let serverNext = (try? await source.nextUp(
+                userID: profile.userID, seriesID: seriesID))?.first
+            let following: MediaItem?
+            if let serverNext, !isWatched(serverNext) {
+                following = serverNext
+            } else if let episodes = try? await source.episodes(
+                userID: profile.userID, seriesID: seriesID) {
+                following = LocalEpisodeProgressionPolicy.nextEpisode(after: anchor, in: episodes,
+                    isWatched: { [weak self] in self?.isWatched($0) == true })
+            } else {
+                following = nil
+            }
+            guard activeProfile?.id == profile.id else { return }
+            if let following { rememberNextUp(following) }
+        }
     }
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {

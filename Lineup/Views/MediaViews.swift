@@ -2123,6 +2123,7 @@ private struct MediaDetailScreen: View {
             seasons = seasonList
             let up = await media.nextUp(in: item)
             nextUp = up
+            if let up { media.rememberNextUp(up) }
             await loadSeason(seasonList.first { $0.indexNumber == up?.parentIndexNumber } ?? seasonList[0])
             pageReady = true
         } catch {
