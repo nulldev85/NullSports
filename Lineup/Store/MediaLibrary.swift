@@ -109,11 +109,25 @@ final class MediaLibrary: ObservableObject {
     /// not in Continue Watching, even if its final saved position is shy of the
     /// exact file duration.
     var continueWatching: [LocalMediaPlayback] {
-        playbackForActiveProfile.filter {
+        let candidates = playbackForActiveProfile.filter {
             !$0.completed && ($0.isUpNext == true
                 || ($0.explicitlyUnwatched != true && $0.position >= 5))
         }
-            .sorted { $0.updatedAt > $1.updatedAt }
+        // One show should occupy one place in Continue Watching. A genuine
+        // resume point is the current episode and must not be displaced by a
+        // newer generated Up Next record from the same series.
+        var selected: [String: LocalMediaPlayback] = [:]
+        for record in candidates {
+            let key = record.item.type == "Episode"
+                ? "series:" + Self.seriesKey(for: record.item)
+                : "item:" + record.item.id
+            if let existing = selected[key] {
+                if Self.prefersForDisplay(record, over: existing) { selected[key] = record }
+            } else {
+                selected[key] = record
+            }
+        }
+        return selected.values.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// Finished titles stay useful as a short, local history without taking
@@ -499,24 +513,43 @@ final class MediaLibrary: ObservableObject {
     }
 
     /// The progress a card should present. Films and episodes match directly;
-    /// a series poster represents the newest episode being watched in that
-    /// show. Prefer an unfinished episode so a recently completed one never
-    /// hides the actual place to continue.
+    /// a series poster represents the active episode being watched in that
+    /// show. Restored and genuine resume points outrank generated Up Next and
+    /// completed history so the card always describes the viewer's real place.
     func displayedPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
         if let exact = localPlaybackRecord(for: item) {
-            if exact.explicitlyUnwatched != true { return exact }
+            if exact.explicitlyUnwatched != true || exact.isUpNext == true { return exact }
             if !item.isSeries { return nil }
         }
         guard item.isSeries else { return nil }
         let matches = playbackForActiveProfile.filter { record in
-            guard record.item.type == "Episode", record.explicitlyUnwatched != true else { return false }
+            guard record.item.type == "Episode",
+                  (record.explicitlyUnwatched != true || record.isUpNext == true) else { return false }
             if let seriesID = record.item.seriesID { return seriesID == item.id }
             return record.item.seriesName?.localizedCaseInsensitiveCompare(item.name) == .orderedSame
         }
         return matches.sorted { left, right in
-            if left.completed != right.completed { return !left.completed }
+            let leftPriority = Self.displayPriority(left)
+            let rightPriority = Self.displayPriority(right)
+            if leftPriority != rightPriority { return leftPriority < rightPriority }
             return left.updatedAt > right.updatedAt
         }.first
+    }
+
+    nonisolated private static func displayPriority(_ record: LocalMediaPlayback) -> Int {
+        if record.explicitlyUnwatched == true && record.isUpNext == true { return 0 }
+        if !record.completed && record.isUpNext != true && record.position >= 5 { return 1 }
+        if !record.completed && record.isUpNext == true { return 2 }
+        if record.completed { return 3 }
+        return 4
+    }
+
+    nonisolated private static func prefersForDisplay(_ candidate: LocalMediaPlayback,
+                                                       over existing: LocalMediaPlayback) -> Bool {
+        let candidatePriority = displayPriority(candidate)
+        let existingPriority = displayPriority(existing)
+        if candidatePriority != existingPriority { return candidatePriority < existingPriority }
+        return candidate.updatedAt > existing.updatedAt
     }
 
     /// One consistent line under artwork throughout the Library.

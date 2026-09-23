@@ -115,6 +115,35 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertEqual(library.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
     }
 
+    func testSeriesArtworkPrefersRealProgressOverGeneratedUpNext() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let previous = MediaItem(id: "s1e2", name: "Previous", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let current = MediaItem(id: "s1e3", name: "Current", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 3, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let generatedNext = MediaItem(id: "s2e1", name: "Generated", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+
+        library.trackPlayback(of: current, position: 600, duration: 3_600)
+        library.applyLocalEpisodeProgression(true, for: previous, following: generatedNext)
+
+        XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, current.id)
+        XCTAssertEqual(library.playbackStatus(for: series), "S01E03 · 50 minutes left")
+        XCTAssertEqual(library.continueWatching.map(\.item.id), [current.id])
+
+        library.applyLocalEpisodeProgression(false, for: previous, following: nil)
+
+        XCTAssertEqual(library.displayedPlaybackRecord(for: series)?.item.id, previous.id)
+        XCTAssertEqual(library.playbackStatus(for: series), "S01E02 · Up Next")
+        XCTAssertEqual(library.continueWatching.map(\.item.id), [previous.id])
+    }
+
     func testEpisodeProgressionCrossesSeasonsAndSkipsWatchedEpisodes() {
         let current = MediaItem(id: "s1e2", name: "Finale", type: "Episode", overview: nil,
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
