@@ -8,6 +8,7 @@ private struct MobileScheduleRefreshContext: Equatable {
 struct MainView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
+    @EnvironmentObject private var onDemand: OnDemandLibrary
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
@@ -28,6 +29,13 @@ struct MainView: View {
                 .id(library.activeProfile?.id)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
+            // Third in the bar but tagged 4, so every existing jump to
+            // Library (2) and Account (3) still lands where it did.
+            if onDemand.isAvailable {
+                OnDemandView()
+                    .lineupThemeScope(selectedTheme)
+                    .tabItem { Label("On Demand", systemImage: tab == 4 ? "film.stack.fill" : "film.stack") }.tag(4)
+            }
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
@@ -45,6 +53,9 @@ struct MainView: View {
         .onChange(of: library.activeProfile?.id) { _, _ in
             playing = nil
             inlinePlayerFullscreen = false
+        }
+        .onChange(of: onDemand.isAvailable) { _, available in
+            if !available && tab == 4 { tab = 0 }
         }
         .statusBarHidden(inlinePlayerFullscreen)
         .persistentSystemOverlays(inlinePlayerFullscreen ? .hidden : .automatic)

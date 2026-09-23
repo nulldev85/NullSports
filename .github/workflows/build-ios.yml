@@ -51,6 +51,8 @@ jobs:
           /tmp/team-preference-checks
           swiftc Lineup/Services/StreamFailover.swift Lineup/Services/RecentChannels.swift Tests/StreamFailoverChecks.swift -o /tmp/stream-failover-checks
           /tmp/stream-failover-checks
+          swiftc Lineup/Models/OnDemandModels.swift Lineup/Services/OnDemandProgress.swift Tests/OnDemandChecks.swift -o /tmp/on-demand-checks
+          /tmp/on-demand-checks
       - name: Check live playback recovery and professional matchup evidence
         run: |
           set -euo pipefail

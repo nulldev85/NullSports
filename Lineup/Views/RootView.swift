@@ -63,6 +63,7 @@ struct RootView: View {
 
 #if os(tvOS)
 struct MainView: View {
+    @EnvironmentObject private var onDemand: OnDemandLibrary
     @State private var selectedTab = 0
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
@@ -78,6 +79,14 @@ struct MainView: View {
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
+            // Third in the bar but tagged 4, so every existing jump to
+            // Library (2) and Account (3) still lands where it did.
+            if onDemand.isAvailable {
+                OnDemandView()
+                    .lineupThemeScope(selectedTheme)
+                    .tabItem { Label("On Demand", systemImage: selectedTab == 4 ? "film.stack.fill" : "film.stack") }
+                    .tag(4)
+            }
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
@@ -93,6 +102,9 @@ struct MainView: View {
         // fail to restore it afterward. Keep the route back to every section
         // present; focus can still move down into content normally.
         .toolbar(.visible, for: .tabBar)
+        .onChange(of: onDemand.isAvailable) { _, available in
+            if !available && selectedTab == 4 { selectedTab = 0 }
+        }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
     }

@@ -5,6 +5,7 @@ import UIKit
 struct LineupApp: App {
     @StateObject private var library = SportsLibrary()
     @StateObject private var media = MediaLibrary()
+    @StateObject private var onDemand = OnDemandLibrary()
     @StateObject private var cloud = CloudSettingsSync.shared
     @StateObject private var reminders = GameReminders.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -24,6 +25,7 @@ struct LineupApp: App {
             RootView()
                 .environmentObject(library)
                 .environmentObject(media)
+                .environmentObject(onDemand)
                 .environmentObject(reminders)
                 .environmentObject(cloud)
                 // Inter for everything that never asked for a font of its own
@@ -47,6 +49,10 @@ struct LineupApp: App {
                         reminders.restore()
                     }
                 }
+                // On Demand follows whichever provider Live and Guide are
+                // showing; it has no provider choice of its own.
+                .onReceive(library.$activeProfile) { onDemand.activate($0) }
+                .onReceive(library.$profiles) { onDemand.providersChanged($0) }
                 .onReceive(library.$gamesByLeague) { games in
                     reminders.updateGames(games.values.flatMap { $0 })
                 }

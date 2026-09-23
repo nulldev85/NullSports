@@ -154,6 +154,25 @@ throughout. Device checks: background audio with the screen locked, PiP from bot
 players, expand/collapse and rotate while playing, an HLS channel that fails over
 to VLC, a game whose channel dies mid-stream, and switching providers.
 
+Lineup 0.20.0 adds **On Demand**, on Apple TV and iPhone: the active IPTV
+provider's movies and series, from the same Xtream login as Live and Guide.
+Movies and Series each show a row per provider category, with Continue Watching
+above them. Categories load as they scroll into view and are cached per
+provider, so the next launch draws immediately and refreshes behind the screen.
+Search covers the whole catalogue; the first search downloads it once, which can
+take a moment on a large provider. Each title has a page with its artwork, plot,
+runtime, rating and credits. A series page adds a season picker and episode
+list, and its Play button resumes the episode under way or starts the next
+unwatched one. Finishing an episode files the next as Up Next in Continue
+Watching. Progress, watched status and Continue Watching are stored on the device
+per provider and are not yet synced through iCloud. Provider names are shown
+without language tags such as "EN -" or "[4K]". The tab hides itself for a
+provider that offers no movies or series. On iPhone most on-demand files (mkv)
+play through VLC, so Picture in Picture is not offered for them. Device checks:
+browse both kinds, open a movie and a series, play, leave part way and resume
+from the page and from Continue Watching, finish an episode and confirm Up
+Next, search, switch providers, and remove a provider.
+
 iPhone 0.17.10 corrects the simulator test host path to the actual Lineup.app
 executable. It also anchors the EPG content at the top, prevents the nested guide
 scrollers from adding duplicate navigation insets, and disables horizontal

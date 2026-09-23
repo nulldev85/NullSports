@@ -28,6 +28,7 @@ import sys
 TARGET_FILES = [
     "Lineup/Views/ChannelViews.swift",
     "Lineup/Views/MediaViews.swift",
+    "Lineup/Views/OnDemandViews.swift",
     "Lineup/Views/RootView.swift",
     "Lineup/Design/LineupStyle.swift",
     "Lineup/Design/TeamBadge.swift",

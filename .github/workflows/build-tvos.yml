@@ -39,6 +39,12 @@ jobs:
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
           /tmp/lineup-daily-cache-checks
 
+      - name: Check on-demand decoding and watch progress
+        run: |
+          set -euo pipefail
+          swiftc Lineup/Models/OnDemandModels.swift Lineup/Services/OnDemandProgress.swift Tests/OnDemandChecks.swift -o /tmp/lineup-on-demand-checks
+          /tmp/lineup-on-demand-checks
+
       - name: Install project generator
         run: brew install xcodegen
 

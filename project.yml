@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.19.0"
-    CURRENT_PROJECT_VERSION: "71"
+    MARKETING_VERSION: "0.20.0"
+    CURRENT_PROJECT_VERSION: "72"
 packages:
   # VLCKit's official Swift Package is only published on the 4.0 alpha line
   # (still at a22, undocumented in places, and the source of two build
@@ -59,6 +59,7 @@ targets:
       - Lineup/LineupApp.swift
       - Lineup/Views/RootView.swift
       - Lineup/Views/MediaViews.swift
+      - Lineup/Views/OnDemandViews.swift
       - iPhone
     dependencies:
       - package: VLCKitSPM
@@ -66,8 +67,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
         PRODUCT_MODULE_NAME: LineupiOS
-        MARKETING_VERSION: "0.19.0"
-        CURRENT_PROJECT_VERSION: "90"
+        MARKETING_VERSION: "0.20.0"
+        CURRENT_PROJECT_VERSION: "91"
         PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
         # An explicit Info.plist, not INFOPLIST_KEY_* settings. UIBackgroundModes
