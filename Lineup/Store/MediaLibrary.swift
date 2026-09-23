@@ -79,6 +79,22 @@ final class MediaLibrary: ObservableObject {
     /// which is most of a slow one.
     private var loadedProfileID: UUID?
     private var shelfLoad: Task<Void, Never>?
+    /// A successful Library is restored before the network is touched on the
+    /// next launch. The refresh still runs, but it replaces a useful screen
+    /// instead of a spinner.
+    private struct LibrarySnapshot: Codable, Sendable {
+        let roots: [MediaItem]
+        let collections: [MediaItem]
+        let importedCatalogs: [MediaItem]
+        let catalogs: [MediaCatalog]
+        let counts: MediaLibraryCounts?
+        let refreshedAt: Date
+    }
+    private struct CachedDetail {
+        let item: MediaItem
+        let storedAt: Date
+    }
+    private var detailCache: [String: CachedDetail] = [:]
     /// Set when the last attempt ended without shelves, so the tab can say so
     /// and offer to try again instead of claiming there is nothing to show.
     @Published private(set) var loadFailed = false
@@ -101,6 +117,7 @@ final class MediaLibrary: ObservableObject {
            let saved = try? JSONDecoder().decode([LocalMediaFavorite].self, from: data) {
             localFavorites = saved
         }
+        if let profile = activeProfile { restoreLibrarySnapshot(for: profile) }
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -213,6 +230,7 @@ final class MediaLibrary: ObservableObject {
         libraryCounts = nil
         lastRefreshedAt = nil
         isConnected = false
+        restoreLibrarySnapshot(for: profile)
         persist()
         await reload()
     }
@@ -228,6 +246,7 @@ final class MediaLibrary: ObservableObject {
         localFavorites.removeAll { $0.profileID == profile.id }
         persistLocalFavorites()
         saveMDBListShelfIDs([], profileID: profile.id)
+        try? FileManager.default.removeItem(at: Self.snapshotURL(profileID: profile.id))
         var heroChoices = savedHeroCatalogs()
         heroChoices.removeValue(forKey: profile.id.uuidString)
         if heroChoices.isEmpty { defaults.removeObject(forKey: heroCatalogKey) }
@@ -241,6 +260,7 @@ final class MediaLibrary: ObservableObject {
             libraryCounts = nil
             lastRefreshedAt = nil
             isConnected = false
+            if let activeProfile { restoreLibrarySnapshot(for: activeProfile) }
         }
         isLoading = false
         persist()
@@ -280,7 +300,6 @@ final class MediaLibrary: ObservableObject {
         loadID = requestID
         isLoading = true
         isConnected = false
-        libraryCounts = nil
         errorMessage = nil
         do {
             let source = try client(for: profile)
@@ -297,20 +316,29 @@ final class MediaLibrary: ObservableObject {
                 .filter { !known.contains($0.id) }
             let shelvable = loaded + loadedCollections
             let selectedRoots = selectedShelfRoots(from: shelvable, profileID: profile.id)
-            let loadedCatalogs = await withTaskGroup(of: MediaCatalog.self) { group in
-                for root in selectedRoots {
+            let coldStart = catalogs.isEmpty
+            let loadedCatalogs = await withTaskGroup(of: (Int, MediaCatalog).self) { group in
+                for (index, root) in selectedRoots.enumerated() {
                     group.addTask {
                         let items = (try? await source.items(userID: profile.userID, parentID: root.id)) ?? []
-                        return MediaCatalog(root: root, items: items)
+                        return (index, MediaCatalog(root: root, items: items))
                     }
                 }
-                var result: [MediaCatalog] = []
-                for await catalog in group { result.append(catalog) }
-                return result.sorted { left, right in
-                    let leftIndex = shelvable.firstIndex { $0.id == left.id } ?? .max
-                    let rightIndex = shelvable.firstIndex { $0.id == right.id } ?? .max
-                    return leftIndex < rightIndex
+                var result: [Int: MediaCatalog] = [:]
+                for await (index, catalog) in group {
+                    result[index] = catalog
+                    // On a device with no snapshot yet, reveal the first real
+                    // shelf as soon as it arrives. Later results are committed
+                    // together so a normal refresh does not repeatedly rebuild
+                    // the screen.
+                    if coldStart, catalogs.isEmpty, !catalog.items.isEmpty,
+                       loadID == requestID, activeProfile?.id == profile.id {
+                        roots = loaded
+                        collections = loadedCollections
+                        catalogs = [catalog]
+                    }
                 }
+                return result.keys.sorted().compactMap { result[$0] }
             }
             let loadedMDBListCatalogs = await loadSavedMDBListShelves(source: source, profile: profile)
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
@@ -326,7 +354,9 @@ final class MediaLibrary: ObservableObject {
                 let counts = try? await source.libraryCounts(userID: profile.userID)
                 guard loadID == requestID, activeProfile?.id == profile.id else { return }
                 libraryCounts = counts
+                persistLibrarySnapshot(profileID: profile.id)
             }
+            persistLibrarySnapshot(profileID: profile.id)
         } catch {
             guard loadID == requestID, activeProfile?.id == profile.id else { return }
             // A cancelled load is the app's own bookkeeping, not a fault: a
@@ -373,7 +403,13 @@ final class MediaLibrary: ObservableObject {
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
         guard let profile = activeProfile else { return item }
-        return try await client(for: profile).item(userID: profile.userID, itemID: item.id)
+        let key = profile.id.uuidString + "|" + item.id
+        if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 {
+            return cached.item
+        }
+        let detailed = try await client(for: profile).item(userID: profile.userID, itemID: item.id)
+        detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
+        return detailed
     }
 
     func related(to item: MediaItem) async -> [MediaItem] {
@@ -527,6 +563,7 @@ final class MediaLibrary: ObservableObject {
         errorMessage = nil
         catalogs.removeAll { Self.isMDBListShelfID($0.id) }
         defaults.removeObject(forKey: mdbListShelvesKey)
+        if let profileID = activeProfile?.id { persistLibrarySnapshot(profileID: profileID) }
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -551,18 +588,23 @@ final class MediaLibrary: ObservableObject {
             if !item.isSeries { return nil }
         }
         guard item.isSeries else { return nil }
-        let matches = playbackForActiveProfile.filter { record in
+        guard let profileID = activeProfile?.id else { return nil }
+        var best: LocalMediaPlayback?
+        for record in localPlayback where record.profileID == profileID {
             guard record.item.type == "Episode",
-                  (record.explicitlyUnwatched != true || record.isUpNext == true) else { return false }
-            if let seriesID = record.item.seriesID { return seriesID == item.id }
-            return record.item.seriesName?.localizedCaseInsensitiveCompare(item.name) == .orderedSame
+                  (record.explicitlyUnwatched != true || record.isUpNext == true) else { continue }
+            let belongsToSeries: Bool
+            if let seriesID = record.item.seriesID { belongsToSeries = seriesID == item.id }
+            else { belongsToSeries = record.item.seriesName?
+                .localizedCaseInsensitiveCompare(item.name) == .orderedSame }
+            guard belongsToSeries else { continue }
+            if let existing = best {
+                if Self.prefersForDisplay(record, over: existing) { best = record }
+            } else {
+                best = record
+            }
         }
-        return matches.sorted { left, right in
-            let leftPriority = Self.displayPriority(left)
-            let rightPriority = Self.displayPriority(right)
-            if leftPriority != rightPriority { return leftPriority < rightPriority }
-            return left.updatedAt > right.updatedAt
-        }.first
+        return best
     }
 
     nonisolated private static func displayPriority(_ record: LocalMediaPlayback) -> Int {
@@ -583,7 +625,28 @@ final class MediaLibrary: ObservableObject {
 
     /// One consistent line under artwork throughout the Library.
     func playbackStatus(for item: MediaItem) -> String? {
-        guard let record = displayedPlaybackRecord(for: item) else {
+        playbackStatus(for: item, record: displayedPlaybackRecord(for: item))
+    }
+
+    /// One lookup supplies every piece a shelf card needs. Keeping this work
+    /// together matters when dozens of cards enter during a fast scroll: the
+    /// older view independently searched tracking history for the progress
+    /// line, the checkmark, and then the label again.
+    func cardPlaybackPresentation(for item: MediaItem)
+        -> (fraction: Double, label: String, watched: Bool)? {
+        let record = displayedPlaybackRecord(for: item)
+        if let record, record.completed || record.fraction > 0 || record.isUpNext == true,
+           let label = playbackStatus(for: item, record: record) {
+            return (record.completed ? 1 : record.fraction, label,
+                    record.completed || item.isPlayed)
+        }
+        guard isWatched(item),
+              let label = playbackStatus(for: item, record: record) else { return nil }
+        return (1, label, true)
+    }
+
+    private func playbackStatus(for item: MediaItem, record: LocalMediaPlayback?) -> String? {
+        guard let record else {
             // A server-supplied watched flag may predate local tracking. It
             // still deserves the same visible treatment as a locally watched
             // title instead of leaving the checkmark to carry the state alone.
@@ -797,6 +860,40 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    /// Save only the last complete answer. A half-loaded refresh never
+    /// replaces the screen that is known to work.
+    private func persistLibrarySnapshot(profileID: UUID) {
+        guard activeProfile?.id == profileID else { return }
+        let snapshot = LibrarySnapshot(roots: roots, collections: collections,
+            importedCatalogs: importedCatalogs, catalogs: catalogs,
+            counts: libraryCounts, refreshedAt: lastRefreshedAt ?? Date())
+        let url = Self.snapshotURL(profileID: profileID)
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Disk decoding is dramatically cheaper than repeating several server
+    /// requests, and it happens only once when a profile becomes active.
+    private func restoreLibrarySnapshot(for profile: MediaServerProfile) {
+        let url = Self.snapshotURL(profileID: profile.id)
+        guard let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data) else { return }
+        roots = snapshot.roots
+        collections = snapshot.collections
+        importedCatalogs = snapshot.importedCatalogs
+        catalogs = snapshot.catalogs
+        libraryCounts = snapshot.counts
+        lastRefreshedAt = snapshot.refreshedAt
+        loadFailed = false
+    }
+
+    nonisolated private static func snapshotURL(profileID: UUID) -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-library-\(profileID.uuidString).json")
+    }
+
     /// Search the server, with what is already shelved as the fallback.
     ///
     /// The server's own results come first, because those are titles the viewer
@@ -835,6 +932,7 @@ final class MediaLibrary: ObservableObject {
         catch { if !Self.isCancellation(error) { errorMessage = error.localizedDescription } }
         catalogs.append(MediaCatalog(root: root, items: loaded))
         saveShelfIDs(catalogs.map(\.id).filter { !Self.isMDBListShelfID($0) }, profileID: profile.id)
+        persistLibrarySnapshot(profileID: profile.id)
     }
 
     func addMDBListShelf(_ list: MDBListCatalog) async {
@@ -851,6 +949,7 @@ final class MediaLibrary: ObservableObject {
             if !ids.contains(list.id) { ids.append(list.id) }
             saveMDBListShelfIDs(ids, profileID: profile.id)
             errorMessage = nil
+            persistLibrarySnapshot(profileID: profile.id)
         } catch {
             if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
         }
@@ -872,6 +971,7 @@ final class MediaLibrary: ObservableObject {
             else { defaults.set(try? JSONEncoder().encode(saved), forKey: heroCatalogKey) }
             if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
         }
+        persistLibrarySnapshot(profileID: profile.id)
     }
 
     var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }

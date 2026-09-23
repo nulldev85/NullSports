@@ -73,6 +73,22 @@ final class MediaServerTests: XCTestCase {
         XCTAssertNotNil(client.playbackURL(itemID: "movie"))
     }
 
+    func testCatalogShelfCanRoundTripThroughTheLaunchCache() throws {
+        let catalog = MediaCatalog(
+            root: MediaItem(id: "shows", name: "Shows", type: "CollectionFolder",
+                overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: 1),
+            items: [MediaItem(id: "show", name: "Show", type: "Series",
+                overview: "Cached synopsis", productionYear: 2026,
+                primaryImageAspectRatio: 0.667, childCount: 8)]
+        )
+
+        let restored = try JSONDecoder().decode(MediaCatalog.self,
+            from: JSONEncoder().encode(catalog))
+
+        XCTAssertEqual(restored, catalog)
+        XCTAssertEqual(restored.items.first?.overview, "Cached synopsis")
+    }
+
     func testSearchResultDecodesAddonMoviesAndSeries() throws {
         let data = Data(#"{"Items":[{"Id":"addon-movie","Name":"Addon Movie","Type":"Movie","Overview":"Metadata provider result"},{"Id":"addon-series","Name":"Addon Series","Type":"Series","ChildCount":3}]}"#.utf8)
         let response = try JSONDecoder().decode(JellyfinItemsResponse.self, from: data)

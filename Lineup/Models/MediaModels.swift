@@ -463,7 +463,7 @@ struct MediaMetricsResponse: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case metrics = "Metrics" }
 }
 
-struct MediaCatalog: Identifiable, Hashable, Sendable {
+struct MediaCatalog: Codable, Identifiable, Hashable, Sendable {
     let root: MediaItem
     let items: [MediaItem]
     var id: String { root.id }
@@ -486,7 +486,7 @@ enum MediaHeroCatalogSelection {
     }
 }
 
-struct MediaLibraryCounts: Equatable, Sendable {
+struct MediaLibraryCounts: Codable, Equatable, Sendable {
     let movies: Int
     let shows: Int
     let episodes: Int

@@ -26,7 +26,7 @@ struct MediaServersView: View {
                     } actions: {
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
-                } else if media.shelves.isEmpty && media.isLoading {
+                } else if media.roots.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
                 } else if media.shelves.isEmpty && media.loadFailed {
                     // Not "Choose Your Shelves". An attempt that failed and a
@@ -439,7 +439,7 @@ private struct TVMediaServersHome: View {
         Group {
             if !media.hasAnySource {
                 TVMediaEmptyState(addServer: { addingServer = true })
-            } else if media.shelves.isEmpty && media.isLoading {
+            } else if media.roots.isEmpty && media.isLoading {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
                     Text("Loading your libraries…").font(.inter(.headline))
@@ -570,9 +570,7 @@ private struct MediaCatalogsScreen: View {
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
     #if os(tvOS)
-    @State private var focusedLibraryItem: MediaItem?
-    @State private var focusedLibraryDetails: [String: MediaItem] = [:]
-    @State private var focusedLibraryPosterIDs: Set<String> = []
+    @StateObject private var tvPreview = TVMediaPreviewState()
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
@@ -585,10 +583,6 @@ private struct MediaCatalogsScreen: View {
             ?? catalogs.first(where: { !$0.items.isEmpty })?.items.first
             ?? favoriteTitles.first
             ?? favoriteEpisodes.first
-    }
-    private var previewItem: MediaItem? {
-        let focused = focusedLibraryItem ?? defaultPreviewItem
-        return focused.flatMap { focusedLibraryDetails[$0.id] } ?? focused
     }
     #endif
 
@@ -633,10 +627,7 @@ private struct MediaCatalogsScreen: View {
                 } else {
                     #if os(tvOS)
                     ZStack(alignment: .top) {
-                        TVMediaCinematicBackdrop(item: previewItem)
-                        TVMediaLibraryPreview(item: previewItem)
-                            .frame(height: tvPreviewHeight)
-                            .allowsHitTesting(false)
+                        TVMediaLibraryCanvas(preview: tvPreview, height: tvPreviewHeight)
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                                 Color.clear.frame(height: tvPreviewHeight)
@@ -695,11 +686,11 @@ private struct MediaCatalogsScreen: View {
             searching = false
         }
         #if os(tvOS)
-        .task(id: focusedLibraryItem?.id) { await loadFocusedLibraryDetail() }
         .task { await rotateLibraryPreview() }
         .onAppear {
-            if focusedLibraryItem == nil { focusedLibraryItem = defaultPreviewItem }
+            tvPreview.setInitial(defaultPreviewItem)
         }
+        .onChange(of: media.activeProfile?.id) { _, _ in tvPreview.reset(to: defaultPreviewItem) }
         #endif
     }
 
@@ -787,10 +778,9 @@ private struct MediaCatalogsScreen: View {
 
     #if os(tvOS)
     private func preview(_ item: MediaItem, when focused: Bool) {
-        if focused { focusedLibraryPosterIDs.insert(item.id) }
-        else { focusedLibraryPosterIDs.remove(item.id) }
-        guard focused, focusedLibraryItem?.id != item.id else { return }
-        focusedLibraryItem = item
+        tvPreview.focus(item, focused: focused) { item in
+            try? await media.details(of: item)
+        }
     }
 
     private func rotateLibraryPreview() async {
@@ -800,7 +790,7 @@ private struct MediaCatalogsScreen: View {
                 do { try await Task.sleep(for: .seconds(8)) } catch { return }
                 continue
             }
-            let current = focusedLibraryItem.flatMap { current in
+            let current = tvPreview.item.flatMap { current in
                 candidates.firstIndex(where: { $0.id == current.id })
             } ?? -1
             let next = candidates[(current + 1) % candidates.count]
@@ -809,13 +799,15 @@ private struct MediaCatalogsScreen: View {
             // artwork already in memory, without making the interval longer.
             Task { await preloadBackdrop(for: next) }
             do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            guard focusedLibraryPosterIDs.isEmpty, !Task.isCancelled else { continue }
+            guard !tvPreview.isNavigating, !Task.isCancelled else { continue }
             // A weak connection may miss this particular turn, but the hero
             // never rotates to a blank frame. The already-running shared load
             // keeps going and the next eight-second tick can use it.
             guard backdropIsReady(for: next) else { continue }
             withAnimation(.easeInOut(duration: 0.45)) {
-                focusedLibraryItem = next
+                tvPreview.rotate(to: next) { item in
+                    try? await media.details(of: item)
+                }
             }
         }
     }
@@ -834,19 +826,6 @@ private struct MediaCatalogsScreen: View {
         guard let url = media.backdropURL(for: item, width: 1920)
             ?? media.imageURL(for: item, width: 1920) else { return nil }
         return (url, LineupArt.pixels(for: 1920))
-    }
-
-    private func loadFocusedLibraryDetail() async {
-        guard let item = focusedLibraryItem else { return }
-        if focusedLibraryDetails[item.id] != nil { return }
-        // Focus can cross several posters in a single remote gesture. Let it
-        // settle before asking the server for richer cast/logo metadata; the
-        // shelf-provided backdrop is already on screen immediately.
-        do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
-        guard !Task.isCancelled else { return }
-        let loaded = try? await media.details(of: item)
-        guard !Task.isCancelled, focusedLibraryItem?.id == item.id else { return }
-        if let loaded { focusedLibraryDetails[item.id] = loaded }
     }
 
     private var tvPreviewHeight: CGFloat { 500 }
@@ -2287,7 +2266,7 @@ private struct MediaEpisodeCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
-                    if media.isWatched(episode) {
+                    if playback?.watched == true {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 26, height: 26)
@@ -2318,14 +2297,8 @@ private struct MediaEpisodeCard: View {
         .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
-    private var playbackPresentation: (fraction: Double, label: String)? {
-        if let record = media.displayedPlaybackRecord(for: episode),
-           record.completed || record.fraction > 0 || record.isUpNext == true,
-           let label = media.playbackStatus(for: episode) {
-            return (record.completed ? 1 : record.fraction, label)
-        }
-        guard media.isWatched(episode), let label = media.playbackStatus(for: episode) else { return nil }
-        return (1, label)
+    private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
+        media.cardPlaybackPresentation(for: episode)
     }
 
     private var footer: String {
@@ -2384,6 +2357,79 @@ private struct MediaPlayableCard: View {
 }
 
 #if os(tvOS)
+/// Owns the rapidly changing focus preview outside the catalog view tree. A
+/// remote move now redraws the two cinematic layers only; it does not ask
+/// every shelf and poster to recompute while focus is in motion.
+@MainActor
+private final class TVMediaPreviewState: ObservableObject {
+    @Published private(set) var item: MediaItem?
+    private var details: [String: MediaItem] = [:]
+    private var focusedPosterIDs: Set<String> = []
+    private var detailLoad: Task<Void, Never>?
+
+    var isNavigating: Bool { !focusedPosterIDs.isEmpty }
+
+    func setInitial(_ initial: MediaItem?) {
+        guard item == nil else { return }
+        item = initial.flatMap { details[$0.id] } ?? initial
+    }
+
+    func reset(to initial: MediaItem?) {
+        detailLoad?.cancel()
+        focusedPosterIDs.removeAll()
+        details.removeAll(keepingCapacity: true)
+        item = initial
+    }
+
+    func focus(_ focusedItem: MediaItem, focused: Bool,
+               load: @escaping @MainActor (MediaItem) async -> MediaItem?) {
+        if focused { focusedPosterIDs.insert(focusedItem.id) }
+        else { focusedPosterIDs.remove(focusedItem.id) }
+        guard focused, item?.id != focusedItem.id else { return }
+        detailLoad?.cancel()
+        item = details[focusedItem.id] ?? focusedItem
+        guard details[focusedItem.id] == nil else { return }
+        detailLoad = Task { [weak self] in
+            // A swipe can cross several posters. The shelf item changes the
+            // art immediately; rich metadata waits for focus to settle.
+            do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
+            guard !Task.isCancelled, let loaded = await load(focusedItem),
+                  !Task.isCancelled, self?.item?.id == focusedItem.id else { return }
+            self?.details[focusedItem.id] = loaded
+            self?.item = loaded
+        }
+    }
+
+    func rotate(to next: MediaItem,
+                load: @escaping @MainActor (MediaItem) async -> MediaItem?) {
+        detailLoad?.cancel()
+        item = details[next.id] ?? next
+        guard details[next.id] == nil else { return }
+        detailLoad = Task { [weak self] in
+            guard let loaded = await load(next), !Task.isCancelled,
+                  self?.item?.id == next.id else { return }
+            self?.details[next.id] = loaded
+            self?.item = loaded
+        }
+    }
+}
+
+/// The only observer of focus-preview changes. Keeping this tiny boundary is
+/// what lets the poster shelves stay still while the room behind them changes.
+private struct TVMediaLibraryCanvas: View {
+    @ObservedObject var preview: TVMediaPreviewState
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            TVMediaCinematicBackdrop(item: preview.item)
+            TVMediaLibraryPreview(item: preview.item)
+                .frame(height: height)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 /// The artwork plane behind both Library browsing and the selected-title page.
 /// It is fixed while shelves move, so focus changes the room rather than
 /// repainting a rectangle behind one row.
@@ -2547,7 +2593,7 @@ private struct MediaLibraryHero: View {
                 GeometryReader { viewport in
                     TabView(selection: $index) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
-                            heroSlide(item: item)
+                            heroSlide(item: item, loadsArtwork: isAdjacentToCurrent(offset))
                                 .frame(width: viewport.size.width, height: viewport.size.height)
                                 .tag(offset)
                         }
@@ -2586,7 +2632,7 @@ private struct MediaLibraryHero: View {
         }
     }
 
-    private func heroSlide(item: MediaItem) -> some View {
+    private func heroSlide(item: MediaItem, loadsArtwork: Bool = true) -> some View {
         GeometryReader { slide in
             let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
             let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
@@ -2595,9 +2641,16 @@ private struct MediaLibraryHero: View {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                LineupArtView(url: media.backdropURL(for: item, width: artWidth)
-                              ?? media.imageURL(for: item, width: artWidth),
-                              width: CGFloat(artWidth)) { image in
+                LineupArtView(url: loadsArtwork
+                              ? (media.backdropURL(for: item, width: artWidth)
+                                 ?? media.imageURL(for: item, width: artWidth))
+                              : nil,
+                              // Decode for the actual viewport, not the
+                              // server request's pixel ceiling. On a 3x phone
+                              // the old value produced a 3300-pixel image for
+                              // a roughly 390-point hero and churned the image
+                              // cache every time the carousel advanced.
+                              width: slide.size.width) { image in
                     if let image { image.resizable().scaledToFill() }
                     else { Color.clear }
                 }
@@ -2680,6 +2733,12 @@ private struct MediaLibraryHero: View {
          item.formattedRuntime,
          item.communityRating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
             .compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    private func isAdjacentToCurrent(_ page: Int) -> Bool {
+        guard items.count > 2 else { return true }
+        let distance = abs(page - index)
+        return distance <= 1 || distance == items.count - 1
     }
 
     #if os(tvOS)
@@ -3433,7 +3492,7 @@ private struct MediaItemCard: View {
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .overlay(alignment: .bottomTrailing) {
-                    if media.isWatched(item) || playback?.label.hasSuffix("Watched") == true {
+                    if playback?.watched == true {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .heavy))
                             .foregroundStyle(LineupStyle.background)
@@ -3469,14 +3528,8 @@ private struct MediaItemCard: View {
         .focusLift(focused, scale: LineupStyle.cardLift)
     }
 
-    private var playbackPresentation: (fraction: Double, label: String)? {
-        if let record = media.displayedPlaybackRecord(for: item),
-           record.completed || record.fraction > 0 || record.isUpNext == true,
-           let label = media.playbackStatus(for: item) {
-            return (record.completed ? 1 : record.fraction, label)
-        }
-        guard media.isWatched(item), let label = media.playbackStatus(for: item) else { return nil }
-        return (1, label)
+    private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
+        media.cardPlaybackPresentation(for: item)
     }
 
     /// The widest this card is ever drawn -- the top of the grid's adaptive
