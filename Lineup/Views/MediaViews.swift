@@ -742,7 +742,7 @@ private struct MediaCatalogsScreen: View {
                                 Group {
                                     if item.opensPage {
                                         #if os(tvOS)
-                                        TVSelectable(action: { pushed = item },
+                                        TVSelectable(drawsFocusChrome: false, action: { pushed = item },
                                                      onFocusChange: { focused in preview(item, when: focused) }) {
                                             MediaItemCard(item: item, shape: shape)
                                         }
@@ -860,7 +860,7 @@ private struct MediaCatalogsScreen: View {
                         Group {
                             if trackedItem.opensPage {
                                 #if os(tvOS)
-                                TVSelectable(action: { pushed = trackedItem },
+                                TVSelectable(drawsFocusChrome: false, action: { pushed = trackedItem },
                                              onFocusChange: { focused in preview(trackedItem, when: focused) }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
@@ -1049,7 +1049,9 @@ private struct MediaGridScreen: View {
                 ForEach(items) { item in
                     if item.opensPage {
                         #if os(tvOS)
-                        TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
+                        TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
+                            MediaItemCard(item: item, shape: shape)
+                        }
                         #else
                         NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                             .lineupFlatButton()
@@ -1579,7 +1581,8 @@ private struct MediaDetailScreen: View {
 
     private var tvActions: some View {
         HStack(spacing: 16) {
-            TVSelectable(scale: LineupStyle.controlLift, action: { chosen = playTarget },
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                         action: { chosen = playTarget },
                          requestInitialFocus: true) {
                 HStack(spacing: 10) {
                     Image(systemName: "play.fill")
@@ -1589,14 +1592,13 @@ private struct MediaDetailScreen: View {
                     }
                 }
                 .font(.inter(18, .semibold))
-                .foregroundStyle(.black)
                 .padding(.horizontal, 26).frame(height: 54)
-                .background(.white, in: Capsule())
+                .modifier(TVMediaActionSurface())
             }
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            TVSelectable(scale: LineupStyle.controlLift, action: {
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                 favorite.toggle()
                 media.setLocalFavorite(favorite, for: subject)
                 Task { await media.setFavorite(favorite, for: subject) }
@@ -1605,7 +1607,7 @@ private struct MediaDetailScreen: View {
                                   symbol: favorite ? "heart.fill" : "heart")
             }
 
-            TVSelectable(scale: LineupStyle.controlLift, action: {
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                 watched.toggle()
                 media.setLocallyPlayed(watched, for: subject)
                 Task { await media.setPlayed(watched, for: subject) }
@@ -1620,10 +1622,8 @@ private struct MediaDetailScreen: View {
     private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
         Label(title, systemImage: symbol)
             .font(.inter(17, .semibold))
-            .foregroundStyle(.white)
             .padding(.horizontal, 20).frame(height: 52)
-            .background(.black.opacity(0.58), in: Capsule())
-            .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 1))
+            .modifier(TVMediaActionSurface())
     }
     #endif
 
@@ -1841,7 +1841,7 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 22) {
                         ForEach(episodes) { episode in
-                            TVSelectable(action: { chosen = episode }) {
+                            TVSelectable(drawsFocusChrome: false, action: { chosen = episode }) {
                                 MediaEpisodeCard(episode: episode)
                             }
                             .frame(width: 420, alignment: .topLeading)
@@ -1994,7 +1994,7 @@ private struct MediaDetailScreen: View {
                         ForEach(related) { title in
                             Group {
                                 #if os(tvOS)
-                                TVSelectable(action: { pushed = title }) {
+                                TVSelectable(drawsFocusChrome: false, action: { pushed = title }) {
                                     MediaItemCard(item: title, shape: .poster)
                                 }
                                 #else
@@ -2240,11 +2240,30 @@ private struct MediaDetailScreen: View {
     }
 }
 
+#if os(tvOS)
+/// Detail actions keep their pill silhouette at all times and communicate
+/// focus with a clean fill, never with a second rectangular frame around the
+/// button's bounds.
+private struct TVMediaActionSurface: ViewModifier {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(focused ? LineupStyle.background : LineupStyle.lightPurple)
+            .background(focused ? LineupStyle.lightPurple : .black.opacity(0.58), in: Capsule())
+            .shadow(color: focused ? .black.opacity(0.34) : .clear, radius: 10, y: 5)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
+    }
+}
+#endif
+
 /// An episode card says which episode it is and what happens in it, so a viewer
 /// picks by the description rather than by guessing from a still.
 private struct MediaEpisodeCard: View {
     @EnvironmentObject private var media: MediaLibrary
-    @Environment(\.isFocused) private var focused
+    #if os(tvOS)
+    @Environment(\.lineupTVSelectableFocused) private var artworkFocused
+    #endif
     let episode: MediaItem
 
     var body: some View {
@@ -2265,7 +2284,11 @@ private struct MediaEpisodeCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(LineupStyle.line, lineWidth: 1))
+                    .stroke(episodeArtworkBorder,
+                            lineWidth: episodeArtworkIsFocused ? 3 : 1))
+                .shadow(color: episodeArtworkIsFocused
+                        ? LineupStyle.lightPurple.opacity(0.24) : .clear,
+                        radius: 10)
                 .overlay(alignment: .topLeading) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
@@ -2284,8 +2307,11 @@ private struct MediaEpisodeCard: View {
             }
             Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
             if let overview = episode.overview, !overview.isEmpty {
-                Text(overview).font(.inter(.caption)).lineLimit(3)
+                Text(overview).font(.inter(.caption))
+                    .lineLimit(episodeArtworkIsFocused ? nil : 3)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .animation(.easeInOut(duration: 0.2), value: episodeArtworkIsFocused)
             }
             if !footer.isEmpty {
                 Text(footer).font(.inter(.caption2))
@@ -2295,7 +2321,18 @@ private struct MediaEpisodeCard: View {
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(LineupStyle.lightPurple)
-        .focusLift(focused, scale: LineupStyle.cardLift)
+    }
+
+    private var episodeArtworkIsFocused: Bool {
+        #if os(tvOS)
+        artworkFocused
+        #else
+        false
+        #endif
+    }
+
+    private var episodeArtworkBorder: Color {
+        episodeArtworkIsFocused ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.line
     }
 
     private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
@@ -2317,7 +2354,7 @@ private struct MediaPlayableCard: View {
 
     var body: some View {
         #if os(tvOS)
-        TVSelectable(action: { choosingSource = true }, onFocusChange: onFocusChange) {
+        TVSelectable(drawsFocusChrome: false, action: { choosingSource = true }, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
             .contextMenu { libraryActions }
@@ -3462,7 +3499,9 @@ private enum MediaArtShape {
 
 private struct MediaItemCard: View {
     @EnvironmentObject private var media: MediaLibrary
-    @Environment(\.isFocused) private var focused
+    #if os(tvOS)
+    @Environment(\.lineupTVSelectableFocused) private var artworkFocused
+    #endif
     let item: MediaItem
     var shape: MediaArtShape = .poster
 
@@ -3491,7 +3530,10 @@ private struct MediaItemCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-                    .stroke(LineupStyle.line, lineWidth: 1))
+                    .stroke(artworkBorder, lineWidth: artworkIsFocused ? 3 : 1))
+                .shadow(color: artworkIsFocused
+                        ? LineupStyle.lightPurple.opacity(0.24) : .clear,
+                        radius: 10)
                 .overlay(alignment: .bottomTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
@@ -3526,7 +3568,18 @@ private struct MediaItemCard: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .focusLift(focused, scale: LineupStyle.cardLift)
+    }
+
+    private var artworkIsFocused: Bool {
+        #if os(tvOS)
+        artworkFocused
+        #else
+        false
+        #endif
+    }
+
+    private var artworkBorder: Color {
+        artworkIsFocused ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.line
     }
 
     private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {

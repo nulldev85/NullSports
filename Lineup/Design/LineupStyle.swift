@@ -481,6 +481,19 @@ extension View {
 #endif
 
 #if os(tvOS)
+private struct LineupTVSelectableFocusedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Focus owned by `TVSelectable`, exposed to its label so artwork and pill
+    /// controls can draw focus on their own exact shapes.
+    var lineupTVSelectableFocused: Bool {
+        get { self[LineupTVSelectableFocusedKey.self] }
+        set { self[LineupTVSelectableFocusedKey.self] = newValue }
+    }
+}
+
 extension View {
     // tvOS has no Liquid Glass, so the shared views that ask for it keep the
     // theme's own fill and hairline — which is exactly what they looked like
@@ -514,6 +527,10 @@ struct TVSelectable<Content: View>: View {
     /// here for the same reason the lift is: this is where focus is known.
     var fill: Color?
     var fillRadius: CGFloat = 12
+    /// Cards whose visible target is only their artwork, and controls that own
+    /// a pill surface, turn this off and use `lineupTVSelectableFocused` to
+    /// draw focus on that exact shape instead of around the whole label stack.
+    var drawsFocusChrome = true
     let action: () -> Void
     var onFocusChange: ((Bool) -> Void)? = nil
     var requestInitialFocus = false
@@ -522,25 +539,29 @@ struct TVSelectable<Content: View>: View {
     var body: some View {
         let focusShape = RoundedRectangle(cornerRadius: fillRadius, style: .continuous)
         content
+            .environment(\.lineupTVSelectableFocused, focused)
             .contentShape(Rectangle())
             // A lift by itself disappears on a dark television from across the
             // room. Every custom tvOS control now gets the same restrained
             // focus language: a faint neutral surface and a crisp light rim.
             // It is intentionally theme-neutral, so OLED stays black and no
             // accent color is painted over artwork.
-            .background(focused ? (fill ?? LineupStyle.lightPurple.opacity(0.055)) : .clear,
+            .background(focused && drawsFocusChrome
+                        ? (fill ?? LineupStyle.lightPurple.opacity(0.055)) : .clear,
                         in: focusShape)
             .overlay {
                 // The rim belongs around the lockup, not on top of its first
                 // and last pixels. Expanding it leaves a deliberate gutter
                 // beside titles and progress copy while preserving the exact
                 // card layout and shelf spacing when focus moves.
-                focusShape.inset(by: -6)
-                    .strokeBorder(focused ? LineupStyle.lightPurple.opacity(0.84) : .clear,
-                                  lineWidth: focused ? 2 : 0)
-                    .shadow(color: focused ? LineupStyle.lightPurple.opacity(0.22) : .clear,
-                            radius: 8)
-                    .allowsHitTesting(false)
+                if drawsFocusChrome {
+                    focusShape.inset(by: -6)
+                        .strokeBorder(focused ? LineupStyle.lightPurple.opacity(0.84) : .clear,
+                                      lineWidth: focused ? 2 : 0)
+                        .shadow(color: focused ? LineupStyle.lightPurple.opacity(0.22) : .clear,
+                                radius: 8)
+                        .allowsHitTesting(false)
+                }
             }
             .focusable()
             .focused($focused)
@@ -554,7 +575,7 @@ struct TVSelectable<Content: View>: View {
             // show no feedback at all. A lift and a dark shadow say where you
             // are without painting anything pale over the control.
             .scaleEffect(focused ? scale : 1)
-            .lineupShadow(.lifted, on: focused)
+            .lineupShadow(.lifted, on: focused && drawsFocusChrome)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
