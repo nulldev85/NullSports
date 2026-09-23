@@ -132,6 +132,10 @@ jobs:
           set -euo pipefail
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
           xcrun simctl boot "$device"
+          # `simctl boot` returns once booting has started, not once FrontBoard
+          # is ready to discover and launch installed apps. Wait for the
+          # television home screen instead of racing it on a busy runner.
+          xcrun simctl bootstatus "$device" -b
           app="build-sim/Build/Products/Debug-appletvsimulator/Lineup.app"
           test -d "$app"
           xcrun simctl install "$device" "$app"
