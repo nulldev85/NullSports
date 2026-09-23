@@ -2224,13 +2224,14 @@ private struct MediaLibraryHero: View {
                     .init(color: .black.opacity(0.5), location: 0.5),
                     .init(color: .clear, location: 0.86)
                 ], startPoint: .leading, endPoint: .trailing)
-                // The artwork does not end at a rectangular black band. Its last
-                // stretch becomes the exact Library background, which lets the
-                // first shelf rise out of the hero instead of starting after it.
+                // Keep the picture alive almost to the first shelf, then finish
+                // on the exact Library background at the seam. The older fade
+                // became opaque too early and left a dead band above Continue
+                // Watching even though the artwork itself filled the hero.
                 LinearGradient(stops: [
-                    .init(color: .clear, location: 0.48),
-                    .init(color: .black.opacity(0.48), location: 0.7),
-                    .init(color: LineupStyle.background.opacity(0.92), location: 0.9),
+                    .init(color: .clear, location: 0.64),
+                    .init(color: .black.opacity(0.18), location: 0.82),
+                    .init(color: LineupStyle.background.opacity(0.55), location: 0.96),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
 
@@ -2265,11 +2266,13 @@ private struct MediaLibraryHero: View {
                             .frame(width: readableWidth, alignment: .leading)
                     }
 
+                    #if os(tvOS)
                     MediaHeroButton(title: item.hasDetailPage ? "Details" : "Play",
                                     symbol: item.hasDetailPage ? "info.circle.fill" : "play.fill") {
                         onOpen(item)
                     }
                     .frame(width: min(buttonMaxWidth, contentWidth), alignment: .leading)
+                    #endif
                 }
                 // This frame is explicit rather than an ideal/max width. A
                 // long title can wrap inside it, but can never make a TabView
@@ -2283,6 +2286,14 @@ private struct MediaLibraryHero: View {
             .clipped()
         }
         .contentShape(Rectangle())
+        #if !os(tvOS)
+        // Paging still belongs to the horizontal drag. A release without a
+        // drag opens the title, which makes the artwork itself the familiar
+        // iPhone affordance and removes the redundant Details button.
+        .onTapGesture { onOpen(item) }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(item.hasDetailPage ? "View details for \(item.name)" : "Play \(item.name)")
+        #endif
     }
 
     private func metadata(for item: MediaItem) -> [String] {
