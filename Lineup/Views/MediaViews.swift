@@ -3141,7 +3141,11 @@ private struct MediaItemCard: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        .inter(.headline)
+        // tvOS's semantic headline size is designed for page copy and made
+        // shelf labels compete with the poster itself. A compact lockup size
+        // stays readable from the couch, keeps long names to two clean lines,
+        // and lets more of the next catalog remain visible.
+        .inter(22, .semibold)
         #else
         .inter(.subheadline, .semibold)
         #endif
