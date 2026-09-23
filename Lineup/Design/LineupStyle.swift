@@ -515,6 +515,8 @@ struct TVSelectable<Content: View>: View {
     var fill: Color?
     var fillRadius: CGFloat = 12
     let action: () -> Void
+    var onFocusChange: ((Bool) -> Void)? = nil
+    var requestInitialFocus = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -544,6 +546,8 @@ struct TVSelectable<Content: View>: View {
             .focused($focused)
             .focusEffectDisabled()
             .onTapGesture(perform: action)
+            .onChange(of: focused) { _, value in onFocusChange?(value) }
+            .onAppear { if requestInitialFocus { focused = true } }
             // The cue lives here rather than in the content, because content
             // reading @Environment(\.isFocused) cannot be relied on to see the
             // focus this view owns -- and something wrapped in here would then

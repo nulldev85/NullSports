@@ -569,10 +569,28 @@ private struct MediaCatalogsScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
+    #if os(tvOS)
+    @State private var focusedLibraryItem: MediaItem?
+    @State private var focusedLibraryDetails: [String: MediaItem] = [:]
+    @State private var focusedLibraryPosterIDs: Set<String> = []
+    #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
+    #if os(tvOS)
+    private var defaultPreviewItem: MediaItem? {
+        continueWatching.first?.item
+            ?? media.heroCatalog?.items.first
+            ?? catalogs.first(where: { !$0.items.isEmpty })?.items.first
+            ?? favoriteTitles.first
+            ?? favoriteEpisodes.first
+    }
+    private var previewItem: MediaItem? {
+        let focused = focusedLibraryItem ?? defaultPreviewItem
+        return focused.flatMap { focusedLibraryDetails[$0.id] } ?? focused
+    }
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -612,96 +630,38 @@ private struct MediaCatalogsScreen: View {
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
                     ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
-                } else { ScrollView {
-                    LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                        if let heroCatalog = media.heroCatalog {
-                            MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
-                            .padding(.bottom, -catalogSpacing)
-                            .lineupFocusRegion()
-                        }
-                        if !continueWatching.isEmpty {
-                            localShelf(title: "Continue Watching", items: continueWatching.map(\.item))
-                        }
-                        if !favoriteTitles.isEmpty {
-                            localShelf(title: "Favorites", items: favoriteTitles)
-                        }
-                        if !favoriteEpisodes.isEmpty {
-                            localShelf(title: "Favorite Episodes", items: favoriteEpisodes)
-                        }
-                        ForEach(catalogs) { catalog in
-                            VStack(alignment: .leading, spacing: 14) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text(catalog.title).font(sectionTitleFont)
-                                    Spacer()
-                                    #if os(tvOS)
-                                    TVSelectable(scale: LineupStyle.controlLift, action: { pushed = catalog.root }) {
-                                        MediaChromeLabel {
-                                            Label("See All", systemImage: "chevron.right")
-                                                .font(.inter(14, .semibold))
-                                        }
-                                    }
-                                    #else
-                                    NavigationLink(value: catalog.root) {
-                                        MediaChromeLabel {
-                                            Label("See All", systemImage: "chevron.right")
-                                                .font(.inter(14, .semibold))
-                                        }
-                                    }.lineupFlatButton()
-                                    #endif
-                                }
-                                .padding(.horizontal, horizontalPadding)
-                                // Do not turn the tiny See All control into a
-                                // full-width focus target. It remains reachable
-                                // from posters near its right edge, while an
-                                // ordinary vertical move is guided into the
-                                // next shelf's nearest poster instead.
-                                if catalog.items.isEmpty {
-                                    Text("No titles in this catalog.").font(.inter(.callout))
-                                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
-                                        .padding(.horizontal, horizontalPadding)
-                                } else {
-                                    // The shelf spans the full width and insets its
-                                    // content instead, so a card scrolls away at the
-                                    // screen edge rather than being clipped by the
-                                    // margin with the first one cut in half at rest.
-                                    let shape = MediaArtShape.forItems(catalog.items)
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        LazyHStack(alignment: .top, spacing: itemSpacing) {
-                                            ForEach(catalog.items) { item in
-                                                Group {
-                                                    if item.opensPage {
-                                                        #if os(tvOS)
-                                                        TVSelectable(action: { pushed = item }) { MediaItemCard(item: item, shape: shape) }
-                                                        #else
-                                                        NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                                                            .lineupFlatButton()
-                                                        #endif
-                                                    } else { MediaPlayableCard(item: item, shape: shape) }
-                                                }.frame(width: cardWidth(shape))
-                                            }
-                                        }
-                                        .padding(.vertical, 8)
-                                    }
-                                    .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
-                                    // Each shelf is its own region: a card
-                                    // scrolled far along a row has nothing
-                                    // above it but the margin of the row above.
-                                    .lineupFocusRegion()
-                                }
+                } else {
+                    #if os(tvOS)
+                    ZStack(alignment: .top) {
+                        TVMediaCinematicBackdrop(item: previewItem)
+                        TVMediaLibraryPreview(item: previewItem)
+                            .frame(height: tvPreviewHeight)
+                            .allowsHitTesting(false)
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                                Color.clear.frame(height: tvPreviewHeight)
+                                libraryShelves
                             }
+                            .padding(.bottom, 44)
                         }
                     }
-                    .padding(.bottom, 44)
-                }
-                #if os(tvOS)
-                // The tab bar and television overscan guides should constrain
-                // controls, not cinematic artwork. Let the Library canvas run
-                // behind the bar and to both physical edges; shelf headings
-                // and cards keep their own explicit insets below the hero.
-                .ignoresSafeArea(.container, edges: [.top, .horizontal])
-                #else
-                .ignoresSafeArea(edges: .top)
-                #endif
+                    // Artwork owns the television canvas. Shelf content keeps
+                    // its own readable insets while the backdrop continues
+                    // behind the tab bar and through every catalog row.
+                    .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                    #else
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                            if let heroCatalog = media.heroCatalog {
+                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
+                                    .padding(.bottom, -catalogSpacing)
+                            }
+                            libraryShelves
+                        }
+                        .padding(.bottom, 44)
+                    }
+                    .ignoresSafeArea(edges: .top)
+                    #endif
                 }
             }
         }
@@ -734,12 +694,163 @@ private struct MediaCatalogsScreen: View {
             }
             searching = false
         }
+        #if os(tvOS)
+        .task(id: focusedLibraryItem?.id) { await loadFocusedLibraryDetail() }
+        .task { await rotateLibraryPreview() }
+        .onAppear {
+            if focusedLibraryItem == nil { focusedLibraryItem = defaultPreviewItem }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var libraryShelves: some View {
+        if !continueWatching.isEmpty {
+            localShelf(title: "Continue Watching", items: continueWatching.map(\.item))
+        }
+        if !favoriteTitles.isEmpty {
+            localShelf(title: "Favorites", items: favoriteTitles)
+        }
+        if !favoriteEpisodes.isEmpty {
+            localShelf(title: "Favorite Episodes", items: favoriteEpisodes)
+        }
+        ForEach(catalogs) { catalog in
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(catalog.title).font(sectionTitleFont)
+                    Spacer()
+                    #if os(tvOS)
+                    TVSelectable(scale: LineupStyle.controlLift, action: { pushed = catalog.root }) {
+                        MediaChromeLabel {
+                            Label("See All", systemImage: "chevron.right")
+                                .font(.inter(14, .semibold))
+                        }
+                    }
+                    #else
+                    NavigationLink(value: catalog.root) {
+                        MediaChromeLabel {
+                            Label("See All", systemImage: "chevron.right")
+                                .font(.inter(14, .semibold))
+                        }
+                    }.lineupFlatButton()
+                    #endif
+                }
+                .padding(.horizontal, horizontalPadding)
+                // See All is deliberately not a focus section. From the body
+                // of a shelf, vertical movement therefore lands in the nearest
+                // poster row; the utility remains reachable near its edge.
+                if catalog.items.isEmpty {
+                    Text("No titles in this catalog.").font(.inter(.callout))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
+                        .padding(.horizontal, horizontalPadding)
+                } else {
+                    let shape = MediaArtShape.forItems(catalog.items)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: itemSpacing) {
+                            ForEach(catalog.items) { item in
+                                Group {
+                                    if item.opensPage {
+                                        #if os(tvOS)
+                                        TVSelectable(action: { pushed = item },
+                                                     onFocusChange: { focused in preview(item, when: focused) }) {
+                                            MediaItemCard(item: item, shape: shape)
+                                        }
+                                        #else
+                                        NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
+                                            .lineupFlatButton()
+                                        #endif
+                                    } else {
+                                        #if os(tvOS)
+                                        MediaPlayableCard(item: item, shape: shape,
+                                            onFocusChange: { focused in preview(item, when: focused) })
+                                        #else
+                                        MediaPlayableCard(item: item, shape: shape)
+                                        #endif
+                                    }
+                                }
+                                .frame(width: cardWidth(shape))
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+                    .lineupFocusRegion()
+                }
+            }
+        }
     }
 
     private func openHeroItem(_ item: MediaItem) {
         if item.opensPage { pushed = item }
         else if item.isPlayable { heroPlayableItem = item }
     }
+
+    #if os(tvOS)
+    private func preview(_ item: MediaItem, when focused: Bool) {
+        if focused { focusedLibraryPosterIDs.insert(item.id) }
+        else { focusedLibraryPosterIDs.remove(item.id) }
+        guard focused, focusedLibraryItem?.id != item.id else { return }
+        focusedLibraryItem = item
+    }
+
+    private func rotateLibraryPreview() async {
+        while !Task.isCancelled {
+            let candidates = media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+            guard !candidates.isEmpty else {
+                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                continue
+            }
+            let current = focusedLibraryItem.flatMap { current in
+                candidates.firstIndex(where: { $0.id == current.id })
+            } ?? -1
+            let next = candidates[(current + 1) % candidates.count]
+            // Spend the eight-second dwell preloading the next frame. On a
+            // normal connection the transition therefore begins with decoded
+            // artwork already in memory, without making the interval longer.
+            Task { await preloadBackdrop(for: next) }
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard focusedLibraryPosterIDs.isEmpty, !Task.isCancelled else { continue }
+            // A weak connection may miss this particular turn, but the hero
+            // never rotates to a blank frame. The already-running shared load
+            // keeps going and the next eight-second tick can use it.
+            guard backdropIsReady(for: next) else { continue }
+            withAnimation(.easeInOut(duration: 0.45)) {
+                focusedLibraryItem = next
+            }
+        }
+    }
+
+    private func preloadBackdrop(for item: MediaItem) async {
+        guard let art = backdropArt(for: item) else { return }
+        _ = await LineupArt.load(art.url, pixels: art.pixels)
+    }
+
+    private func backdropIsReady(for item: MediaItem) -> Bool {
+        guard let art = backdropArt(for: item) else { return true }
+        return LineupArt.ready(art.url, pixels: art.pixels) != nil
+    }
+
+    private func backdropArt(for item: MediaItem) -> (url: URL, pixels: Int)? {
+        guard let url = media.backdropURL(for: item, width: 1920)
+            ?? media.imageURL(for: item, width: 1920) else { return nil }
+        return (url, LineupArt.pixels(for: 1920))
+    }
+
+    private func loadFocusedLibraryDetail() async {
+        guard let item = focusedLibraryItem else { return }
+        if focusedLibraryDetails[item.id] != nil { return }
+        // Focus can cross several posters in a single remote gesture. Let it
+        // settle before asking the server for richer cast/logo metadata; the
+        // shelf-provided backdrop is already on screen immediately.
+        do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
+        guard !Task.isCancelled else { return }
+        let loaded = try? await media.details(of: item)
+        guard !Task.isCancelled, focusedLibraryItem?.id == item.id else { return }
+        if let loaded { focusedLibraryDetails[item.id] = loaded }
+    }
+
+    private var tvPreviewHeight: CGFloat { 500 }
+    #endif
 
     private func clearSearch() {
         query = ""
@@ -770,7 +881,8 @@ private struct MediaCatalogsScreen: View {
                         Group {
                             if trackedItem.opensPage {
                                 #if os(tvOS)
-                                TVSelectable(action: { pushed = trackedItem }) {
+                                TVSelectable(action: { pushed = trackedItem },
+                                             onFocusChange: { focused in preview(trackedItem, when: focused) }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
                                 .contextMenu { continueWatchingAction(for: trackedItem) }
@@ -782,7 +894,12 @@ private struct MediaCatalogsScreen: View {
                                 .contextMenu { continueWatchingAction(for: trackedItem) }
                                 #endif
                             } else {
+                                #if os(tvOS)
+                                MediaPlayableCard(item: trackedItem, shape: shape,
+                                    onFocusChange: { focused in preview(trackedItem, when: focused) })
+                                #else
                                 MediaPlayableCard(item: trackedItem, shape: shape)
+                                #endif
                             }
                         }
                         .frame(width: cardWidth(shape))
@@ -1370,6 +1487,7 @@ private struct MediaShelfRow: View {
 private struct MediaDetailScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     let item: MediaItem
 
     @State private var detail: MediaItem?
@@ -1428,6 +1546,9 @@ private struct MediaDetailScreen: View {
     }
 
     private var detailContent: some View {
+        #if os(tvOS)
+        tvDetailContent
+        #else
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 hero
@@ -1450,7 +1571,82 @@ private struct MediaDetailScreen: View {
             .padding(.bottom, 44)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
     }
+
+    #if os(tvOS)
+    /// Selection keeps the same backdrop and information hierarchy as Library
+    /// focus, then adds actions and playable rows without dropping into a
+    /// separate card-shaped page.
+    private var tvDetailContent: some View {
+        ZStack(alignment: .top) {
+            TVMediaCinematicBackdrop(item: subject)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    TVMediaLibraryPreview(item: subject)
+                        .frame(height: 400)
+                        .allowsHitTesting(false)
+                    tvActions.padding(.horizontal, horizontalPadding)
+                    episodesSection
+                    trailersSection
+                    relatedSection
+                }
+                .padding(.bottom, 60)
+            }
+        }
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        .toolbar(.hidden, for: .tabBar)
+    }
+
+    private var tvActions: some View {
+        HStack(spacing: 16) {
+            TVSelectable(scale: LineupStyle.controlLift, action: { chosen = playTarget },
+                         requestInitialFocus: true) {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.fill")
+                    Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+                    if let code = playTarget?.episodeCode {
+                        Text(code).opacity(0.62)
+                    }
+                }
+                .font(.inter(18, .semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 26).frame(height: 54)
+                .background(.white, in: Capsule())
+            }
+            .disabled(playTarget == nil)
+            .opacity(playTarget == nil ? 0.45 : 1)
+
+            TVSelectable(scale: LineupStyle.controlLift, action: {
+                favorite.toggle()
+                media.setLocalFavorite(favorite, for: subject)
+                Task { await media.setFavorite(favorite, for: subject) }
+            }) {
+                tvSecondaryAction(favorite ? "In Favorites" : "Add to Favorites",
+                                  symbol: favorite ? "heart.fill" : "heart")
+            }
+
+            TVSelectable(scale: LineupStyle.controlLift, action: {
+                watched.toggle()
+                media.setLocallyPlayed(watched, for: subject)
+                Task { await media.setPlayed(watched, for: subject) }
+            }) {
+                tvSecondaryAction(watched ? "Watched" : "Mark Watched",
+                                  symbol: watched ? "eye.fill" : "eye")
+            }
+        }
+        .lineupFocusRegion()
+    }
+
+    private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.inter(17, .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20).frame(height: 52)
+            .background(.black.opacity(0.58), in: Capsule())
+            .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 1))
+    }
+    #endif
 
     // MARK: - Header
 
@@ -1663,14 +1859,19 @@ private struct MediaDetailScreen: View {
                     .mediaFocusAnchor()
             } else {
                 #if os(tvOS)
-                LazyVGrid(columns: episodeColumns, spacing: 22) {
-                    ForEach(episodes) { episode in
-                        Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
-                            .lineupFlatButton()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 22) {
+                        ForEach(episodes) { episode in
+                            TVSelectable(action: { chosen = episode }) {
+                                MediaEpisodeCard(episode: episode)
+                            }
+                            .frame(width: 420, alignment: .topLeading)
                             .contextMenu { episodeLibraryActions(episode) }
+                        }
                     }
+                    .padding(.vertical, 8)
                 }
-                .padding(.horizontal, horizontalPadding)
+                .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                 .lineupFocusRegion()
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1705,37 +1906,43 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
                         ForEach(trailers.indices, id: \.self) { index in
+                            #if os(tvOS)
+                            TVSelectable(action: { openURL(trailers[index].1) }) {
+                                trailerCard(title: trailers[index].0, thumbnail: trailers[index].2)
+                            }
+                            #else
                             Link(destination: trailers[index].1) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(LineupStyle.surface)
-                                        LineupArtView(url: trailers[index].2
-                                            ?? media.backdropURL(for: subject), width: 260) { loaded in
-                                            if let image = loaded {
-                                                image.resizable().scaledToFill()
-                                            } else {
-                                                Color.clear
-                                            }
-                                        }
-                                        Image(systemName: "play.fill")
-                                            .font(.system(size: 24, weight: .bold))
-                                            .shadow(radius: 8)
-                                    }
-                                    .frame(width: 260, height: 146)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    Text(trailers[index].0).font(.inter(.subheadline, .semibold))
-                                        .lineLimit(1)
-                                }
-                                .frame(width: 260, alignment: .leading)
+                                trailerCard(title: trailers[index].0, thumbnail: trailers[index].2)
                             }
                             .lineupFlatButton()
+                            #endif
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
                 }
             }
         }
+    }
+
+    private func trailerCard(title: String, thumbnail: URL?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
+                LineupArtView(url: thumbnail ?? media.backdropURL(for: subject), width: 320) { loaded in
+                    if let loaded { loaded.resizable().scaledToFill() }
+                    else { Color.clear }
+                }
+                Image(systemName: "play.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(15)
+                    .background(.black.opacity(0.58), in: Circle())
+            }
+            .frame(width: trailerWidth, height: trailerWidth * 9 / 16)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            Text(title).font(.inter(.subheadline, .semibold)).lineLimit(1)
+        }
+        .frame(width: trailerWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -2023,6 +2230,13 @@ private struct MediaDetailScreen: View {
         50
         #endif
     }
+    private var trailerWidth: CGFloat {
+        #if os(tvOS)
+        360
+        #else
+        260
+        #endif
+    }
     private var titleFont: Font {
         #if os(tvOS)
         .inter(40, .bold)
@@ -2124,11 +2338,14 @@ private struct MediaPlayableCard: View {
     @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem
     var shape: MediaArtShape = .poster
+    var onFocusChange: ((Bool) -> Void)? = nil
     @State private var choosingSource = false
 
     var body: some View {
         #if os(tvOS)
-        TVSelectable(action: { choosingSource = true }) { MediaItemCard(item: item, shape: shape) }
+        TVSelectable(action: { choosingSource = true }, onFocusChange: onFocusChange) {
+            MediaItemCard(item: item, shape: shape)
+        }
             .contextMenu { libraryActions }
             .fullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
@@ -2142,7 +2359,6 @@ private struct MediaPlayableCard: View {
             }
         #endif
     }
-
     @ViewBuilder
     private var libraryActions: some View {
         if media.isInContinueWatching(item) {
@@ -2167,9 +2383,148 @@ private struct MediaPlayableCard: View {
     }
 }
 
+#if os(tvOS)
+/// The artwork plane behind both Library browsing and the selected-title page.
+/// It is fixed while shelves move, so focus changes the room rather than
+/// repainting a rectangle behind one row.
+private struct TVMediaCinematicBackdrop: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let item: MediaItem?
+
+    var body: some View {
+        ZStack {
+            LineupStyle.background
+            if let item {
+                LineupArtView(url: media.backdropURL(for: item, width: 1920)
+                              ?? media.imageURL(for: item, width: 1920), width: 1920) { loaded in
+                    if let loaded { loaded.resizable().scaledToFill() }
+                    else { Color.clear }
+                }
+                .id(item.id)
+                .transition(.opacity)
+            }
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.9), location: 0),
+                .init(color: .black.opacity(0.58), location: 0.38),
+                .init(color: .black.opacity(0.08), location: 0.78),
+                .init(color: .clear, location: 1)
+            ], startPoint: .leading, endPoint: .trailing)
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0.42),
+                .init(color: LineupStyle.background.opacity(0.42), location: 0.7),
+                .init(color: LineupStyle.background.opacity(0.88), location: 1)
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .animation(.easeInOut(duration: 0.32), value: item?.id)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+/// Focused-title context that stays above the shelves. Sparse catalog entries
+/// show what they have immediately; the detail fetch enriches the same view
+/// with logo, cast and metadata without changing its geometry.
+private struct TVMediaLibraryPreview: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let item: MediaItem?
+
+    var body: some View {
+        Group {
+            if let item {
+                VStack(alignment: .leading, spacing: 13) {
+                    titleLockup(item)
+                    if !metadata(item).isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(metadata(item), id: \.self) { value in
+                                Text(value)
+                                    .font(.inter(14, .semibold))
+                                    .padding(.horizontal, 10).frame(height: 28)
+                                    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 7))
+                                    .overlay(RoundedRectangle(cornerRadius: 7)
+                                        .stroke(.white.opacity(0.16), lineWidth: 1))
+                            }
+                        }
+                    }
+                    if let overview = item.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.inter(18, .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(3)
+                            .frame(maxWidth: 820, alignment: .leading)
+                            .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
+                    }
+                    castLine(item)
+                }
+                .id(item.id)
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.horizontal, 72)
+                .padding(.top, 112)
+                .padding(.bottom, 24)
+            }
+        }
+        .animation(.easeInOut(duration: 0.24), value: item?.id)
+    }
+
+    @ViewBuilder
+    private func titleLockup(_ item: MediaItem) -> some View {
+        LineupArtView(url: media.logoURL(for: item, width: 620), width: 620) { loaded in
+            if let loaded {
+                loaded.resizable().scaledToFit()
+            } else {
+                Text(item.name)
+                    .font(.inter(46, .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
+            }
+        }
+        .frame(width: 620, height: 105, alignment: .leading)
+    }
+
+    private func metadata(_ item: MediaItem) -> [String] {
+        [item.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
+         item.criticRating.flatMap { $0 > 0 ? String(format: "RT %.0f%%", $0) : nil },
+         item.productionYear.map(String.init),
+         item.genres?.prefix(3).joined(separator: " · "),
+         item.formattedRuntime,
+         item.officialRating]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    @ViewBuilder
+    private func castLine(_ item: MediaItem) -> some View {
+        let actors = Array((item.people ?? [])
+            .filter { $0.type?.lowercased() == "actor" }.prefix(3))
+        if !actors.isEmpty {
+            HStack(spacing: 12) {
+                HStack(spacing: -8) {
+                    ForEach(actors) { person in
+                        LineupArtView(url: media.personImageURL(for: person), width: 72) { loaded in
+                            if let loaded { loaded.resizable().scaledToFill() }
+                            else { Image(systemName: "person.fill").foregroundStyle(.white.opacity(0.55)) }
+                        }
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.62), in: Circle())
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
+                    }
+                }
+                Text(actors.map(\.name).joined(separator: ", "))
+                    .font(.inter(15, .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+#endif
+
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
-/// It never auto-advances: the viewer owns the page, so a title cannot change
-/// underneath a tap, a remote press, or VoiceOver focus.
+/// It advances gently when left alone. Changing the page by touch restarts the
+/// eight-second interval, so it never fights a swipe or immediately skips the
+/// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
     @EnvironmentObject private var media: MediaLibrary
     let catalog: MediaCatalog
@@ -2222,6 +2577,12 @@ private struct MediaLibraryHero: View {
         .onChange(of: items.count) { _, count in
             if count == 0 { index = 0 }
             else { index = min(index, count - 1) }
+        }
+        .task(id: index) {
+            guard items.count > 1 else { return }
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.45)) { move(1) }
         }
     }
 
