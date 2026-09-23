@@ -233,6 +233,35 @@ final class TeamPreferenceTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: key(UUID())), "An unknown provider has no preferences at all")
     }
 
+    // MARK: - Exact-game choices
+
+    func testJustThisGameSurvivesPersistenceWithoutLeakingToAnotherGame() throws {
+        let pickedAt = Date(timeIntervalSince1970: 10_000)
+        let selection = GameChannelSelection(streamID: regional, channelName: "MLB 01",
+                                             gameStart: Date(timeIntervalSince1970: 9_000),
+                                             savedAt: pickedAt)
+        var saved = GameChannelSelections()
+        saved.set(selection, for: "mlb-2026-09-23-wsh-det")
+
+        let data = try JSONEncoder().encode(saved)
+        let restored = try JSONDecoder().decode(GameChannelSelections.self, from: data)
+        XCTAssertEqual(restored.selection(for: "mlb-2026-09-23-wsh-det", at: pickedAt), selection)
+        XCTAssertNil(restored.selection(for: "mlb-2026-09-24-wsh-det", at: pickedAt))
+    }
+
+    func testFinishedGameSelectionsExpireAndPrune() {
+        let pickedAt = Date(timeIntervalSince1970: 10_000)
+        let selection = GameChannelSelection(streamID: regional, channelName: "MLB 01",
+                                             gameStart: Date(timeIntervalSince1970: 9_000),
+                                             savedAt: pickedAt)
+        var saved = GameChannelSelections()
+        saved.set(selection, for: "finished-game")
+        let afterExpiry = selection.expiresAt.addingTimeInterval(1)
+        XCTAssertNil(saved.selection(for: "finished-game", at: afterExpiry))
+        saved.prune(at: afterExpiry)
+        XCTAssertEqual(saved, GameChannelSelections())
+    }
+
     // MARK: - Settings listing
 
     func testListingIsNewestFirstAndSupportsRemoval() {

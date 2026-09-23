@@ -88,6 +88,7 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var favoriteStreamOrder: [Int] = []
     @Published private(set) var teamPreferences = TeamChannelPreferences()
+    @Published private(set) var gameChannelSelections = GameChannelSelections()
     @Published private(set) var recentStreamOrder: [Int] = []
     @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
     @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
@@ -103,6 +104,7 @@ final class SportsLibrary: ObservableObject {
     private let activeKey = "NullSports.activeProfile"
     private let favoritesKey = "NullSports.favoriteStreams"
     private let teamPreferencesKey = "NullSports.teamChannelPreferences"
+    private let gameChannelSelectionsKey = "NullSports.gameChannelSelections"
     private let followedTeamsKey = "NullSports.followedTeams"
     private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
@@ -185,6 +187,7 @@ final class SportsLibrary: ObservableObject {
         }
         restoreFavorites()
         restoreTeamPreferences()
+        restoreGameChannelSelections()
         restoreRecentChannels()
     }
 
@@ -399,6 +402,7 @@ final class SportsLibrary: ObservableObject {
                 activeProfile = profile
                 restoreFavorites()
                 restoreTeamPreferences()
+                restoreGameChannelSelections()
                 restoreRecentChannels()
             }
             persistProfiles()
@@ -1623,6 +1627,14 @@ final class SportsLibrary: ObservableObject {
     /// `TeamChannelPreferences.resolve`; this only supplies the provider's
     /// current reality — which channels exist, and whether matching has settled.
     func preferredChannel(for game: SportsGame) -> PreferredChannel {
+        // A manual choice for this exact event is the strongest possible
+        // evidence of intent. Unlike a team preference it does not need guide
+        // verification: the viewer just confirmed the feed while watching the
+        // game, and providers commonly leave those ad-hoc channels without EPG.
+        if let saved = gameChannelSelections.selection(for: game.id),
+           stream(withID: saved.streamID) != nil {
+            return .play(streamID: saved.streamID, source: .gameSelection)
+        }
         let teams = Self.preferenceGame(game)
         // Only the two saved channels are tested here; failover does its own,
         // wider search. Each is judged by `isStream(_:verifiedFor:)` — the same
@@ -1663,6 +1675,18 @@ final class SportsLibrary: ObservableObject {
         persistTeamPreferences()
     }
 
+    /// Remember a manual channel only for this scheduled game. Every scope in
+    /// the iPhone choice sheet records this exact-game selection; the team
+    /// choices additionally call `savePreference` for future games.
+    func saveGameSelection(_ stream: XtreamStream, for game: SportsGame) {
+        gameChannelSelections.prune()
+        gameChannelSelections.set(GameChannelSelection(streamID: stream.id,
+                                                        channelName: stream.name,
+                                                        gameStart: game.start),
+                                  for: game.id)
+        persistGameChannelSelections()
+    }
+
     func removePreference(for key: TeamChannelKey) {
         teamPreferences.remove(for: key)
         persistTeamPreferences()
@@ -1670,7 +1694,9 @@ final class SportsLibrary: ObservableObject {
 
     func removeAllPreferences() {
         teamPreferences.removeAll()
+        gameChannelSelections.removeAll()
         persistTeamPreferences()
+        persistGameChannelSelections()
     }
 
     /// True when the provider no longer carries a saved preference's channel.
@@ -1766,6 +1792,7 @@ final class SportsLibrary: ObservableObject {
         guard let profile = activeProfile,
               let data = try? JSONEncoder().encode(teamPreferences) else { return }
         profileDefaults.set(data, forKey: teamPreferencesKey + "." + profile.id.uuidString)
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     private func restoreTeamPreferences() {
@@ -1776,6 +1803,27 @@ final class SportsLibrary: ObservableObject {
             return
         }
         teamPreferences = saved
+    }
+
+    private func persistGameChannelSelections() {
+        guard let profile = activeProfile,
+              let data = try? JSONEncoder().encode(gameChannelSelections) else { return }
+        profileDefaults.set(data, forKey: gameChannelSelectionsKey + "." + profile.id.uuidString)
+        if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    private func restoreGameChannelSelections() {
+        guard let profile = activeProfile,
+              let data = profileDefaults.data(forKey: gameChannelSelectionsKey + "." + profile.id.uuidString),
+              var saved = try? JSONDecoder().decode(GameChannelSelections.self, from: data) else {
+            gameChannelSelections = GameChannelSelections()
+            return
+        }
+        let unpruned = saved
+        saved.prune()
+        gameChannelSelections = saved
+        // Put the pruned value back so finished games do not collect forever.
+        if saved != unpruned { persistGameChannelSelections() }
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
@@ -1852,6 +1900,7 @@ final class SportsLibrary: ObservableObject {
         activeProfile = profile
         restoreFavorites()
         restoreTeamPreferences()
+        restoreGameChannelSelections()
         restoreRecentChannels()
         persistProfiles()
         isSwitchingProfile = false
@@ -1872,12 +1921,14 @@ final class SportsLibrary: ObservableObject {
         profiles.removeAll { $0.id == profile.id }
         profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)
         profileDefaults.removeObject(forKey: teamPreferencesKey + "." + profile.id.uuidString)
+        profileDefaults.removeObject(forKey: gameChannelSelectionsKey + "." + profile.id.uuidString)
         profileDefaults.removeObject(forKey: recentsKey + "." + profile.id.uuidString)
         if removingActive {
             resetProviderState()
             activeProfile = profiles.first
             restoreFavorites()
             restoreTeamPreferences()
+            restoreGameChannelSelections()
             restoreRecentChannels()
         }
         // Finish an already queued cache write before deleting this cache.
@@ -1949,10 +2000,16 @@ final class SportsLibrary: ObservableObject {
             resetProviderState()
             activeProfile = selected
             restoreFavorites()
+            restoreTeamPreferences()
+            restoreGameChannelSelections()
+            restoreRecentChannels()
             if selected != nil { await bootstrap() }
         } else {
             activeProfile = selected
             restoreFavorites()
+            restoreTeamPreferences()
+            restoreGameChannelSelections()
+            restoreRecentChannels()
         }
     }
 }

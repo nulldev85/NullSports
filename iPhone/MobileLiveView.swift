@@ -208,9 +208,17 @@ struct MobileLiveView: View {
             // After a manual pick: how long should it apply?
             .confirmationDialog("Use this channel for…", isPresented: presenting($scopingSelection),
                                 titleVisibility: .visible, presenting: scopingSelection) { selection in
-                Button("Just this game") { scopingSelection = nil }
+                Button("Just this game") {
+                    library.saveGameSelection(selection.stream, for: selection.game)
+                    scopingSelection = nil
+                }
                 ForEach(library.preferenceSides(for: selection.game)) { side in
                     Button("Always use this channel for the \(side.role) (\(side.team))") {
+                        // The broader team preference also remembers the
+                        // channel for this exact game. That makes all three
+                        // scope choices deterministic even when an ad-hoc
+                        // sports channel has no guide data to verify it later.
+                        library.saveGameSelection(selection.stream, for: selection.game)
                         library.savePreference(selection.stream, for: side.key, teamName: side.team)
                         scopingSelection = nil
                     }

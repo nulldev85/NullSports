@@ -85,6 +85,8 @@ enum PreferredChannel: Equatable, Sendable {
     case pick
 
     enum Source: Equatable, Sendable {
+        /// A viewer manually chose this channel for this exact game.
+        case gameSelection
         case homePreference
         case awayPreference
         /// Lineup's own match. Reached when a saved preference exists but its
@@ -111,6 +113,56 @@ struct TeamChannelSide: Identifiable, Equatable, Sendable {
     /// Named so the choice reads the way it was asked for — "the home team" —
     /// while still saying which team that actually is.
     var role: String { isHome ? "home team" : "away team" }
+}
+
+/// A manual choice scoped to one exact scheduled game.
+///
+/// This is deliberately separate from a team preference. Choosing "Just this
+/// game" must survive a schedule refresh and an app restart, but it must never
+/// leak into the next game that either team plays. The schedule feed's game ID
+/// supplies that boundary; the expiry keeps old events from accumulating when
+/// a provider retains a long schedule history.
+struct GameChannelSelection: Codable, Equatable, Sendable {
+    let streamID: Int
+    let channelName: String
+    let expiresAt: Date
+
+    init(streamID: Int, channelName: String, gameStart: Date,
+         savedAt: Date = Date(), lifetime: TimeInterval = 12 * 60 * 60) {
+        self.streamID = streamID
+        self.channelName = channelName
+        // A late manual selection still gets a full window, while a selection
+        // made near first pitch remains valid through even a long event.
+        expiresAt = max(gameStart.addingTimeInterval(lifetime),
+                        savedAt.addingTimeInterval(lifetime))
+    }
+}
+
+/// Provider-scoped manual choices for individual games.
+struct GameChannelSelections: Codable, Equatable, Sendable {
+    private(set) var entries: [String: GameChannelSelection]
+
+    init(entries: [String: GameChannelSelection] = [:]) {
+        self.entries = entries
+    }
+
+    func selection(for gameID: String, at date: Date = Date()) -> GameChannelSelection? {
+        guard let selection = entries[gameID], selection.expiresAt > date else { return nil }
+        return selection
+    }
+
+    mutating func set(_ selection: GameChannelSelection, for gameID: String) {
+        guard !gameID.isEmpty else { return }
+        entries[gameID] = selection
+    }
+
+    mutating func removeAll() {
+        entries.removeAll()
+    }
+
+    mutating func prune(at date: Date = Date()) {
+        entries = entries.filter { $0.value.expiresAt > date }
+    }
 }
 
 /// Every saved team preference for one provider.

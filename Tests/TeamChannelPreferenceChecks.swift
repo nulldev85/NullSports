@@ -126,6 +126,30 @@ struct TeamChannelPreferenceChecks {
               == .play(streamID: espn, source: .verified),
               "Another provider inherits no preference and uses the verified feed")
 
+        // Exact-game choices ------------------------------------------------
+        // "Just this game" used to dismiss its menu without writing anything.
+        // Keep this store pure and date-driven so refresh/relaunch behavior and
+        // expiry are deterministic under test.
+        let pickedAt = Date(timeIntervalSince1970: 10_000)
+        let startsAt = Date(timeIntervalSince1970: 9_000)
+        let exact = GameChannelSelection(streamID: regional, channelName: "MLB 01",
+                                         gameStart: startsAt, savedAt: pickedAt)
+        var games = GameChannelSelections()
+        games.set(exact, for: "mlb-2026-09-23-wsh-det")
+        check(games.selection(for: "mlb-2026-09-23-wsh-det", at: pickedAt)?.streamID == regional,
+              "A manual choice is remembered for the exact game")
+        check(games.selection(for: "mlb-2026-09-24-wsh-det", at: pickedAt) == nil,
+              "An exact-game choice never leaks into another game")
+        let gameData = try! JSONEncoder().encode(games)
+        let restoredGames = try! JSONDecoder().decode(GameChannelSelections.self, from: gameData)
+        check(restoredGames == games, "An exact-game choice survives an encode/decode round trip")
+        check(restoredGames.selection(for: "mlb-2026-09-23-wsh-det",
+                                      at: exact.expiresAt.addingTimeInterval(1)) == nil,
+              "A finished game's manual choice expires")
+        var prunedGames = restoredGames
+        prunedGames.prune(at: exact.expiresAt.addingTimeInterval(1))
+        check(prunedGames == GameChannelSelections(), "Expired game choices are removed from storage")
+
         // Listing and removal ----------------------------------------------
         var listing = TeamChannelPreferences()
         listing.set(pref(espn, "ESPN", "Kansas City Chiefs", at: 100), for: game.homeKey)
