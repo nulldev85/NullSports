@@ -2175,7 +2175,7 @@ private struct MediaLibraryHero: View {
             #if os(tvOS)
             if !items.isEmpty {
                 heroSlide(item: items[index], rank: index + 1)
-                    .overlay(alignment: .bottomTrailing) { remotePaging }
+                    .overlay(alignment: .bottom) { remotePaging }
             }
             #else
             if !items.isEmpty {
@@ -2188,7 +2188,7 @@ private struct MediaLibraryHero: View {
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .overlay(alignment: .bottomTrailing) { pageIndicator }
+                    .overlay(alignment: .bottom) { pageIndicator }
                 }
             }
             #endif
@@ -2204,74 +2204,84 @@ private struct MediaLibraryHero: View {
     }
 
     private func heroSlide(item: MediaItem, rank: Int) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            LineupArtView(url: media.backdropURL(for: item, width: artWidth)
-                          ?? media.imageURL(for: item, width: artWidth),
-                          width: CGFloat(artWidth)) { image in
-                if let image { image.resizable().scaledToFill() }
-                else { Color.clear }
+        GeometryReader { slide in
+            let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
+            let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
+            let readableWidth = min(copyWidth, contentWidth)
+
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                LineupArtView(url: media.backdropURL(for: item, width: artWidth)
+                              ?? media.imageURL(for: item, width: artWidth),
+                              width: CGFloat(artWidth)) { image in
+                    if let image { image.resizable().scaledToFill() }
+                    else { Color.clear }
+                }
+                .frame(width: slide.size.width, height: slide.size.height)
+                LinearGradient(stops: [
+                    .init(color: .black.opacity(0.9), location: 0),
+                    .init(color: .black.opacity(0.5), location: 0.5),
+                    .init(color: .clear, location: 0.86)
+                ], startPoint: .leading, endPoint: .trailing)
+                // The artwork does not end at a rectangular black band. Its last
+                // stretch becomes the exact Library background, which lets the
+                // first shelf rise out of the hero instead of starting after it.
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.48),
+                    .init(color: .black.opacity(0.48), location: 0.7),
+                    .init(color: LineupStyle.background.opacity(0.92), location: 0.9),
+                    .init(color: LineupStyle.background, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+
+                VStack(alignment: .leading, spacing: heroSpacing) {
+                    Text("TOP 10 · " + String(format: "%02d OF %02d", rank, items.count))
+                        .font(.inter(eyebrowSize, .bold)).tracking(1.4)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .frame(width: readableWidth, alignment: .leading)
+
+                    Spacer(minLength: 0)
+
+                    Text(item.name)
+                        .font(.inter(titleSize, .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .frame(width: readableWidth, alignment: .leading)
+                        .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+
+                    if !metadata(for: item).isEmpty {
+                        Text(metadata(for: item).joined(separator: "  ·  "))
+                            .font(.inter(metaSize, .semibold))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .lineLimit(1)
+                            .frame(width: readableWidth, alignment: .leading)
+                    }
+
+                    if let overview = item.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.inter(overviewSize))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .lineLimit(overviewLines)
+                            .frame(width: readableWidth, alignment: .leading)
+                    }
+
+                    MediaHeroButton(title: item.hasDetailPage ? "Details" : "Play",
+                                    symbol: item.hasDetailPage ? "info.circle.fill" : "play.fill") {
+                        onOpen(item)
+                    }
+                    .frame(width: min(buttonMaxWidth, contentWidth), alignment: .leading)
+                }
+                // This frame is explicit rather than an ideal/max width. A
+                // long title can wrap inside it, but can never make a TabView
+                // page wider and move its leading edge off screen again.
+                .frame(width: contentWidth, height: contentHeight, alignment: .bottomLeading)
+                .padding(.horizontal, heroHorizontalPadding)
+                .padding(.top, heroTopPadding)
+                .padding(.bottom, heroBottomPadding)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0.9), location: 0),
-                .init(color: .black.opacity(0.5), location: 0.5),
-                .init(color: .clear, location: 0.86)
-            ], startPoint: .leading, endPoint: .trailing)
-            // The artwork does not end at a rectangular black band. Its last
-            // stretch becomes the exact Library background, which lets the
-            // first shelf rise out of the hero instead of starting after it.
-            LinearGradient(stops: [
-                .init(color: .clear, location: 0.48),
-                .init(color: .black.opacity(0.48), location: 0.7),
-                .init(color: LineupStyle.background.opacity(0.92), location: 0.9),
-                .init(color: LineupStyle.background, location: 1)
-            ], startPoint: .top, endPoint: .bottom)
-
-            VStack(alignment: .leading, spacing: heroSpacing) {
-                Text("TOP 10 · " + String(format: "%02d OF %02d", rank, items.count))
-                .font(.inter(eyebrowSize, .bold)).tracking(1.4)
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                Text(item.name)
-                    .font(.inter(titleSize, .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .frame(maxWidth: copyWidth, alignment: .leading)
-                    .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
-
-                if !metadata(for: item).isEmpty {
-                    Text(metadata(for: item).joined(separator: "  ·  "))
-                        .font(.inter(metaSize, .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .lineLimit(1)
-                }
-
-                if let overview = item.overview, !overview.isEmpty {
-                    Text(overview)
-                        .font(.inter(overviewSize))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .lineLimit(overviewLines)
-                        .frame(maxWidth: copyWidth, alignment: .leading)
-                }
-
-                MediaHeroButton(title: item.hasDetailPage ? "Details" : "Play",
-                                symbol: item.hasDetailPage ? "info.circle.fill" : "play.fill") {
-                    onOpen(item)
-                }
-                .frame(maxWidth: buttonMaxWidth, alignment: .leading)
-            }
-            .padding(.horizontal, heroHorizontalPadding)
-            .padding(.top, heroTopPadding)
-            .padding(.bottom, heroBottomPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .frame(width: slide.size.width, height: slide.size.height)
+            .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
         .contentShape(Rectangle())
     }
 
@@ -2321,7 +2331,7 @@ private struct MediaLibraryHero: View {
             pageIndicator
             MediaHeroIconButton(symbol: "chevron.right", label: "Next featured title") { move(1) }
         }
-        .padding(.trailing, 72).padding(.bottom, 76)
+        .padding(.bottom, 76)
     }
     #endif
 
@@ -2334,7 +2344,7 @@ private struct MediaLibraryHero: View {
             }
         }
         #if !os(tvOS)
-        .padding(.trailing, 22).padding(.bottom, 64)
+        .padding(.bottom, 64)
         #endif
         .animation(.easeOut(duration: 0.2), value: index)
         .accessibilityHidden(true)
