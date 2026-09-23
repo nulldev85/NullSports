@@ -518,10 +518,24 @@ struct TVSelectable<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        let focusShape = RoundedRectangle(cornerRadius: fillRadius, style: .continuous)
         content
             .contentShape(Rectangle())
-            .background(focused ? (fill ?? .clear) : .clear,
-                in: RoundedRectangle(cornerRadius: fillRadius, style: .continuous))
+            // A lift by itself disappears on a dark television from across the
+            // room. Every custom tvOS control now gets the same restrained
+            // focus language: a faint neutral surface and a crisp light rim.
+            // It is intentionally theme-neutral, so OLED stays black and no
+            // accent color is painted over artwork.
+            .background(focused ? (fill ?? LineupStyle.lightPurple.opacity(0.055)) : .clear,
+                        in: focusShape)
+            .overlay {
+                focusShape
+                    .strokeBorder(focused ? LineupStyle.lightPurple.opacity(0.84) : .clear,
+                                  lineWidth: focused ? 2 : 0)
+                    .shadow(color: focused ? LineupStyle.lightPurple.opacity(0.22) : .clear,
+                            radius: 8)
+                    .allowsHitTesting(false)
+            }
             .focusable()
             .focused($focused)
             .focusEffectDisabled()

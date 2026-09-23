@@ -650,7 +650,11 @@ private struct MediaCatalogsScreen: View {
                                     #endif
                                 }
                                 .padding(.horizontal, horizontalPadding)
-                                .lineupFocusRegion()
+                                // Do not turn the tiny See All control into a
+                                // full-width focus target. It remains reachable
+                                // from posters near its right edge, while an
+                                // ordinary vertical move is guided into the
+                                // next shelf's nearest poster instead.
                                 if catalog.items.isEmpty {
                                     Text("No titles in this catalog.").font(.inter(.callout))
                                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.58)).frame(height: 64)
