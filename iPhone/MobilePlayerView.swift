@@ -29,6 +29,7 @@ struct MobilePlayerView: View {
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     @State private var scrubTarget: Double?
     @State private var lastReportedPosition: TimeInterval = 0
+    @State private var showingSubtitles = false
 
     var body: some View {
         ZStack {
@@ -90,6 +91,14 @@ struct MobilePlayerView: View {
                             control("pip.enter", label: "Picture in Picture") {
                                 showControls()
                                 controller.togglePictureInPicture()
+                            }
+                        }
+                        if !isLive && controller.subtitleTracks.count > 1 {
+                            control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+                                    ? "captions.bubble" : "captions.bubble.fill",
+                                    label: "Subtitles, \(controller.selectedSubtitleTitle)") {
+                                showControls()
+                                showingSubtitles = true
                             }
                         }
                         if controller.error == nil && !controller.loading {
@@ -160,6 +169,16 @@ struct MobilePlayerView: View {
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
+                            titleVisibility: .visible) {
+            ForEach(controller.subtitleTracks) { track in
+                Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+                    controller.selectSubtitle(track)
+                    showControls()
+                }
+            }
+            Button("Cancel", role: .cancel) { showControls() }
+        }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)

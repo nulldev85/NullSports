@@ -470,6 +470,16 @@ struct MediaCatalog: Identifiable, Hashable, Sendable {
     var title: String { root.name }
 }
 
+enum MediaHeroCatalogSelection {
+    static func resolve(_ catalogs: [MediaCatalog], selectedID: String?) -> MediaCatalog? {
+        if let selectedID,
+           let selected = catalogs.first(where: { $0.id == selectedID && !$0.items.isEmpty }) {
+            return selected
+        }
+        return catalogs.first { !$0.items.isEmpty }
+    }
+}
+
 struct MediaLibraryCounts: Equatable, Sendable {
     let movies: Int
     let shows: Int
@@ -502,6 +512,31 @@ struct MediaPlaybackInfo: Decodable, Sendable {
     let mediaSources: [MediaPlaybackSource]
 
     enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources" }
+}
+
+/// One subtitle choice exposed by the active playback engine. The engine keeps
+/// its native track object; the view only needs a stable id, a readable name,
+/// and the integer VLC uses when VLC is rendering the title.
+struct PlaybackSubtitleTrack: Identifiable, Hashable, Sendable {
+    static let off = PlaybackSubtitleTrack(id: "off", title: "Off", engineIndex: nil)
+
+    let id: String
+    let title: String
+    let engineIndex: Int?
+
+    static func vlcTracks(names: [String], indexes: [Int]) -> [PlaybackSubtitleTrack] {
+        var tracks: [PlaybackSubtitleTrack] = [.off]
+        var seen: Set<Int> = []
+        for (name, index) in zip(names, indexes) where index >= 0 && seen.insert(index).inserted {
+            let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = clean.lowercased()
+            guard lowered != "disable" && lowered != "disabled" && lowered != "off" else { continue }
+            tracks.append(PlaybackSubtitleTrack(id: "vlc-\(index)",
+                                                title: clean.isEmpty ? "Subtitle \(tracks.count)" : clean,
+                                                engineIndex: index))
+        }
+        return tracks
+    }
 }
 
 struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {

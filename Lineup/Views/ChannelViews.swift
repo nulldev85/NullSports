@@ -3488,10 +3488,11 @@ struct PlayerView: View {
     }
 }
 
-private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, quality }
+private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, quality }
 
 private struct TVPlayerChrome: View {
     @State private var showingQuality = false
+    @State private var showingSubtitles = false
     let title: String
     let program: CurrentProgram?
     let isLive: Bool
@@ -3551,10 +3552,29 @@ private struct TVPlayerChrome: View {
                         TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
                             symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                        if !isLive && controller.subtitleTracks.count > 1 {
+                            TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
+                                TVPlayerMenuLabel(title: "Subtitles · \(controller.selectedSubtitleTitle)",
+                                                  symbol: "captions.bubble.fill",
+                                                  focused: focusedControl.wrappedValue == .subtitles)
+                            }
+                            .focused(focusedControl, equals: .subtitles)
+                            .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
+                                                titleVisibility: .visible) {
+                                ForEach(controller.subtitleTracks) { track in
+                                    Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+                                        controller.selectSubtitle(track)
+                                        onInteraction()
+                                    }
+                                }
+                                Button("Cancel", role: .cancel) { onInteraction() }
+                            }
+                        }
                         // A Menu renders through tvOS's own chrome, so this is a
                         // plain selectable with a dialog, like every other control.
                         TVSelectable(scale: LineupStyle.controlLift, action: { showingQuality = true }) {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
+                                              symbol: "gearshape.fill",
                                               focused: focusedControl.wrappedValue == .quality)
                         }
                         .focused(focusedControl, equals: .quality)
@@ -3675,10 +3695,11 @@ private struct TVPlayerButton: View {
 
 private struct TVPlayerMenuLabel: View {
     let title: String
+    let symbol: String
     let focused: Bool
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "gearshape.fill").font(.system(size: 17, weight: .bold))
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold))
             Text(title).font(.inter(18, .semibold)).fixedSize()
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
         }
@@ -3700,6 +3721,8 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
+    @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
+    @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
     /// Seconds. Zero duration means the item is not seekable, which is how a
     /// live channel presents, so the seek bar simply does not appear for it.
     @Published private(set) var elapsed: TimeInterval = 0
@@ -3716,6 +3739,9 @@ private struct TVPlayerMenuLabel: View {
     private var retryAt: TimeInterval?
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
+    var selectedSubtitleTitle: String {
+        subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
+    }
     var qualityLabel: String {
         switch videoHeight {
         case 2160...: "4K"
@@ -3750,6 +3776,7 @@ private struct TVPlayerMenuLabel: View {
 
     private func openCurrent() {
         player.stop()
+        resetSubtitles()
         let media = VLCMedia(url: urls[urlIndex])
         media.addOption(":network-caching=5000")
         media.addOption(":live-caching=5000")
@@ -3791,6 +3818,7 @@ private struct TVPlayerMenuLabel: View {
 
     private func checkPlayback() {
         updateProgress()
+        refreshSubtitleTracks()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
@@ -3845,6 +3873,32 @@ private struct TVPlayerMenuLabel: View {
         }
         isPlaying = player.isPlaying
     }
+
+    func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+        player.currentVideoSubTitleIndex = Int32(track.engineIndex ?? -1)
+        selectedSubtitleID = track.id
+    }
+
+    /// VLCKit discovers tracks only after the container starts parsing. The
+    /// playback monitor is already the one place sampled on that cadence, so
+    /// refresh here and publish only when the list or selection actually
+    /// changes. No second timer and no UI churn while a film is playing.
+    private func refreshSubtitleTracks() {
+        let names = (player.videoSubTitlesNames as? [String]) ?? []
+        let indexes = ((player.videoSubTitlesIndexes as? [NSNumber]) ?? []).map(\.intValue)
+        let discovered = PlaybackSubtitleTrack.vlcTracks(names: names, indexes: indexes)
+        if discovered != subtitleTracks { subtitleTracks = discovered }
+        let current = Int(player.currentVideoSubTitleIndex)
+        let selected = discovered.first(where: { $0.engineIndex == current })?.id
+            ?? PlaybackSubtitleTrack.off.id
+        if selected != selectedSubtitleID { selectedSubtitleID = selected }
+    }
+
+    private func resetSubtitles() {
+        subtitleTracks = [.off]
+        selectedSubtitleID = PlaybackSubtitleTrack.off.id
+    }
+
     func stop() {
         monitor?.cancel()
         monitor = nil
@@ -3856,6 +3910,7 @@ private struct TVPlayerMenuLabel: View {
         videoHeight = 0
         duration = 0
         elapsed = 0
+        resetSubtitles()
         player.stop()
         player.media = nil
     }

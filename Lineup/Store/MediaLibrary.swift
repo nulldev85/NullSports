@@ -20,6 +20,10 @@ final class MediaLibrary: ObservableObject {
     /// when the broad query comes back short.
     @Published private(set) var importedCatalogs: [MediaItem] = []
     @Published private(set) var catalogs: [MediaCatalog] = []
+    /// The shelf driving the large Library feature card. Saved per media
+    /// server so switching households never carries one server's catalog name
+    /// into another one's Library.
+    @Published private(set) var selectedHeroCatalogID: String? = nil
     @Published private(set) var libraryCounts: MediaLibraryCounts?
     @Published private(set) var lastRefreshedAt: Date?
     @Published private(set) var isConnected = false
@@ -63,6 +67,7 @@ final class MediaLibrary: ObservableObject {
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
+    private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     // Written by a version that could install media sources the app talked to
     // directly. That feature is gone, so the state it left behind is cleared
     // on the next launch rather than sitting in defaults forever.
@@ -87,6 +92,7 @@ final class MediaLibrary: ObservableObject {
         }
         let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
         activeProfile = profiles.first { $0.id == activeID } ?? profiles.first
+        selectedHeroCatalogID = activeProfile.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
         if let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
             localPlayback = saved
@@ -145,6 +151,22 @@ final class MediaLibrary: ObservableObject {
     /// Every row on the Media Servers tab.
     var shelves: [MediaCatalog] { catalogs }
 
+    /// A missing or removed choice falls back to the first populated shelf.
+    /// That keeps the hub useful immediately while leaving the actual saved
+    /// choice untouched until the viewer deliberately picks one.
+    var heroCatalog: MediaCatalog? {
+        MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
+    }
+
+    func selectHeroCatalog(_ catalog: MediaCatalog) {
+        guard let profile = activeProfile, catalogs.contains(where: { $0.id == catalog.id }) else { return }
+        selectedHeroCatalogID = catalog.id
+        var saved = savedHeroCatalogs()
+        saved[profile.id.uuidString] = catalog.id
+        defaults.set(try? JSONEncoder().encode(saved), forKey: heroCatalogKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the user name is required. A Jellyfin-compatible server may have
@@ -169,6 +191,7 @@ final class MediaLibrary: ObservableObject {
             try MediaKeychainStore.save(token: authentication.accessToken, profileID: profile.id)
             profiles.append(profile)
             activeProfile = profile
+            selectedHeroCatalogID = savedHeroCatalogs()[profile.id.uuidString]
             persist()
             await reload()
             return true
@@ -183,6 +206,7 @@ final class MediaLibrary: ObservableObject {
         loadedProfileID = nil
         loadFailed = false
         activeProfile = profile
+        selectedHeroCatalogID = savedHeroCatalogs()[profile.id.uuidString]
         roots = []
         collections = []
         catalogs = []
@@ -204,8 +228,13 @@ final class MediaLibrary: ObservableObject {
         localFavorites.removeAll { $0.profileID == profile.id }
         persistLocalFavorites()
         saveMDBListShelfIDs([], profileID: profile.id)
+        var heroChoices = savedHeroCatalogs()
+        heroChoices.removeValue(forKey: profile.id.uuidString)
+        if heroChoices.isEmpty { defaults.removeObject(forKey: heroCatalogKey) }
+        else { defaults.set(try? JSONEncoder().encode(heroChoices), forKey: heroCatalogKey) }
         if activeProfile?.id == profile.id {
             activeProfile = profiles.first
+            selectedHeroCatalogID = activeProfile.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
             roots = []
             collections = []
             catalogs = []
@@ -242,7 +271,7 @@ final class MediaLibrary: ObservableObject {
 
     func reload() async {
         guard let profile = activeProfile else {
-            roots = []; collections = []; catalogs = []; isLoading = false
+            roots = []; collections = []; catalogs = []; selectedHeroCatalogID = nil; isLoading = false
             libraryCounts = nil; lastRefreshedAt = nil; isConnected = false
             loadedProfileID = nil; loadFailed = false
             return
@@ -835,6 +864,14 @@ final class MediaLibrary: ObservableObject {
             let ids = savedMDBListShelfIDs(for: profile.id).filter { "mdblist:\($0)" != catalog.id }
             saveMDBListShelfIDs(ids, profileID: profile.id)
         }
+        if selectedHeroCatalogID == catalog.id {
+            selectedHeroCatalogID = nil
+            var saved = savedHeroCatalogs()
+            saved.removeValue(forKey: profile.id.uuidString)
+            if saved.isEmpty { defaults.removeObject(forKey: heroCatalogKey) }
+            else { defaults.set(try? JSONEncoder().encode(saved), forKey: heroCatalogKey) }
+            if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        }
     }
 
     var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }
@@ -1220,6 +1257,12 @@ final class MediaLibrary: ObservableObject {
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
+    private func savedHeroCatalogs() -> [String: String] {
+        guard let data = defaults.data(forKey: heroCatalogKey),
+              let value = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return value
+    }
+
     private func persist() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: profilesKey)
         defaults.set(activeProfile?.id.uuidString, forKey: activeKey)
@@ -1235,11 +1278,13 @@ final class MediaLibrary: ObservableObject {
         let selected = saved.first { $0.id == activeID } ?? saved.first
         if selected?.id != activeProfile?.id {
             activeProfile = selected
+            selectedHeroCatalogID = selected.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
             roots = []
             catalogs = []
             if selected != nil { await reload() }
         } else {
             activeProfile = selected
+            selectedHeroCatalogID = selected.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
         }
     }
 }

@@ -42,6 +42,8 @@ final class MobilePlaybackController: ObservableObject {
     /// Where playback is in a title that has an end. Nil for a live stream,
     /// which has no length to report and nothing to scrub through.
     @Published private(set) var progress: MobilePlaybackProgress?
+    @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
+    @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
 
     /// How the controller reaches other channels for the game on screen. Left
     /// nil for plain Guide playback, which has no game and therefore no verified
@@ -90,6 +92,8 @@ final class MobilePlaybackController: ObservableObject {
     // AVPlayer engine state.
     private var systemObservers: [NSKeyValueObservation] = []
     private var systemNotifications: [NSObjectProtocol] = []
+    private var systemSubtitleGroup: AVMediaSelectionGroup?
+    private var systemSubtitleOptions: [String: AVMediaSelectionOption] = [:]
     /// Held apart from `systemObservers`: those are torn down on every channel
     /// change, and this one belongs to the layer, which outlives the item.
     private var pipObserver: NSKeyValueObservation?
@@ -206,6 +210,10 @@ final class MobilePlaybackController: ObservableObject {
     // versions and isn't worth pinning to for a badge — the video size alone
     // covers what was actually asked for ("quality of channel").
     var streamQualityLabel: String? { qualityLabel }
+
+    var selectedSubtitleTitle: String {
+        subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
+    }
 
     // MARK: - Position
 
@@ -409,6 +417,7 @@ final class MobilePlaybackController: ObservableObject {
                 // exactly when some of these values matter. Observation only.
                 self.diag.update(snapshot: self.diagnosticsSnapshot)
                 self.sampleProgress()
+                if self.engine == .vlc { self.refreshVLCSubtitleTracks() }
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
                     if ProcessInfo.processInfo.systemUptime >= retryAt {
@@ -471,6 +480,7 @@ final class MobilePlaybackController: ObservableObject {
     private func openNext() {
         teardownSystemEngine()
         player.stop()
+        resetSubtitles()
         waitingForVideo = false
         waitingSince = nil
         isPlaying = false
@@ -537,6 +547,7 @@ final class MobilePlaybackController: ObservableObject {
                 case .readyToPlay:
                     self.loading = false
                     UIApplication.shared.isIdleTimerDisabled = true
+                    self.loadSystemSubtitleTracks(for: item)
                 default: break
                 }
             }
@@ -601,6 +612,8 @@ final class MobilePlaybackController: ObservableObject {
         systemNotifications.removeAll()
         systemPlayer.pause()
         systemPlayer.replaceCurrentItem(with: nil)
+        systemSubtitleGroup = nil
+        systemSubtitleOptions.removeAll()
         layerDetachedForBackground = false
     }
 
@@ -708,6 +721,75 @@ final class MobilePlaybackController: ObservableObject {
 
     private func refreshIsPlaying() {
         isPlaying = engine == .vlc ? player.isPlaying : systemPlayer.timeControlStatus == .playing
+    }
+
+    // MARK: - Subtitles
+
+    func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+        switch engine {
+        case .vlc:
+            player.currentVideoSubTitleIndex = Int32(track.engineIndex ?? -1)
+        case .system:
+            guard let item = systemPlayer.currentItem, let group = systemSubtitleGroup else { return }
+            // An explicit choice, including Off, belongs to the viewer rather
+            // than AVPlayer's language heuristic for the rest of this session.
+            systemPlayer.appliesMediaSelectionCriteriaAutomatically = false
+            item.select(systemSubtitleOptions[track.id], in: group)
+        }
+        selectedSubtitleID = track.id
+    }
+
+    private func refreshVLCSubtitleTracks() {
+        let names = (player.videoSubTitlesNames as? [String]) ?? []
+        let indexes = ((player.videoSubTitlesIndexes as? [NSNumber]) ?? []).map(\.intValue)
+        let discovered = PlaybackSubtitleTrack.vlcTracks(names: names, indexes: indexes)
+        if discovered != subtitleTracks { subtitleTracks = discovered }
+        let current = Int(player.currentVideoSubTitleIndex)
+        let selected = discovered.first(where: { $0.engineIndex == current })?.id
+            ?? PlaybackSubtitleTrack.off.id
+        if selected != selectedSubtitleID { selectedSubtitleID = selected }
+    }
+
+    private func loadSystemSubtitleTracks(for item: AVPlayerItem) {
+        Task { [weak self, weak item] in
+            guard let self, let item else { return }
+            do {
+                guard let group = try await item.asset.loadMediaSelectionGroup(for: .legible),
+                      self.systemPlayer.currentItem === item else { return }
+                self.systemSubtitleGroup = group
+                var tracks: [PlaybackSubtitleTrack] = [.off]
+                var options: [String: AVMediaSelectionOption] = [:]
+                for (offset, option) in group.options.enumerated() {
+                    let id = "system-\(offset)"
+                    let title = option.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    tracks.append(PlaybackSubtitleTrack(id: id,
+                        title: title.isEmpty ? "Subtitle \(offset + 1)" : title,
+                        engineIndex: nil))
+                    options[id] = option
+                }
+                self.systemSubtitleOptions = options
+                self.subtitleTracks = tracks
+                let chosen = item.currentMediaSelection.selectedMediaOption(in: group)
+                if let chosen {
+                    self.selectedSubtitleID = options.first(where: { $0.value === chosen })?.key
+                        ?? PlaybackSubtitleTrack.off.id
+                } else {
+                    self.selectedSubtitleID = PlaybackSubtitleTrack.off.id
+                }
+            } catch {
+                // No legible group is a normal answer for a title with no
+                // captions. Playback remains untouched and the button stays
+                // out of the way.
+            }
+        }
+    }
+
+    private func resetSubtitles() {
+        subtitleTracks = [.off]
+        selectedSubtitleID = PlaybackSubtitleTrack.off.id
+        systemSubtitleGroup = nil
+        systemSubtitleOptions.removeAll()
+        systemPlayer.appliesMediaSelectionCriteriaAutomatically = true
     }
 
     private func refreshStats() {
@@ -819,6 +901,7 @@ final class MobilePlaybackController: ObservableObject {
         suspended = false
         shouldResume = false
         isPlaying = false
+        resetSubtitles()
         UIApplication.shared.isIdleTimerDisabled = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

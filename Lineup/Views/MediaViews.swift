@@ -578,6 +578,8 @@ private struct MediaCatalogsScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var editingQuery = false
+    @State private var choosingHeroCatalog = false
+    @State private var heroPlayableItem: MediaItem?
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
@@ -638,6 +640,13 @@ private struct MediaCatalogsScreen: View {
                         description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
                 } else { ScrollView {
                     LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                        if let heroCatalog = media.heroCatalog {
+                            MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem) {
+                                choosingHeroCatalog = true
+                            }
+                            .padding(.horizontal, horizontalPadding)
+                            .lineupFocusRegion()
+                        }
                         if !continueWatching.isEmpty {
                             localShelf(title: "Continue Watching", items: continueWatching.map(\.item))
                         }
@@ -713,6 +722,22 @@ private struct MediaCatalogsScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .confirmationDialog("Featured Catalog", isPresented: $choosingHeroCatalog,
+                            titleVisibility: .visible) {
+            ForEach(catalogs.filter { !$0.items.isEmpty }) { catalog in
+                Button(catalog.title + (catalog.id == media.heroCatalog?.id ? "  ✓" : "")) {
+                    media.selectHeroCatalog(catalog)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose which catalog supplies the Library hero.")
+        }
+        #if os(tvOS)
+        .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        #else
+        .sheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        #endif
         #if !os(tvOS)
         .onChange(of: query) { _, value in
             submittedQuery = value
@@ -739,6 +764,11 @@ private struct MediaCatalogsScreen: View {
             }
             searching = false
         }
+    }
+
+    private func openHeroItem(_ item: MediaItem) {
+        if item.opensPage { pushed = item }
+        else if item.isPlayable { heroPlayableItem = item }
     }
 
     /// Local rows use the same cards, spacing and focus regions as server
@@ -2122,6 +2152,219 @@ private struct MediaPlayableCard: View {
             .lineupFlatButton()
         }
     }
+}
+
+/// The Library's front door. It uses only artwork from the chosen shelf and
+/// advances by direct viewer input, so coming back to the tab never starts a
+/// timer or silently swaps the title under focus.
+private struct MediaLibraryHero: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let catalog: MediaCatalog
+    let onOpen: (MediaItem) -> Void
+    let onConfigure: () -> Void
+    @State private var index = 0
+
+    private var items: [MediaItem] {
+        let playable = catalog.items.filter { $0.hasDetailPage || $0.isPlayable }
+        return playable.isEmpty ? catalog.items : playable
+    }
+
+    private var item: MediaItem? {
+        guard !items.isEmpty else { return nil }
+        return items[min(max(index, 0), items.count - 1)]
+    }
+
+    var body: some View {
+        Group {
+            if let item {
+                ZStack(alignment: .bottomLeading) {
+                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LineupArtView(url: media.backdropURL(for: item, width: artWidth)
+                                  ?? media.imageURL(for: item, width: artWidth),
+                                  width: CGFloat(artWidth)) { image in
+                        if let image { image.resizable().scaledToFill() }
+                        else { Color.clear }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.9), location: 0),
+                        .init(color: .black.opacity(0.5), location: 0.48),
+                        .init(color: .clear, location: 0.82)
+                    ], startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)],
+                                   startPoint: .center, endPoint: .bottom)
+
+                    VStack(alignment: .leading, spacing: heroSpacing) {
+                        HStack(spacing: 8) {
+                            Text("FEATURED")
+                            Text("·")
+                            Text(catalog.title.uppercased()).lineLimit(1)
+                        }
+                        .font(.inter(eyebrowSize, .bold)).tracking(1.4)
+                        .foregroundStyle(.white.opacity(0.68))
+
+                        Spacer(minLength: 0)
+
+                        Text(item.name)
+                            .font(.inter(titleSize, .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .shadow(color: .black.opacity(0.42), radius: 12, y: 4)
+
+                        if !metadata(for: item).isEmpty {
+                            Text(metadata(for: item).joined(separator: "  ·  "))
+                                .font(.inter(metaSize, .semibold))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .lineLimit(1)
+                        }
+
+                        if let overview = item.overview, !overview.isEmpty {
+                            Text(overview)
+                                .font(.inter(overviewSize))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .lineLimit(overviewLines)
+                                .frame(maxWidth: copyWidth, alignment: .leading)
+                        }
+
+                        HStack(spacing: 10) {
+                            MediaHeroButton(title: item.hasDetailPage ? "View Details" : "Play",
+                                            symbol: item.hasDetailPage ? "info.circle.fill" : "play.fill",
+                                            prominent: true) { onOpen(item) }
+                            #if os(tvOS)
+                            MediaHeroButton(title: "Featured Catalog", symbol: "rectangle.stack") {
+                                onConfigure()
+                            }
+                            #else
+                            MediaHeroIconButton(symbol: "rectangle.stack", label: "Choose featured catalog") {
+                                onConfigure()
+                            }
+                            #endif
+                            Spacer(minLength: 0)
+                            if items.count > 1 {
+                                MediaHeroIconButton(symbol: "chevron.left", label: "Previous featured title") {
+                                    move(-1)
+                                }
+                                MediaHeroIconButton(symbol: "chevron.right", label: "Next featured title") {
+                                    move(1)
+                                }
+                            }
+                        }
+                    }
+                    .padding(heroPadding)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: heroHeight)
+                .clipShape(RoundedRectangle(cornerRadius: heroRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: heroRadius, style: .continuous)
+                    .stroke(.white.opacity(0.09), lineWidth: 1))
+                .lineupShadow(.resting)
+                .animation(.easeInOut(duration: 0.28), value: item.id)
+            }
+        }
+        .onChange(of: catalog.id) { _, _ in index = 0 }
+    }
+
+    private func move(_ delta: Int) {
+        guard !items.isEmpty else { return }
+        index = (index + delta + items.count) % items.count
+    }
+
+    private func metadata(for item: MediaItem) -> [String] {
+        [item.type == "Series" ? "SERIES" : item.type.uppercased(),
+         item.productionYear.map(String.init),
+         item.formattedRuntime,
+         item.communityRating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    #if os(tvOS)
+    private var artWidth: Int { 1800 }
+    private var heroHeight: CGFloat { 410 }
+    private var heroRadius: CGFloat { 24 }
+    private var heroPadding: CGFloat { 34 }
+    private var heroSpacing: CGFloat { 10 }
+    private var titleSize: CGFloat { 42 }
+    private var eyebrowSize: CGFloat { 12 }
+    private var metaSize: CGFloat { 16 }
+    private var overviewSize: CGFloat { 17 }
+    private var overviewLines: Int { 2 }
+    private var copyWidth: CGFloat { 720 }
+    #else
+    private var artWidth: Int { 1100 }
+    private var heroHeight: CGFloat { 300 }
+    private var heroRadius: CGFloat { 18 }
+    private var heroPadding: CGFloat { 20 }
+    private var heroSpacing: CGFloat { 7 }
+    private var titleSize: CGFloat { 30 }
+    private var eyebrowSize: CGFloat { 10 }
+    private var metaSize: CGFloat { 13 }
+    private var overviewSize: CGFloat { 14 }
+    private var overviewLines: Int { 2 }
+    private var copyWidth: CGFloat { 390 }
+    #endif
+}
+
+private struct MediaHeroButton: View {
+    let title: String
+    let symbol: String
+    var prominent = false
+    let action: () -> Void
+
+    var body: some View {
+        #if os(tvOS)
+        TVSelectable(scale: LineupStyle.controlLift, action: action) { label.modifier(MediaChromeFocus(prominent: prominent)) }
+        #else
+        Button(action: action) { label.modifier(MediaChromeFocus(prominent: prominent)) }.lineupFlatButton()
+        #endif
+    }
+
+    private var label: some View {
+        Label(title, systemImage: symbol)
+            .font(.inter(buttonFont, .semibold))
+            .foregroundStyle(LineupStyle.lightPurple)
+            .padding(.horizontal, buttonInset)
+            .frame(height: buttonHeight)
+    }
+
+    #if os(tvOS)
+    private var buttonFont: CGFloat { 17 }
+    private var buttonInset: CGFloat { 18 }
+    private var buttonHeight: CGFloat { 50 }
+    #else
+    private var buttonFont: CGFloat { 14 }
+    private var buttonInset: CGFloat { 13 }
+    private var buttonHeight: CGFloat { 42 }
+    #endif
+}
+
+private struct MediaHeroIconButton: View {
+    let symbol: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        #if os(tvOS)
+        TVSelectable(scale: LineupStyle.controlLift, action: action) { content.modifier(MediaChromeFocus()) }
+        #else
+        Button(action: action) { content.modifier(MediaChromeFocus()) }.lineupFlatButton()
+        #endif
+    }
+
+    private var content: some View {
+        Image(systemName: symbol).font(.system(size: iconSize, weight: .bold))
+            .frame(width: controlSize, height: controlSize)
+            .foregroundStyle(LineupStyle.lightPurple)
+            .accessibilityLabel(label)
+    }
+
+    #if os(tvOS)
+    private var iconSize: CGFloat { 17 }
+    private var controlSize: CGFloat { 50 }
+    #else
+    private var iconSize: CGFloat { 14 }
+    private var controlSize: CGFloat { 42 }
+    #endif
 }
 
 private struct MediaSourcePicker: View {
