@@ -529,7 +529,11 @@ struct TVSelectable<Content: View>: View {
             .background(focused ? (fill ?? LineupStyle.lightPurple.opacity(0.055)) : .clear,
                         in: focusShape)
             .overlay {
-                focusShape
+                // The rim belongs around the lockup, not on top of its first
+                // and last pixels. Expanding it leaves a deliberate gutter
+                // beside titles and progress copy while preserving the exact
+                // card layout and shelf spacing when focus moves.
+                focusShape.inset(by: -6)
                     .strokeBorder(focused ? LineupStyle.lightPurple.opacity(0.84) : .clear,
                                   lineWidth: focused ? 2 : 0)
                     .shadow(color: focused ? LineupStyle.lightPurple.opacity(0.22) : .clear,
