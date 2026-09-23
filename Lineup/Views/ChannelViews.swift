@@ -2853,6 +2853,7 @@ struct AccountView: View {
                 VStack(alignment: .leading, spacing: 44) {
                     ScreenHeading(title: "Account", detail: "Your sources, how they look, and what the app is doing")
                     sources
+                    libraryExperience
                     integrations
                     appearance
                     diagnostics
@@ -2878,6 +2879,21 @@ struct AccountView: View {
             .sheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environmentObject(media)
             }
+        }
+    }
+
+    private var libraryExperience: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("LIBRARY")
+            AccountLink(
+                title: "Library Hero",
+                detail: media.heroCatalog.map { "Top 10 from \($0.title)" }
+                    ?? "Choose the catalog shown across the top of Library",
+                symbol: "sparkles.rectangle.stack.fill"
+            ) {
+                LibraryHeroSettingsView().environmentObject(media)
+            }
+            .disabled(media.activeProfile == nil)
         }
     }
 

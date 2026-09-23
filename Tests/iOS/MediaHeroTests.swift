@@ -31,4 +31,13 @@ final class MediaHeroTests: XCTestCase {
         XCTAssertEqual(MediaHeroCatalogSelection.resolve([empty, populated], selectedID: "removed")?.id,
                        populated.id)
     }
+
+    func testHeroUsesTheCatalogOrderAndStopsAtTen() {
+        let ranked = catalog("ranked", itemCount: 14)
+
+        let featured = MediaHeroCatalogSelection.featuredItems(in: ranked)
+
+        XCTAssertEqual(featured.count, 10)
+        XCTAssertEqual(featured.map(\.id), (0..<10).map { "ranked-\($0)" })
+    }
 }

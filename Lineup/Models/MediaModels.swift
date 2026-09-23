@@ -478,6 +478,12 @@ enum MediaHeroCatalogSelection {
         }
         return catalogs.first { !$0.items.isEmpty }
     }
+
+    static func featuredItems(in catalog: MediaCatalog, limit: Int = 10) -> [MediaItem] {
+        guard limit > 0 else { return [] }
+        let presentable = catalog.items.filter { $0.hasDetailPage || $0.isPlayable }
+        return Array((presentable.isEmpty ? catalog.items : presentable).prefix(limit))
+    }
 }
 
 struct MediaLibraryCounts: Equatable, Sendable {

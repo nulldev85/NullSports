@@ -416,6 +416,20 @@ private struct MobileAccountView: View {
                     Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
+                    NavigationLink {
+                        LibraryHeroSettingsView().environmentObject(media)
+                    } label: {
+                        LabeledContent("Library hero",
+                            value: media.heroCatalog?.title ?? "Choose catalog")
+                    }
+                    .disabled(media.activeProfile == nil)
+                } header: {
+                    Text("Library").lineupSectionHeader()
+                } footer: {
+                    Text("Choose the catalog whose top ten titles appear in the full-screen Library hero.")
+                }
+                .listRowBackground(LineupGlassRow())
+                Section {
                     if let account = media.mdbListAccount {
                         LabeledContent("MDBList", value: "@\(account.username)")
                         LabeledContent("Catalogs", value: media.mdbListCatalogs.count.formatted())
