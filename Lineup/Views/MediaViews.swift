@@ -8,12 +8,14 @@ struct MediaServersView: View {
     @State private var addingServer = false
     @State private var choosingShelf = false
     @State private var clearingHistory = false
+    @State private var searchingLibrary = false
 
     var body: some View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer, choosingShelf: $choosingShelf)
+            TVMediaServersHome(addingServer: $addingServer, choosingShelf: $choosingShelf,
+                               searchingLibrary: $searchingLibrary)
             #else
             Group {
                 if !media.hasAnySource {
@@ -41,11 +43,11 @@ struct MediaServersView: View {
                         }
                     }
                 } else {
-                    MediaCatalogsScreen(catalogs: media.shelves)
+                    MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
-            .navigationTitle("Library")
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     mediaOptionsMenu
@@ -86,6 +88,8 @@ struct MediaServersView: View {
     #if !os(tvOS)
     private var mediaOptionsMenu: some View {
         Menu {
+            Button("Search", systemImage: "magnifyingglass") { searchingLibrary = true }
+                .disabled(media.shelves.isEmpty)
             Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
                 .disabled(!media.hasAnySource)
             Menu("Remove Shelf", systemImage: "minus.rectangle") {
@@ -427,57 +431,12 @@ private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary
     @Binding var addingServer: Bool
     @Binding var choosingShelf: Bool
+    @Binding var searchingLibrary: Bool
     @State private var optionsVisible = false
     @State private var clearingHistory = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .center, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("LIBRARY")
-                        .font(.inter(13, .bold)).tracking(2.2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
-                    Text(media.activeProfile?.name ?? "Your library")
-                        .font(.inter(34, .semibold))
-                        .foregroundStyle(LineupStyle.lightPurple)
-                }
-                Spacer()
-                if let profile = media.activeProfile {
-                    Label(profile.username, systemImage: "checkmark.circle.fill")
-                        .font(.inter(15, .semibold))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
-                        .padding(.horizontal, 14).frame(height: 38)
-                        .background(LineupStyle.surface, in: Capsule())
-                }
-                TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
-                    Image(systemName: "ellipsis.circle").frame(width: 42, height: 42)
-                        .modifier(MediaChromeSurface(radius: 11))
-                }
-            }
-            .padding(.horizontal, 54).padding(.top, 18)
-            .lineupFocusRegion()
-            .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
-                Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                    .disabled(!media.hasAnySource)
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                    .disabled(media.isLoading || !media.hasAnySource)
-                Button("Add Server", systemImage: "plus") { addingServer = true }
-                ForEach(media.shelves) { shelf in
-                    Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
-                }
-                if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                    Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
-                }
-                Button("Cancel", role: .cancel) { }
-            }
-            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                                titleVisibility: .visible) {
-                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes Continue Watching and local watched status from this Apple TV for the current media server.")
-            }
-
+        Group {
             if !media.hasAnySource {
                 TVMediaEmptyState(addServer: { addingServer = true })
             } else if media.shelves.isEmpty && media.isLoading {
@@ -497,7 +456,38 @@ private struct TVMediaServersHome: View {
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MediaCatalogsScreen(catalogs: media.shelves)
+                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
+                Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
+                    .modifier(MediaChromeSurface(radius: 12))
+            }
+            .padding(.trailing, 54).padding(.top, 18)
+            .lineupFocusRegion()
+            .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
+                Button("Search", systemImage: "magnifyingglass") { searchingLibrary = true }
+                    .disabled(media.shelves.isEmpty)
+                Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
+                    .disabled(!media.hasAnySource)
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
+                    .disabled(media.isLoading || !media.hasAnySource)
+                Button("Add Server", systemImage: "plus") { addingServer = true }
+                ForEach(media.shelves) { shelf in
+                    Button("Remove \(shelf.title)", role: .destructive) { media.removeShelf(shelf) }
+                }
+                if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+                    Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
+                                titleVisibility: .visible) {
+                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes Continue Watching and local watched status from this Apple TV for the current media server.")
             }
         }
         .background(
@@ -566,6 +556,7 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 private struct MediaCatalogsScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let catalogs: [MediaCatalog]
+    @Binding var searchPresented: Bool
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
     // typing otherwise launches and cancels a network search for every letter.
@@ -577,7 +568,6 @@ private struct MediaCatalogsScreen: View {
     @FocusState private var searchFocused: Bool
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
-    @State private var editingQuery = false
     @State private var heroPlayableItem: MediaItem?
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
@@ -586,51 +576,36 @@ private struct MediaCatalogsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                #if os(tvOS)
-                TVSelectable(scale: LineupStyle.cardLift, action: { editingQuery = true }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass").opacity(0.58)
-                        Text(query.isEmpty ? "Search movies and shows" : query)
-                            .lineLimit(1).truncationMode(.tail)
-                            .opacity(query.isEmpty ? 0.58 : 1)
-                        if searching { ProgressView().controlSize(.small) }
-                        Spacer(minLength: 0)
-                    }
-                    .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .modifier(MediaChromeSurface(outline: true, radius: 13))
-                }
-                .sheet(isPresented: $editingQuery) { searchSheet }
-                #else
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").opacity(0.58)
-                    TextField("Search movies and shows", text: $query).textFieldStyle(.plain)
-                    if searching { ProgressView().controlSize(.small) }
-                    if !query.isEmpty {
-                        Button { query = ""; results = [] } label: { Image(systemName: "xmark.circle.fill") }
-                            .lineupFlatButton()
-                    }
-                }
-                .font(searchFont).padding(.horizontal, 16).frame(height: searchHeight)
-                .modifier(MediaChromeSurface(focused: searchFocused, outline: true, radius: 13))
-                .focused($searchFocused)
-                .focusEffectDisabled()
-                #endif
-            }
-            .padding(.horizontal, horizontalPadding).padding(.bottom, 18)
-            .lineupFocusRegion()
-
             if !submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if searching && results.isEmpty {
-                    ProgressView("Searching your library…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let searchError {
-                    ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
-                } else if results.isEmpty {
-                    ContentUnavailableView("No Results", systemImage: "magnifyingglass",
-                        description: Text("Nothing in your connected libraries matched that."))
-                } else {
-                    MediaGridScreen(title: "Search Results", items: results)
+                VStack(spacing: 0) {
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("SEARCH RESULTS").font(.inter(10, .bold)).tracking(1.3).opacity(0.48)
+                            Text(submittedQuery).font(.inter(sectionTitleFontSize, .semibold)).lineLimit(1)
+                        }
+                        Spacer(minLength: 12)
+                        #if os(tvOS)
+                        TVSelectable(scale: LineupStyle.controlLift, action: clearSearch) {
+                            MediaChromeLabel { Label("Back to Library", systemImage: "xmark") }
+                        }
+                        #else
+                        Button(action: clearSearch) {
+                            MediaChromeLabel { Label("Library", systemImage: "xmark") }
+                        }.lineupFlatButton()
+                        #endif
+                    }
+                    .padding(.horizontal, horizontalPadding).padding(.vertical, 16)
+                    .lineupFocusRegion()
+                    if searching && results.isEmpty {
+                        ProgressView("Searching your library…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let searchError {
+                        ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
+                    } else if results.isEmpty {
+                        ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                            description: Text("Nothing in your connected libraries matched that."))
+                    } else {
+                        MediaGridScreen(title: "Search Results", items: results)
+                    }
                 }
             } else {
                 if catalogs.isEmpty && continueWatching.isEmpty
@@ -641,6 +616,7 @@ private struct MediaCatalogsScreen: View {
                     LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                         if let heroCatalog = media.heroCatalog {
                             MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
+                            .padding(.bottom, -catalogSpacing)
                             .lineupFocusRegion()
                         }
                         if !continueWatching.isEmpty {
@@ -712,22 +688,21 @@ private struct MediaCatalogsScreen: View {
                         }
                     }
                     .padding(.bottom, 44)
-                } }
+                }
+                #if !os(tvOS)
+                .ignoresSafeArea(edges: .top)
+                #endif
+                }
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .sheet(isPresented: $searchPresented) { searchSheet }
         #if os(tvOS)
         .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #else
         .sheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
-        #endif
-        #if !os(tvOS)
-        .onChange(of: query) { _, value in
-            submittedQuery = value
-            searchRequestID = UUID()
-        }
         #endif
         .task(id: searchRequestID) {
             let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -754,6 +729,14 @@ private struct MediaCatalogsScreen: View {
     private func openHeroItem(_ item: MediaItem) {
         if item.opensPage { pushed = item }
         else if item.isPlayable { heroPlayableItem = item }
+    }
+
+    private func clearSearch() {
+        query = ""
+        submittedQuery = ""
+        results = []
+        searchError = nil
+        searchRequestID = UUID()
     }
 
     /// Local rows use the same cards, spacing and focus regions as server
@@ -812,11 +795,11 @@ private struct MediaCatalogsScreen: View {
         }
     }
 
-    #if os(tvOS)
     /// The field lives here rather than on the shelf screen. tvOS draws its own
     /// heavy treatment around a focused text field, and that is the one frame
     /// this app cannot restyle, so it is kept off the screen behind it.
     private var searchSheet: some View {
+        #if os(tvOS)
         VStack(alignment: .leading, spacing: 24) {
             Text("Search").font(.inter(34, .semibold))
             TextField("Movies and shows", text: $query)
@@ -832,8 +815,8 @@ private struct MediaCatalogsScreen: View {
                         .modifier(MediaChromeSurface(prominent: true, radius: 12))
                 }
                 TVSelectable(scale: LineupStyle.controlLift, action: {
-                    query = ""; submittedQuery = ""; results = []
-                    searchRequestID = UUID()
+                    clearSearch()
+                    searchPresented = false
                 }) {
                     Text("Clear").font(.inter(17, .semibold))
                         .padding(.horizontal, 22).frame(height: 52)
@@ -846,6 +829,49 @@ private struct MediaCatalogsScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
+        #else
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 22) {
+                Text("Search your connected libraries for movies, shows, and episodes.")
+                    .font(.inter(.subheadline)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").opacity(0.58)
+                    TextField("Movies and shows", text: $query)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                        .onSubmit { submitSearch() }
+                    if !query.isEmpty {
+                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .lineupFlatButton()
+                    }
+                }
+                .font(.inter(.body)).padding(.horizontal, 16).frame(height: 50)
+                .modifier(MediaChromeSurface(focused: searchFocused, outline: true, radius: 13))
+                Button(action: submitSearch) {
+                    Label("Search", systemImage: "magnifyingglass")
+                        .font(.inter(.body, .semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 48)
+                        .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(.white.opacity(0.18), lineWidth: 1))
+                }
+                .lineupFlatButton().disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .background(LineupStyle.background.ignoresSafeArea())
+            .foregroundStyle(LineupStyle.lightPurple)
+            .navigationTitle("Search Library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { searchPresented = false }
+                }
+            }
+            .onAppear { searchFocused = true }
+        }
+        .presentationDetents([.medium])
+        #endif
     }
 
     private func submitSearch() {
@@ -853,9 +879,8 @@ private struct MediaCatalogsScreen: View {
         searching = !value.isEmpty
         submittedQuery = value
         searchRequestID = UUID()
-        editingQuery = false
+        searchPresented = false
     }
-    #endif
 
     private var horizontalPadding: CGFloat {
         #if os(tvOS)
@@ -894,18 +919,11 @@ private struct MediaCatalogsScreen: View {
         .inter(.title3, .bold)
         #endif
     }
-    private var searchFont: Font {
+    private var sectionTitleFontSize: CGFloat {
         #if os(tvOS)
-        .inter(19, .medium)
+        24
         #else
-        .inter(.body)
-        #endif
-    }
-    private var searchHeight: CGFloat {
-        #if os(tvOS)
-        54
-        #else
-        46
+        20
         #endif
     }
 }
@@ -2161,13 +2179,17 @@ private struct MediaLibraryHero: View {
             }
             #else
             if !items.isEmpty {
-                TabView(selection: $index) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
-                        heroSlide(item: item, rank: offset + 1).tag(offset)
+                GeometryReader { viewport in
+                    TabView(selection: $index) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
+                            heroSlide(item: item, rank: offset + 1)
+                                .frame(width: viewport.size.width, height: viewport.size.height)
+                                .tag(offset)
+                        }
                     }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .overlay(alignment: .bottomTrailing) { pageIndicator }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .overlay(alignment: .bottomTrailing) { pageIndicator }
             }
             #endif
         }
@@ -2197,19 +2219,21 @@ private struct MediaLibraryHero: View {
                 .init(color: .black.opacity(0.5), location: 0.5),
                 .init(color: .clear, location: 0.86)
             ], startPoint: .leading, endPoint: .trailing)
-            LinearGradient(colors: [.clear, .black.opacity(0.82)],
-                           startPoint: .center, endPoint: .bottom)
+            // The artwork does not end at a rectangular black band. Its last
+            // stretch becomes the exact Library background, which lets the
+            // first shelf rise out of the hero instead of starting after it.
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0.48),
+                .init(color: .black.opacity(0.48), location: 0.7),
+                .init(color: LineupStyle.background.opacity(0.92), location: 0.9),
+                .init(color: LineupStyle.background, location: 1)
+            ], startPoint: .top, endPoint: .bottom)
 
             VStack(alignment: .leading, spacing: heroSpacing) {
-                HStack(spacing: 8) {
-                    Text("TOP 10")
-                    Text("·")
-                    Text(String(format: "%02d OF %02d", rank, items.count))
-                    Text("·")
-                    Text(catalog.title.uppercased()).lineLimit(1)
-                }
+                Text("TOP 10 · " + String(format: "%02d OF %02d", rank, items.count))
                 .font(.inter(eyebrowSize, .bold)).tracking(1.4)
                 .foregroundStyle(.white.opacity(0.72))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
 
@@ -2217,6 +2241,7 @@ private struct MediaLibraryHero: View {
                     .font(.inter(titleSize, .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
+                    .frame(maxWidth: copyWidth, alignment: .leading)
                     .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
 
                 if !metadata(for: item).isEmpty {
@@ -2243,7 +2268,10 @@ private struct MediaLibraryHero: View {
             .padding(.horizontal, heroHorizontalPadding)
             .padding(.top, heroTopPadding)
             .padding(.bottom, heroBottomPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .contentShape(Rectangle())
     }
 
@@ -2257,10 +2285,10 @@ private struct MediaLibraryHero: View {
 
     #if os(tvOS)
     private var artWidth: Int { 1800 }
-    private var heroHeight: CGFloat { 520 }
+    private var heroHeight: CGFloat { 600 }
     private var heroHorizontalPadding: CGFloat { 72 }
     private var heroTopPadding: CGFloat { 40 }
-    private var heroBottomPadding: CGFloat { 52 }
+    private var heroBottomPadding: CGFloat { 76 }
     private var heroSpacing: CGFloat { 10 }
     private var titleSize: CGFloat { 48 }
     private var eyebrowSize: CGFloat { 12 }
@@ -2271,10 +2299,11 @@ private struct MediaLibraryHero: View {
     private var buttonMaxWidth: CGFloat { 190 }
     #else
     private var artWidth: Int { 1100 }
-    private var heroHeight: CGFloat { 410 }
+    private var heroHeight: CGFloat { 500 }
     private var heroHorizontalPadding: CGFloat { 22 }
-    private var heroTopPadding: CGFloat { 24 }
-    private var heroBottomPadding: CGFloat { 30 }
+    // Artwork runs behind the status/navigation area; copy begins below it.
+    private var heroTopPadding: CGFloat { 86 }
+    private var heroBottomPadding: CGFloat { 58 }
     private var heroSpacing: CGFloat { 7 }
     private var titleSize: CGFloat { 34 }
     private var eyebrowSize: CGFloat { 10 }
@@ -2292,7 +2321,7 @@ private struct MediaLibraryHero: View {
             pageIndicator
             MediaHeroIconButton(symbol: "chevron.right", label: "Next featured title") { move(1) }
         }
-        .padding(.trailing, 72).padding(.bottom, 52)
+        .padding(.trailing, 72).padding(.bottom, 76)
     }
     #endif
 
@@ -2305,7 +2334,7 @@ private struct MediaLibraryHero: View {
             }
         }
         #if !os(tvOS)
-        .padding(.trailing, 22).padding(.bottom, 38)
+        .padding(.trailing, 22).padding(.bottom, 64)
         #endif
         .animation(.easeOut(duration: 0.2), value: index)
         .accessibilityHidden(true)
