@@ -1139,7 +1139,12 @@ final class SportsLibrary: ObservableObject {
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
-        return ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
+        let score = ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
+        if game.league == .nhl {
+            return NHLChannelPolicy.adjustedScore(score, channel: stream.name,
+                                                  broadcast: game.broadcast)
+        }
+        return score
     }
 
     /// Every candidate channel prepared once for the pass: its name normalized
@@ -1764,13 +1769,25 @@ final class SportsLibrary: ObservableObject {
         let preferred = preferredFailoverChannel(for: game)
         let listings = programsByChannel
         let now = Date()
+        let preparedGame = Self.prepared(game)
         let alternates = streams(for: game.league)
             .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
-            .filter { Self.carriesGame($0, game: game,
-                                       listings: $0.epgChannelID.flatMap { listings[$0] } ?? [],
-                                       now: now) }
+            .compactMap { stream -> (stream: XtreamStream, score: Int)? in
+                let programs = stream.epgChannelID.flatMap { listings[$0] } ?? []
+                let preparedListings = ProfessionalChannelMatcher.prepare(programs.map {
+                    .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+                })
+                let channel = ProfessionalChannelMatcher.prepare(channel: stream.name,
+                                                                  listings: preparedListings)
+                return Self.professionalScore(stream, game: game, preparedGame: preparedGame,
+                                              channel: channel, listings: programs, now: now)
+                    .map { (stream, $0) }
+            }
+            .sorted {
+                $0.score == $1.score ? $0.stream.id < $1.stream.id : $0.score > $1.score
+            }
             .prefix(limit)
-            .map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .alternate) }
+            .map { FailoverChannel(streamID: $0.stream.id, name: $0.stream.name, reason: .alternate) }
         return FailoverPlanner.plan(
             preference: preferred,
             verified: verified.map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .verified) },

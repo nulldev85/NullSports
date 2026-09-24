@@ -147,6 +147,43 @@ enum ProfessionalChannelMatcher {
     }
 }
 
+/// NHL-specific ranking applied only after the ordinary matcher has proved a
+/// channel is carrying the matchup. It never turns a network name into game
+/// evidence by itself.
+enum NHLChannelPolicy {
+    static func adjustedScore(_ score: Int?, channel: String, broadcast: String) -> Int? {
+        guard var score else { return nil }
+        let channelName = ProfessionalChannelMatcher.normalize(channel)
+        let words = Set(channelName.split(separator: " ").map(String.init))
+
+        // DAZN's UK services do not carry these North American NHL game feeds.
+        // Some providers attach the matchup's EPG to them anyway, which made a
+        // dead/wrong channel beat the actual broadcaster. Exclude only the UK
+        // variant; a manually selected exact-game channel remains authoritative.
+        if words.contains("dazn") && words.contains("uk") { return nil }
+
+        let named = ProfessionalChannelMatcher.normalize(broadcast)
+        if named.contains("nhl net"), channelName.contains("nhl network")
+            || channelName.contains("nhl net") {
+            score += 80
+        } else if sharesNamedNetwork(channel: channelName, broadcast: named) {
+            score += 60
+        } else if isEstablishedHockeyFeed(channelName) {
+            score += 20
+        }
+        return score
+    }
+
+    private static func sharesNamedNetwork(channel: String, broadcast: String) -> Bool {
+        let aliases = ["sportsnet", "tsn", "espn plus", "espn", "tnt", "tru tv", "abc"]
+        return aliases.contains { broadcast.contains($0) && channel.contains($0) }
+    }
+
+    private static func isEstablishedHockeyFeed(_ channel: String) -> Bool {
+        ["nhl network", "sportsnet", "tsn", "espn plus"].contains(where: channel.contains)
+    }
+}
+
 /// RedZone is intentionally excluded from ordinary matchup matching above: a
 /// whip-around feed is never the correct channel for one team game. Its own
 /// schedule event can, however, select the dedicated channel by exact identity.
