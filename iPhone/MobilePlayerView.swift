@@ -5,11 +5,19 @@ import VLCKitSPM
 struct MobilePlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var library: SportsLibrary
     @StateObject private var controller = MobilePlaybackController()
+    @State private var activeStream: XtreamStream?
+    @State private var failedStreamIDs: Set<Int> = []
+    @State private var choosingChannel: SportsGame?
+    @State private var manuallySelected = false
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     let name: String
     let urls: [URL]
+    var game: SportsGame?
+    var initialStream: XtreamStream?
+    var excludedStreamIDs: Set<Int> = []
 
     var body: some View {
         ZStack {
@@ -28,8 +36,16 @@ struct MobilePlayerView: View {
             if let error = controller.error {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
-                    Button("Retry", systemImage: "arrow.clockwise") { controller.start(urls: urls) }
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        controller.start(urls: activeStream.map { library.playbackURLs(for: $0) } ?? urls)
+                    }
                         .buttonStyle(.borderedProminent)
+                    if let game {
+                        Button("Choose channel", systemImage: "list.bullet") {
+                            choosingChannel = game
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }.padding(32)
             } else if controller.loading {
                 ProgressView("Opening stream…").padding(24)
@@ -39,7 +55,7 @@ struct MobilePlayerView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { dismiss() }
-                        Text(name).font(.headline).lineLimit(1)
+                        Text(activeStream?.name ?? name).font(.headline).lineLimit(1)
                         Spacer(minLength: 8)
                         if controller.error == nil && !controller.loading {
                             statusBadge
@@ -69,8 +85,40 @@ struct MobilePlayerView: View {
         .ignoresSafeArea()
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onAppear { controller.start(urls: urls) }
-        .onDisappear { controller.shutdown(); hideControlsTask?.cancel() }
+        .sheet(item: $choosingChannel) { game in
+            MobileGuideView(game: game) { stream in
+                manuallySelected = true
+                activeStream = stream
+                failedStreamIDs = []
+                choosingChannel = nil
+                controller.start(urls: library.playbackURLs(for: stream))
+            }
+        }
+        .onAppear {
+            activeStream = initialStream
+            failedStreamIDs = excludedStreamIDs
+            controller.start(urls: urls)
+        }
+        .onDisappear {
+            activeStream = nil
+            controller.shutdown()
+            hideControlsTask?.cancel()
+        }
+        .onReceive(controller.$channelFailed) { failed in
+            guard failed, !manuallySelected, let game, let activeStream else { return }
+            Task { @MainActor in
+                guard controller.channelFailed, self.activeStream?.id == activeStream.id else { return }
+                failedStreamIDs.insert(activeStream.id)
+                guard let next = library.nextVerifiedStream(for: game, excluding: failedStreamIDs) else { return }
+                self.activeStream = next
+                controller.start(urls: library.playbackURLs(for: next))
+            }
+        }
+        .onReceive(controller.$videoPlaying) { playing in
+            guard playing, !manuallySelected, controller.videoPlaying,
+                  let game, let activeStream else { return }
+            library.recordWorkingStream(activeStream, for: game)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.suspend() }
             else { controller.resume() }
@@ -145,12 +193,16 @@ final class MobilePlaybackController: ObservableObject {
     @Published var isPlaying = false
     @Published var loading = true
     @Published var error: String?
+    @Published private(set) var channelFailed = false
+    @Published private(set) var videoPlaying = false
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
     private var monitor: Task<Void, Never>?
     private var candidates: [URL] = []
     private var originalURLs: [URL] = []
     private var started = Date()
+    private var channelStarted = Date()
+    private var displayedVideo = false
     private var suspended = false
     private var shouldResume = false
     private weak var videoView: MobileVideoHost?
@@ -210,6 +262,10 @@ final class MobilePlaybackController: ObservableObject {
     func start(urls: [URL]) {
         stop()
         error = nil
+        channelFailed = false
+        videoPlaying = false
+        channelStarted = Date()
+        displayedVideo = false
         originalURLs = urls
         retries.reset()
         candidates = Array(urls.reversed()) // Prefer transport streams, as on Apple TV.
@@ -250,7 +306,14 @@ final class MobilePlaybackController: ObservableObject {
                 guard self.error == nil else { continue }
                 self.isPlaying = self.player.isPlaying
                 self.loading = !self.player.isPlaying || !self.player.hasVideoOut
-                if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
+                if self.player.isPlaying && self.player.hasVideoOut {
+                    self.displayedVideo = true
+                    if !self.videoPlaying { self.videoPlaying = true }
+                    if self.channelFailed { self.channelFailed = false }
+                    self.refreshStats()
+                }
+                if !self.displayedVideo && Date().timeIntervalSince(self.channelStarted) >= 12
+                    && !self.channelFailed { self.channelFailed = true }
                 let now = ProcessInfo.processInfo.systemUptime
                 let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
                     time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
@@ -263,6 +326,7 @@ final class MobilePlaybackController: ObservableObject {
 
     private func openNext() {
         player.stop()
+        videoPlaying = false
         waitingForVideo = false
         waitingSince = nil
         isPlaying = false
@@ -272,6 +336,7 @@ final class MobilePlaybackController: ObservableObject {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
             error = "This stream is unavailable. Try again or choose another channel."
+            channelFailed = true
             return
         }
         // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0
@@ -315,10 +380,12 @@ final class MobilePlaybackController: ObservableObject {
 
     private func scheduleRecovery(now: TimeInterval) {
         player.stop()
+        videoPlaying = false
         isPlaying = false
         guard let delay = retries.nextDelay(), !originalURLs.isEmpty else {
             loading = false
             error = "The stream disconnected. Tap Retry to reconnect."
+            channelFailed = true
             UIApplication.shared.isIdleTimerDisabled = false
             return
         }
@@ -326,6 +393,7 @@ final class MobilePlaybackController: ObservableObject {
         let index = currentURL.flatMap { ordered.firstIndex(of: $0) } ?? 0
         let next = retries.attempts == 1 ? index : (index + 1) % ordered.count
         candidates = [ordered[next]]
+        if retries.attempts >= 2 && !channelFailed { channelFailed = true }
         loading = true
         retryAt = now + delay
     }
@@ -349,6 +417,7 @@ final class MobilePlaybackController: ObservableObject {
         guard suspended else { return }
         suspended = false
         started = Date()
+        if !displayedVideo { channelStarted = Date() }
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
         if waitingForVideo {
             waitingSince = Date() // Give it a fresh 8s window instead of counting time spent backgrounded.
@@ -369,6 +438,7 @@ final class MobilePlaybackController: ObservableObject {
         suspended = false
         shouldResume = false
         isPlaying = false
+        videoPlaying = false
         UIApplication.shared.isIdleTimerDisabled = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

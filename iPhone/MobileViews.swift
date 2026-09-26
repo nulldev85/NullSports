@@ -6,14 +6,24 @@ struct MainView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var playing: XtreamStream?
+    @State private var playingGame: SportsGame?
+    @State private var playingExcludedStreamIDs: Set<Int> = []
     @State private var guideFullscreen = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.velvet.rawValue
 
     var body: some View {
         TabView(selection: $tab) {
-            MobileLiveView(isActive: tab == 0) { playing = $0 }
+            MobileLiveView(isActive: tab == 0) { stream, game, excluded in
+                playingGame = game
+                playingExcludedStreamIDs = excluded
+                playing = stream
+            }
                 .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) { playing = $0 }
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { guideFullscreen = $0 }) {
+                playingGame = nil
+                playingExcludedStreamIDs = []
+                playing = $0
+            }
                 .id(library.activeProfile?.id)
                 .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
@@ -22,6 +32,7 @@ struct MainView: View {
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         .tint(LineupStyle.lightPurple)
+        .foregroundStyle(LineupStyle.text)
         .toolbarBackground(LineupStyle.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
@@ -29,12 +40,16 @@ struct MainView: View {
         .ignoresSafeArea(guideFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in
             playing = nil
+            playingGame = nil
+            playingExcludedStreamIDs = []
             guideFullscreen = false
         }
         .statusBarHidden(guideFullscreen)
         .persistentSystemOverlays(guideFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
-            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream))
+            MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream),
+                             game: playingGame, initialStream: stream,
+                             excludedStreamIDs: playingExcludedStreamIDs)
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }

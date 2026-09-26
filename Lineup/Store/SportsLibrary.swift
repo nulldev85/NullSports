@@ -251,8 +251,12 @@ final class SportsLibrary: ObservableObject {
             }.value
             guard activeProfile?.id == profile.id else { return }
             didRestoreSchedule = true
-            if let cached, DailyCachePolicy.isCurrent(savedAt: cached.savedAt, now: Date()), gamesByLeague.isEmpty {
-                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached.games[$0.rawValue] ?? []) })
+            if let cached, DailyCachePolicy.includesTodayOrYesterday(savedAt: cached.savedAt, now: Date()), gamesByLeague.isEmpty {
+                let today = Calendar.current.startOfDay(for: Date())
+                let dayAfterTomorrow = Calendar.current.date(byAdding: .day, value: 2, to: today) ?? today
+                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+                    (league, (cached.games[league.rawValue] ?? []).filter { $0.start >= today && $0.start < dayAfterTomorrow })
+                })
                 scheduleLoadedLeagues = Set(cached.games.keys.compactMap(SportsLeague.init(rawValue:)))
                 scheduleDay = Calendar.current.startOfDay(for: Date())
             }
@@ -278,7 +282,7 @@ final class SportsLibrary: ObservableObject {
                 }
             }
             if cached.matchCacheVersion == 2, let saved = cached.dailyMatches,
-               DailyCachePolicy.isCurrent(savedAt: saved.savedAt, now: now),
+               DailyCachePolicy.includesTodayOrYesterday(savedAt: saved.savedAt, now: now),
                let index = cached.sportsIndex,
                DailyCachePolicy.hasCompleteIndex(savedLeagues: Set(index.leagues.keys.map(\.rawValue)),
                    expectedLeagues: Set(SportsLeague.allCases.map(\.rawValue))) {
@@ -465,17 +469,25 @@ final class SportsLibrary: ObservableObject {
         guard !isSwitchingProfile else { return }
         let today = Calendar.current.startOfDay(for: Date())
         if scheduleDay != today {
+            // Tomorrow's prepared games become today's slate at midnight. Keep
+            // their matches for a cheap lookup after the fresh schedule and
+            // provider channel list have validated them.
+            let dayAfterTomorrow = Calendar.current.date(byAdding: .day, value: 2, to: today) ?? today
+            let retainedGames = gamesByLeague.mapValues { games in
+                games.filter { $0.start >= today && $0.start < dayAfterTomorrow }
+            }
+            let retainedIDs = Set(retainedGames.values.flatMap { $0 }.map(\.id))
             scheduleDay = today
-            gamesByLeague = [:]
+            gamesByLeague = retainedGames
             scheduleLoadedLeagues = []
             scheduleValidatedLeagues = []
-            gameStreamCache = [:]
-            matchEvidenceScores = [:]
+            gameStreamCache = gameStreamCache.filter { retainedIDs.contains($0.key) }
+            matchEvidenceScores = matchEvidenceScores.filter { retainedIDs.contains($0.key) }
             didCompleteMatching = false
             fastValidatedGameIDs = []
-            restoredMatchGameIDs = []
-            gameMatchSignatures = [:]
-            matchedGameIdentities = [:]
+            restoredMatchGameIDs = Set(gameStreamCache.keys)
+            gameMatchSignatures = gameMatchSignatures.filter { retainedIDs.contains($0.key) }
+            matchedGameIdentities = matchedGameIdentities.filter { retainedIDs.contains($0.key) }
             matchGeneration = UUID()
             scheduleErrorMessage = nil
             tomorrowScheduleUpdatedAt = nil
@@ -633,6 +645,79 @@ final class SportsLibrary: ObservableObject {
         return stream
     }
 
+    func resolvedStream(for game: SportsGame) -> XtreamStream? {
+        verifiedStream(for: game) ?? nextVerifiedStream(for: game, excluding: [])
+    }
+
+    // Called when playback cannot start or repeatedly loses this channel.
+    // Score one game's remaining channels against the current guide; never
+    // substitute a network merely because the schedule names it.
+    func nextVerifiedStream(for game: SportsGame, excluding failedIDs: Set<Int>) -> XtreamStream? {
+        guard channelsValidatedThisSession, guideValidatedThisSession,
+              scheduleValidatedLeagues.contains(game.league),
+              let current = gamesByLeague[game.league]?.first(where: { $0.id == game.id }),
+              Self.matchIdentity(current) == Self.matchIdentity(game),
+              current.isLive || current.isUpcoming else { return nil }
+        let now = Date()
+        let candidates: [XtreamStream]
+        if game.league == .ncaaf {
+            let categoryNames = categories.reduce(into: [String: String]()) {
+                $0[$1.id] = $1.categoryName.lowercased()
+            }
+            candidates = streams.filter { stream in
+                let category = categoryNames[stream.categoryID ?? ""] ?? ""
+                return !failedIDs.contains(stream.id)
+                    && !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "")
+                    && !["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) })
+            }
+        } else {
+            candidates = (leagueStreamCache[game.league] ?? []).filter { !failedIDs.contains($0.id) }
+        }
+        var best: (stream: XtreamStream, score: Int)?
+        for stream in candidates {
+            let score: Int?
+            if game.league == .ncaaf {
+                score = CollegeChannelMatcher.score(channel: stream.name,
+                    listings: Self.collegeListings(programs(for: stream)),
+                    game: Self.collegeMatchup(current), now: now, allowNetworkFallback: false)
+            } else {
+                score = Self.professionalScore(stream, game: current, listings: programs(for: stream), now: now)
+            }
+            guard let score else { continue }
+            if let chosen = best,
+               chosen.score > score || (chosen.score == score && chosen.stream.id < stream.id) { continue }
+            best = (stream, score)
+        }
+        return best?.stream
+    }
+
+    // Once video actually decodes, make the working fallback the saved choice
+    // for later taps and relaunches on this slate.
+    func recordWorkingStream(_ stream: XtreamStream, for game: SportsGame) {
+        guard channelsValidatedThisSession, guideValidatedThisSession,
+              scheduleValidatedLeagues.contains(game.league),
+              let current = gamesByLeague[game.league]?.first(where: { $0.id == game.id }),
+              Self.matchIdentity(current) == Self.matchIdentity(game),
+              let fresh = streams.first(where: { $0.id == stream.id }), fresh == stream else { return }
+        let score: Int?
+        if game.league == .ncaaf {
+            score = CollegeChannelMatcher.score(channel: stream.name,
+                listings: Self.collegeListings(programs(for: stream)),
+                game: Self.collegeMatchup(current), now: Date(), allowNetworkFallback: false)
+        } else {
+            score = Self.professionalScore(stream, game: current, listings: programs(for: stream), now: Date())
+        }
+        guard let score, gameStreamCache[game.id] != stream else { return }
+        gameStreamCache[game.id] = stream
+        matchEvidenceScores[game.id] = score
+        matchedGameIdentities[game.id] = Self.matchIdentity(current)
+        if game.league != .ncaaf {
+            gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+        }
+        matchGeneration = UUID()
+        if let profileID = activeProfile?.id { saveCache(profileID: profileID) }
+    }
+
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
         .init(broadcast: game.broadcast, away: game.awayTeam, home: game.homeTeam,
               awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
@@ -686,6 +771,7 @@ final class SportsLibrary: ObservableObject {
         let now = Date()
         let identities = matchIdentities(now: now)
         let previousMatches = gameStreamCache
+        let previousIdentities = matchedGameIdentities
         // Invalidate signatures immediately so an overlapping schedule update also
         // rematches against a newly installed channel index.
         if force { gameMatchSignatures = [:] }
@@ -713,8 +799,19 @@ final class SportsLibrary: ObservableObject {
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
                     let matchup = Self.collegeMatchup(game)
-                    let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
-                        allowNetworkFallback: false)
+                    let previouslyWorking = previousMatches[game.id].flatMap { cached -> XtreamStream? in
+                        guard let fresh = collegeStreams.first(where: { $0.id == cached.id }),
+                              Self.matchIdentity(game) == previousIdentities[game.id],
+                              DailyCachePolicy.isSameChannelSlot(cachedID: cached.id, freshID: fresh.id,
+                                  cachedName: cached.name, freshName: fresh.name,
+                                  cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID),
+                              CollegeChannelMatcher.score(channel: fresh.name,
+                                  listings: collegePrograms[fresh.epgChannelID ?? ""] ?? [],
+                                  game: matchup, now: now, allowNetworkFallback: false) != nil else { return nil }
+                        return fresh
+                    }
+                    let selectedID = previouslyWorking?.id ?? CollegeChannelMatcher.select(collegeCandidates,
+                        game: matchup, now: now, allowNetworkFallback: false)
                     let selected = selectedID.flatMap { id in collegeStreams.first { $0.id == id } }
                     matches[game.id] = selected
                     // The evidence tier that authorized the match: a wrong game names

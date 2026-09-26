@@ -7,12 +7,15 @@ struct LiveView: View {
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var selectedStream: XtreamStream?
+    @State private var selectedGame: SportsGame?
     @State private var multiviewPrimary: XtreamStream?
+    @State private var multiviewPrimaryGame: SportsGame?
     @State private var multiviewSession: MultiviewSession?
     @State private var focusedGame: SportsGame?
     @State private var previewStream: XtreamStream?
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
+    @State private var failedPreviewStreamIDs: Set<Int> = []
     @State private var playbackTransitionID: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
@@ -45,11 +48,17 @@ struct LiveView: View {
                                 focusedGame: $focusedGame,
                                 previewStream: previewStream,
                                 previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
+                                onPreviewFailure: fallbackPreview,
+                                onPreviewWorking: saveWorkingPreview,
+                                onChoosePreviewChannel: choosePreviewChannel,
                                 multiviewPrimaryID: multiviewPrimary?.id,
                                 multiviewTitle: multiviewPrimary?.name,
                                 onPlay: select,
                                 onStartMultiview: startMultiview,
-                                onCancelMultiview: { multiviewPrimary = nil },
+                                onCancelMultiview: {
+                                    multiviewPrimary = nil
+                                    multiviewPrimaryGame = nil
+                                },
                                 onStopPreview: stopPreview
                             )
                         }
@@ -67,14 +76,17 @@ struct LiveView: View {
             .background(
                 ZStack {
                     LineupStyle.background
-                    RadialGradient(colors: [LineupStyle.lightPurple.opacity(0.055), .clear], center: .topTrailing, startRadius: 20, endRadius: 720)
+                    LinearGradient(colors: [LineupStyle.raised.opacity(0.28), .clear], startPoint: .topTrailing, endPoint: .center)
                 }.ignoresSafeArea()
             )
             .fullScreenCover(item: $selectedStream) { stream in
                 PlayerView(
                     urls: library.playbackURLs(for: stream),
                     title: stream.name,
-                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
+                    game: selectedGame,
+                    initialStream: stream,
+                    excludedStreamIDs: failedPreviewStreamIDs
                 )
             }
             .sheet(item: $manualChannelGame) { game in
@@ -83,6 +95,7 @@ struct LiveView: View {
                     if manualSelectionStartsMultiview {
                         stopPreview()
                         multiviewPrimary = stream
+                        multiviewPrimaryGame = nil
                     } else {
                         play(game, on: stream, manuallySelected: true)
                     }
@@ -98,7 +111,9 @@ struct LiveView: View {
                     primary: session.primary,
                     secondary: session.secondary,
                     primaryURLs: library.playbackURLs(for: session.primary),
-                    secondaryURLs: library.playbackURLs(for: session.secondary)
+                    secondaryURLs: library.playbackURLs(for: session.secondary),
+                    primaryGame: session.primaryGame,
+                    secondaryGame: session.secondaryGame
                 )
             }
             .task {
@@ -119,12 +134,15 @@ struct LiveView: View {
 
     private func select(_ game: SportsGame) {
         if previewGameID == game.id, let previewStream,
-           previewWasManuallySelected || library.verifiedStream(for: game)?.id == previewStream.id {
+           previewWasManuallySelected
+            || (failedPreviewStreamIDs.isEmpty
+                ? library.resolvedStream(for: game)?.id == previewStream.id
+                : library.nextVerifiedStream(for: game, excluding: failedPreviewStreamIDs)?.id == previewStream.id) {
             play(game, on: previewStream)
             return
         }
         stopPreview()
-        guard let stream = library.verifiedStream(for: game) else {
+        guard let stream = library.resolvedStream(for: game) else {
             handleUnmatchedSelection(game, startsMultiview: false)
             return
         }
@@ -132,6 +150,7 @@ struct LiveView: View {
     }
 
     private func play(_ game: SportsGame, on stream: XtreamStream, manuallySelected: Bool = false) {
+        selectedGame = manuallySelected ? nil : game
         guard let primary = multiviewPrimary else {
             if previewGameID == game.id {
                 let transitionID = UUID()
@@ -149,21 +168,25 @@ struct LiveView: View {
                 previewStream = stream
                 previewGameID = game.id
                 previewWasManuallySelected = manuallySelected
+                failedPreviewStreamIDs = []
             }
             return
         }
         guard primary.id != stream.id else { return }
         multiviewPrimary = nil
-        multiviewSession = MultiviewSession(primary: primary, secondary: stream)
+        multiviewSession = MultiviewSession(primary: primary, secondary: stream,
+            primaryGame: multiviewPrimaryGame, secondaryGame: manuallySelected ? nil : game)
+        multiviewPrimaryGame = nil
     }
 
     private func startMultiview(_ game: SportsGame) {
-        guard let stream = library.verifiedStream(for: game) else {
+        guard let stream = library.resolvedStream(for: game) else {
             handleUnmatchedSelection(game, startsMultiview: true)
             return
         }
         stopPreview()
         multiviewPrimary = stream
+        multiviewPrimaryGame = game
     }
 
     private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
@@ -181,6 +204,30 @@ struct LiveView: View {
         previewStream = nil
         previewGameID = nil
         previewWasManuallySelected = false
+        failedPreviewStreamIDs = []
+    }
+
+    private func fallbackPreview(failedID: Int) {
+        guard let stream = previewStream, stream.id == failedID,
+              let game = library.games(for: nil).first(where: { $0.id == previewGameID }),
+              !previewWasManuallySelected else { return }
+        failedPreviewStreamIDs.insert(stream.id)
+        guard let next = library.nextVerifiedStream(for: game, excluding: failedPreviewStreamIDs) else { return }
+        previewStream = next
+    }
+
+    private func saveWorkingPreview(_ stream: XtreamStream) {
+        guard previewStream?.id == stream.id,
+              let game = library.games(for: nil).first(where: { $0.id == previewGameID }),
+              !previewWasManuallySelected else { return }
+        library.recordWorkingStream(stream, for: game)
+    }
+
+    private func choosePreviewChannel() {
+        guard let game = library.games(for: nil).first(where: { $0.id == previewGameID }) else { return }
+        stopPreview()
+        manualSelectionStartsMultiview = false
+        manualChannelGame = game
     }
 }
 
@@ -267,15 +314,15 @@ private struct LiveBoardLeagueButton: View {
                 Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(LineupStyle.lightPurple)
+            .foregroundStyle(selected || focused ? LineupStyle.text : LineupStyle.secondary)
             .padding(.horizontal, 12).frame(height: 49)
             .background(focused ? LiveBoardStyle.leagueFocus : (selected ? LineupStyle.lightPurple.opacity(0.07) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(alignment: .leading) {
-                if selected && !focused { Capsule().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
+                if selected && !focused { Rectangle().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture(perform: action)
         .accessibilityAddTraits(.isButton)
@@ -344,7 +391,7 @@ private struct LiveEmptySlateDashboard: View {
                     Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
                         .font(.system(size: 56, weight: .ultraLight)).foregroundStyle(LiveBoardStyle.muted)
                     Text(isLoading ? "Setting the board." : (isAvailable ? "A moment between games." : "The schedule is unavailable.")).foregroundColor(LineupStyle.lightPurple)
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                        .font(.system(size: 38, weight: .bold, design: .default)).tracking(-0.6)
                     Text(isLoading ? "Your games will appear here shortly." :
                         (isAvailable ? "Explore another sport, or come back for the next matchup." :
                             (errorMessage ?? "We’ll try again shortly. Your saved channels are still available in Guide."))).foregroundColor(LineupStyle.lightPurple)
@@ -353,7 +400,7 @@ private struct LiveEmptySlateDashboard: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .padding(44)
-                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 22))
+                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: LineupStyle.panelRadius))
             }
             .frame(maxHeight: .infinity)
         }
@@ -369,6 +416,9 @@ private struct LiveSlateDashboard: View {
     @Binding var focusedGame: SportsGame?
     let previewStream: XtreamStream?
     let previewURLs: [URL]
+    let onPreviewFailure: (Int) -> Void
+    let onPreviewWorking: (XtreamStream) -> Void
+    let onChoosePreviewChannel: () -> Void
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
     let onPlay: (SportsGame) -> Void
@@ -393,7 +443,10 @@ private struct LiveSlateDashboard: View {
                         ZStack {
                             Color.black
                             if let previewStream {
-                                LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                                LiveSelectedPreview(stream: previewStream, urls: previewURLs,
+                                                    onFailure: onPreviewFailure,
+                                                    onWorking: onPreviewWorking,
+                                                    onChooseChannel: onChoosePreviewChannel)
                                     .id(previewStream.id)
                             } else {
                                 LinearGradient(colors: [LineupStyle.lightPurple.opacity(0.025), .clear, .black],
@@ -488,16 +541,16 @@ private struct LiveBoardTeam: View {
             TeamLogo(url: logo, fallback: abbreviation)
                 .frame(width: large ? 44 : 34, height: large ? 44 : 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).foregroundColor(LineupStyle.lightPurple).font(.system(size: large ? 25 : 23, weight: .semibold))
-                    .foregroundStyle(LineupStyle.lightPurple).lineLimit(1).minimumScaleFactor(0.7)
+                Text(name).font(.system(size: large ? 25 : 23, weight: .semibold))
+                    .foregroundStyle(LineupStyle.text).lineLimit(1).minimumScaleFactor(0.7)
                 if let record = nonempty(record) {
                     Text(record).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .medium).monospacedDigit()).foregroundStyle(LiveBoardStyle.muted)
                 }
             }
             Spacer(minLength: 6)
             if let score, !score.isEmpty {
-                Text(score).foregroundColor(LineupStyle.lightPurple).font(.system(size: large ? 33 : 25, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(LineupStyle.lightPurple)
+                Text(score).font(.system(size: large ? 33 : 25, weight: .bold, design: .default).monospacedDigit())
+                    .foregroundStyle(LineupStyle.text)
             }
         }
     }
@@ -507,11 +560,24 @@ private struct LiveSelectedPreview: View {
     @StateObject private var controller = VLCPlaybackController()
     let stream: XtreamStream
     let urls: [URL]
+    let onFailure: (Int) -> Void
+    let onWorking: (XtreamStream) -> Void
+    let onChooseChannel: () -> Void
 
     var body: some View {
-        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+        VLCVideoSurface(player: controller.player)
+            .overlay { TVPlaybackStatus(controller: controller, onChooseChannel: onChooseChannel) }
+            .background(Color.black)
         .onAppear { controller.start(urls: urls, muted: false) }
         .onDisappear { controller.stop() }
+        .onReceive(controller.$channelFailed) { failed in
+            if failed { Task { @MainActor in
+                if controller.channelFailed { onFailure(stream.id) }
+            } }
+        }
+        .onReceive(controller.$videoPlaying) { playing in
+            if playing { onWorking(stream) }
+        }
     }
 }
 
@@ -573,7 +639,7 @@ private struct LiveSlateRow: View {
                 HStack(spacing: 8) {
                     LeagueLogo(league: game.league, size: 28)
                     Text(game.league.shortName).foregroundColor(LineupStyle.lightPurple).font(.system(size: 17, weight: .semibold)).tracking(1)
-                        .foregroundStyle(LineupStyle.lightPurple)
+                        .foregroundStyle(LineupStyle.text)
                     Spacer()
                     if game.isLive {
                         PulsingLiveDot(size: 6)
@@ -581,7 +647,7 @@ private struct LiveSlateRow: View {
                     } else {
                         Text(game.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundColor(LineupStyle.lightPurple)
                             .font(.system(size: 17, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
+                            .foregroundStyle(LineupStyle.text).lineLimit(1)
                     }
                 }
                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(LiveBoardStyle.muted)
@@ -600,14 +666,14 @@ private struct LiveSlateRow: View {
             .padding(18)
             .frame(maxWidth: .infinity)
             .background(isFocused ? LineupStyle.focused : LiveBoardStyle.panel,
-                        in: RoundedRectangle(cornerRadius: 16))
+                        in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius))
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: LineupStyle.compactRadius)
                     .strokeBorder(isFocused || isPrimary ? LineupStyle.liveSelectionBorder : LineupStyle.lightPurple.opacity(selected ? 0.22 : 0.06),
                                   lineWidth: isFocused ? 2.5 : 1)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius))
         .focusable().focused(rowFocus, equals: game.id).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
         .accessibilityAddTraits(.isButton)
@@ -855,9 +921,11 @@ private struct ScreenHeading: View {
     let title: String
     let detail: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).foregroundColor(LineupStyle.lightPurple).font(.system(size: 42, weight: .semibold)).foregroundStyle(LineupStyle.text)
-            Text(detail).foregroundColor(LineupStyle.lightPurple).font(.callout).foregroundStyle(LineupStyle.secondary)
+        VStack(alignment: .leading, spacing: 7) {
+            Rectangle().fill(LineupStyle.lightPurple).frame(width: 42, height: 4)
+            Text(title).font(.system(size: 44, weight: .bold, design: .default))
+                .tracking(-1).foregroundStyle(LineupStyle.text)
+            Text(detail).font(.callout.weight(.medium)).foregroundStyle(LineupStyle.secondary)
         }
     }
 }
@@ -897,7 +965,7 @@ private struct GameEventCard: View {
                     HStack(spacing: 12) {
                         Text(event.league.shortName).foregroundColor(LineupStyle.lightPurple)
                             .font(.caption.weight(.bold)).padding(.horizontal, 10).frame(height: 28)
-                            .background(LineupStyle.selected).clipShape(Capsule())
+                            .background(LineupStyle.selected).clipShape(RoundedRectangle(cornerRadius: 4))
                         Text(event.start.formatted(date: .abbreviated, time: .shortened)).foregroundColor(LineupStyle.lightPurple)
                             .font(.caption.monospacedDigit()).foregroundStyle(LineupStyle.secondary).lineLimit(1)
                         Spacer(minLength: 118)
@@ -930,11 +998,11 @@ private struct GameEventCard: View {
                 .nullGlass(clear: event.isLive, cornerRadius: 0)
         }
         .background(isFocused ? LineupStyle.focused : (event.isLive ? LineupStyle.selected : LineupStyle.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).inset(by: 1).stroke(event.isLive ? LineupStyle.text.opacity(0.28) : LineupStyle.line, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: LineupStyle.compactRadius).inset(by: 1).stroke(event.isLive ? LineupStyle.lightPurple.opacity(0.38) : LineupStyle.line, lineWidth: 1))
         .overlay {
             if multiviewPrimaryID == stream?.id {
-                RoundedRectangle(cornerRadius: 14).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
+                RoundedRectangle(cornerRadius: LineupStyle.compactRadius).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
             }
         }
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
@@ -1504,6 +1572,8 @@ private struct MultiviewSession: Identifiable {
     let id = UUID()
     let primary: XtreamStream
     let secondary: XtreamStream
+    var primaryGame: SportsGame? = nil
+    var secondaryGame: SportsGame? = nil
 }
 
 private struct GuideSidebar: View {
@@ -2327,38 +2397,110 @@ private struct AccountRow: View {
 
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: SportsLibrary
     @FocusState private var focusedPane: Int?
     @State private var expandedPane: Int?
+    @State private var currentPrimary: XtreamStream?
+    @State private var currentSecondary: XtreamStream?
+    @State private var failedPrimaryIDs: Set<Int> = []
+    @State private var failedSecondaryIDs: Set<Int> = []
+    @State private var manualPrimary = false
+    @State private var manualSecondary = false
+    @State private var manualGame: SportsGame?
+    @State private var manualPane = 0
+    @State private var primaryGeneration = 0
+    @State private var secondaryGeneration = 0
     let primary: XtreamStream
     let secondary: XtreamStream
     let primaryURLs: [URL]
     let secondaryURLs: [URL]
+    var primaryGame: SportsGame? = nil
+    var secondaryGame: SportsGame? = nil
+
+    private func stream(for pane: Int) -> XtreamStream {
+        pane == 0 ? (currentPrimary ?? primary) : (currentSecondary ?? secondary)
+    }
+
+    private func game(for pane: Int) -> SportsGame? {
+        pane == 0 ? primaryGame : secondaryGame
+    }
+
+    private func urls(for pane: Int) -> [URL] {
+        if pane == 0, let currentPrimary { return library.playbackURLs(for: currentPrimary) }
+        if pane == 1, let currentSecondary { return library.playbackURLs(for: currentSecondary) }
+        return pane == 0 ? primaryURLs : secondaryURLs
+    }
+
+    private func fallback(pane: Int, failedID: Int) {
+        guard stream(for: pane).id == failedID, let game = game(for: pane),
+              !(pane == 0 ? manualPrimary : manualSecondary) else { return }
+        if pane == 0 {
+            failedPrimaryIDs.insert(failedID)
+            if let next = library.nextVerifiedStream(for: game, excluding: failedPrimaryIDs) {
+                currentPrimary = next
+            }
+        } else {
+            failedSecondaryIDs.insert(failedID)
+            if let next = library.nextVerifiedStream(for: game, excluding: failedSecondaryIDs) {
+                currentSecondary = next
+            }
+        }
+    }
+
+    private func recordWorking(pane: Int, stream: XtreamStream) {
+        guard self.stream(for: pane).id == stream.id, let game = game(for: pane),
+              !(pane == 0 ? manualPrimary : manualSecondary) else { return }
+        library.recordWorkingStream(stream, for: game)
+    }
+
+    private func chooseChannel(for pane: Int) {
+        guard let game = game(for: pane) else { return }
+        manualPane = pane
+        manualGame = game
+    }
+
+    private func pane(_ index: Int, expanded: Bool) -> some View {
+        let selected = stream(for: index)
+        return MultiviewPane(stream: selected, urls: urls(for: index),
+            audible: expanded || focusedPane == index, expanded: expanded,
+            onExpand: { expandedPane = index },
+            onFailure: { fallback(pane: index, failedID: $0) },
+            onWorking: { recordWorking(pane: index, stream: $0) },
+            onChooseChannel: game(for: index).map { _ in { chooseChannel(for: index) } })
+            .id("\(index)-\(selected.id)-\(index == 0 ? primaryGeneration : secondaryGeneration)")
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let expandedPane {
-                MultiviewPane(
-                    title: expandedPane == 0 ? primary.name : secondary.name,
-                    urls: expandedPane == 0 ? primaryURLs : secondaryURLs,
-                    audible: true,
-                    expanded: true,
-                    onExpand: {}
-                )
+                pane(expandedPane, expanded: true)
             } else {
                 HStack(spacing: 2) {
-                    MultiviewPane(title: primary.name, urls: primaryURLs, audible: focusedPane == 0, expanded: false) {
-                        expandedPane = 0
-                    }
+                    pane(0, expanded: false)
                     .focusable().focused($focusedPane, equals: 0).focusEffectDisabled()
 
-                    MultiviewPane(title: secondary.name, urls: secondaryURLs, audible: focusedPane == 1, expanded: false) {
-                        expandedPane = 1
-                    }
+                    pane(1, expanded: false)
                     .focusable().focused($focusedPane, equals: 1).focusEffectDisabled()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
+            }
+        }
+        .sheet(item: $manualGame) { game in
+            ManualGameChannelPicker(game: game) { stream in
+                if manualPane == 0 {
+                    manualPrimary = true
+                    currentPrimary = stream
+                    failedPrimaryIDs = []
+                    primaryGeneration += 1
+                } else {
+                    manualSecondary = true
+                    currentSecondary = stream
+                    failedSecondaryIDs = []
+                    secondaryGeneration += 1
+                }
+                manualGame = nil
             }
         }
         .onAppear { focusedPane = 0 }
@@ -2371,15 +2513,20 @@ private struct MultiviewView: View {
 
 private struct MultiviewPane: View {
     @StateObject private var controller = VLCPlaybackController()
-    let title: String
+    let stream: XtreamStream
     let urls: [URL]
     let audible: Bool
     let expanded: Bool
     let onExpand: () -> Void
+    let onFailure: (Int) -> Void
+    let onWorking: (XtreamStream) -> Void
+    let onChooseChannel: (() -> Void)?
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+            VLCVideoSurface(player: controller.player)
+                .overlay { TVPlaybackStatus(controller: controller, onChooseChannel: onChooseChannel) }
+                .background(Color.black)
             if urls.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle").font(.title2)
@@ -2389,7 +2536,7 @@ private struct MultiviewPane: View {
             }
             HStack(spacing: 10) {
                 Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(stream.name).foregroundColor(LineupStyle.lightPurple).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer()
                 if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.lightPurple).font(.caption2.weight(.bold)).tracking(1.1) }
             }
@@ -2417,16 +2564,32 @@ private struct MultiviewPane: View {
         .onAppear { controller.start(urls: urls, muted: !audible) }
         .onChange(of: audible) { _, value in controller.setMuted(!value) }
         .onDisappear { controller.stop() }
+        .onReceive(controller.$channelFailed) { failed in
+            if failed { Task { @MainActor in
+                if controller.channelFailed { onFailure(stream.id) }
+            } }
+        }
+        .onReceive(controller.$videoPlaying) { playing in
+            if playing && controller.videoPlaying { onWorking(stream) }
+        }
     }
 }
 
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: SportsLibrary
     let urls: [URL]
     var title: String = "Live TV"
     var program: CurrentProgram?
     var isLive = true
+    var game: SportsGame?
+    var initialStream: XtreamStream?
+    var excludedStreamIDs: Set<Int> = []
     @StateObject private var controller = VLCPlaybackController()
+    @State private var activeStream: XtreamStream?
+    @State private var failedStreamIDs: Set<Int> = []
+    @State private var manualChannelGame: SportsGame?
+    @State private var manuallySelected = false
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     @FocusState private var focusedControl: TVPlayerControl?
@@ -2435,10 +2598,16 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             VLCVideoSurface(player: controller.player)
-                .overlay { TVPlaybackStatus(controller: controller) }
+                .overlay {
+                    TVPlaybackStatus(controller: controller, onChooseChannel: game.map { selectedGame in
+                        { manualChannelGame = selectedGame }
+                    })
+                }
                 .background(Color.black).ignoresSafeArea()
             if controlsVisible && controller.error == nil {
-                TVPlayerChrome(title: title, program: program, isLive: isLive, controller: controller,
+                TVPlayerChrome(title: activeStream?.name ?? title,
+                    program: activeStream.flatMap { library.guidePrograms(for: $0).normalizedEPG().first { $0.isLive } } ?? program,
+                    isLive: isLive, controller: controller,
                     focusedControl: $focusedControl, onInteraction: keepControlsVisible)
                     .transition(.opacity)
             }
@@ -2457,8 +2626,41 @@ struct PlayerView: View {
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
         .onMoveCommand { _ in revealControls(focus: true) }
         .onExitCommand { controller.stop(); dismiss() }
-        .onAppear { controller.start(urls: urls); revealControls(focus: true) }
-        .onDisappear { hideControlsTask?.cancel(); controller.stop() }
+        .sheet(item: $manualChannelGame) { game in
+            ManualGameChannelPicker(game: game) { stream in
+                manuallySelected = true
+                activeStream = stream
+                failedStreamIDs = []
+                manualChannelGame = nil
+                controller.start(urls: library.playbackURLs(for: stream))
+            }
+        }
+        .onAppear {
+            activeStream = initialStream
+            failedStreamIDs = excludedStreamIDs
+            controller.start(urls: urls)
+            revealControls(focus: true)
+        }
+        .onDisappear {
+            activeStream = nil
+            hideControlsTask?.cancel()
+            controller.stop()
+        }
+        .onReceive(controller.$channelFailed) { failed in
+            guard failed, !manuallySelected, let game, let activeStream else { return }
+            Task { @MainActor in
+                guard controller.channelFailed, self.activeStream?.id == activeStream.id else { return }
+                failedStreamIDs.insert(activeStream.id)
+                guard let next = library.nextVerifiedStream(for: game, excluding: failedStreamIDs) else { return }
+                self.activeStream = next
+                controller.start(urls: library.playbackURLs(for: next))
+            }
+        }
+        .onReceive(controller.$videoPlaying) { playing in
+            guard playing, !manuallySelected, controller.videoPlaying,
+                  let game, let activeStream else { return }
+            library.recordWorkingStream(activeStream, for: game)
+        }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -2522,7 +2724,7 @@ private struct TVPlayerChrome: View {
                             Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
                                 .font(.system(size: 15, weight: .bold)).tracking(1.5)
                         }
-                        Text(nowPlayingTitle).font(.system(size: 36, weight: .semibold, design: .rounded)).lineLimit(1)
+                        Text(nowPlayingTitle).font(.system(size: 36, weight: .bold, design: .default)).tracking(-0.5).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.system(size: 19, weight: .medium)).opacity(0.78).lineLimit(1) }
                         if let detail = program?.detail, !detail.isEmpty {
                             Text(detail).font(.system(size: 16)).opacity(0.62).lineLimit(1)
@@ -2622,6 +2824,8 @@ private struct TVPlayerMenuLabel: View {
     let player = VLCMediaPlayer()
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
+    @Published private(set) var channelFailed = false
+    @Published private(set) var videoPlaying = false
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
@@ -2633,6 +2837,8 @@ private struct TVPlayerMenuLabel: View {
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
+    private var channelStarted: TimeInterval = 0
+    private var displayedVideo = false
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var qualityLabel: String {
@@ -2649,12 +2855,20 @@ private struct TVPlayerMenuLabel: View {
 
     func start(urls: [URL], muted: Bool = false) {
         stop()
+        channelStarted = ProcessInfo.processInfo.systemUptime
+        displayedVideo = false
+        channelFailed = false
+        videoPlaying = false
         self.urls = Array(urls.reversed())
         self.muted = muted
         retries.reset()
         urlIndex = 0
         error = nil
-        guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
+        guard !self.urls.isEmpty else {
+            error = "This stream is unavailable."
+            channelFailed = true
+            return
+        }
         openCurrent()
         monitor = Task { [weak self] in
             while !Task.isCancelled {
@@ -2684,6 +2898,7 @@ private struct TVPlayerMenuLabel: View {
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
             health = LivePlaybackHealth(now: now)
+            if !displayedVideo { channelStarted = now }
             return
         }
         if let retryAt {
@@ -2692,6 +2907,12 @@ private struct TVPlayerMenuLabel: View {
         }
         let failed = player.state == .error || player.state == .ended || player.state == .stopped
         player.audio?.isMuted = muted
+        if player.isPlaying && player.hasVideoOut {
+            displayedVideo = true
+            if !videoPlaying { videoPlaying = true }
+            if channelFailed { channelFailed = false }
+        }
+        if !displayedVideo && now - channelStarted >= 12 && !channelFailed { channelFailed = true }
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
             time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
         if health.isStable(now: now) { retries.reset() }
@@ -2703,11 +2924,14 @@ private struct TVPlayerMenuLabel: View {
         }
         guard recover else { return }
         player.stop()
+        videoPlaying = false
         guard let delay = retries.nextDelay() else {
             error = "The stream disconnected. Select Retry to reconnect."
+            channelFailed = true
             reconnecting = false
             return
         }
+        if retries.attempts >= 2 && !channelFailed { channelFailed = true }
         // Retry the current transport once, then try the channel's alternatives.
         if retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
         reconnecting = true
@@ -2742,6 +2966,7 @@ private struct TVPlayerMenuLabel: View {
         pausedByUser = false
         reconnecting = false
         isPlaying = false
+        videoPlaying = false
         videoHeight = 0
         player.stop()
         player.media = nil
@@ -2749,6 +2974,7 @@ private struct TVPlayerMenuLabel: View {
 }
 private struct TVPlaybackStatus: View {
     @ObservedObject var controller: VLCPlaybackController
+    var onChooseChannel: (() -> Void)? = nil
     var body: some View {
         if let error = controller.error {
             VStack(spacing: 16) {
@@ -2756,6 +2982,9 @@ private struct TVPlaybackStatus: View {
                 // Over video this is the one thing focusable, so it carries the
                 // app's own focus rather than a plate laid over the picture.
                 Button("Retry", action: controller.retry).lineupButtonStyle()
+                if let onChooseChannel {
+                    Button("Choose Channel", action: onChooseChannel).lineupButtonStyle()
+                }
             }
             .padding(24).background(Color.black.opacity(0.8))
         } else if controller.reconnecting {

@@ -28,6 +28,16 @@ enum DailyCachePolicy {
     static func isCurrent(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
         savedAt <= now && calendar.isDate(savedAt, inSameDayAs: now)
     }
+
+    // Yesterday's snapshot can contain games prepared for today. The caller
+    // filters its schedule to today's slate, and identities limit restored
+    // matches to games that are still present in that slate.
+    static func includesTodayOrYesterday(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
+        guard savedAt <= now else { return false }
+        let today = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        return savedAt >= yesterday
+    }
 }
 
 // The library stores this with the exact channel/guide snapshot used to match.
@@ -39,7 +49,7 @@ struct DailyGameMatches<Channel: Codable & Hashable & Sendable>: Codable, Sendab
 
     func restore(identities current: [String: [String]], available: [Channel],
                  now: Date, calendar: Calendar = .current) -> [String: Channel] {
-        guard DailyCachePolicy.isCurrent(savedAt: savedAt, now: now, calendar: calendar) else { return [:] }
+        guard DailyCachePolicy.includesTodayOrYesterday(savedAt: savedAt, now: now, calendar: calendar) else { return [:] }
         let availableChannels = Set(available)
         return channels.filter { id, channel in
             guard let identity = identities[id], let currentIdentity = current[id] else { return false }

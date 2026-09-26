@@ -12,6 +12,7 @@ struct MobileGuidePlayer: View {
     let onClose: () -> Void
     let onExpand: () -> Void
     let onRetry: () -> Void
+    var onChooseChannel: (() -> Void)? = nil
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
 
@@ -33,6 +34,10 @@ struct MobileGuidePlayer: View {
                         Text(error).font(.caption).multilineTextAlignment(.center)
                         Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
                             .buttonStyle(.borderedProminent)
+                        if let onChooseChannel {
+                            Button("Choose channel", systemImage: "list.bullet", action: onChooseChannel)
+                                .buttonStyle(.bordered)
+                        }
                     }.padding(.horizontal, 52)
                 } else if controller.loading {
                     ProgressView("Opening stream…").font(.caption)

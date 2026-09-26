@@ -8,11 +8,14 @@ struct MobileLiveView: View {
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var upcomingGame: SportsGame?
+    @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
+    @State private var previewGame: SportsGame?
+    @State private var failedPreviewStreamIDs: Set<Int> = []
     @State private var playback = MobilePlaybackController()
     @Namespace private var selection
     var isActive = true
-    let onPlay: (XtreamStream) -> Void
+    let onPlay: (XtreamStream, SportsGame?, Set<Int>) -> Void
 
     private var games: [SportsGame] { library.games(for: league) }
     private var live: [SportsGame] { games.filter(\.isLive) }
@@ -37,8 +40,14 @@ struct MobileLiveView: View {
                             showsMetadata: true,
                             videoHeight: UIScreen.main.bounds.width * 9 / 16,
                             onClose: closePreview,
-                            onExpand: { onPlay(stream) },
-                            onRetry: { playback.start(urls: library.playbackURLs(for: stream)) }
+                            onExpand: { onPlay(stream, previewGame, failedPreviewStreamIDs) },
+                            onRetry: { playback.start(urls: library.playbackURLs(for: stream)) },
+                            onChooseChannel: previewGame.map { game in
+                                {
+                                    closePreview()
+                                    choosingChannel = game
+                                }
+                            }
                         )
                         .id(ObjectIdentifier(playback))
                     }
@@ -83,7 +92,12 @@ struct MobileLiveView: View {
                 }
                 .refreshable { library.refreshSchedule(showsLoading: true) }
             }
-            .background(LineupStyle.background)
+            .background {
+                LinearGradient(
+                    colors: [LineupStyle.raised.opacity(0.34), LineupStyle.background],
+                    startPoint: .topTrailing, endPoint: .center
+                ).ignoresSafeArea()
+            }
             .toolbar(.hidden, for: .navigationBar)
             .alert("Game has not started yet", isPresented: Binding(
                 get: { upcomingGame != nil },
@@ -100,6 +114,11 @@ struct MobileLiveView: View {
                 if let game = upcomingGame {
                     Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
                 }
+            }
+            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Please wait for channel syncing to finish, then select the game again.")
             }
             .sheet(item: $choosingChannel, onDismiss: {
                 if let stream = pendingStream {
@@ -119,25 +138,53 @@ struct MobileLiveView: View {
                 guard previewStream != nil else { return }
                 if phase == .active { playback.resume() } else { playback.suspend() }
             }
+            .onReceive(playback.$channelFailed) { failed in
+                guard failed, playback.channelFailed,
+                      let game = previewGame, let stream = previewStream else { return }
+                Task { @MainActor in
+                    guard playback.channelFailed, previewStream?.id == stream.id else { return }
+                    failedPreviewStreamIDs.insert(stream.id)
+                    guard let next = library.nextVerifiedStream(for: game, excluding: failedPreviewStreamIDs) else { return }
+                    showPreview(next, game: game, preservingFailures: true)
+                }
+            }
+            .onReceive(playback.$videoPlaying) { playing in
+                guard playing, playback.videoPlaying,
+                      let game = previewGame, let stream = previewStream else { return }
+                library.recordWorkingStream(stream, for: game)
+            }
         }
     }
 
     private var masthead: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("LINEUP").font(.system(size: 11, weight: .black)).tracking(3)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 5) {
-                Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                HStack(spacing: 5) {
-                    Circle().fill(LineupStyle.lightPurple).frame(width: 5, height: 5)
-                    Text(live.isEmpty ? "\(games.count) MATCHUPS" : "\(live.count) LIVE NOW")
-                        .font(.system(size: 10, weight: .bold)).tracking(1)
+        HStack(alignment: .bottom) {
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(LineupStyle.lightPurple)
+                    .frame(width: 3, height: 31)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("LINEUP")
+                        .font(.system(size: 20, weight: .black, design: .default))
+                        .tracking(-0.5)
+                        .foregroundStyle(LineupStyle.text)
+                    Text("LIVE SPORTS")
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(2.2)
+                        .foregroundStyle(LineupStyle.secondary)
                 }
             }
-        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 15)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                    .font(.caption2.weight(.medium)).foregroundStyle(LineupStyle.secondary)
+                HStack(spacing: 5) {
+                    Circle().fill(live.isEmpty ? LineupStyle.secondary : Color(red: 0.98, green: 0.28, blue: 0.34)).frame(width: 5, height: 5)
+                    Text(live.isEmpty ? "\(games.count) MATCHUPS" : "\(live.count) LIVE NOW")
+                        .font(.system(size: 10, weight: .bold)).tracking(1)
+                        .foregroundStyle(LineupStyle.text)
+                }
+            }
+        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 17)
     }
 
     private var leagueTabs: some View {
@@ -162,11 +209,11 @@ struct MobileLiveView: View {
                         .foregroundStyle(LineupStyle.lightPurple)
                 }
             }
-                .opacity(league == value ? 1 : 0.55)
+                .opacity(league == value ? 1 : 0.38)
                 .frame(minWidth: 44, minHeight: 48)
                 .overlay(alignment: .bottom) {
                     if league == value {
-                        Capsule().fill(LineupStyle.lightPurple).frame(height: 2)
+                        Rectangle().fill(LineupStyle.lightPurple).frame(height: 2)
                             .matchedGeometryEffect(id: "leagueUnderline", in: selection)
                     }
                 }
@@ -183,7 +230,7 @@ struct MobileLiveView: View {
             Text(detail).tracking(1)
         }
         .font(.system(size: 9, weight: .bold))
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+        .foregroundStyle(LineupStyle.secondary)
         .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
         .background(LineupStyle.background)
     }
@@ -194,17 +241,25 @@ struct MobileLiveView: View {
                 upcomingGame = game
                 return
             }
-            if let stream = library.verifiedStream(for: game) { showPreview(stream) }
-            else { choosingChannel = game }
+            if let stream = library.resolvedStream(for: game) {
+                showPreview(stream, game: game)
+            } else if library.channelsAreSyncing && !library.automaticMatchingReady {
+                showsChannelSyncMessage = true
+            } else {
+                choosingChannel = game
+            }
         } label: { MobileMatchupRow(game: game) }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
     }
 
-    private func showPreview(_ stream: XtreamStream) {
+    private func showPreview(_ stream: XtreamStream, game: SportsGame? = nil,
+                             preservingFailures: Bool = false) {
         playback.shutdown()
         playback = MobilePlaybackController()
+        if !preservingFailures { failedPreviewStreamIDs = [] }
+        previewGame = game
         previewStream = stream
         playback.start(urls: library.playbackURLs(for: stream))
     }
@@ -212,6 +267,8 @@ struct MobileLiveView: View {
     private func closePreview() {
         playback.shutdown()
         previewStream = nil
+        previewGame = nil
+        failedPreviewStreamIDs = []
     }
 }
 
@@ -227,7 +284,7 @@ private struct MobileMatchupRow: View {
             }.frame(maxWidth: .infinity)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
-                MobileLeagueLogo(league: game.league, size: 25)
+                MobileLeagueLogo(league: game.league, size: 23)
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -240,8 +297,8 @@ private struct MobileMatchupRow: View {
                         .font(.caption.weight(.semibold)).monospacedDigit()
                 }
                 if !game.broadcast.isEmpty {
-                    Text(game.broadcast).font(.system(size: 10)).lineLimit(2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                    Text(game.broadcast.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(0.5).lineLimit(2)
+                        .foregroundStyle(LineupStyle.secondary)
                 }
                 Image(systemName: "play.fill").font(.system(size: 10))
                     .padding(.top, 2).accessibilityHidden(true)
@@ -249,9 +306,9 @@ private struct MobileMatchupRow: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 20).padding(.vertical, 13)
-        .background(game.isLive ? LineupStyle.lightPurple.opacity(0.025) : .clear)
+        .background(game.isLive ? LineupStyle.surface : .clear)
         .overlay(alignment: .leading) {
-            if game.isLive { Rectangle().fill(LineupStyle.lightPurple.opacity(0.7)).frame(width: 2).padding(.vertical, 18) }
+            if game.isLive { Rectangle().fill(Color(red: 0.98, green: 0.28, blue: 0.34)).frame(width: 3) }
         }
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
         .contentShape(Rectangle())
@@ -260,7 +317,7 @@ private struct MobileMatchupRow: View {
     private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
         HStack(spacing: 9) {
             ZStack {
-                Circle().fill(Color.white.opacity(0.94))
+                RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(0.94))
                 AsyncImage(url: URL(string: logo)) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFit().padding(2)
@@ -272,7 +329,7 @@ private struct MobileMatchupRow: View {
                 .transaction { $0.animation = nil }
             }
             .frame(width: 28, height: 28)
-            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.white.opacity(0.18), lineWidth: 0.5))
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.subheadline.weight(.semibold))
@@ -280,13 +337,13 @@ private struct MobileMatchupRow: View {
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
                     Text(record).font(.caption2).monospacedDigit()
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                        .foregroundStyle(LineupStyle.secondary)
                         .accessibilityLabel("Record: \(record)")
                 }
             }
             Spacer(minLength: 3)
             if game.isLive {
-                Text(score).font(.system(.title3, design: .rounded, weight: .semibold)).monospacedDigit()
+                Text(score).font(.system(.title3, design: .default, weight: .bold)).monospacedDigit()
             }
         }
     }

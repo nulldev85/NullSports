@@ -19,7 +19,12 @@ enum DailyGameMatchesChecks {
             restored.restore(identities: inputs ?? identities, available: available ?? Array(channels.values), now: now ?? reopen, calendar: calendar)
         }
         precondition(matches() == channels, "Every league survives a disk round trip and same-day relaunch")
-        precondition(matches(now: day.addingTimeInterval(24 * 3600)).isEmpty, "Midnight expires all yesterday's matches")
+        precondition(matches(now: day.addingTimeInterval(24 * 3600)) == channels,
+                     "Tomorrow's prepared matches survive the local midnight rollover")
+        precondition(matches(inputs: [:], now: day.addingTimeInterval(24 * 3600)).isEmpty,
+                     "Games absent from today's schedule cannot inherit yesterday's matches")
+        precondition(matches(now: day.addingTimeInterval(48 * 3600)).isEmpty,
+                     "A second midnight expires the prepared matches")
         precondition(matches(now: savedAt.addingTimeInterval(-1)).isEmpty, "Clock rollback rejects future cache")
         precondition(matches(available: []).isEmpty, "Another profile's library cannot restore unavailable channels")
         var updated = identities
@@ -36,6 +41,10 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.isCurrent(savedAt: day.addingTimeInterval(-1), now: day, calendar: calendar), "Yesterday's schedule expires even one second after saving")
         precondition(DailyCachePolicy.isCurrent(savedAt: savedAt, now: reopen, calendar: calendar), "Today's schedule stays available offline")
         precondition(!DailyCachePolicy.isCurrent(savedAt: savedAt, now: day.addingTimeInterval(48 * 3600), calendar: calendar), "Multi-day absence requires a new schedule")
+        precondition(DailyCachePolicy.includesTodayOrYesterday(savedAt: savedAt,
+            now: day.addingTimeInterval(24 * 3600), calendar: calendar), "Tomorrow's prepared slate remains available at rollover")
+        precondition(!DailyCachePolicy.includesTodayOrYesterday(savedAt: savedAt,
+            now: day.addingTimeInterval(48 * 3600), calendar: calendar), "The prepared slate expires after tomorrow")
         // Local midnight, not UTC midnight, controls expiry.
         precondition(DailyCachePolicy.isCurrent(savedAt: day.addingTimeInterval(16 * 3600), now: reopen, calendar: calendar), "UTC date rollover does not discard the local day's schedule")
         precondition(!DailyCachePolicy.hasCompleteIndex(savedLeagues: [], expectedLeagues: Set(leagues)), "Startup's unbuilt index must not be restored as ready")
@@ -61,6 +70,6 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
-        print("26 daily schedule and match persistence checks passed")
+        print("30 daily schedule and match persistence checks passed")
     }
 }
