@@ -28,6 +28,13 @@ enum DailyCachePolicy {
     static func isCurrent(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
         savedAt <= now && calendar.isDate(savedAt, inSameDayAs: now)
     }
+
+    static func canCarryMatches(savedAt: Date, now: Date, calendar: Calendar = .current) -> Bool {
+        guard savedAt <= now else { return false }
+        let today = calendar.startOfDay(for: now)
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return false }
+        return savedAt >= yesterday
+    }
 }
 
 /// When the library's cache files are worth reading, asking about, or writing.
@@ -77,7 +84,10 @@ struct DailyGameMatches<Channel: Codable & Hashable & Sendable>: Codable, Sendab
 
     func restore(identities current: [String: [String]], available: [Channel],
                  now: Date, calendar: Calendar = .current) -> [String: Channel] {
-        guard DailyCachePolicy.isCurrent(savedAt: savedAt, now: now, calendar: calendar) else { return [:] }
+        // Yesterday's pass already matched today's upcoming events. The current
+        // identity set excludes finished games, and exact identities plus the
+        // available channel list still guard every restored entry.
+        guard DailyCachePolicy.canCarryMatches(savedAt: savedAt, now: now, calendar: calendar) else { return [:] }
         let availableChannels = Set(available)
         return channels.filter { id, channel in
             guard let identity = identities[id], let currentIdentity = current[id] else { return false }

@@ -7,7 +7,9 @@ struct LiveView: View {
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var selectedStream: XtreamStream?
+    @State private var selectedGame: SportsGame?
     @State private var multiviewPrimary: XtreamStream?
+    @State private var multiviewPrimaryGame: SportsGame?
     @State private var multiviewSession: MultiviewSession?
     @State private var focusedGame: SportsGame?
     @State private var previewStream: XtreamStream?
@@ -44,12 +46,16 @@ struct LiveView: View {
                                 selectedLeague: $selectedLeague,
                                 focusedGame: $focusedGame,
                                 previewStream: previewStream,
+                                previewGame: events.first { $0.id == previewGameID },
                                 previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                                 multiviewPrimaryID: multiviewPrimary?.id,
                                 multiviewTitle: multiviewPrimary?.name,
                                 onPlay: select,
                                 onStartMultiview: startMultiview,
-                                onCancelMultiview: { multiviewPrimary = nil },
+                                onCancelMultiview: {
+                                    multiviewPrimary = nil
+                                    multiviewPrimaryGame = nil
+                                },
                                 onStopPreview: stopPreview
                             )
                         }
@@ -74,15 +80,19 @@ struct LiveView: View {
                 PlayerView(
                     urls: library.playbackURLs(for: stream),
                     title: stream.name,
-                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
+                    game: selectedGame,
+                    channelID: stream.id
                 )
             }
             .sheet(item: $manualChannelGame) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     manualChannelGame = nil
+                    library.saveGameSelection(stream, for: game)
                     if manualSelectionStartsMultiview {
                         stopPreview()
                         multiviewPrimary = stream
+                        multiviewPrimaryGame = game
                     } else {
                         play(game, on: stream, manuallySelected: true)
                     }
@@ -98,7 +108,9 @@ struct LiveView: View {
                     primary: session.primary,
                     secondary: session.secondary,
                     primaryURLs: library.playbackURLs(for: session.primary),
-                    secondaryURLs: library.playbackURLs(for: session.secondary)
+                    secondaryURLs: library.playbackURLs(for: session.secondary),
+                    primaryGame: session.primaryGame,
+                    secondaryGame: session.secondaryGame
                 )
             }
             .task(id: isActive) {
@@ -119,13 +131,19 @@ struct LiveView: View {
     }
 
     private func select(_ game: SportsGame) {
-        if previewGameID == game.id, let previewStream,
-           previewWasManuallySelected || library.verifiedStream(for: game)?.id == previewStream.id {
-            play(game, on: previewStream)
-            return
+        if previewGameID == game.id, let previewStream {
+            let resolved = library.resolvedStream(for: game)
+            if let resolved {
+                play(game, on: resolved)
+                return
+            }
+            if previewWasManuallySelected {
+                play(game, on: previewStream)
+                return
+            }
         }
         stopPreview()
-        guard let stream = library.verifiedStream(for: game) else {
+        guard let stream = library.resolvedStream(for: game) else {
             handleUnmatchedSelection(game, startsMultiview: false)
             return
         }
@@ -143,6 +161,7 @@ struct LiveView: View {
                     try? await Task.sleep(for: .milliseconds(180))
                     guard isActive, playbackTransitionID == transitionID else { return }
                     playbackTransitionID = nil
+                    selectedGame = game
                     selectedStream = stream
                 }
             } else {
@@ -155,16 +174,19 @@ struct LiveView: View {
         }
         guard primary.id != stream.id else { return }
         multiviewPrimary = nil
-        multiviewSession = MultiviewSession(primary: primary, secondary: stream)
+        multiviewSession = MultiviewSession(primary: primary, secondary: stream,
+                                           primaryGame: multiviewPrimaryGame, secondaryGame: game)
+        multiviewPrimaryGame = nil
     }
 
     private func startMultiview(_ game: SportsGame) {
-        guard let stream = library.verifiedStream(for: game) else {
+        guard let stream = library.resolvedStream(for: game) else {
             handleUnmatchedSelection(game, startsMultiview: true)
             return
         }
         stopPreview()
         multiviewPrimary = stream
+        multiviewPrimaryGame = game
     }
 
     private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
@@ -444,6 +466,7 @@ private struct LiveSlateDashboard: View {
     @Binding var selectedLeague: SportsLeague?
     @Binding var focusedGame: SportsGame?
     let previewStream: XtreamStream?
+    let previewGame: SportsGame?
     let previewURLs: [URL]
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
@@ -530,7 +553,7 @@ private struct LiveSlateDashboard: View {
         ZStack {
             Color.black
             if let previewStream {
-                LiveSelectedPreview(stream: previewStream, urls: previewURLs)
+                LiveSelectedPreview(stream: previewStream, game: previewGame, urls: previewURLs)
                     .id(previewStream.id)
             } else {
                 LinearGradient(colors: [LineupStyle.lightPurple.opacity(0.03), .clear, .black],
@@ -1055,13 +1078,28 @@ private struct LiveTVStandbyLight: View {
     }
 }
 private struct LiveSelectedPreview: View {
+    @EnvironmentObject private var library: SportsLibrary
     @StateObject private var controller = VLCPlaybackController()
+    @State private var choosingGame: SportsGame?
     let stream: XtreamStream
+    let game: SportsGame?
     let urls: [URL]
 
     var body: some View {
         VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
-        .onAppear { controller.start(urls: urls, muted: false) }
+        .onAppear {
+            if let game {
+                configureGameFailover(controller, game: game, library: library) { choosingGame = game }
+            }
+            controller.start(urls: urls, muted: false, channelID: stream.id)
+        }
+        .sheet(item: $choosingGame) { game in
+            ManualGameChannelPicker(game: game) { chosen in
+                library.saveGameSelection(chosen, for: game)
+                choosingGame = nil
+                controller.start(urls: library.playbackURLs(for: chosen), channelID: chosen.id)
+            }
+        }
         .onDisappear { controller.stop() }
     }
 }
@@ -1746,7 +1784,9 @@ struct GuideView: View {
                         primary: session.primary,
                         secondary: session.secondary,
                         primaryURLs: library.playbackURLs(for: session.primary),
-                        secondaryURLs: library.playbackURLs(for: session.secondary)
+                        secondaryURLs: library.playbackURLs(for: session.secondary),
+                        primaryGame: session.primaryGame,
+                        secondaryGame: session.secondaryGame
                     )
                 }
                 .fullScreenCover(isPresented: $reorderingFavorites) {
@@ -1913,7 +1953,8 @@ struct GuideView: View {
         }
         guard primary.id != stream.id else { return }
         multiviewPrimary = nil
-        multiviewSession = MultiviewSession(primary: primary, secondary: stream)
+        multiviewSession = MultiviewSession(primary: primary, secondary: stream,
+                                           primaryGame: nil, secondaryGame: nil)
     }
 }
 
@@ -2134,6 +2175,8 @@ private struct MultiviewSession: Identifiable {
     let id = UUID()
     let primary: XtreamStream
     let secondary: XtreamStream
+    let primaryGame: SportsGame?
+    let secondaryGame: SportsGame?
 }
 
 private struct GuideSidebar: View {
@@ -3317,13 +3360,16 @@ private struct MultiviewView: View {
     let secondary: XtreamStream
     let primaryURLs: [URL]
     let secondaryURLs: [URL]
+    let primaryGame: SportsGame?
+    let secondaryGame: SportsGame?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let expandedPane {
                 MultiviewPane(
-                    title: expandedPane == 0 ? primary.name : secondary.name,
+                    stream: expandedPane == 0 ? primary : secondary,
+                    game: expandedPane == 0 ? primaryGame : secondaryGame,
                     urls: expandedPane == 0 ? primaryURLs : secondaryURLs,
                     audible: true,
                     expanded: true,
@@ -3331,12 +3377,14 @@ private struct MultiviewView: View {
                 )
             } else {
                 HStack(spacing: 2) {
-                    MultiviewPane(title: primary.name, urls: primaryURLs, audible: focusedPane == 0, expanded: false) {
+                    MultiviewPane(stream: primary, game: primaryGame, urls: primaryURLs,
+                                  audible: focusedPane == 0, expanded: false) {
                         expandedPane = 0
                     }
                     .focusable().focused($focusedPane, equals: 0).focusEffectDisabled()
 
-                    MultiviewPane(title: secondary.name, urls: secondaryURLs, audible: focusedPane == 1, expanded: false) {
+                    MultiviewPane(stream: secondary, game: secondaryGame, urls: secondaryURLs,
+                                  audible: focusedPane == 1, expanded: false) {
                         expandedPane = 1
                     }
                     .focusable().focused($focusedPane, equals: 1).focusEffectDisabled()
@@ -3354,8 +3402,12 @@ private struct MultiviewView: View {
 }
 
 private struct MultiviewPane: View {
+    @EnvironmentObject private var library: SportsLibrary
     @StateObject private var controller = VLCPlaybackController()
-    let title: String
+    @State private var choosingGame: SportsGame?
+    @State private var chosenTitle: String?
+    let stream: XtreamStream
+    let game: SportsGame?
     let urls: [URL]
     let audible: Bool
     let expanded: Bool
@@ -3373,7 +3425,8 @@ private struct MultiviewPane: View {
             }
             HStack(spacing: 10) {
                 Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                Text(title).foregroundColor(LineupStyle.mediaText).font(.inter(.callout, .semibold)).lineLimit(1)
+                Text(controller.activeChannelName ?? chosenTitle ?? stream.name)
+                    .foregroundColor(LineupStyle.mediaText).font(.inter(.callout, .semibold)).lineLimit(1)
                 Spacer()
                 if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.mediaText).font(.inter(.caption2, .bold)).tracking(1.1) }
             }
@@ -3395,10 +3448,24 @@ private struct MultiviewPane: View {
         .contentShape(Rectangle()).onTapGesture(perform: onExpand)
         .contextMenu {
             Button("Retry Stream", systemImage: "arrow.clockwise") {
-                controller.start(urls: urls, muted: !audible)
+                controller.retry()
             }
         }
-        .onAppear { controller.start(urls: urls, muted: !audible) }
+        .sheet(item: $choosingGame) { game in
+            ManualGameChannelPicker(game: game) { chosen in
+                library.saveGameSelection(chosen, for: game)
+                choosingGame = nil
+                chosenTitle = chosen.name
+                controller.start(urls: library.playbackURLs(for: chosen), muted: !audible,
+                                 channelID: chosen.id)
+            }
+        }
+        .onAppear {
+            if let game {
+                configureGameFailover(controller, game: game, library: library) { choosingGame = game }
+            }
+            controller.start(urls: urls, muted: !audible, channelID: stream.id)
+        }
         .onChange(of: audible) { _, value in controller.setMuted(!value) }
         .onDisappear { controller.stop() }
     }
@@ -3406,13 +3473,18 @@ private struct MultiviewPane: View {
 
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: SportsLibrary
     let urls: [URL]
     var title: String = "Live TV"
     var program: CurrentProgram?
     var isLive = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var game: SportsGame? = nil
+    var channelID: Int? = nil
     @StateObject private var controller = VLCPlaybackController()
+    @State private var choosingGame: SportsGame?
+    @State private var chosenTitle: String?
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     @FocusState private var focusedControl: TVPlayerControl?
@@ -3447,7 +3519,8 @@ struct PlayerView: View {
                     .onTapGesture { revealControls(focus: true) }
             }
             if controlsVisible && controller.error == nil {
-                TVPlayerChrome(title: title, program: program, isLive: isLive, controller: controller,
+                TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
+                    program: program, isLive: isLive, controller: controller,
                     focusedControl: $focusedControl, onInteraction: keepControlsVisible)
                     .transition(.opacity)
             }
@@ -3457,10 +3530,22 @@ struct PlayerView: View {
             }
         }
         .background(Color.black)
+        .sheet(item: $choosingGame) { game in
+            ManualGameChannelPicker(game: game) { chosen in
+                library.saveGameSelection(chosen, for: game)
+                choosingGame = nil
+                chosenTitle = chosen.name
+                controller.start(urls: library.playbackURLs(for: chosen), channelID: chosen.id)
+            }
+        }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
         .onExitCommand { reportProgress(force: true); controller.stop(); dismiss() }
         .onAppear {
-            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+            if let game {
+                configureGameFailover(controller, game: game, library: library) { choosingGame = game }
+            }
+            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
+                             channelID: channelID)
             revealControls(focus: true)
         }
         .onDisappear { reportProgress(force: true); hideControlsTask?.cancel(); controller.stop() }
@@ -3737,6 +3822,8 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
+    @Published private(set) var activeChannelName: String?
+    @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
     /// Seconds. Zero duration means the item is not seekable, which is how a
@@ -3753,6 +3840,17 @@ private struct TVPlayerMenuLabel: View {
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
+    struct FailoverContext {
+        let plan: @MainActor () -> [FailoverChannel]
+        let urls: @MainActor (Int) -> [URL]
+        let didPlay: @MainActor (Int) -> Void
+        let chooseChannel: @MainActor () -> Void
+    }
+    var failover: FailoverContext?
+    private var currentChannelID: Int?
+    private var pendingWorkingChannelID: Int?
+    private var failoverState = StreamFailoverState()
+    private var noticeTask: Task<Void, Never>?
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var selectedSubtitleTitle: String {
@@ -3770,10 +3868,17 @@ private struct TVPlayerMenuLabel: View {
         }
     }
 
-    func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil) {
+    func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
+               channelID: Int? = nil, resetFailover: Bool = true) {
         stop()
         self.urls = Array(urls.reversed())
         self.muted = muted
+        currentChannelID = channelID
+        if resetFailover {
+            failoverState.reset()
+            activeChannelName = nil
+            failoverNotice = nil
+        }
         requestedInitialPosition = initialPosition
         appliedInitialPosition = false
         retries.reset()
@@ -3849,7 +3954,13 @@ private struct TVPlayerMenuLabel: View {
         player.audio?.isMuted = muted
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
             time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
-        if health.isStable(now: now) { retries.reset() }
+        if health.isStable(now: now) {
+            retries.reset()
+            if let id = pendingWorkingChannelID, id == currentChannelID {
+                pendingWorkingChannelID = nil
+                failover?.didPlay(id)
+            }
+        }
         isPlaying = player.isPlaying
         if player.isPlaying && player.hasVideoOut {
             reconnecting = false
@@ -3859,6 +3970,7 @@ private struct TVPlayerMenuLabel: View {
         guard recover else { return }
         player.stop()
         guard let delay = retries.nextDelay() else {
+            if switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
             reconnecting = false
             return
@@ -3869,16 +3981,35 @@ private struct TVPlayerMenuLabel: View {
         retryAt = now + delay
     }
 
+    private func switchToNextChannel() -> Bool {
+        guard let failover else { return false }
+        while let next = failoverState.next(from: failover.plan(), current: currentChannelID) {
+            let nextURLs = failover.urls(next.streamID)
+            guard !nextURLs.isEmpty else { continue }
+            start(urls: nextURLs, muted: muted, channelID: next.streamID, resetFailover: false)
+            activeChannelName = next.name
+            pendingWorkingChannelID = next.streamID
+            failoverNotice = next.notice
+            noticeTask?.cancel()
+            noticeTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                self?.failoverNotice = nil
+            }
+            return true
+        }
+        return false
+    }
+
     func setMuted(_ muted: Bool) {
         self.muted = muted
         isMuted = muted
         player.audio?.isMuted = muted
     }
     func toggleMute() { setMuted(!muted) }
-    func retry() { start(urls: Array(urls.reversed()), muted: muted) }
+    func retry() { start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID) }
     func goLive() {
         guard !urls.isEmpty else { return }
-        start(urls: Array(urls.reversed()), muted: muted)
+        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID)
     }
     func togglePlayback() {
         pausedByUser.toggle()
@@ -3919,6 +4050,7 @@ private struct TVPlayerMenuLabel: View {
         monitor?.cancel()
         monitor = nil
         retryAt = nil
+        pendingWorkingChannelID = nil
         urls = []
         pausedByUser = false
         reconnecting = false
@@ -3931,6 +4063,21 @@ private struct TVPlayerMenuLabel: View {
         player.media = nil
     }
 }
+
+@MainActor private func configureGameFailover(_ controller: VLCPlaybackController,
+                                               game: SportsGame, library: SportsLibrary,
+                                               chooseChannel: @escaping @MainActor () -> Void) {
+    controller.failover = VLCPlaybackController.FailoverContext(
+        plan: { library.failoverPlan(for: game) },
+        urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
+        didPlay: { id in
+            if let working = library.stream(withID: id) {
+                library.saveGameSelection(working, for: game)
+            }
+        },
+        chooseChannel: chooseChannel)
+}
+
 private struct TVPlaybackStatus: View {
     @ObservedObject var controller: VLCPlaybackController
     var body: some View {
@@ -3940,8 +4087,14 @@ private struct TVPlaybackStatus: View {
                 // Over video this is the one thing focusable, so it carries the
                 // app's own focus rather than a plate laid over the picture.
                 Button("Retry", action: controller.retry).lineupButtonStyle()
+                if let choose = controller.failover?.chooseChannel {
+                    Button("Choose Another Channel", action: choose).lineupButtonStyle()
+                }
             }
             .padding(24).background(Color.black.opacity(0.8))
+        } else if let notice = controller.failoverNotice {
+            Text(notice).font(.inter(.callout)).foregroundStyle(LineupStyle.mediaText)
+                .padding(14).background(Color.black.opacity(0.8))
         } else if controller.reconnecting {
             ProgressView("Reconnecting…").padding(24).background(Color.black.opacity(0.8))
         }

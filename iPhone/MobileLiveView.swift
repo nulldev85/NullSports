@@ -485,6 +485,11 @@ struct MobileLiveView: View {
                     // Keep the on-screen channel in step with what is playing,
                     // so metadata and Choose Another Channel stay truthful.
                     if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
+                },
+                didPlay: { id in
+                    if let working = library.stream(withID: id) {
+                        library.saveGameSelection(working, for: game)
+                    }
                 })
         }
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)

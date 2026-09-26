@@ -56,11 +56,13 @@ final class MobilePlaybackController: ObservableObject {
         let plan: @MainActor () -> [FailoverChannel]
         let urls: @MainActor (Int) -> [URL]
         let didSwitch: @MainActor (FailoverChannel) -> Void
+        let didPlay: @MainActor (Int) -> Void
     }
     var failover: FailoverContext?
     /// The channel currently playing, so failover knows what to retire.
     private(set) var currentChannelID: Int?
     private var failoverState = StreamFailoverState()
+    private var pendingWorkingChannelID: Int?
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
@@ -394,7 +396,10 @@ final class MobilePlaybackController: ObservableObject {
         error = nil
         originalURLs = urls
         if let channelID { currentChannelID = channelID }
-        if resetFailover { failoverState.reset() }
+        if resetFailover {
+            failoverState.reset()
+            pendingWorkingChannelID = nil
+        }
         retries.reset()
         // HLS first on the phone so Picture in Picture is reachable; the
         // transport stream stays queued behind it. Apple TV keeps its own order.
@@ -417,6 +422,11 @@ final class MobilePlaybackController: ObservableObject {
                 // exactly when some of these values matter. Observation only.
                 self.diag.update(snapshot: self.diagnosticsSnapshot)
                 self.sampleProgress()
+                if self.engine == .system,
+                   self.systemPlayer.timeControlStatus == .playing,
+                   self.videoView?.playerLayer?.isReadyForDisplay == true {
+                    self.confirmWorkingChannel()
+                }
                 if self.engine == .vlc { self.refreshVLCSubtitleTracks() }
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
@@ -471,7 +481,10 @@ final class MobilePlaybackController: ObservableObject {
                 let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
                     time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
                     failed: self.player.state == .error || self.player.state == .ended || self.player.state == .stopped)
-                if self.health.isStable(now: now) { self.retries.reset() }
+                if self.health.isStable(now: now) {
+                    self.retries.reset()
+                    self.confirmWorkingChannel()
+                }
                 if recover { self.scheduleRecovery(now: now) }
             }
         }
@@ -704,6 +717,7 @@ final class MobilePlaybackController: ObservableObject {
             // Same controller, same two engines: a channel change is a new
             // session, never a second player.
             start(urls: urls, channelID: next.streamID, resetFailover: false)
+            pendingWorkingChannelID = next.streamID
             return true
         }
         return false
@@ -721,6 +735,12 @@ final class MobilePlaybackController: ObservableObject {
 
     private func refreshIsPlaying() {
         isPlaying = engine == .vlc ? player.isPlaying : systemPlayer.timeControlStatus == .playing
+    }
+
+    private func confirmWorkingChannel() {
+        guard let id = pendingWorkingChannelID, id == currentChannelID else { return }
+        pendingWorkingChannelID = nil
+        failover?.didPlay(id)
     }
 
     // MARK: - Subtitles
@@ -913,6 +933,7 @@ final class MobilePlaybackController: ObservableObject {
         failoverNotice = nil
         failover = nil
         currentChannelID = nil
+        pendingWorkingChannelID = nil
         failoverState.reset()
         if let pip = pipController, pip.isPictureInPictureActive { pip.stopPictureInPicture() }
         pictureInPictureActive = false

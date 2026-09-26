@@ -138,7 +138,8 @@ struct GameChannelSelection: Codable, Equatable, Sendable {
     }
 }
 
-/// Provider-scoped manual choices for individual games.
+/// Provider-scoped working channels for individual games, chosen by the viewer
+/// or confirmed after automatic failover.
 struct GameChannelSelections: Codable, Equatable, Sendable {
     private(set) var entries: [String: GameChannelSelection]
 

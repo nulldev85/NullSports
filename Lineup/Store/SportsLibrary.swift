@@ -427,10 +427,16 @@ final class SportsLibrary: ObservableObject {
             }.value
             guard activeProfile?.id == profile.id else { return }
             didRestoreSchedule = true
-            if let cached, DailyCachePolicy.isCurrent(savedAt: cached.savedAt, now: Date()), gamesByLeague.isEmpty {
-                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { ($0, cached.games[$0.rawValue] ?? []) })
+            let now = Date()
+            if let cached, DailyCachePolicy.canCarryMatches(savedAt: cached.savedAt, now: now), gamesByLeague.isEmpty {
+                let today = Calendar.current.startOfDay(for: now)
+                gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
+                    (league, (cached.games[league.rawValue] ?? []).filter { game in
+                        game.start >= today || (game.isLive && now.timeIntervalSince(game.start) < 12 * 60 * 60)
+                    })
+                })
                 scheduleLoadedLeagues = Set(cached.games.keys.compactMap(SportsLeague.init(rawValue:)))
-                scheduleDay = Calendar.current.startOfDay(for: Date())
+                scheduleDay = today
             }
         }
         let trace = StartupTrace.shared
@@ -1050,6 +1056,14 @@ final class SportsLibrary: ObservableObject {
         return stream
     }
 
+    /// Use a saved, working game channel first, then the verified daily match.
+    /// The exact-game selection is provider-scoped and expires with the game.
+    func resolvedStream(for game: SportsGame) -> XtreamStream? {
+        if let saved = gameChannelSelections.selection(for: game.id),
+           let stream = stream(withID: saved.streamID), stream.name == saved.channelName { return stream }
+        return verifiedStream(for: game)
+    }
+
     /// Does current evidence say this channel is carrying this game?
     ///
     /// The single question behind every automatic playback decision. Lineup's
@@ -1637,7 +1651,7 @@ final class SportsLibrary: ObservableObject {
         // verification: the viewer just confirmed the feed while watching the
         // game, and providers commonly leave those ad-hoc channels without EPG.
         if let saved = gameChannelSelections.selection(for: game.id),
-           stream(withID: saved.streamID) != nil {
+           let stream = stream(withID: saved.streamID), stream.name == saved.channelName {
             return .play(streamID: saved.streamID, source: .gameSelection)
         }
         let teams = Self.preferenceGame(game)

@@ -19,7 +19,12 @@ enum DailyGameMatchesChecks {
             restored.restore(identities: inputs ?? identities, available: available ?? Array(channels.values), now: now ?? reopen, calendar: calendar)
         }
         precondition(matches() == channels, "Every league survives a disk round trip and same-day relaunch")
-        precondition(matches(now: day.addingTimeInterval(24 * 3600)).isEmpty, "Midnight expires all yesterday's matches")
+        precondition(matches(now: day.addingTimeInterval(24 * 3600)) == channels,
+                     "Tomorrow's precomputed matches survive midnight")
+        precondition(matches(now: day.addingTimeInterval(48 * 3600)).isEmpty,
+                     "Matches older than yesterday expire")
+        precondition(matches([:], now: day.addingTimeInterval(24 * 3600)).isEmpty,
+                     "Finished games are not carried into the next day")
         precondition(matches(now: savedAt.addingTimeInterval(-1)).isEmpty, "Clock rollback rejects future cache")
         precondition(matches(available: []).isEmpty, "Another profile's library cannot restore unavailable channels")
         var updated = identities
@@ -61,6 +66,6 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
-        print("26 daily schedule and match persistence checks passed")
+        print("28 daily schedule and match persistence checks passed")
     }
 }
