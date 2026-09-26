@@ -93,6 +93,10 @@ final class GameReminders: ObservableObject {
     }
 
     private func reschedule() async {
+        #if os(tvOS)
+        // tvOS does not expose the notification content fields used for game alerts.
+        return
+        #else
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
@@ -121,5 +125,6 @@ final class GameReminders: ObservableObject {
             try? await center.add(UNNotificationRequest(identifier: notificationPrefix + game.id,
                 content: content, trigger: trigger))
         }
+        #endif
     }
 }
