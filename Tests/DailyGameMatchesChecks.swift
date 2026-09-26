@@ -21,7 +21,7 @@ enum DailyGameMatchesChecks {
         precondition(matches() == channels, "Every league survives a disk round trip and same-day relaunch")
         precondition(matches(now: day.addingTimeInterval(24 * 3600)) == channels,
                      "Tomorrow's prepared matches survive the local midnight rollover")
-        precondition(matches(inputs: [:], now: day.addingTimeInterval(24 * 3600)).isEmpty,
+        precondition(matches([:], now: day.addingTimeInterval(24 * 3600)).isEmpty,
                      "Games absent from today's schedule cannot inherit yesterday's matches")
         precondition(matches(now: day.addingTimeInterval(48 * 3600)).isEmpty,
                      "A second midnight expires the prepared matches")
