@@ -31,35 +31,26 @@ struct LiveView: View {
         GeometryReader { container in
             VStack(spacing: 0) {
                 NavigationStack {
-                    Group {
-                        if events.isEmpty {
-                            LiveEmptySlateDashboard(
-                                selectedLeague: $selectedLeague,
-                                focusedGame: $focusedGame,
-                                isLoading: library.isLoading || library.isScheduleLoading,
-                                isAvailable: library.scheduleAvailable(for: selectedLeague),
-                                errorMessage: library.scheduleErrorMessage
-                            )
-                        } else {
-                            LiveSlateDashboard(
-                                events: events,
-                                selectedLeague: $selectedLeague,
-                                focusedGame: $focusedGame,
-                                previewStream: previewStream,
-                                previewGame: events.first { $0.id == previewGameID },
-                                previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
-                                multiviewPrimaryID: multiviewPrimary?.id,
-                                multiviewTitle: multiviewPrimary?.name,
-                                onPlay: select,
-                                onStartMultiview: startMultiview,
-                                onCancelMultiview: {
-                                    multiviewPrimary = nil
-                                    multiviewPrimaryGame = nil
-                                },
-                                onStopPreview: stopPreview
-                            )
-                        }
-                    }
+                    LiveSlateDashboard(
+                        events: events,
+                        selectedLeague: $selectedLeague,
+                        focusedGame: $focusedGame,
+                        previewStream: previewStream,
+                        previewGame: events.first { $0.id == previewGameID },
+                        previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
+                        multiviewPrimaryID: multiviewPrimary?.id,
+                        multiviewTitle: multiviewPrimary?.name,
+                        isScheduleLoading: library.isLoading || library.isScheduleLoading,
+                        isScheduleAvailable: library.scheduleAvailable(for: selectedLeague),
+                        scheduleErrorMessage: library.scheduleErrorMessage,
+                        onPlay: select,
+                        onStartMultiview: startMultiview,
+                        onCancelMultiview: {
+                            multiviewPrimary = nil
+                            multiviewPrimaryGame = nil
+                        },
+                        onStopPreview: stopPreview
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -470,6 +461,9 @@ private struct LiveSlateDashboard: View {
     let previewURLs: [URL]
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
+    let isScheduleLoading: Bool
+    let isScheduleAvailable: Bool
+    let scheduleErrorMessage: String?
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
@@ -528,12 +522,22 @@ private struct LiveSlateDashboard: View {
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, edge).padding(.top, 12).padding(.bottom, 4)
+            if events.isEmpty {
+                Text(isScheduleLoading ? "Games are loading…" :
+                     (isScheduleAvailable ? "No games in this range." :
+                      (scheduleErrorMessage ?? "Schedule unavailable.")))
+                    .font(.inter(20, .medium)).foregroundStyle(LiveBoardStyle.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(height: Self.matchupCardHeight + Self.gridPadding * 2)
+                    .padding(.horizontal, edge)
+            } else {
                 LiveGameSlate(events: events, focusedGame: $focusedGame,
-                          multiviewPrimaryID: multiviewPrimaryID, columns: 4,
-                          onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(maxWidth: .infinity)
-                .frame(height: Self.matchupCardHeight + Self.gridPadding * 2)
-                .padding(.horizontal, edge - 5)   // the grid adds five of its own
+                              multiviewPrimaryID: multiviewPrimaryID, columns: 4,
+                              onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Self.matchupCardHeight + Self.gridPadding * 2)
+                    .padding(.horizontal, edge - 5)   // the grid adds five of its own
+            }
         }
     }
 
@@ -668,7 +672,24 @@ private struct LiveGameRail: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    if mine.isEmpty { empty } else { ForEach(mine) { row($0) } }
+                    if mine.isEmpty {
+                        empty
+                        ForEach(library.followedTeams.teams) { team in
+                            HStack(spacing: 10) {
+                                TeamBadge(url: team.logo, fallback: team.abbreviation, size: 28)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(team.name).font(.inter(14, .semibold))
+                                        .foregroundStyle(LineupStyle.text).lineLimit(1)
+                                    Text("No game in this range").font(.inter(11))
+                                        .foregroundStyle(LiveBoardStyle.muted)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                        }
+                    } else {
+                        ForEach(mine) { row($0) }
+                    }
                 } header: {
                     heading("MY TEAMS", detail: mine.isEmpty ? "" : "\(mine.filter(\.isLive).count) LIVE")
                 }
@@ -691,7 +712,8 @@ private struct LiveGameRail: View {
             Text(library.followedTeams.isEmpty ? "No teams followed" : "None of yours are on")
                 .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
             Text(library.followedTeams.isEmpty
-                 ? "Hold Select on any game below to follow a team. Their games appear here."
+                 ? (events.isEmpty ? "Follow a team from a matchup when games load."
+                                   : "Hold Select on any game below to follow a team. Their games appear here.")
                  : "Your teams are not playing in this range.")
                 .font(.inter(13)).foregroundStyle(LiveBoardStyle.muted)
                 .fixedSize(horizontal: false, vertical: true)
