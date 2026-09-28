@@ -10,6 +10,7 @@ final class DataSafetyStore {
     private(set) var exportFolderName: String?
     private(set) var lastExportDate: Date?
     private(set) var isExporting = false
+    private(set) var folderSuggestionSnoozedUntil: Date?
     /// Set when history changes, so the next background event exports.
     var needsExport = false
     /// Called after a restore/import replaced the data.
@@ -44,6 +45,23 @@ final class DataSafetyStore {
             lastExportDate = ISO8601.date(from: text)
         }
         exportFolderName = resolveExportFolder()?.lastPathComponent
+        if let text = try? database.meta.get(MetaRepository.Key.folderSuggestionSnoozedUntil) {
+            folderSuggestionSnoozedUntil = ISO8601.date(from: text)
+        }
+    }
+
+    /// Backup files in the app's own folder are removed if the app is
+    /// deleted, so suggest a folder outside it (e.g. iCloud Drive).
+    var shouldSuggestExternalFolder: Bool {
+        guard settings.value.autoExportEnabled, exportFolderName == nil else { return false }
+        if let until = folderSuggestionSnoozedUntil, until > Date() { return false }
+        return true
+    }
+
+    func snoozeFolderSuggestion(days: Double = 30) {
+        let until = Date().addingTimeInterval(days * 86_400)
+        folderSuggestionSnoozedUntil = until
+        try? database.meta.set(MetaRepository.Key.folderSuggestionSnoozedUntil, value: ISO8601.string(from: until))
     }
 
     // MARK: Snapshots

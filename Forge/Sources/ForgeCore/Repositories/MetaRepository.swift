@@ -15,6 +15,7 @@ public final class MetaRepository: @unchecked Sendable {
         public static let activeTimer = "timer.active"
         public static let autoExportBookmark = "export.folder_bookmark"
         public static let lastAutoExport = "export.last_at"
+        public static let folderSuggestionSnoozedUntil = "export.folder_suggestion_snoozed_until"
         public static let catalogVersion = "catalog.version"
     }
 

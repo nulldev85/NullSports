@@ -14,6 +14,7 @@ struct WorkoutView: View {
     @State private var showingPlates = false
     @State private var viewingExercise: ExerciseRoute?
     @FocusState private var focusedField: SetFieldID?
+    @State private var focusScrollTarget: SetFieldID?
 
     enum WorkoutPicker: Identifiable {
         case add
@@ -180,6 +181,16 @@ struct WorkoutView: View {
     }
 
     private func workoutList(_ workout: Workout) -> some View {
+        ScrollViewReader { proxy in
+            workoutRows(workout)
+                .onChange(of: focusScrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation { proxy.scrollTo(target.setID, anchor: .center) }
+                }
+        }
+    }
+
+    private func workoutRows(_ workout: Workout) -> some View {
         List {
             WorkoutStatsHeader(workout: workout)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -280,7 +291,14 @@ struct WorkoutView: View {
         guard let current = focusedField, let index = order.firstIndex(of: current) else { return }
         let target = index + offset
         guard order.indices.contains(target) else { return }
-        focusedField = order[target]
+        let next = order[target]
+        focusedField = next
+        // Lists only create rows that are on screen: scroll the row in, then
+        // focus again once its field exists.
+        focusScrollTarget = next
+        afterDelay(0.2) {
+            if focusedField != next { focusedField = next }
+        }
     }
 
     @ViewBuilder

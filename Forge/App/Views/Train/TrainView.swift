@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum TrainRoute: Hashable {
     case folder(UUID)
@@ -48,6 +49,7 @@ struct FolderContentsView: View {
     @State private var deletingRoutine: Routine?
     @State private var searchText = ""
     @State private var draftToRestore: Routine?
+    @State private var choosingBackupFolder = false
 
     private var isRoot: Bool { folderID == nil }
     private var folder: Folder? { app.routines.folder(folderID) }
@@ -70,6 +72,15 @@ struct FolderContentsView: View {
                         } discard: {
                             app.routines.saveDraft(nil)
                             draftToRestore = nil
+                        }
+                    }
+                }
+                if app.dataSafety.shouldSuggestExternalFolder, app.history.summaries.count >= 3 {
+                    Section {
+                        BackupFolderCard {
+                            choosingBackupFolder = true
+                        } snooze: {
+                            app.dataSafety.snoozeFolderSuggestion()
                         }
                     }
                 }
@@ -158,6 +169,12 @@ struct FolderContentsView: View {
         .onAppear {
             if isRoot, draftToRestore == nil, editor == nil {
                 draftToRestore = app.routines.loadDraft()
+            }
+        }
+        .fileImporter(isPresented: $choosingBackupFolder, allowedContentTypes: [.folder]) { result in
+            switch result {
+            case .success(let url): app.dataSafety.setExportFolder(url)
+            case .failure(let error): app.feedback.report(error, while: "use that folder")
             }
         }
         .sheet(item: $editor) { request in
@@ -480,6 +497,31 @@ struct DraftBanner: View {
                 Button("Keep Editing", action: restore)
                     .buttonStyle(.borderedProminent)
                 Button("Discard", role: .destructive, action: discard)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Suggests keeping backup files outside the app, which matters most for
+/// sideloaded installs that may get deleted and reinstalled.
+struct BackupFolderCard: View {
+    let choose: () -> Void
+    let snooze: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Keep a copy off this iPhone", systemImage: "icloud.and.arrow.up")
+                .font(.subheadline.weight(.semibold))
+            Text("Forge backs up on this iPhone every day, but those files go if the app is deleted. Choose an iCloud Drive folder and every backup is copied there too.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Choose Folder", action: choose)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("chooseBackupFolder")
+                Button("Not Now", action: snooze)
                     .buttonStyle(.bordered)
             }
         }
