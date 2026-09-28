@@ -123,18 +123,23 @@ jobs:
             mkdir -p build/attachments build/screenshots
             xcrun xcresulttool export attachments --path build/UITests.xcresult --output-path build/attachments || true
             python3 - <<'PY'
-          import json, os, shutil
+          import json, os, re, shutil
           src = "build/attachments"
           dst = "build/screenshots"
           manifest = os.path.join(src, "manifest.json")
           if os.path.exists(manifest):
               for test in json.load(open(manifest)):
                   for attachment in test.get("attachments", []):
-                      name = attachment.get("suggestedHumanReadableName") or attachment.get("exportedFileName")
-                      path = os.path.join(src, attachment["exportedFileName"])
-                      if os.path.exists(path):
-                          base = name.split("_0_")[0] if "_0_" in name else os.path.splitext(name)[0]
-                          shutil.copy(path, os.path.join(dst, base + os.path.splitext(path)[1]))
+                      exported = attachment["exportedFileName"]
+                      path = os.path.join(src, exported)
+                      # Only the named screenshots; failure diagnostics stay
+                      # in the result bundle.
+                      if not exported.lower().endswith(".png") or not os.path.exists(path):
+                          continue
+                      name = attachment.get("suggestedHumanReadableName") or exported
+                      base = name.split("_0_")[0] if "_0_" in name else os.path.splitext(name)[0]
+                      base = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-") or os.path.splitext(exported)[0]
+                      shutil.copy(path, os.path.join(dst, base + ".png"))
           print(sorted(os.listdir(dst)))
           PY
           fi
@@ -157,3 +162,47 @@ jobs:
             Forge/build/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  screenshot-log:
+    # Prints downscaled screenshots as base64 into the job log, so they can
+    # be reviewed from environments that can read logs but not download
+    # artifacts.
+    name: Screenshot log ${{ matrix.group }}
+    needs: app
+    if: always() && needs.app.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [0, 1, 2, 3, 4, 5]
+    steps:
+      - name: Download screenshots
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: Forge-screenshots
+          path: shots
+      - name: Print screenshots
+        env:
+          GROUP: ${{ matrix.group }}
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          import base64, io, os
+          from PIL import Image
+          files = sorted(f for f in os.listdir("shots") if f.lower().endswith(".png")) if os.path.isdir("shots") else []
+          group = int(os.environ["GROUP"])
+          print(f"{len(files)} screenshots")
+          for name in files[group * 5:(group + 1) * 5]:
+              image = Image.open(os.path.join("shots", name)).convert("RGB")
+              width = 360
+              image = image.resize((width, int(image.height * width / image.width)), Image.LANCZOS)
+              buffer = io.BytesIO()
+              image.save(buffer, "WEBP", quality=60, method=6)
+              data = base64.b64encode(buffer.getvalue()).decode()
+              print(f"=== BEGIN {name} ===")
+              for start in range(0, len(data), 3000):
+                  print(data[start:start + 3000])
+              print(f"=== END {name} ===")
+          PY

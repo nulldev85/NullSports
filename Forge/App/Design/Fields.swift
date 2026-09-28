@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// Identifies one input in the live workout so the keyboard's up/down
+/// buttons can move between fields.
+struct SetFieldID: Hashable {
+    var setID: UUID
+    var field: SetField
+}
+
+struct FieldFocus {
+    var binding: FocusState<SetFieldID?>.Binding
+    var id: SetFieldID
+}
+
+extension View {
+    @ViewBuilder
+    func externalFocus(_ focus: FieldFocus?) -> some View {
+        if let focus {
+            focused(focus.binding, equals: focus.id)
+        } else {
+            self
+        }
+    }
+}
+
 /// A text field bound to an optional number. The text the athlete types is
 /// kept as-is while editing ("12." stays "12."); the bound value updates on
 /// every valid keystroke so nothing is lost if the app closes mid-edit.
@@ -9,6 +32,7 @@ struct DecimalField: View {
     var maxFractionDigits = 2
     var alignment: TextAlignment = .center
     var accessibilityName: String?
+    var focus: FieldFocus?
 
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -19,6 +43,7 @@ struct DecimalField: View {
             .multilineTextAlignment(alignment)
             .monospacedDigit()
             .focused($isFocused)
+            .externalFocus(focus)
             .accessibilityLabel(accessibilityName ?? placeholder)
             .onAppear { text = Self.format(value, maxFractionDigits) }
             .onChange(of: value) { _, newValue in
@@ -46,6 +71,7 @@ struct IntegerField: View {
     @Binding var value: Int?
     var alignment: TextAlignment = .center
     var accessibilityName: String?
+    var focus: FieldFocus?
 
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -56,6 +82,7 @@ struct IntegerField: View {
             .multilineTextAlignment(alignment)
             .monospacedDigit()
             .focused($isFocused)
+            .externalFocus(focus)
             .accessibilityLabel(accessibilityName ?? placeholder)
             .onAppear { text = value.map(String.init) ?? "" }
             .onChange(of: value) { _, newValue in
@@ -78,6 +105,7 @@ struct DurationField: View {
     @Binding var seconds: Double?
     var alignment: TextAlignment = .center
     var accessibilityName: String?
+    var focus: FieldFocus?
 
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -88,6 +116,7 @@ struct DurationField: View {
             .multilineTextAlignment(alignment)
             .monospacedDigit()
             .focused($isFocused)
+            .externalFocus(focus)
             .accessibilityLabel(accessibilityName ?? placeholder)
             .onAppear { text = Self.format(seconds) }
             .onChange(of: seconds) { _, newValue in

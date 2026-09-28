@@ -281,6 +281,7 @@ struct ProgressDashboardView: View {
             .cardStyle()
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("measurementsLink")
     }
 }
 

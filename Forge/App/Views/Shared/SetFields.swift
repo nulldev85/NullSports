@@ -86,7 +86,15 @@ struct TrackingFields: View {
     var completed = false
     /// Routine targets allow "8-12" style rep ranges.
     var repsMax: Binding<Int?>?
+    /// Live workout: lets the keyboard's arrows move between set fields.
+    var focus: FocusState<SetFieldID?>.Binding?
+    var setID: UUID?
     @Environment(AppModel.self) private var app
+
+    private func fieldFocus(_ field: SetField) -> FieldFocus? {
+        guard let focus, let setID else { return nil }
+        return FieldFocus(binding: focus, id: SetFieldID(setID: setID, field: field))
+    }
 
     var body: some View {
         ForEach(tracking.fields, id: \.self) { field in
@@ -105,21 +113,23 @@ struct TrackingFields: View {
             DecimalField(
                 placeholder: placeholder?.weight.map { units.number(units.weight.fromKilograms($0)) } ?? "0",
                 value: app.settings.weightBinding($weight),
-                accessibilityName: "Weight"
+                accessibilityName: "Weight",
+                focus: fieldFocus(.weight)
             )
         case .reps:
             if let repsMax {
                 RepsRangeField(reps: $reps, repsMax: repsMax, placeholder: placeholder?.repsText ?? "0")
             } else {
-                IntegerField(placeholder: placeholder?.repsText ?? "0", value: $reps, accessibilityName: "Reps")
+                IntegerField(placeholder: placeholder?.repsText ?? "0", value: $reps, accessibilityName: "Reps", focus: fieldFocus(.reps))
             }
         case .duration:
-            DurationField(placeholder: placeholder?.duration.map { DurationFormat.clock($0) } ?? "0:00", seconds: $duration, accessibilityName: "Time")
+            DurationField(placeholder: placeholder?.duration.map { DurationFormat.clock($0) } ?? "0:00", seconds: $duration, accessibilityName: "Time", focus: fieldFocus(.duration))
         case .distance:
             DecimalField(
                 placeholder: placeholder?.distance.map { units.number(units.distance.fromMeters($0, short: tracking.usesShortDistance)) } ?? "0",
                 value: app.settings.distanceBinding($distance, short: tracking.usesShortDistance),
-                accessibilityName: "Distance"
+                accessibilityName: "Distance",
+                focus: fieldFocus(.distance)
             )
         }
     }

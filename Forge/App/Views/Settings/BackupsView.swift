@@ -65,7 +65,7 @@ struct BackupsView: View {
             } header: {
                 Text("Backup File")
             } footer: {
-                Text("A backup file contains everything: workouts, routines, folders, custom exercises, measurements, timers and settings. Save it to iCloud Drive or send it to another device. It survives deleting the app.")
+                Text("A backup file contains everything: workouts, routines, folders, custom exercises, measurements, timers and settings. Saved to iCloud Drive or another device, it survives even deleting the app.")
             }
 
             Section {

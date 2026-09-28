@@ -38,7 +38,7 @@ struct RoutineEditorView: View {
         var config: TimerConfig
     }
 
-    private var hasChanges: Bool { draft != request.routine }
+    private var hasChanges: Bool { request.isRestoredDraft || draft != request.routine }
 
     var body: some View {
         NavigationStack {
@@ -106,6 +106,13 @@ struct RoutineEditorView: View {
             }
             .onAppear {
                 if request.isNew, draft.name.isEmpty { nameFocused = true }
+            }
+            .onDisappear {
+                // Swiped away with nothing to keep: don't leave a stale draft.
+                if !hasChanges {
+                    draftSaveTask?.cancel()
+                    app.routines.saveDraft(nil)
+                }
             }
             .interactiveDismissDisabled(hasChanges)
         }

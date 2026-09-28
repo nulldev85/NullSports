@@ -53,6 +53,14 @@ final class HistoryStore {
         }
     }
 
+    /// The record book, computed on the spot if the background load hasn't
+    /// finished yet (so a workout finished right after launch still gets
+    /// its records).
+    func currentRecords() -> RecordBook {
+        if isLoaded { return records }
+        return RecordBook(records: (try? database.workouts.setRecords()) ?? [])
+    }
+
     func workout(_ id: UUID) -> Workout? {
         try? database.workouts.workout(id: id)
     }

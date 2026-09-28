@@ -18,29 +18,37 @@ enum ScreenAwake {
     }
 }
 
+/// Asks iOS for extra time to finish work that may still be running when
+/// the app moves to the background. Call `end()` when done.
+@MainActor
+final class BackgroundTaskToken {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+
 /// Runs work that must finish even if the app is being backgrounded
-/// (snapshots, exports), asking iOS for extra time to do so.
+/// (snapshots, checkpoints) off the main thread.
 @MainActor
 enum BackgroundWork {
-    private final class Token: @unchecked Sendable {
-        var identifier: UIBackgroundTaskIdentifier = .invalid
-    }
-
     static func run(_ name: String, _ work: @escaping @Sendable () -> Void) {
-        let token = Token()
-        token.identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
-            MainActor.assumeIsolated { end(token) }
+        let token = BackgroundTaskToken(name: name)
+        Task {
+            await Task.detached(priority: .utility) {
+                work()
+            }.value
+            token.end()
         }
-        Task.detached(priority: .utility) {
-            work()
-            await MainActor.run { end(token) }
-        }
-    }
-
-    private static func end(_ token: Token) {
-        guard token.identifier != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(token.identifier)
-        token.identifier = .invalid
     }
 }
 

@@ -4,6 +4,13 @@ import SwiftUI
 struct ForgeApp: App {
     @State private var launcher = AppLauncher()
 
+    init() {
+        if ProcessInfo.processInfo.arguments.contains("-ForgeUITest") {
+            // Keeps UI tests fast and deterministic.
+            UIView.setAnimationsEnabled(false)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             LaunchView(launcher: launcher)

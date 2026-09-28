@@ -54,12 +54,15 @@ struct TimersView: View {
                         NavigationLink(value: ToolRoute.plates) {
                             ToolRow(title: "Plate Calculator", subtitle: "What to load on each side", symbol: "circle.grid.2x1.fill")
                         }
+                        .accessibilityIdentifier("tool-plates")
                         NavigationLink(value: ToolRoute.oneRepMax) {
                             ToolRow(title: "One-Rep Max", subtitle: "Estimate your 1RM and training loads", symbol: "chart.line.uptrend.xyaxis")
                         }
+                        .accessibilityIdentifier("tool-oneRepMax")
                         NavigationLink(value: ToolRoute.warmup) {
                             ToolRow(title: "Warm-up Sets", subtitle: "A ramp up to your working weight", symbol: "flame.fill")
                         }
+                        .accessibilityIdentifier("tool-warmup")
                     }
                     .buttonStyle(.plain)
                 }

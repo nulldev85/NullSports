@@ -29,6 +29,9 @@ struct RoutineEditorRequest: Identifiable {
     let id = UUID()
     var routine: Routine
     var isNew: Bool
+    /// Reopening an autosaved draft: it counts as unsaved changes until the
+    /// athlete saves or discards it.
+    var isRestoredDraft = false
 }
 
 struct FolderContentsView: View {
@@ -62,7 +65,7 @@ struct FolderContentsView: View {
                 if let draft = draftToRestore {
                     Section {
                         DraftBanner(draft: draft) {
-                            editor = RoutineEditorRequest(routine: draft, isNew: app.routines.routine(draft.id) == nil)
+                            editor = RoutineEditorRequest(routine: draft, isNew: app.routines.routine(draft.id) == nil, isRestoredDraft: true)
                             draftToRestore = nil
                         } discard: {
                             app.routines.saveDraft(nil)

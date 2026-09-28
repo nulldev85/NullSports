@@ -458,7 +458,7 @@ final class WorkoutSession {
         current.startedAt = options.startedAt
         var finished = WorkoutFactory.finalize(current, completeRemaining: options.completeRemaining, now: options.endedAt)
         finished.duration = max(0, options.endedAt.timeIntervalSince(options.startedAt))
-        let records = history.records.newRecords(in: finished)
+        let records = history.currentRecords().newRecords(in: finished)
         do {
             try database.workouts.save(finished)
         } catch {

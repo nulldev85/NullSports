@@ -32,6 +32,17 @@ final class ForgeUITests: XCTestCase {
         return true
     }
 
+    /// Scrolls the current screen until `element` can be tapped (lists only
+    /// create rows that are on screen).
+    private func reveal(_ element: XCUIElement, maxSwipes: Int = 8) -> Bool {
+        if element.waitForExistence(timeout: 3), element.isHittable { return true }
+        for _ in 0..<maxSwipes {
+            app.swipeUp()
+            if element.exists, element.isHittable { return true }
+        }
+        return false
+    }
+
     func testTrainRoutineAndLogWorkout() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         snapshot("01-Train")
@@ -109,6 +120,45 @@ final class ForgeUITests: XCTestCase {
         librarySearch.typeText(XCUIKeyboardKey.delete.rawValue)
     }
 
+    func testLibraryToolsAndBody() throws {
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+
+        // A routine with a timed block, and the builder editing it.
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Conditioning"]))
+        XCTAssertTrue(tapIfExists(app.buttons["routine-Cindy"]))
+        XCTAssertTrue(app.buttons["startRoutineWorkout"].waitForExistence(timeout: 10))
+        snapshot("21-TimedRoutine")
+        XCTAssertTrue(tapIfExists(app.buttons["editRoutine"]))
+        XCTAssertTrue(app.buttons["saveRoutine"].waitForExistence(timeout: 10))
+        snapshot("22-RoutineBuilder")
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["startRoutineWorkout"].waitForExistence(timeout: 10))
+
+        // Exercise detail with the demo history.
+        tab("Exercises")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Bench Press (Barbell)")
+        XCTAssertTrue(tapIfExists(app.buttons["exercise-Bench Press (Barbell)"], timeout: 10))
+        sleep(1)
+        snapshot("23-ExerciseDetail")
+
+        tab("Timers")
+        let plates = app.buttons["tool-plates"]
+        XCTAssertTrue(reveal(plates), "plate calculator should be under Tools")
+        plates.tap()
+        sleep(1)
+        snapshot("24-PlateCalculator")
+
+        tab("Progress")
+        let body = app.buttons["measurementsLink"]
+        XCTAssertTrue(reveal(body), "body card should be on the dashboard")
+        body.tap()
+        sleep(1)
+        snapshot("25-Measurements")
+    }
+
     func testTimersProgressAndSettings() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         tab("Timers")
@@ -134,7 +184,9 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(tapIfExists(app.buttons["openSettings"]))
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         snapshot("19-Settings")
-        XCTAssertTrue(tapIfExists(app.buttons["backupsLink"]))
+        let backups = app.buttons["backupsLink"]
+        XCTAssertTrue(reveal(backups), "Backups & Export should be in Settings")
+        backups.tap()
         XCTAssertTrue(app.navigationBars["Backups & Export"].waitForExistence(timeout: 10))
         snapshot("20-Backups")
     }

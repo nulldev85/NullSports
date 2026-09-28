@@ -25,27 +25,25 @@ struct RootView: View {
                 .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
                 .tag(AppTab.progress)
         }
-        .tint(app.settings.accentColor)
-        .preferredColorScheme(app.settings.colorScheme)
+        .themed(app.settings)
         .fullScreenCover(isPresented: $session.isPresented) {
             WorkoutView()
                 .environment(app)
-                .tint(app.settings.accentColor)
-                .preferredColorScheme(app.settings.colorScheme)
+                .themed(app.settings)
                 .toastOverlay(app.feedback)
         }
         .fullScreenCover(isPresented: $timers.isPresented) {
             if let controller = app.timers.active {
                 StandaloneTimerScreen(controller: controller)
                     .environment(app)
-                    .tint(app.settings.accentColor)
+                    .themed(app.settings)
                     .toastOverlay(app.feedback)
             }
         }
         .sheet(item: $session.finishedSummary) { summary in
             WorkoutSummaryView(summary: summary)
                 .environment(app)
-                .tint(app.settings.accentColor)
+                .themed(app.settings)
         }
         .toastOverlay(app.feedback)
         .onChange(of: scenePhase) { _, phase in
@@ -63,6 +61,15 @@ struct RootView: View {
 }
 
 extension View {
+    /// Applies the athlete's accent color and appearance. `accentColor` is
+    /// set alongside `tint` so custom drawing that uses `Color.accentColor`
+    /// follows the chosen color too.
+    func themed(_ settings: SettingsStore) -> some View {
+        tint(settings.accentColor)
+            .accentColor(settings.accentColor)
+            .preferredColorScheme(settings.colorScheme)
+    }
+
     func toastOverlay(_ feedback: Feedback) -> some View {
         overlay(alignment: .top) {
             if let toast = feedback.toast {

@@ -184,7 +184,11 @@ final class DataSafetyStore {
         let local = documentsBackupFolder
         let external = resolveExportFolder()
         let version = Self.appVersion
+        // Ask iOS for time to finish if this starts as the app goes to the
+        // background.
+        let backgroundTask = BackgroundTaskToken(name: "Forge backup export")
         Task {
+            defer { backgroundTask.end() }
             let outcome = await Task.detached(priority: .utility) { () -> Result<String?, Error> in
                 do {
                     let data = try ArchiveService.exportData(from: database, appVersion: version)

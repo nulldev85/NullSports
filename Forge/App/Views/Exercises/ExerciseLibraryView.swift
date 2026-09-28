@@ -33,6 +33,7 @@ struct ExerciseLibraryView: View {
                     NavigationLink(value: ExerciseRoute(id: exercise.id)) {
                         ExerciseRowLabel(exercise: exercise, isFavorite: app.library.isFavorite(exercise.id), detail: detail(for: exercise))
                     }
+                    .accessibilityIdentifier("exercise-\(exercise.name)")
                     .swipeActions(edge: .trailing) {
                         Button {
                             app.library.toggleFavorite(exercise.id)

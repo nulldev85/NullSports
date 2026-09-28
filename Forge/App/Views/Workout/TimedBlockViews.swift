@@ -39,26 +39,28 @@ struct TimedBlockSection: View {
                             .font(.title3)
                     }
                 }
-                if let result = block.result {
-                    HStack {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                        Text(result.summary(for: config))
-                            .font(.title3.weight(.bold))
-                            .monospacedDigit()
-                        Spacer()
-                    }
-                    .padding(12)
-                    .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                } else {
-                    Button(action: run) {
-                        Label(isRunning ? "Return to Timer" : "Start \(config.kind.displayName)", systemImage: isRunning ? "arrow.up.forward.app" : "play.fill")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .accessibilityIdentifier("startTimedBlock")
-                }
             }
             .padding(.vertical, 6)
+
+            // Its own row, so the menu above can never trigger it.
+            if let result = block.result {
+                HStack {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                    Text(result.summary(for: config))
+                        .font(.title3.weight(.bold))
+                        .monospacedDigit()
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            } else {
+                Button(action: run) {
+                    Label(isRunning ? "Return to Timer" : "Start \(config.kind.displayName)", systemImage: isRunning ? "arrow.up.forward.app" : "play.fill")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("startTimedBlock")
+            }
 
             ForEach(block.exercises) { entry in
                 TimedMovementRow(entry: entry, hasResult: block.result != nil)

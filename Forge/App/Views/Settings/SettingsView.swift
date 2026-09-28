@@ -6,6 +6,55 @@ struct SettingsView: View {
     var body: some View {
         let settings = app.settings
         Form {
+            Section {
+                NavigationLink {
+                    BackupsView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Backups & Export")
+                            if let last = lastBackupDate {
+                                Text("Last backup \(last.formatted(.relative(presentation: .named)))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: "externaldrive.badge.checkmark")
+                    }
+                }
+                .accessibilityIdentifier("backupsLink")
+                NavigationLink {
+                    RecentlyDeletedView()
+                } label: {
+                    HStack {
+                        Label("Recently Deleted", systemImage: "trash")
+                        Spacer()
+                        let count = app.history.deleted.count + app.routines.deletedRoutines.count
+                        if count > 0 {
+                            Text("\(count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                NavigationLink {
+                    ArchivedExercisesView()
+                } label: {
+                    HStack {
+                        Label("Archived Exercises", systemImage: "archivebox")
+                        Spacer()
+                        if !app.library.archivedCustoms.isEmpty {
+                            Text("\(app.library.archivedCustoms.count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Your Data")
+            } footer: {
+                Text("Everything is stored only on this iPhone. Nothing is uploaded unless you export it yourself.")
+            }
+
             Section("Units") {
                 Picker("Weight", selection: settings.binding(\.weightUnit)) {
                     ForEach(WeightUnit.allCases) { Text($0.displayName).tag($0) }
@@ -72,44 +121,6 @@ struct SettingsView: View {
                 AccentPicker(selection: settings.binding(\.accent))
             }
 
-            Section {
-                NavigationLink {
-                    BackupsView()
-                } label: {
-                    Label("Backups & Export", systemImage: "externaldrive.badge.checkmark")
-                }
-                .accessibilityIdentifier("backupsLink")
-                NavigationLink {
-                    RecentlyDeletedView()
-                } label: {
-                    HStack {
-                        Label("Recently Deleted", systemImage: "trash")
-                        Spacer()
-                        let count = app.history.deleted.count + app.routines.deletedRoutines.count
-                        if count > 0 {
-                            Text("\(count)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                NavigationLink {
-                    ArchivedExercisesView()
-                } label: {
-                    HStack {
-                        Label("Archived Exercises", systemImage: "archivebox")
-                        Spacer()
-                        if !app.library.archivedCustoms.isEmpty {
-                            Text("\(app.library.archivedCustoms.count)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            } header: {
-                Text("Your Data")
-            } footer: {
-                Text("Everything is stored only on this iPhone. Nothing is uploaded unless you export it yourself.")
-            }
-
             Section("About") {
                 LabeledContent("Version", value: DataSafetyStore.appVersion)
                 LabeledContent("Workouts Logged", value: "\(app.history.summaries.count)")
@@ -119,6 +130,13 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .onAppear { app.dataSafety.refresh() }
+    }
+
+    /// The newest snapshot or backup file.
+    private var lastBackupDate: Date? {
+        let safety = app.dataSafety
+        return (safety.snapshots.map(\.date) + [safety.lastExportDate].compactMap { $0 }).max()
     }
 }
 

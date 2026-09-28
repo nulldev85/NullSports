@@ -13,6 +13,7 @@ struct WorkoutView: View {
     @State private var loggingResult: UUID?
     @State private var showingPlates = false
     @State private var viewingExercise: ExerciseRoute?
+    @FocusState private var focusedField: SetFieldID?
 
     enum WorkoutPicker: Identifiable {
         case add
@@ -83,8 +84,23 @@ struct WorkoutView: View {
                     .accessibilityIdentifier("finishWorkout")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
+                    Button {
+                        moveFocus(by: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .accessibilityLabel("Previous field")
+                    Button {
+                        moveFocus(by: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .accessibilityLabel("Next field")
                     Spacer()
-                    Button("Done") { dismissKeyboard() }
+                    Button("Done") {
+                        focusedField = nil
+                        dismissKeyboard()
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -134,7 +150,7 @@ struct WorkoutView: View {
             .fullScreenCover(isPresented: $session.isTimedRunPresented) {
                 WorkoutTimerScreen()
                     .environment(app)
-                    .tint(app.settings.accentColor)
+                    .themed(app.settings)
             }
             .alert("Rename Workout", isPresented: $renaming) {
                 TextField("Workout name", text: $nameText)
@@ -194,6 +210,7 @@ struct WorkoutView: View {
                             block: block,
                             blockIndex: index,
                             blockCount: workout.blocks.count,
+                            focus: $focusedField,
                             replace: { picker = .replace(entry.id) },
                             showDetails: { viewingExercise = ExerciseRoute(id: entry.exerciseID) }
                         )
@@ -240,6 +257,30 @@ struct WorkoutView: View {
         }
         .listStyle(.insetGrouped)
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    /// Every set input in on-screen order, for keyboard navigation.
+    private var focusOrder: [SetFieldID] {
+        guard let workout = app.session.workout else { return [] }
+        var order: [SetFieldID] = []
+        for block in workout.blocks where !block.isTimed {
+            for exercise in block.exercises {
+                for set in exercise.sets {
+                    for field in exercise.tracking.fields {
+                        order.append(SetFieldID(setID: set.id, field: field))
+                    }
+                }
+            }
+        }
+        return order
+    }
+
+    private func moveFocus(by offset: Int) {
+        let order = focusOrder
+        guard let current = focusedField, let index = order.firstIndex(of: current) else { return }
+        let target = index + offset
+        guard order.indices.contains(target) else { return }
+        focusedField = order[target]
     }
 
     @ViewBuilder
@@ -315,6 +356,7 @@ struct LiveExerciseSection: View {
     let block: WorkoutBlock
     let blockIndex: Int
     let blockCount: Int
+    var focus: FocusState<SetFieldID?>.Binding
     let replace: () -> Void
     let showDetails: () -> Void
     @Environment(AppModel.self) private var app
@@ -342,7 +384,8 @@ struct LiveExerciseSection: View {
                     set: set,
                     number: entry.sets.workingNumber(at: index),
                     tracking: entry.tracking,
-                    previous: app.session.previousSet(for: entry, index: index)
+                    previous: app.session.previousSet(for: entry, index: index),
+                    focus: focus
                 )
             }
             Button {
@@ -435,6 +478,7 @@ struct LiveSetRow: View {
     let number: Int
     let tracking: TrackingType
     let previous: WorkoutSet?
+    var focus: FocusState<SetFieldID?>.Binding
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -464,7 +508,9 @@ struct LiveSetRow: View {
                 duration: binding.duration,
                 distance: binding.distance,
                 placeholder: placeholder,
-                completed: set.isCompleted
+                completed: set.isCompleted,
+                focus: focus,
+                setID: set.id
             )
             Button {
                 dismissKeyboard()
