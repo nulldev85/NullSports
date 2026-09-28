@@ -32,6 +32,7 @@ struct WorkoutDetailView: View {
                     Text(workout.startedAt.formatted(date: .complete, time: .shortened))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                         StatTile(title: "Duration", value: DurationFormat.compact(workout.elapsed()), symbol: "clock")
                         StatTile(title: "Volume", value: units.volume(workout.volume), symbol: "scalemass")

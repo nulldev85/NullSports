@@ -105,6 +105,9 @@ jobs:
           print(preferred[-1]["udid"])
           ')
           echo "Using simulator $device"
+          # Boot fully before testing; launching into a simulator that is
+          # still starting up can time out.
+          xcrun simctl bootstatus "$device" -b
           set +e
           xcodebuild test -project Forge.xcodeproj -scheme Forge \
             -destination "platform=iOS Simulator,id=$device" \
