@@ -47,7 +47,7 @@ struct RoutineEditorView: View {
                 ForEach(draft.blocks) { block in
                     EditorBlockSection(
                         block: blockBinding(block.id),
-                        index: draft.blocks.firstIndex { $0.id == block.id } ?? 0,
+                        index: draft.blocks.firstIndex(where: { $0.id == block.id }) ?? 0,
                         blockCount: draft.blocks.count,
                         actions: blockActions(block.id)
                     )
@@ -286,7 +286,7 @@ struct RoutineEditorView: View {
             let block = RoutineBlock(exercises: [], timer: config)
             draft.blocks.append(block)
             // Straight on to choosing the movements.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            afterDelay(0.45) {
                 picker = .addMovements(block.id)
             }
         }

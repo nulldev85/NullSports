@@ -59,6 +59,7 @@ final class CuePlayer {
     /// Call when something that makes sound starts. With `keepAlive`, an
     /// inaudible stream keeps the app running in the background.
     func acquire(keepAlive: Bool) {
+        idleStop?.cancel()
         holds += 1
         if keepAlive { keepAliveHolds += 1 }
         activate()
@@ -107,10 +108,26 @@ final class CuePlayer {
 
     // MARK: Output
 
+    private var idleStop: Task<Void, Never>?
+
+    /// For one-off sounds outside a timer: stop the engine and give the
+    /// audio session back shortly afterwards.
+    private func scheduleIdleStop() {
+        idleStop?.cancel()
+        idleStop = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard let self, !Task.isCancelled, self.holds == 0, !self.synthesizer.isSpeaking else { return }
+            self.player.stop()
+            self.engine.stop()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
     func play(_ tone: Tone) {
         if holds == 0 {
             // A one-off sound (e.g. rest finished in the foreground).
             activate()
+            scheduleIdleStop()
         }
         startEngineIfNeeded()
         guard engine.isRunning, let buffer = buffers[tone] else { return }
@@ -119,7 +136,10 @@ final class CuePlayer {
     }
 
     func speak(_ text: String) {
-        if holds == 0 { activate() }
+        if holds == 0 {
+            activate()
+            scheduleIdleStop()
+        }
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
         utterance.volume = 1

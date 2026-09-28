@@ -30,6 +30,7 @@ final class TimerController: Identifiable {
     private var lastSnapshot: TimerSnapshot?
     private var holdsAudio = false
     private var keepAlive = false
+    private var awakeReason: String { "timer-\(id.uuidString)" }
 
     init(config: TimerConfig, title: String, run: TimerRun? = nil, cues: CuePlayer, settings: SettingsStore, notifier: Notifier) {
         let program = TimerProgram(config: run?.config ?? config)
@@ -58,7 +59,7 @@ final class TimerController: Identifiable {
             holdsAudio = true
         }
         if settings.value.keepScreenOn {
-            UIApplication.shared.isIdleTimerDisabled = true
+            ScreenAwake.hold(awakeReason)
         }
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -78,7 +79,7 @@ final class TimerController: Identifiable {
             cues.release(keepAlive: keepAlive)
             holdsAudio = false
         }
-        UIApplication.shared.isIdleTimerDisabled = false
+        ScreenAwake.release(awakeReason)
         notifier.cancelTimerEnd()
     }
 
@@ -97,7 +98,7 @@ final class TimerController: Identifiable {
             onChange?(run)
             ticker?.invalidate()
             ticker = nil
-            UIApplication.shared.isIdleTimerDisabled = false
+            ScreenAwake.release(awakeReason)
             notifier.cancelTimerEnd()
         }
     }
@@ -177,7 +178,7 @@ final class TimerController: Identifiable {
         onChange?(run)
         ticker?.invalidate()
         ticker = nil
-        UIApplication.shared.isIdleTimerDisabled = false
+        ScreenAwake.release(awakeReason)
         notifier.cancelTimerEnd()
         if settings.value.timerBeeps { cues.play(.finish) }
         if settings.value.timerHaptics { cues.haptic(.success) }

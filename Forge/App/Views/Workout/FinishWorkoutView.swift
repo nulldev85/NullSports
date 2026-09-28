@@ -105,8 +105,9 @@ struct FinishWorkoutView: View {
             updateRoutine: updateRoutine
         )
         dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            app.session.finish(options)
+        let session = app.session
+        afterDelay(0.35) {
+            session.finish(options)
         }
     }
 }

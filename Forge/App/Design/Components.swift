@@ -259,6 +259,9 @@ extension Date {
         if days > 0, days < 7 {
             return formatted(.dateTime.weekday(.wide))
         }
-        return formatted(.dateTime.month(.abbreviated).day().year(calendar.isDate(self, equalTo: Date(), toGranularity: .year) ? .omitted : .defaultDigits))
+        if calendar.isDate(self, equalTo: Date(), toGranularity: .year) {
+            return formatted(.dateTime.month(.abbreviated).day())
+        }
+        return formatted(.dateTime.month(.abbreviated).day().year())
     }
 }

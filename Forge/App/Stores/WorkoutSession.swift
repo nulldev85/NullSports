@@ -478,7 +478,7 @@ final class WorkoutSession {
         // Let the workout screen finish dismissing before presenting the
         // summary on the tab view.
         let summary = FinishedWorkout(workout: finished, records: records)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+        afterDelay(0.6) { [weak self] in
             self?.finishedSummary = summary
         }
         return true

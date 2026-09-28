@@ -223,8 +223,10 @@ struct TimerSetupView: View {
                     Button {
                         let final = config.sanitized()
                         dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            app.timers.start(final, title: name.isEmpty ? final.kind.displayName : name)
+                        let timers = app.timers
+                        let title = name.isEmpty ? final.kind.displayName : name
+                        afterDelay(0.4) {
+                            timers.start(final, title: title)
                         }
                     } label: {
                         Label("Start \(config.kind.displayName)", systemImage: "play.fill")

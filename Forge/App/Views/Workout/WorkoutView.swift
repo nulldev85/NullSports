@@ -100,7 +100,7 @@ struct WorkoutView: View {
             }
             .sheet(item: $addingTimedBlock) { setup in
                 TimedBlockSetupView(setup: setup) { config in
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    afterDelay(0.45) {
                         picker = .timedMovements(config)
                     }
                 }
@@ -145,6 +145,12 @@ struct WorkoutView: View {
                         app.session.mutate(immediate: true) { $0.name = name }
                     }
                 }
+            }
+            .onAppear {
+                if app.settings.value.keepScreenOn { ScreenAwake.hold("workout") }
+            }
+            .onDisappear {
+                ScreenAwake.release("workout")
             }
             .confirmationDialog("Discard this workout?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Discard Workout", role: .destructive) {

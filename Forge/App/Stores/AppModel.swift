@@ -93,14 +93,21 @@ final class AppModel {
         switch phase {
         case .background:
             session.saveNow()
-            database.checkpoint()
-            if settings.value.autoBackupEnabled {
-                database.performAutomaticBackupIfDue()
+            let database = database
+            let snapshots = settings.value.autoBackupEnabled
+            BackgroundWork.run("Forge maintenance") {
+                database.checkpoint()
+                if snapshots {
+                    database.performAutomaticBackupIfDue()
+                }
             }
             dataSafety.exportIfDue()
         case .active:
             if settings.value.autoBackupEnabled {
-                database.performAutomaticBackupIfDue()
+                let database = database
+                BackgroundWork.run("Forge snapshot") {
+                    database.performAutomaticBackupIfDue()
+                }
             }
         case .inactive:
             session.saveNow()
