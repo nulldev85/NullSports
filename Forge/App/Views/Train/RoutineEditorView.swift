@@ -576,17 +576,14 @@ struct EditorExerciseRows: View {
     private func setRow(index: Int, tracking: TrackingType) -> some View {
         let set = entry.sets[index]
         return HStack(spacing: 8) {
-            SetKindMenu(kind: set.kind, number: entry.sets.workingNumber(at: index), rpe: set.target?.rpe) { kind in
+            SetKindMenu(kind: set.kind, number: entry.sets.workingNumber(at: index), rpe: set.target.rpe) { kind in
                 if index < entry.sets.count { entry.sets[index].kind = kind }
             } onDelete: {
                 if index < entry.sets.count {
                     _ = withAnimation { entry.sets.remove(at: index) }
                 }
             } onRPE: { value in
-                guard index < entry.sets.count else { return }
-                var target = entry.sets[index].target ?? SetTarget()
-                target.rpe = value
-                entry.sets[index].target = target
+                if index < entry.sets.count { entry.sets[index].target.rpe = value }
             }
             Spacer(minLength: 0)
             TrackingFields(
