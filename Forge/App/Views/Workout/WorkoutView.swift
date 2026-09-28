@@ -336,13 +336,18 @@ struct WorkoutStatsHeader: View {
 
     var body: some View {
         let completed = workout.completedWorkingSets.count
-        let total = workout.allExercises.reduce(0) { $0 + $1.sets.filter { $0.kind.isWorking }.count }
+        // A timed block's rows are per-round targets until its result is
+        // logged, so they only count once it has one.
+        let total = workout.blocks
+            .filter { !$0.isTimed || $0.result != nil }
+            .flatMap(\.exercises)
+            .reduce(0) { $0 + $1.sets.filter { $0.kind.isWorking }.count }
         HStack(spacing: 10) {
             miniStat(title: "Time") {
                 Text(workout.startedAt, style: .timer)
             }
             miniStat(title: "Sets") {
-                Text("\(completed)/\(total)")
+                Text(total == 0 ? "—" : "\(completed)/\(total)")
             }
             miniStat(title: "Volume") {
                 Text(app.settings.units.volume(workout.volume))
