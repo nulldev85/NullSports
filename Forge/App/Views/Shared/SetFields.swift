@@ -221,8 +221,13 @@ struct SetKindMenu: View {
     let kind: SetKind
     let number: Int
     var completed = false
+    var rpe: Double?
     let onChange: (SetKind) -> Void
     var onDelete: (() -> Void)?
+    /// Offers rating the set's effort (RPE) when provided.
+    var onRPE: ((Double?) -> Void)?
+
+    static let rpeScale: [Double] = [10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6]
 
     var body: some View {
         Menu {
@@ -231,14 +236,38 @@ struct SetKindMenu: View {
                     Label(option.displayName, systemImage: symbol(for: option)).tag(option)
                 }
             }
+            if let onRPE {
+                Menu {
+                    Picker("RPE", selection: Binding(get: { rpe ?? 0 }, set: { onRPE($0 == 0 ? nil : $0) })) {
+                        Text("None").tag(0.0)
+                        ForEach(Self.rpeScale, id: \.self) { value in
+                            Text(Self.rpeLabel(value)).tag(value)
+                        }
+                    }
+                } label: {
+                    Label(rpe.map { "RPE \(SetKindBadge.rpeText($0))" } ?? "Rate Effort (RPE)", systemImage: "gauge.with.dots.needle.67percent")
+                }
+            }
             if let onDelete {
                 Divider()
                 Button("Delete Set", systemImage: "trash", role: .destructive, action: onDelete)
             }
         } label: {
-            SetKindBadge(kind: kind, number: number, completed: completed)
+            SetKindBadge(kind: kind, number: number, completed: completed, rpe: rpe)
         }
         .frame(width: SetColumn.badge)
+    }
+
+    static func rpeLabel(_ value: Double) -> String {
+        let text = SetKindBadge.rpeText(value)
+        switch value {
+        case 10: return "\(text) · max effort"
+        case 9: return "\(text) · 1 rep left"
+        case 8: return "\(text) · 2 reps left"
+        case 7: return "\(text) · 3 reps left"
+        case 6: return "\(text) · 4+ reps left"
+        default: return text
+        }
     }
 
     private func symbol(for kind: SetKind) -> String {

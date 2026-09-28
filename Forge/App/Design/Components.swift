@@ -100,6 +100,8 @@ struct SetKindBadge: View {
     let kind: SetKind
     let number: Int
     var completed = false
+    /// Logged effort, shown as a small tag on the badge.
+    var rpe: Double?
 
     var body: some View {
         let color = Theme.color(for: kind)
@@ -112,7 +114,30 @@ struct SetKindBadge: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill((color ?? Color.secondary).opacity(0.12))
             )
-            .accessibilityLabel(kind == .normal ? "Set \(number)" : kind.displayName)
+            .overlay(alignment: .topTrailing) {
+                if let rpe {
+                    Text(Self.rpeText(rpe))
+                        .font(.system(size: 9, weight: .heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor))
+                        .offset(x: 7, y: -6)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        let base = kind == .normal ? "Set \(number)" : kind.displayName
+        guard let rpe else { return base }
+        return "\(base), RPE \(Self.rpeText(rpe))"
+    }
+
+    static func rpeText(_ rpe: Double) -> String {
+        NumberFormatting.string(rpe, locale: .current, maxFractionDigits: 1, grouping: false)
     }
 }
 

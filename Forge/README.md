@@ -27,8 +27,9 @@ To rename the app, change `CFBundleDisplayName` and
   move between folders, duplicate, color tags, search.
 - Straight sets, supersets and circuits, and timed blocks (AMRAP, EMOM,
   For Time, Tabata, intervals, custom sequences, Death By) in one routine.
-- Per-set targets: weight, reps or rep ranges (`8-12`), time, distance; set
-  types (warm-up, working, drop, failure); per-exercise rest times and notes.
+- Per-set targets: weight, reps or rep ranges (`8-12`), time, distance, RPE;
+  set types (warm-up, working, drop, failure); per-exercise rest times and
+  notes.
 - Unsaved edits are autosaved as a draft and offered back after a crash.
 
 **Exercise library**
@@ -43,7 +44,8 @@ To rename the app, change `CFBundleDisplayName` and
 
 **Live workout**
 - Previous performance next to every set, targets as placeholders, one-tap
-  completion, automatic rest timer (±15 s, skip, notification when it ends),
+  completion, RPE per set (tap the set number), keyboard arrows between
+  fields, automatic rest timer (±15 s, skip, notification when it ends),
   warm-up set generator, plate calculator, supersets, reordering, notes.
 - Timed blocks run on a full-screen timer with round counting; results become
   real sets in your history.

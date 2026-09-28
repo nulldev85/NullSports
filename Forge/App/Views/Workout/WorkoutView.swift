@@ -502,10 +502,14 @@ struct LiveSetRow: View {
     var body: some View {
         let binding = app.session.setBinding(set.id, fallback: set)
         HStack(spacing: 8) {
-            SetKindMenu(kind: set.kind, number: number, completed: set.isCompleted) { kind in
+            SetKindMenu(kind: set.kind, number: number, completed: set.isCompleted, rpe: set.rpe) { kind in
                 app.session.setKind(kind, for: set.id)
             } onDelete: {
                 app.session.removeSet(set.id)
+            } onRPE: { value in
+                app.session.mutate(immediate: true) { workout in
+                    workout.updateSet(set.id) { $0.rpe = value }
+                }
             }
             Button {
                 copyPrevious()

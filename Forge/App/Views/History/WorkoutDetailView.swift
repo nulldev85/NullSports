@@ -323,10 +323,12 @@ struct EditableSetsList: View {
         ForEach(Array(exercise.sets.indices), id: \.self) { index in
             if index < exercise.sets.count {
                 HStack(spacing: 8) {
-                    SetKindMenu(kind: exercise.sets[index].kind, number: exercise.sets.workingNumber(at: index), completed: true) { kind in
+                    SetKindMenu(kind: exercise.sets[index].kind, number: exercise.sets.workingNumber(at: index), completed: true, rpe: exercise.sets[index].rpe) { kind in
                         if index < exercise.sets.count { exercise.sets[index].kind = kind }
                     } onDelete: {
                         if index < exercise.sets.count { exercise.sets.remove(at: index) }
+                    } onRPE: { value in
+                        if index < exercise.sets.count { exercise.sets[index].rpe = value }
                     }
                     Spacer(minLength: 0)
                     TrackingFields(
