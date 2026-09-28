@@ -134,6 +134,8 @@ final class AppLauncher {
         let arguments = ProcessInfo.processInfo.arguments
         let isUITest = arguments.contains("-ForgeUITest")
         let seedDemo = arguments.contains("-ForgeSeedDemoData")
+        // UI tests can start in dark mode to capture both appearances.
+        let forceDark = isUITest && arguments.contains("-ForgeDarkMode")
         let result = await Task.detached(priority: .userInitiated) { () -> Result<(AppDatabase, ExerciseCatalog), Error> in
             do {
                 let location: StorageLocation
@@ -153,6 +155,11 @@ final class AppLauncher {
                 }
                 if seedDemo {
                     try DemoData.seed(into: database, catalog: catalog, imperial: Locale.current.measurementSystem == .us)
+                }
+                if forceDark {
+                    var settings = try database.meta.loadSettings(default: .defaults(usesMetric: Locale.current.measurementSystem != .us))
+                    settings.appearance = .dark
+                    try database.meta.saveSettings(settings)
                 }
                 return .success((database, catalog))
             } catch {

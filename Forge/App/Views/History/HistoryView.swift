@@ -54,6 +54,7 @@ struct HistoryView: View {
                     }
                 }
             }
+            .canvasBackground()
             .listStyle(.insetGrouped)
             .navigationTitle("History")
             .searchable(text: $query, prompt: "Search workouts, exercises, notes")
@@ -138,11 +139,11 @@ struct WorkoutSummaryRow: View {
                         .foregroundStyle(Color.accentColor)
                 }
                 Text(summary.name)
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                     .lineLimit(1)
                 Spacer()
                 Text(summary.startedAt.relativeDayText)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
@@ -158,18 +159,18 @@ struct WorkoutSummaryRow: View {
                         .foregroundStyle(Theme.record)
                 }
             }
-            .font(.caption)
+            .font(.app(.caption))
             .foregroundStyle(.secondary)
             .labelStyle(CompactLabelStyle())
             if !summary.exerciseNames.isEmpty {
                 Text(exerciseLine)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(2)
             }
             ForEach(summary.timerSummaries, id: \.self) { text in
                 Text(text)
-                    .font(.caption.weight(.medium))
+                    .font(.app(.caption, .medium))
                     .foregroundStyle(Color.accentColor)
             }
         }
@@ -217,7 +218,7 @@ struct MonthCalendar: View {
                 }
                 Spacer()
                 Text(month.formatted(.dateTime.month(.wide).year()))
-                    .font(.headline)
+                    .font(.app(.headline))
                 Spacer()
                 Button {
                     shift(1)
@@ -232,7 +233,7 @@ struct MonthCalendar: View {
             HStack(spacing: 0) {
                 ForEach(Array(symbols.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol)
-                        .font(.caption2.weight(.semibold))
+                        .font(.app(.caption2, .semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                 }
@@ -269,8 +270,8 @@ struct MonthCalendar: View {
         } label: {
             VStack(spacing: 3) {
                 Text("\(calendar.component(.day, from: day))")
-                    .font(.subheadline.weight(isToday ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Color.white : (isToday ? Color.accentColor : Color.primary))
+                    .font(.app(.subheadline, isToday ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Theme.onAccent : (isToday ? Color.accentColor : Color.primary))
                     .frame(width: 30, height: 30)
                     .background(Circle().fill(isSelected ? Color.accentColor : (hasWorkout ? Color.accentColor.opacity(0.16) : Color.clear)))
                 Circle()

@@ -51,7 +51,7 @@ struct ProgressDashboardView: View {
                         StatTile(title: "Workouts", value: "\(totals.workouts)", detail: averagePerWeek(totals, start: start), symbol: "figure.strengthtraining.traditional")
                         StatTile(title: "Time", value: DurationFormat.compact(totals.duration), detail: totals.workouts > 0 ? "\(DurationFormat.compact(totals.duration / Double(totals.workouts))) avg" : nil, symbol: "clock")
                         StatTile(title: "Volume", value: app.settings.units.volume(totals.volume), symbol: "scalemass")
-                        StatTile(title: "Streak", value: "\(Stats.weekStreak(summaries, calendar: calendar)) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: .orange)
+                        StatTile(title: "Streak", value: "\(Stats.weekStreak(summaries, calendar: calendar)) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: Theme.sand)
                     }
 
                     weeklyChart(calendar: calendar)
@@ -61,7 +61,7 @@ struct ProgressDashboardView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .navigationTitle("Progress")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -105,7 +105,7 @@ struct ProgressDashboardView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Weekly")
-                    .font(.title3.weight(.bold))
+                    .font(.app(.title3, .semibold))
                 Spacer()
                 Picker("Metric", selection: $chartMetric) {
                     ForEach(ChartMetric.allCases) { Text($0.rawValue).tag($0) }
@@ -118,8 +118,8 @@ struct ProgressDashboardView: View {
                         x: .value("Week", bucket.start, unit: .weekOfYear),
                         y: .value(chartMetric.rawValue, value(of: bucket, units: units))
                     )
-                    .foregroundStyle(Color.accentColor.gradient)
-                    .cornerRadius(4)
+                    .foregroundStyle(Color.accentColor.opacity(0.85))
+                    .cornerRadius(6)
                 }
                 if chartMetric == .workouts, goal > 0 {
                     RuleMark(y: .value("Goal", goal))
@@ -127,20 +127,27 @@ struct ProgressDashboardView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                         .annotation(position: .top, alignment: .leading) {
                             Text("Goal \(goal)")
-                                .font(.caption2)
+                                .font(.num(.caption2))
                                 .foregroundStyle(.secondary)
                         }
                 }
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .weekOfYear, count: weeks > 12 ? 4 : 2)) { _ in
-                    AxisGridLine()
+                    AxisGridLine().foregroundStyle(Theme.line)
                     AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        .font(.num(.caption2, .regular))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing) { _ in
+                    AxisGridLine().foregroundStyle(Theme.line)
+                    AxisValueLabel().font(.num(.caption2, .regular))
                 }
             }
             .frame(height: 190)
             Text(chartCaption(units: units))
-                .font(.caption)
+                .font(.app(.caption))
                 .foregroundStyle(.secondary)
         }
         .cardStyle()
@@ -171,10 +178,10 @@ struct ProgressDashboardView: View {
         let shares = Stats.muscleShares(app.history.setRecords, since: since, lookup: app.library.exercise).prefix(10)
         return VStack(alignment: .leading, spacing: 12) {
             Text("Muscles Trained")
-                .font(.title3.weight(.bold))
+                .font(.app(.title3, .semibold))
             if shares.isEmpty {
                 Text("Log workouts to see which muscles you're training.")
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
             } else {
                 Chart(Array(shares)) { share in
@@ -182,18 +189,23 @@ struct ProgressDashboardView: View {
                         x: .value("Sets", share.sets),
                         y: .value("Muscle", share.muscle.displayName)
                     )
-                    .foregroundStyle(Theme.color(for: share.muscle).gradient)
-                    .cornerRadius(4)
+                    .foregroundStyle(Theme.color(for: share.muscle).opacity(0.85))
+                    .cornerRadius(6)
                     .annotation(position: .trailing) {
                         Text(NumberFormatting.string(share.sets, locale: .current, maxFractionDigits: 1, grouping: false))
-                            .font(.caption2)
+                            .font(.num(.caption2))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks { _ in
+                        AxisValueLabel().font(.app(.caption, .medium))
+                    }
+                }
                 .frame(height: CGFloat(shares.count) * 28 + 10)
                 Text("Working sets. Secondary muscles count as half a set.")
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
             }
         }
@@ -210,16 +222,16 @@ struct ProgressDashboardView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Recent Records")
-                    .font(.title3.weight(.bold))
+                    .font(.app(.title3, .semibold))
                 Spacer()
                 NavigationLink("See All") {
                     AllRecordsView()
                 }
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
             }
             if recent.isEmpty {
                 Text("Beat a previous best and it'll show up here.")
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
             }
             ForEach(Array(recent)) { record in
@@ -240,7 +252,7 @@ struct ProgressDashboardView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Body")
-                        .font(.title3.weight(.bold))
+                        .font(.app(.title3, .semibold))
                         .foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: "chevron.right")
@@ -249,16 +261,16 @@ struct ProgressDashboardView: View {
                 if let latest = weights.last {
                     HStack(alignment: .firstTextBaseline) {
                         Text(app.settings.units.weight(latest.value))
-                            .font(.rounded(28, weight: .bold))
+                            .font(.num(size: 28, .semibold))
                             .foregroundStyle(.primary)
                         if let change = app.measurements.change(.bodyWeight) {
                             Text((change >= 0 ? "+" : "−") + app.settings.units.weight(abs(change)))
-                                .font(.subheadline.weight(.semibold))
+                                .font(.app(.subheadline, .semibold))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Text(latest.measuredAt.relativeDayText)
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                     if weights.count > 1 {
@@ -273,7 +285,7 @@ struct ProgressDashboardView: View {
                     }
                 } else {
                     Text("Track body weight, body fat and measurements.")
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -301,6 +313,7 @@ struct AllRecordsView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Personal Records")
     }
 

@@ -22,7 +22,7 @@ struct RoutineDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if !routine.notes.isEmpty {
                         Text(routine.notes)
-                            .font(.subheadline)
+                            .font(.app(.subheadline))
                             .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 10) {
@@ -36,7 +36,7 @@ struct RoutineDetailView: View {
                     }
                     if let last = routine.lastPerformedAt {
                         Label("Last done \(last.relativeDayText)", systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                     Button {
@@ -81,15 +81,15 @@ struct RoutineDetailView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(summary.startedAt.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.subheadline.weight(.medium))
+                                        .font(.app(.subheadline, .medium))
                                     Text("\(DurationFormat.compact(summary.duration)) · \(summary.setCount) sets")
-                                        .font(.caption)
+                                        .font(.app(.caption))
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if summary.volume > 0 {
                                     Text(app.settings.units.volume(summary.volume))
-                                        .font(.caption.monospacedDigit())
+                                        .font(.num(.caption))
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -98,6 +98,7 @@ struct RoutineDetailView: View {
                 }
             }
         }
+        .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(routine.name)
         .navigationBarTitleDisplayMode(.large)
@@ -163,7 +164,8 @@ struct BlockHeaderLabel: View {
                 Text("Exercise \(index + 1)")
             }
         }
-        .font(.caption.weight(.bold))
+        .font(.num(.caption2, .medium))
+        .tracking(0.9)
         .foregroundStyle(block.timer != nil || block.exerciseCount > 1 ? Color.accentColor : .secondary)
         .textCase(.uppercase)
     }
@@ -185,17 +187,17 @@ struct RoutineExerciseSummaryRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(exercise?.name ?? "Unknown Exercise")
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                 Spacer()
                 if let rest = entry.restSeconds, !isTimed {
                     Label(DurationFormat.compact(Double(rest)), systemImage: "timer")
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
             if isTimed {
                 Text(TargetFormatter.describe(entry.sets.first?.target, tracking: tracking, units: app.settings.units))
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(entry.sets.enumerated()), id: \.element.id) { index, set in
@@ -203,14 +205,14 @@ struct RoutineExerciseSummaryRow: View {
                         SetKindBadge(kind: set.kind, number: entry.sets.workingNumber(at: index))
                             .scaleEffect(0.85)
                         Text(TargetFormatter.describe(set.target, tracking: tracking, units: app.settings.units))
-                            .font(.subheadline.monospacedDigit())
+                            .font(.num(.subheadline))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
             if !entry.notes.isEmpty {
                 Text(entry.notes)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .italic()
             }

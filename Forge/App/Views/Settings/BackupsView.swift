@@ -22,10 +22,10 @@ struct BackupsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Your data is protected", systemImage: "checkmark.shield.fill")
-                        .font(.headline)
-                        .foregroundStyle(.green)
+                        .font(.app(.headline))
+                        .foregroundStyle(Theme.success)
                     Text("Every set is written to disk the moment you log it. Forge also keeps daily snapshots on this iPhone and exports a full backup file you can keep anywhere.")
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         statusLine("Last snapshot", data.snapshots.map(\.date).max().map { $0.formatted(date: .abbreviated, time: .shortened) }
@@ -34,7 +34,7 @@ struct BackupsView: View {
                             ?? (app.settings.value.autoExportEnabled ? "When you leave the app" : "Off"))
                         statusLine("Backup folder", data.exportFolderName ?? "Files › On My iPhone › Forge")
                     }
-                    .font(.caption)
+                    .font(.app(.caption))
                 }
                 .padding(.vertical, 6)
             }
@@ -138,6 +138,7 @@ struct BackupsView: View {
                 Text("Snapshots are full copies of your data, made daily and before any update or restore. Tap one to restore it — your current data is snapshotted first, so a restore can always be undone.")
             }
         }
+        .canvasBackground()
         .navigationTitle("Backups & Export")
         .onAppear { data.refresh() }
         .sheet(item: Binding(get: { exportURL.map(ShareableFile.init) }, set: { exportURL = $0?.url })) { file in
@@ -236,19 +237,19 @@ struct SnapshotRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(snapshot.date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.body.weight(.medium))
+                    .font(.app(.body, .medium))
                 HStack(spacing: 6) {
                     Text(snapshot.reason.displayName)
                     if let summary {
                         Text("· \(summary.workouts) workouts · \(summary.routines) routines")
                     }
                 }
-                .font(.caption)
+                .font(.app(.caption))
                 .foregroundStyle(.secondary)
             }
             Spacer()
             Text(ByteCountFormatter.string(fromByteCount: Int64(snapshot.byteCount), countStyle: .file))
-                .font(.caption)
+                .font(.app(.caption))
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())

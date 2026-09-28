@@ -170,6 +170,38 @@ final class ForgeUITests: XCTestCase {
         snapshot("25-Measurements")
     }
 
+    func testDarkModeTour() throws {
+        app.terminate()
+        app.launchArguments = ["-ForgeUITest", "-ForgeSeedDemoData", "-ForgeDarkMode"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        snapshot("30-DarkTrain")
+
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Upper / Lower"]))
+        XCTAssertTrue(tapIfExists(app.buttons["routine-Upper A"]))
+        XCTAssertTrue(app.buttons["startRoutineWorkout"].waitForExistence(timeout: 10))
+        app.buttons["startRoutineWorkout"].tap()
+        let complete = app.buttons.matching(identifier: "completeSet").firstMatch
+        XCTAssertTrue(complete.waitForExistence(timeout: 10))
+        complete.tap()
+        XCTAssertTrue(app.buttons["skipRest"].waitForExistence(timeout: 5))
+        snapshot("31-DarkWorkout")
+        XCTAssertTrue(tapIfExists(app.buttons["minimizeWorkout"]))
+
+        tab("History")
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
+        snapshot("32-DarkHistory")
+
+        tab("Progress")
+        XCTAssertTrue(app.navigationBars["Progress"].waitForExistence(timeout: 10))
+        sleep(1)
+        snapshot("33-DarkProgress")
+        XCTAssertTrue(tapIfExists(app.buttons["openSettings"]))
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        snapshot("34-DarkSettings")
+    }
+
     func testTimersProgressAndSettings() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         tab("Timers")

@@ -20,9 +20,9 @@ struct TimedBlockSection: View {
                     IconBadge(symbol: config.kind.symbolName, size: 42)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(config.summary)
-                            .font(.headline)
+                            .font(.app(.headline))
                         Text(config.kind.tagline)
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -36,7 +36,7 @@ struct TimedBlockSection: View {
                         Button("Remove Block", systemImage: "trash", role: .destructive, action: remove)
                     } label: {
                         Image(systemName: "ellipsis.circle")
-                            .font(.title3)
+                            .font(.app(.title3))
                     }
                 }
             }
@@ -46,14 +46,14 @@ struct TimedBlockSection: View {
             if let result = block.result {
                 HStack {
                     Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.success)
                     Text(result.summary(for: config))
-                        .font(.title3.weight(.bold))
+                        .font(.app(.title3, .semibold))
                         .monospacedDigit()
                     Spacer()
                 }
                 .padding(12)
-                .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Theme.success.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
                 Button(action: run) {
                     Label(isRunning ? "Return to Timer" : "Start \(config.kind.displayName)", systemImage: isRunning ? "arrow.up.forward.app" : "play.fill")
@@ -80,18 +80,18 @@ struct TimedMovementRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(entry.name)
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                 Spacer()
                 if hasResult {
                     Text("\(entry.sets.count) sets logged")
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
             if !hasResult {
                 HStack(spacing: 8) {
                     Text("Per round")
-                        .font(.caption.weight(.semibold))
+                        .font(.app(.caption, .semibold))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     TrackingFields(
@@ -104,7 +104,7 @@ struct TimedMovementRow: View {
                 }
             } else {
                 Text(summary)
-                    .font(.subheadline.monospacedDigit())
+                    .font(.num(.subheadline))
                     .foregroundStyle(.secondary)
             }
         }
@@ -171,6 +171,7 @@ struct LogResultView: View {
                     Text("Each round is logged as sets using the per-round targets, so this work counts in your history and records.")
                 }
             }
+            .canvasBackground()
             .navigationTitle("Log \(config.kind.displayName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -221,7 +222,7 @@ struct WorkoutTimerScreen: View {
                 onDiscard: { app.session.cancelTimedRun() }
             )
         } else {
-            Color.black
+            Theme.night
                 .onAppear { app.session.isTimedRunPresented = false }
         }
     }

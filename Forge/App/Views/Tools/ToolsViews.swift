@@ -15,7 +15,7 @@ struct PlateCalculatorView: View {
                     Text("Target")
                     Spacer()
                     DecimalField(placeholder: unit == .kg ? "100" : "225", value: $target, alignment: .trailing)
-                        .font(.title3.weight(.bold))
+                        .font(.app(.title3, .semibold))
                         .frame(width: 120)
                     Text(unit.symbol)
                         .foregroundStyle(.secondary)
@@ -36,7 +36,7 @@ struct PlateCalculatorView: View {
                     LabeledContent("Total", value: "\(app.settings.units.number(load.achieved)) \(unit.symbol)")
                     if !load.isExact {
                         Label("\(app.settings.units.number(load.remainder)) \(unit.symbol) short with your plates", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warning)
                     }
                 } header: {
                     Text("Load")
@@ -48,6 +48,7 @@ struct PlateCalculatorView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Plate Calculator")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -83,8 +84,8 @@ struct BarbellDiagram: View {
                         .frame(width: width(for: plate), height: max(26, height * scale(for: plate)))
                         .overlay(
                             Text(label(plate))
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
+                                .font(.num(size: 9, .semibold))
+                                .foregroundStyle(Theme.onAccent)
                                 .rotationEffect(.degrees(-90))
                                 .fixedSize()
                         )
@@ -120,12 +121,13 @@ struct BarbellDiagram: View {
     private func color(for plate: Double) -> Color {
         let kg = kilograms(plate)
         switch kg {
-        case 24...: return .red
-        case 19..<24: return .blue
-        case 14..<19: return .yellow
-        case 9..<14: return .green
-        case 4..<9: return Color(.systemGray)
-        default: return Color(.systemGray2)
+        // The usual competition colors, in the app's muted palette.
+        case 24...: return Theme.rose
+        case 19..<24: return Theme.mist
+        case 14..<19: return Theme.sand
+        case 9..<14: return Theme.sage
+        case 4..<9: return Theme.slate
+        default: return Theme.slate.opacity(0.7)
         }
     }
 
@@ -168,10 +170,10 @@ struct OneRepMaxView: View {
                 Section {
                     HStack {
                         Text("Estimated 1RM")
-                            .font(.headline)
+                            .font(.app(.headline))
                         Spacer()
                         Text("\(app.settings.units.number(estimate, maxFractionDigits: 1)) \(unit.symbol)")
-                            .font(.title2.weight(.bold).monospacedDigit())
+                            .font(.num(.title2, .semibold))
                             .foregroundStyle(Color.accentColor)
                     }
                 }
@@ -182,7 +184,7 @@ struct OneRepMaxView: View {
                                 .frame(width: 50, alignment: .leading)
                                 .foregroundStyle(.secondary)
                             Text("\(app.settings.units.number(row.weight, maxFractionDigits: 1)) \(unit.symbol)")
-                                .font(.body.weight(.semibold).monospacedDigit())
+                                .font(.num(.body, .medium))
                             Spacer()
                             Text("≈ \(row.reps) rep\(row.reps == 1 ? "" : "s")")
                                 .foregroundStyle(.secondary)
@@ -191,6 +193,7 @@ struct OneRepMaxView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("One-Rep Max")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -227,7 +230,7 @@ struct WarmupCalculatorView: View {
                         HStack {
                             SetKindBadge(kind: .warmup, number: index + 1)
                             Text("\(app.settings.units.number(step.weight)) \(unit.symbol)")
-                                .font(.body.weight(.semibold).monospacedDigit())
+                                .font(.num(.body, .medium))
                             Spacer()
                             Text("× \(step.reps)")
                                 .foregroundStyle(.secondary)
@@ -236,7 +239,7 @@ struct WarmupCalculatorView: View {
                     HStack {
                         SetKindBadge(kind: .normal, number: 1)
                         Text("\(app.settings.units.number(working ?? 0)) \(unit.symbol)")
-                            .font(.body.weight(.bold).monospacedDigit())
+                            .font(.num(.body, .semibold))
                         Spacer()
                         Text("Working sets")
                             .foregroundStyle(.secondary)
@@ -250,10 +253,11 @@ struct WarmupCalculatorView: View {
             }
             Section {
                 Text("In a workout, use an exercise's menu › Add Warm-up Sets to insert these automatically.")
-                    .font(.footnote)
+                    .font(.app(.footnote))
                     .foregroundStyle(.secondary)
             }
         }
+        .canvasBackground()
         .navigationTitle("Warm-up Sets")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {

@@ -54,6 +54,7 @@ struct RoutineEditorView: View {
                 }
                 addSection
             }
+            .canvasBackground()
             .listStyle(.insetGrouped)
             .navigationTitle(request.isNew ? "New Routine" : "Edit Routine")
             .navigationBarTitleDisplayMode(.inline)
@@ -123,7 +124,7 @@ struct RoutineEditorView: View {
     private var detailsSection: some View {
         Section {
             TextField("Routine name", text: $draft.name)
-                .font(.title3.weight(.semibold))
+                .font(.app(.title3, .semibold))
                 .focused($nameFocused)
                 .accessibilityIdentifier("routineNameField")
             TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
@@ -147,7 +148,7 @@ struct RoutineEditorView: View {
                 picker = .addExercises
             } label: {
                 Label("Add Exercises", systemImage: "plus.circle.fill")
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
             }
             .accessibilityIdentifier("addExercisesButton")
             Button {
@@ -356,9 +357,9 @@ struct ColorTagPicker: View {
                         Circle()
                             .fill(tag.color)
                             .frame(width: 28, height: 28)
-                            .overlay(Circle().strokeBorder(Color.primary, lineWidth: selection == tag.id ? 2 : 0).padding(-4))
+                            .overlay(Circle().strokeBorder(Color.primary, lineWidth: selection.map(Theme.canonicalID) == tag.id ? 2 : 0).padding(-4))
                     }
-                    .accessibilityLabel(tag.id.capitalized)
+                    .accessibilityLabel(tag.name)
                 }
             }
             .padding(.vertical, 6)
@@ -444,7 +445,7 @@ struct EditorBlockSection: View {
             Button(block.isTimed ? "Delete Block" : "Remove", systemImage: "trash", role: .destructive, action: actions.delete)
         } label: {
             Image(systemName: "ellipsis.circle")
-                .font(.body)
+                .font(.app(.body))
         }
         .textCase(nil)
     }
@@ -463,21 +464,21 @@ struct TimedBlockEditorHeader: View {
                     IconBadge(symbol: timer.kind.symbolName)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(timer.summary)
-                            .font(.body.weight(.semibold))
+                            .font(.app(.body, .semibold))
                             .foregroundStyle(.primary)
                         Text(totalText)
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("Edit")
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                 }
             }
             .buttonStyle(.plain)
             if movementCount > 1, [.emom, .tabata, .intervals, .custom].contains(timer.kind) {
                 Toggle("Alternate movements each interval", isOn: $alternate)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
             }
         }
     }
@@ -508,10 +509,10 @@ struct EditorExerciseRows: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise?.name ?? "Unknown Exercise")
-                        .font(.body.weight(.semibold))
+                        .font(.app(.body, .semibold))
                     if !isTimed {
                         Text(restText)
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -538,7 +539,7 @@ struct EditorExerciseRows: View {
             }
             if showingNotes || !entry.notes.isEmpty {
                 TextField("Notes for this exercise", text: $entry.notes, axis: .vertical)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .lineLimit(1...4)
             }
             if isTimed {
@@ -554,10 +555,10 @@ struct EditorExerciseRows: View {
                     addSet()
                 } label: {
                     Label("Add Set", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .background(Theme.fill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -600,7 +601,7 @@ struct EditorExerciseRows: View {
     private func timedTarget(_ tracking: TrackingType) -> some View {
         HStack(spacing: 8) {
             Text("Per round")
-                .font(.caption.weight(.semibold))
+                .font(.app(.caption, .semibold))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
             TrackingFields(
@@ -681,6 +682,7 @@ struct TimedBlockSetupView: View {
                 }
                 TimerConfigForm(config: $config, showsLeadIn: false)
             }
+            .canvasBackground()
             .navigationTitle(setup.blockID == nil ? "New Timed Block" : "Edit Timer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

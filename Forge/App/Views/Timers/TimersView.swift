@@ -68,7 +68,7 @@ struct TimersView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .navigationTitle("Timers")
             .navigationDestination(for: ToolRoute.self) { route in
                 switch route {
@@ -89,14 +89,14 @@ struct TimersView: View {
             app.timers.isPresented = true
         } label: {
             HStack(spacing: 12) {
-                IconBadge(symbol: controller.program.config.kind.symbolName, color: .white, size: 42)
+                IconBadge(symbol: controller.program.config.kind.symbolName, color: Theme.onAccent, size: 42)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(controller.isFinished ? "\(controller.title) finished" : "\(controller.title) running")
-                        .font(.headline)
+                        .font(.app(.headline))
                         .foregroundStyle(.primary)
                     Text(controller.isFinished ? "Tap to save the result" : controller.snapshot.clockText)
-                        .font(.subheadline.monospacedDigit())
+                        .font(.num(.subheadline))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -124,10 +124,10 @@ struct FormatTile: View {
             IconBadge(symbol: kind.symbolName, size: 40)
             VStack(alignment: .leading, spacing: 3) {
                 Text(kind.displayName)
-                    .font(.headline)
+                    .font(.app(.headline))
                     .foregroundStyle(.primary)
                 Text(kind.tagline)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
@@ -149,17 +149,17 @@ struct PresetRow: View {
             IconBadge(symbol: preset.config.kind.symbolName)
             VStack(alignment: .leading, spacing: 2) {
                 Text(preset.name)
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                 Text(preset.config.summary)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer()
             Button(action: start) {
                 Image(systemName: "play.fill")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.onAccent)
                     .frame(width: 40, height: 40)
                     .background(Circle().fill(Color.accentColor))
             }
@@ -187,15 +187,15 @@ struct ToolRow: View {
             IconBadge(symbol: symbol)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                     .foregroundStyle(.primary)
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
+                .font(.app(.caption, .semibold))
                 .foregroundStyle(.tertiary)
         }
         .cardStyle(padding: 12)
@@ -239,6 +239,7 @@ struct TimerSetupView: View {
                     .accessibilityIdentifier("startTimer")
                 }
             }
+            .canvasBackground()
             .navigationTitle(request.presetID == nil ? config.kind.displayName : name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

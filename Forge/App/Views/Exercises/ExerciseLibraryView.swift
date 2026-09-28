@@ -26,6 +26,7 @@ struct ExerciseLibraryView: View {
                             creating = ExerciseEditorRequest(exercise: nil, prefillName: query)
                         }
                         .buttonStyle(.borderedProminent)
+                        .foregroundStyle(Theme.onAccent)
                     }
                     .listRowBackground(Color.clear)
                 }
@@ -40,10 +41,11 @@ struct ExerciseLibraryView: View {
                         } label: {
                             Label("Favorite", systemImage: app.library.isFavorite(exercise.id) ? "star.slash" : "star")
                         }
-                        .tint(.yellow)
+                        .tint(Theme.sand)
                     }
                 }
             }
+            .canvasBackground()
             .listStyle(.plain)
             .navigationTitle("Exercises")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search \(app.library.activeCount) exercises")
@@ -139,14 +141,14 @@ struct ExerciseDetailView: View {
                         Label(exercise.equipment.displayName, systemImage: "wrench.and.screwdriver")
                         Label(exercise.category.displayName, systemImage: Theme.symbol(for: exercise.category))
                     }
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
                     Text("Tracked as \(exercise.tracking.displayName.lowercased())")
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.tertiary)
                     if !exercise.aliases.isEmpty {
                         Text("Also called: \(exercise.aliases.joined(separator: ", "))")
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -185,6 +187,7 @@ struct ExerciseDetailView: View {
                 }
             }
         }
+        .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(exercise.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -194,7 +197,7 @@ struct ExerciseDetailView: View {
                     app.library.toggleFavorite(exercise.id)
                 } label: {
                     Image(systemName: app.library.isFavorite(exercise.id) ? "star.fill" : "star")
-                        .foregroundStyle(app.library.isFavorite(exercise.id) ? Color.yellow : Color.accentColor)
+                        .foregroundStyle(app.library.isFavorite(exercise.id) ? Theme.sand : Color.accentColor)
                 }
                 .accessibilityLabel("Favorite")
             }
@@ -268,7 +271,7 @@ struct ExerciseDetailView: View {
             }
             if !exercise.instructions.isEmpty {
                 Text(exercise.instructions)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
             }
         } header: {
@@ -290,18 +293,18 @@ struct ExerciseDetailView: View {
                         HStack {
                             SetKindBadge(kind: set.kind, number: session.sets.workingNumber(at: index), completed: true)
                             Text(app.settings.units.setDescription(set, tracking: session.tracking))
-                                .font(.subheadline.monospacedDigit())
+                                .font(.num(.subheadline))
                             Spacer()
                             if session.tracking == .weightReps, let weight = set.weight, let reps = set.reps, let estimate = OneRepMax.estimate(weight: weight, reps: reps), set.kind.isWorking {
                                 Text("1RM \(app.settings.units.weight(estimate))")
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(.tertiary)
                             }
                         }
                     }
                     if !session.notes.isEmpty {
                         Text(session.notes)
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                 } header: {
@@ -315,7 +318,7 @@ struct ExerciseDetailView: View {
                             Spacer()
                             Image(systemName: "chevron.right")
                         }
-                        .font(.caption.weight(.semibold))
+                        .font(.app(.caption, .semibold))
                     }
                     .textCase(nil)
                 }
@@ -356,22 +359,22 @@ struct RecordRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 if showsExercise {
                     Text(app.library.exercise(record.exerciseID)?.name ?? "Exercise")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                 }
                 Text(record.kind.displayName)
-                    .font(showsExercise ? .caption : .subheadline.weight(.semibold))
+                    .font(showsExercise ? .app(.caption) : .app(.subheadline, .semibold))
                     .foregroundStyle(showsExercise ? Color.secondary : Color.primary)
                 Text(record.date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.tertiary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(RecordFormatter.value(record, tracking: tracking, units: app.settings.units))
-                    .font(.body.weight(.bold).monospacedDigit())
+                    .font(.num(.body, .semibold))
                 if let context = RecordFormatter.context(record, tracking: tracking, units: app.settings.units) {
                     Text(context)
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -440,7 +443,16 @@ struct ProgressChart: View {
         }
         .chartYScale(domain: domain)
         .chartYAxis {
-            AxisMarks(position: .leading)
+            AxisMarks(position: .leading) { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel().font(.num(.caption2, .regular))
+            }
+        }
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel().font(.num(.caption2, .regular))
+            }
         }
     }
 

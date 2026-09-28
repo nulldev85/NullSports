@@ -43,7 +43,7 @@ struct WorkoutView: View {
                 if let workout = app.session.workout {
                     workoutList(workout)
                 } else {
-                    Color(.systemGroupedBackground)
+                    Theme.canvas
                 }
             }
             .toolbar {
@@ -53,7 +53,7 @@ struct WorkoutView: View {
                         app.session.isPresented = false
                     } label: {
                         Image(systemName: "chevron.down")
-                            .font(.body.weight(.semibold))
+                            .font(.app(.body, .semibold))
                     }
                     .accessibilityLabel("Minimize workout")
                     .accessibilityIdentifier("minimizeWorkout")
@@ -62,10 +62,10 @@ struct WorkoutView: View {
                     if let workout = app.session.workout {
                         VStack(spacing: 0) {
                             Text(workout.name)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.app(.subheadline, .semibold))
                                 .lineLimit(1)
                             Text(workout.startedAt, style: .timer)
-                                .font(.caption.monospacedDigit())
+                                .font(.num(.caption))
                                 .foregroundStyle(.secondary)
                         }
                         .onTapGesture {
@@ -82,6 +82,7 @@ struct WorkoutView: View {
                     }
                     .fontWeight(.semibold)
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Theme.onAccent)
                     .accessibilityIdentifier("finishWorkout")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -198,8 +199,8 @@ struct WorkoutView: View {
 
             if app.session.saveFailed {
                 Label("Changes aren't saved yet. Forge keeps retrying — don't close the workout.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .font(.app(.footnote))
+                    .foregroundStyle(Theme.warning)
             }
 
             ForEach(Array(workout.blocks.enumerated()), id: \.element.id) { index, block in
@@ -234,7 +235,7 @@ struct WorkoutView: View {
                     picker = .add
                 } label: {
                     Label("Add Exercises", systemImage: "plus.circle.fill")
-                        .font(.body.weight(.semibold))
+                        .font(.app(.body, .semibold))
                 }
                 .accessibilityIdentifier("workoutAddExercises")
                 Button {
@@ -266,6 +267,7 @@ struct WorkoutView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .canvasBackground()
         .listStyle(.insetGrouped)
         .scrollDismissesKeyboard(.interactively)
     }
@@ -357,11 +359,10 @@ struct WorkoutStatsHeader: View {
 
     private func miniStat<Value: View>(title: String, @ViewBuilder value: () -> Value) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+            Text(title)
+                .eyebrow()
             value()
-                .font(.rounded(17, weight: .bold))
+                .font(.num(size: 17, .medium))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -369,7 +370,7 @@ struct WorkoutStatsHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -396,7 +397,7 @@ struct LiveExerciseSection: View {
                     get: { app.session.workout?.exercise(entry.id)?.notes ?? "" },
                     set: { value in app.session.mutate { $0.updateExercise(entry.id) { $0.notes = value } } }
                 ), axis: .vertical)
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .lineLimit(1...4)
             }
             if !entry.sets.isEmpty {
@@ -415,7 +416,7 @@ struct LiveExerciseSection: View {
                 app.session.addSet(to: entry.id)
             } label: {
                 Label("Add Set", systemImage: "plus")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.app(.subheadline, .semibold))
                     .frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("addSet-\(entry.name)")
@@ -425,7 +426,7 @@ struct LiveExerciseSection: View {
                     Image(systemName: "link")
                     Text(block.exercises.count > 2 ? "Circuit · \(positionInBlock + 1) of \(block.exercises.count)" : "Superset · \(positionInBlock + 1) of \(block.exercises.count)")
                 }
-                .font(.caption.weight(.bold))
+                .font(.app(.caption, .semibold))
                 .foregroundStyle(Color.accentColor)
             }
         }
@@ -436,11 +437,11 @@ struct LiveExerciseSection: View {
             Button(action: showDetails) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)
-                        .font(.headline)
+                        .font(.app(.headline))
                         .foregroundStyle(Color.accentColor)
                         .multilineTextAlignment(.leading)
                     Text(restText)
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -450,7 +451,7 @@ struct LiveExerciseSection: View {
                 exerciseMenu
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.title3)
+                    .font(.app(.title3))
                     .frame(width: 36, height: 32)
                     .contentShape(Rectangle())
             }
@@ -520,7 +521,7 @@ struct LiveSetRow: View {
                 copyPrevious()
             } label: {
                 Text(previousText)
-                    .font(.caption.monospacedDigit())
+                    .font(.num(.caption))
                     .foregroundStyle(previous == nil ? Color.secondary.opacity(0.5) : Color.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -544,8 +545,8 @@ struct LiveSetRow: View {
                 app.session.toggleCompletion(of: set.id)
             } label: {
                 Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(set.isCompleted ? Color.green : Color.secondary.opacity(0.6))
+                    .font(.app(.title2))
+                    .foregroundStyle(set.isCompleted ? Theme.success : Color.secondary.opacity(0.5))
                     .frame(width: SetColumn.check, height: 36)
                     .contentShape(Rectangle())
             }
@@ -554,7 +555,7 @@ struct LiveSetRow: View {
             .accessibilityIdentifier("completeSet")
             .sensoryFeedback(.success, trigger: set.isCompleted) { old, new in !old && new }
         }
-        .listRowBackground(set.isCompleted ? Color.green.opacity(0.09) : Color(.secondarySystemGroupedBackground))
+        .listRowBackground(set.isCompleted ? Theme.success.opacity(0.10) : Theme.surface)
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 app.session.removeSet(set.id)
@@ -602,11 +603,12 @@ struct RestTimerBar: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(done ? "Rest complete" : "Rest")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(done ? Color.green : .secondary)
+                            .font(.num(.caption2, .medium))
+                            .tracking(0.9)
                             .textCase(.uppercase)
+                            .foregroundStyle(done ? Theme.success : .secondary)
                         Text(done ? "Go!" : DurationFormat.countdownClock(remaining))
-                            .font(.rounded(30, weight: .bold))
+                            .font(.num(size: 30, .semibold))
                             .monospacedDigit()
                             .contentTransition(.numericText())
                     }
@@ -618,15 +620,16 @@ struct RestTimerBar: View {
                             .buttonStyle(.bordered)
                         Button(done ? "Done" : "Skip") { app.session.skipRest() }
                             .buttonStyle(.borderedProminent)
+                            .foregroundStyle(Theme.onAccent)
                             .accessibilityIdentifier("skipRest")
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(.app(.subheadline, .semibold))
                 }
                 ProgressView(value: rest.progress(at: now))
-                    .tint(done ? .green : .accentColor)
+                    .tint(done ? Theme.success : .accentColor)
                 if !rest.exerciseName.isEmpty, !done {
                     Text("Next: \(rest.exerciseName)")
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

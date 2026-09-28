@@ -24,9 +24,9 @@ struct ExercisePickerView: View {
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(query.isEmpty ? "Nothing here yet" : "No exercise called “\(query)”")
-                                .font(.headline)
+                                .font(.app(.headline))
                             Text("Create it once and it's saved to your library permanently.")
-                                .font(.subheadline)
+                                .font(.app(.subheadline))
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 6)
@@ -53,11 +53,12 @@ struct ExercisePickerView: View {
                         creating = ExerciseEditorRequest(exercise: nil, prefillName: query)
                     } label: {
                         Label(query.isEmpty ? "Create Custom Exercise" : "Create “\(query)”", systemImage: "plus.circle.fill")
-                            .font(.body.weight(.semibold))
+                            .font(.app(.body, .semibold))
                     }
                     .accessibilityIdentifier("createCustomExercise")
                 }
             }
+            .canvasBackground()
             .listStyle(.plain)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search \(app.library.activeCount) exercises")
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -146,8 +147,8 @@ struct ExercisePickerView: View {
     private func selectionIndicator(for exercise: Exercise) -> some View {
         if let position = selection.firstIndex(of: exercise.id) {
             Text("\(position + 1)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
+                .font(.num(.caption, .semibold))
+                .foregroundStyle(Theme.onAccent)
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(Color.accentColor))
         } else if allowsMultiple {
@@ -217,12 +218,12 @@ struct ExerciseEditorView: View {
             Form {
                 Section {
                     TextField("Exercise name", text: $exercise.name)
-                        .font(.body.weight(.semibold))
+                        .font(.app(.body, .semibold))
                         .accessibilityIdentifier("customExerciseName")
                     if nameTaken {
                         Label("An exercise with this name already exists.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
+                            .font(.app(.footnote))
+                            .foregroundStyle(Theme.warning)
                     }
                 } footer: {
                     Text("Custom exercises are saved permanently in your library and included in every backup.")
@@ -233,7 +234,7 @@ struct ExerciseEditorView: View {
                             VStack(alignment: .leading) {
                                 Text(type.displayName)
                                 Text(type.explanation)
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(.secondary)
                             }
                             .tag(type)
@@ -273,6 +274,7 @@ struct ExerciseEditorView: View {
                     Text("Other names make it easier to find in search.")
                 }
             }
+            .canvasBackground()
             .navigationTitle(isNew ? "New Exercise" : "Edit Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -326,6 +328,7 @@ struct SecondaryMusclePicker: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Secondary Muscles")
     }
 }

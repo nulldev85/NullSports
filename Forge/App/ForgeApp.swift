@@ -5,6 +5,7 @@ struct ForgeApp: App {
     @State private var launcher = AppLauncher()
 
     init() {
+        AppAppearance.apply()
         if ProcessInfo.processInfo.arguments.contains("-ForgeUITest") {
             // Keeps UI tests fast and deterministic.
             UIView.setAnimationsEnabled(false)
@@ -27,12 +28,12 @@ struct LaunchView: View {
         case .loading:
             VStack(spacing: 16) {
                 Image(systemName: "dumbbell.fill")
-                    .font(.system(size: 44, weight: .bold))
+                    .font(.system(size: 40, weight: .regular))
                     .foregroundStyle(Color.accentColor)
                 ProgressView()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
         case .ready(let model):
             RootView()
                 .environment(model)
@@ -54,16 +55,16 @@ struct LaunchFailureView: View {
         VStack(spacing: 18) {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 48, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.warning)
             Text("Forge couldn't open your data")
-                .font(.title2.weight(.bold))
+                .font(.app(.title2, .semibold))
                 .multilineTextAlignment(.center)
             Text("Your workouts are still on this iPhone — nothing has been deleted. This usually means the device is out of storage. Free up some space and try again.")
-                .font(.body)
+                .font(.app(.body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Text(message)
-                .font(.footnote.monospaced())
+                .font(.num(.footnote))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(12)
@@ -73,6 +74,6 @@ struct LaunchFailureView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.canvas)
     }
 }

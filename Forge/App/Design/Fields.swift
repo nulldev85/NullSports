@@ -166,7 +166,7 @@ struct NumberStepper: View {
             .disabled(value <= range.lowerBound)
             .accessibilityLabel("Decrease \(title)")
             Text(suffix.map { "\(value) \($0)" } ?? "\(value)")
-                .font(.body.weight(.semibold))
+                .font(.app(.body, .semibold))
                 .monospacedDigit()
                 .frame(minWidth: 54)
             Button {
@@ -207,7 +207,7 @@ struct DurationPicker: View {
                     Text(title)
                     Spacer()
                     Text(DurationFormat.clock(seconds))
-                        .font(.body.weight(.semibold))
+                        .font(.app(.body, .semibold))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }

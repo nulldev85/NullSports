@@ -50,6 +50,7 @@ struct FinishWorkoutView: View {
                     }
                 }
             }
+            .canvasBackground()
             .navigationTitle("Finish Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -124,8 +125,8 @@ struct RatingPicker: View {
                     rating = rating == value ? nil : value
                 } label: {
                     Image(systemName: (rating ?? 0) >= value ? "star.fill" : "star")
-                        .foregroundStyle((rating ?? 0) >= value ? Color.yellow : Color.secondary)
-                        .font(.title3)
+                        .foregroundStyle((rating ?? 0) >= value ? Theme.record : Color.secondary)
+                        .font(.app(.title3))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(value) stars")
@@ -154,7 +155,7 @@ struct WorkoutSummaryView: View {
                             .scaleEffect(appeared ? 1 : 0.4)
                             .opacity(appeared ? 1 : 0)
                         Text(summary.records.isEmpty ? "Workout complete" : "New personal records!")
-                            .font(.title2.weight(.bold))
+                            .font(.app(.title2, .semibold))
                         Text(workout.name)
                             .foregroundStyle(.secondary)
                     }
@@ -182,10 +183,10 @@ struct WorkoutSummaryView: View {
                         ForEach(workout.allExercises) { exercise in
                             HStack {
                                 Text(exercise.name)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.app(.subheadline, .medium))
                                 Spacer()
                                 Text(setSummary(exercise))
-                                    .font(.subheadline.monospacedDigit())
+                                    .font(.num(.subheadline))
                                     .foregroundStyle(.secondary)
                             }
                             .cardStyle(padding: 12)
@@ -193,10 +194,10 @@ struct WorkoutSummaryView: View {
                         ForEach(workout.blocks.filter { $0.timer != nil && $0.result != nil }) { block in
                             HStack {
                                 Label(block.timer?.summary ?? "", systemImage: block.timer?.kind.symbolName ?? "timer")
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.app(.subheadline, .medium))
                                 Spacer()
                                 Text(block.result.map { $0.summary(for: block.timer ?? .standard(.amrap)) } ?? "")
-                                    .font(.subheadline.monospacedDigit())
+                                    .font(.num(.subheadline))
                                     .foregroundStyle(.secondary)
                             }
                             .cardStyle(padding: 12)
@@ -205,7 +206,7 @@ struct WorkoutSummaryView: View {
                 }
                 .padding(20)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

@@ -124,7 +124,7 @@ struct FolderContentsView: View {
                         } label: {
                             Label("Add", systemImage: "plus.circle.fill")
                                 .labelStyle(.iconOnly)
-                                .font(.title3)
+                                .font(.app(.title3))
                         }
                         .accessibilityIdentifier("addRoutineMenu")
                     }
@@ -136,6 +136,7 @@ struct FolderContentsView: View {
                 }
             }
         }
+        .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(isRoot ? "Train" : (folder?.name ?? "Folder"))
         .navigationBarTitleDisplayMode(isRoot ? .large : .inline)
@@ -262,7 +263,7 @@ struct FolderContentsView: View {
     private var emptyFolderMessage: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(isRoot ? "Build your first routine" : "This folder is empty")
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
                 .foregroundStyle(.primary)
             Text("Tap + to create a routine or a folder. Routines can mix straight sets, supersets, and timed blocks like AMRAPs and EMOMs.")
         }
@@ -280,11 +281,11 @@ struct FolderContentsView: View {
                 IconBadge(symbol: "folder.fill", color: Theme.tagColor(item.colorTag) ?? .accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)
-                        .font(.body.weight(.semibold))
+                        .font(.app(.body, .semibold))
                     let count = app.routines.routineCount(inTree: item.id)
                     let subCount = app.routines.subfolders(of: item.id).count
                     Text(folderSubtitle(routines: count, folders: subCount))
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -294,7 +295,7 @@ struct FolderContentsView: View {
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deletingFolder = item } label: { Label("Delete", systemImage: "trash") }
             Button { movingFolder = item } label: { Label("Move", systemImage: "folder") }
-                .tint(.indigo)
+                .tint(Theme.lavender)
         }
         .contextMenu {
             Button("Rename", systemImage: "pencil") {
@@ -305,7 +306,7 @@ struct FolderContentsView: View {
             Menu("Color", systemImage: "paintpalette") {
                 Button("None") { var copy = item; copy.colorTag = nil; app.routines.updateFolder(copy) }
                 ForEach(Theme.tagColors, id: \.id) { tag in
-                    Button(tag.id.capitalized) { var copy = item; copy.colorTag = tag.id; app.routines.updateFolder(copy) }
+                    Button(tag.name) { var copy = item; copy.colorTag = tag.id; app.routines.updateFolder(copy) }
                 }
             }
             Button("Delete", systemImage: "trash", role: .destructive) { deletingFolder = item }
@@ -330,12 +331,12 @@ struct FolderContentsView: View {
             } label: {
                 Label("Start", systemImage: "play.fill")
             }
-            .tint(.green)
+            .tint(Theme.sage)
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deletingRoutine = routine } label: { Label("Delete", systemImage: "trash") }
             Button { movingRoutine = routine } label: { Label("Move", systemImage: "folder") }
-                .tint(.indigo)
+                .tint(Theme.lavender)
             Button { app.routines.duplicate(routine) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                 .tint(.gray)
         }
@@ -362,10 +363,10 @@ struct RoutineRow: View {
                 .padding(.vertical, 2)
             VStack(alignment: .leading, spacing: 4) {
                 Text(routine.name)
-                    .font(.body.weight(.semibold))
+                    .font(.app(.body, .semibold))
                     .lineLimit(1)
                 Text(exerciseSummary)
-                    .font(.subheadline)
+                    .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 8) {
@@ -377,7 +378,7 @@ struct RoutineRow: View {
                         Text("· \(last.relativeDayText)")
                     }
                 }
-                .font(.caption)
+                .font(.app(.caption))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
             }
@@ -412,13 +413,14 @@ struct QuickStartCard: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Workout in progress")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .font(.num(.caption2, .medium))
+                            .tracking(0.9)
                             .textCase(.uppercase)
+                            .foregroundStyle(Color.accentColor)
                         Text(workout.name)
-                            .font(.title3.weight(.bold))
+                            .font(.app(.title3, .semibold))
                         Text(workout.startedAt, style: .timer)
-                            .font(.subheadline.monospacedDigit())
+                            .font(.num(.subheadline))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -432,9 +434,9 @@ struct QuickStartCard: View {
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(greeting)
-                        .font(.title3.weight(.bold))
+                        .font(.app(.title3, .semibold))
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(.secondary)
                 }
                 Button {
@@ -448,12 +450,16 @@ struct QuickStartCard: View {
         }
         .padding(18)
         .background(
-            LinearGradient(
-                colors: [Color.accentColor.opacity(0.22), Color.accentColor.opacity(0.06)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Theme.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [Color.accentColor.opacity(0.16), Color.accentColor.opacity(0.02)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                )
         )
     }
 
@@ -488,13 +494,14 @@ struct DraftBanner: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Unsaved routine", systemImage: "doc.badge.clock")
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
             Text("“\(draft.name.isEmpty ? "Untitled" : draft.name)” was being edited when Forge closed.")
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Keep Editing", action: restore)
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Theme.onAccent)
                 Button("Discard", role: .destructive, action: discard)
                     .buttonStyle(.bordered)
             }
@@ -512,13 +519,14 @@ struct BackupFolderCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Keep a copy off this iPhone", systemImage: "icloud.and.arrow.up")
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
             Text("Forge backs up on this iPhone every day, but those files go if the app is deleted. Choose an iCloud Drive folder and every backup is copied there too.")
-                .font(.subheadline)
+                .font(.app(.subheadline))
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Choose Folder", action: choose)
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Theme.onAccent)
                     .accessibilityIdentifier("chooseBackupFolder")
                 Button("Not Now", action: snooze)
                     .buttonStyle(.bordered)
@@ -555,6 +563,7 @@ struct FolderPickerView: View {
                     }
                 }
             }
+            .canvasBackground()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -581,7 +590,7 @@ struct FolderPickerView: View {
             Spacer()
             if isCurrent {
                 Text("Current")
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
             }
         }

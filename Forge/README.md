@@ -102,13 +102,17 @@ Forge/
   App/                     SwiftUI app, stores, services, resources
   Tests/ForgeCoreTests/    core unit tests (swift test on Linux or macOS)
   UITests/                 simulator UI tests that also capture screenshots
-  Tools/                   exercise catalog generator, icon renderer
+  Tools/                   exercise catalog, font and icon generators
 ```
 
 ## Develop
 
 - Core tests: `cd Forge && swift test` (Linux needs `libsqlite3-dev`).
 - App: `cd Forge && xcodegen generate && open Forge.xcodeproj`.
+- Look and feel: colors live in `App/Design/Theme.swift`, type in
+  `App/Design/Typography.swift` (Manrope for text, Geist Mono for numbers,
+  both SIL OFL 1.1). `python3 Tools/make_fonts.py` rebuilds the bundled font
+  files and `python3 Tools/make_icon.py` the app icon.
 - Exercise library: edit `Tools/generate_exercises.py`, then run
   `python3 Tools/generate_exercises.py`. Never change or remove an existing
   exercise id — history refers to it.

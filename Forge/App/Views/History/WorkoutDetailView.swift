@@ -30,7 +30,7 @@ struct WorkoutDetailView: View {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(workout.startedAt.formatted(date: .complete, time: .shortened))
-                        .font(.subheadline)
+                        .font(.app(.subheadline))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
@@ -43,13 +43,13 @@ struct WorkoutDetailView: View {
                         HStack(spacing: 2) {
                             ForEach(1...5, id: \.self) { value in
                                 Image(systemName: value <= rating ? "star.fill" : "star")
-                                    .foregroundStyle(value <= rating ? Color.yellow : Color.secondary)
+                                    .foregroundStyle(value <= rating ? Theme.record : Color.secondary)
                             }
                         }
                     }
                     if !workout.notes.isEmpty {
                         Text(workout.notes)
-                            .font(.body)
+                            .font(.app(.body))
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -69,11 +69,11 @@ struct WorkoutDetailView: View {
                     Section {
                         HStack {
                             Label(timer.summary, systemImage: timer.kind.symbolName)
-                                .font(.body.weight(.semibold))
+                                .font(.app(.body, .semibold))
                             Spacer()
                             if let result = block.result {
                                 Text(result.summary(for: timer))
-                                    .font(.body.weight(.bold).monospacedDigit())
+                                    .font(.num(.body, .semibold))
                             }
                         }
                         ForEach(block.exercises) { exercise in
@@ -95,6 +95,7 @@ struct WorkoutDetailView: View {
                 }
             }
         }
+        .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(workout.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -183,16 +184,16 @@ struct ExerciseSetsSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(exercise.name)
-                .font(.body.weight(.semibold))
+                .font(.app(.body, .semibold))
             ForEach(Array(exercise.sets.enumerated()), id: \.element.id) { index, set in
                 HStack(spacing: 10) {
                     SetKindBadge(kind: set.kind, number: exercise.sets.workingNumber(at: index), completed: true)
                         .scaleEffect(0.85)
                     Text(app.settings.units.setDescription(set, tracking: exercise.tracking))
-                        .font(.subheadline.monospacedDigit())
+                        .font(.num(.subheadline))
                     if let rpe = set.rpe {
                         Text("RPE \(NumberFormatting.string(rpe, locale: .current, maxFractionDigits: 1, grouping: false))")
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -200,7 +201,7 @@ struct ExerciseSetsSummary: View {
             }
             if !exercise.notes.isEmpty {
                 Text(exercise.notes)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .italic()
             }
@@ -270,6 +271,7 @@ struct WorkoutEditorView: View {
                     }
                 }
             }
+            .canvasBackground()
             .navigationTitle("Edit Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -350,7 +352,7 @@ struct EditableSetsList: View {
             exercise.sets.append(set)
         } label: {
             Label("Add Set", systemImage: "plus")
-                .font(.subheadline.weight(.semibold))
+                .font(.app(.subheadline, .semibold))
         }
     }
 

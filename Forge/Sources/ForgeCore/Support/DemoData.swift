@@ -32,9 +32,9 @@ public enum DemoData {
             return (centimeters * 10).rounded() / 10
         }
 
-        let strength = Folder(name: "Strength", colorTag: "ember", sortOrder: 1)
+        let strength = Folder(name: "Strength", colorTag: "sage", sortOrder: 1)
         let upperLower = Folder(parentID: strength.id, name: "Upper / Lower", sortOrder: 1)
-        let conditioning = Folder(name: "Conditioning", colorTag: "ocean", sortOrder: 2)
+        let conditioning = Folder(name: "Conditioning", colorTag: "mist", sortOrder: 2)
         for folder in [strength, upperLower, conditioning] {
             try database.routines.saveFolder(folder)
         }
@@ -51,7 +51,7 @@ public enum DemoData {
             return result
         }
 
-        let upper = Routine(folderID: upperLower.id, name: "Upper A", notes: "Heavy horizontal push/pull", colorTag: "ember", sortOrder: 1, blocks: [
+        let upper = Routine(folderID: upperLower.id, name: "Upper A", notes: "Heavy horizontal push/pull", colorTag: "sage", sortOrder: 1, blocks: [
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "bench-press-barbell", sets: sets(3, reps: 5, weight: 100, warmups: 2), restSeconds: 180)]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "bent-over-row-barbell", sets: sets(3, reps: 8, weight: 80), restSeconds: 120)]),
             RoutineBlock(exercises: [
@@ -60,7 +60,7 @@ public enum DemoData {
             ]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "bicep-curl-dumbbell", sets: sets(3, reps: 10, repsMax: 15, weight: 14), restSeconds: 60)]),
         ])
-        let lower = Routine(folderID: upperLower.id, name: "Lower A", notes: "Squat focus", colorTag: "volt", sortOrder: 2, blocks: [
+        let lower = Routine(folderID: upperLower.id, name: "Lower A", notes: "Squat focus", colorTag: "lavender", sortOrder: 2, blocks: [
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "squat-barbell", sets: sets(3, reps: 5, weight: 140, warmups: 2), restSeconds: 180)]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "romanian-deadlift-barbell", sets: sets(3, reps: 8, weight: 110), restSeconds: 150)]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "leg-press-machine", sets: sets(3, reps: 10, repsMax: 12, weight: 200), restSeconds: 120)]),

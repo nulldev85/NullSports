@@ -64,12 +64,12 @@ struct FieldWell<Content: View>: View {
 
     var body: some View {
         content
-            .font(.body.weight(.semibold))
+            .font(.num(.body, .semibold))
             .padding(.vertical, 7)
             .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(highlighted ? Color.green.opacity(0.14) : Color(.tertiarySystemFill))
+                    .fill(highlighted ? Theme.success.opacity(0.16) : Theme.fill)
             )
     }
 }
@@ -209,7 +209,8 @@ struct SetColumnsHeader: View {
                     .frame(width: SetColumn.check)
             }
         }
-        .font(.caption2.weight(.bold))
+        .font(.num(.caption2, .medium))
+        .tracking(0.6)
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .minimumScaleFactor(0.7)

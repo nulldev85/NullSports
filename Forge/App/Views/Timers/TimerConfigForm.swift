@@ -116,7 +116,7 @@ struct CustomSegmentsSection: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         TextField("Name", text: $segment.name)
-                            .font(.body.weight(.semibold))
+                            .font(.app(.body, .semibold))
                         Picker("Kind", selection: $segment.kind) {
                             Text("Work").tag(SegmentKind.work)
                             Text("Rest").tag(SegmentKind.rest)

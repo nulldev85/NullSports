@@ -74,6 +74,7 @@ extension View {
     func themed(_ settings: SettingsStore) -> some View {
         tint(settings.accentColor)
             .accentColor(settings.accentColor)
+            .font(.app(.body))
             .preferredColorScheme(settings.colorScheme)
     }
 
@@ -107,13 +108,13 @@ struct ActiveWorkoutBar: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "figure.strengthtraining.traditional")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .font(.app(.title3, .semibold))
+                        .foregroundStyle(Theme.onAccent)
                         .frame(width: 40, height: 40)
                         .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(workout.name)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.app(.subheadline, .semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                         HStack(spacing: 6) {
@@ -130,12 +131,12 @@ struct ActiveWorkoutBar: View {
                                     .foregroundStyle(Color.accentColor)
                             }
                         }
-                        .font(.caption)
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("Resume")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.app(.subheadline, .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())

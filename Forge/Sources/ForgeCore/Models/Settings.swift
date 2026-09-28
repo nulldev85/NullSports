@@ -123,7 +123,7 @@ public struct AppSettings: Hashable, Codable, Sendable {
         barWeightLb: Double = 45,
         platesKg: [PlateStock] = PlateStock.standardKilograms,
         platesLb: [PlateStock] = PlateStock.standardPounds,
-        accent: String = "ember",
+        accent: String = "sage",
         appearance: AppearanceMode = .system,
         autoBackupEnabled: Bool = true,
         autoExportEnabled: Bool = true

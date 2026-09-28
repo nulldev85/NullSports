@@ -15,7 +15,7 @@ struct SettingsView: View {
                             Text("Backups & Export")
                             if let last = lastBackupDate {
                                 Text("Last backup \(last.formatted(.relative(presentation: .named)))")
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -127,8 +127,10 @@ struct SettingsView: View {
                 LabeledContent("Routines", value: "\(app.routines.routines.count)")
                 LabeledContent("Exercises", value: "\(app.library.activeCount)")
                 LabeledContent("Data Size", value: ByteCountFormatter.string(fromByteCount: Int64(app.database.fileSize), countStyle: .file))
+                LabeledContent("Typefaces", value: "Manrope · Geist Mono (SIL OFL)")
             }
         }
+        .canvasBackground()
         .navigationTitle("Settings")
         .onAppear { app.dataSafety.refresh() }
     }
@@ -156,9 +158,9 @@ struct AccentPicker: View {
                             .frame(width: 30, height: 30)
                             .overlay(
                                 Image(systemName: "checkmark")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.white)
-                                    .opacity(selection == option.id ? 1 : 0)
+                                    .font(.app(.caption, .semibold))
+                                    .foregroundStyle(Theme.onAccent)
+                                    .opacity(Theme.canonicalID(selection) == option.id ? 1 : 0)
                             )
                     }
                     .buttonStyle(.plain)
@@ -216,7 +218,7 @@ struct PlateInventoryView: View {
                     ), in: 0...20) {
                         HStack {
                             Text(app.settings.units.number(plate.weight) + " \(settings.value.weightUnit.symbol)")
-                                .font(.body.weight(.semibold))
+                                .font(.app(.body, .semibold))
                             Spacer()
                             Text("\(plate.pairs) pair\(plate.pairs == 1 ? "" : "s")")
                                 .foregroundStyle(.secondary)
@@ -242,6 +244,7 @@ struct PlateInventoryView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Bar & Plates")
     }
 }
@@ -260,13 +263,13 @@ struct RecentlyDeletedView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(summary.name)
-                                    .font(.body.weight(.semibold))
+                                    .font(.app(.body, .semibold))
                                 Text("\(summary.startedAt.formatted(date: .abbreviated, time: .shortened)) · \(summary.setCount) sets")
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(.secondary)
                                 if let deletedAt = summary.deletedAt {
                                     Text(expiryText(deletedAt))
-                                        .font(.caption2)
+                                        .font(.app(.caption2))
                                         .foregroundStyle(.tertiary)
                                 }
                             }
@@ -290,13 +293,13 @@ struct RecentlyDeletedView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(routine.name)
-                                    .font(.body.weight(.semibold))
+                                    .font(.app(.body, .semibold))
                                 Text("\(routine.exerciseCount) exercises")
-                                    .font(.caption)
+                                    .font(.app(.caption))
                                     .foregroundStyle(.secondary)
                                 if let deletedAt = routine.deletedAt {
                                     Text(expiryText(deletedAt))
-                                        .font(.caption2)
+                                        .font(.app(.caption2))
                                         .foregroundStyle(.tertiary)
                                 }
                             }
@@ -315,6 +318,7 @@ struct RecentlyDeletedView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Recently Deleted")
     }
 
@@ -349,6 +353,7 @@ struct ArchivedExercisesView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Archived Exercises")
         .confirmationDialog(
             "Delete “\(deleting?.name ?? "")” permanently?",

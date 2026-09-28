@@ -36,6 +36,7 @@ struct MeasurementsView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle("Body")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -66,10 +67,10 @@ struct MeasurementRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 if let latest = app.measurements.latest(kind) {
                     Text(app.settings.units.measurement(latest.value, kind: kind))
-                        .font(.body.weight(.semibold).monospacedDigit())
+                        .font(.num(.body, .medium))
                     if let change = app.measurements.change(kind), abs(change) > 0.0001 {
                         Text(changeText(change))
-                            .font(.caption)
+                            .font(.app(.caption))
                             .foregroundStyle(changeColor(change))
                     }
                 }
@@ -85,7 +86,7 @@ struct MeasurementRow: View {
     private func changeColor(_ change: Double) -> Color {
         guard let lowerIsBetter = kind.lowerIsBetter else { return .secondary }
         let improved = lowerIsBetter ? change < 0 : change > 0
-        return improved ? .green : .orange
+        return improved ? Theme.success : Theme.warning
     }
 }
 
@@ -129,13 +130,13 @@ struct MeasurementDetailView: View {
                                     .foregroundStyle(.primary)
                                 if !entry.note.isEmpty {
                                     Text(entry.note)
-                                        .font(.caption)
+                                        .font(.app(.caption))
                                         .foregroundStyle(.secondary)
                                 }
                             }
                             Spacer()
                             Text(units.measurement(entry.value, kind: kind))
-                                .font(.body.weight(.semibold).monospacedDigit())
+                                .font(.num(.body, .medium))
                                 .foregroundStyle(.primary)
                         }
                     }
@@ -149,6 +150,7 @@ struct MeasurementDetailView: View {
                 }
             }
         }
+        .canvasBackground()
         .navigationTitle(kind.displayName)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -196,6 +198,7 @@ struct MeasurementEntryView: View {
                     TextField("Note (optional)", text: $note)
                 }
             }
+            .canvasBackground()
             .navigationTitle(existing == nil ? "Add \(kind.displayName)" : "Edit Entry")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

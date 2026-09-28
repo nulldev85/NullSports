@@ -57,7 +57,7 @@ struct ExerciseFilterBar: View {
                         filter = ExerciseSearchIndex.Filter()
                     } label: {
                         Label("Clear", systemImage: "xmark.circle.fill")
-                            .font(.subheadline.weight(.medium))
+                            .font(.app(.subheadline, .medium))
                     }
                     .buttonStyle(.borderless)
                 }
@@ -98,13 +98,13 @@ struct ExerciseFilterBar: View {
                 Text(title)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .font(.app(.caption2, .semibold))
             }
-            .font(.subheadline.weight(.medium))
+            .font(.app(.subheadline, .medium))
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .foregroundStyle(active ? Color.white : Color.primary)
-            .background(Capsule().fill(active ? Color.accentColor : Color(.tertiarySystemFill)))
+            .foregroundStyle(active ? Theme.onAccent : Color.primary)
+            .background(Capsule().fill(active ? Color.accentColor : Theme.fill))
         }
         .menuActionDismissBehavior(.disabled)
     }
@@ -121,7 +121,7 @@ struct ExerciseRowLabel: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(exercise.name)
-                        .font(.body.weight(.medium))
+                        .font(.app(.body, .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                     if exercise.isCustom {
@@ -129,12 +129,12 @@ struct ExerciseRowLabel: View {
                     }
                     if isFavorite {
                         Image(systemName: "star.fill")
-                            .font(.caption)
-                            .foregroundStyle(.yellow)
+                            .font(.app(.caption))
+                            .foregroundStyle(Theme.sand)
                     }
                 }
                 Text(detail ?? "\(exercise.primaryMuscle.displayName) · \(exercise.equipment.displayName)")
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
