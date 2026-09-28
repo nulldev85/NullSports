@@ -187,3 +187,7 @@ public final class BackupManager: @unchecked Sendable {
         try fileManager.removeItem(at: snapshot.url)
     }
 }
+
+extension BackupError: LocalizedError {
+    public var errorDescription: String? { description }
+}

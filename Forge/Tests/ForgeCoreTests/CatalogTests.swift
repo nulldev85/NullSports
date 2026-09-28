@@ -97,3 +97,24 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(ExerciseSearchIndex.normalize("  Crème  Brûlée!! "), "creme brulee")
     }
 }
+
+final class DemoDataTests: XCTestCase {
+    func testDemoDataSeedsConsistentHistory() throws {
+        let dir = TemporaryDirectory()
+        let db = try AppDatabase.open(at: dir.location)
+        let catalog = try ExerciseCatalog.load(contentsOf: CatalogTests.catalogURL)
+        try DemoData.seed(into: db, catalog: catalog, now: Fixtures.date(28))
+        XCTAssertEqual(try db.routines.routines().count, 5)
+        let summaries = try db.workouts.summaries()
+        XCTAssertEqual(summaries.count, 32)
+        XCTAssertTrue(summaries.allSatisfy { $0.setCount > 0 })
+        let ids = Set(catalog.exercises.map(\.id))
+        for routine in try db.routines.routines() {
+            for id in routine.allExerciseIDs {
+                XCTAssertTrue(ids.contains(id), "demo routine uses unknown exercise \(id)")
+            }
+        }
+        let book = RecordBook(records: try db.workouts.setRecords())
+        XCTAssertFalse(book.prsByWorkout.isEmpty, "progressive demo data should produce records")
+    }
+}

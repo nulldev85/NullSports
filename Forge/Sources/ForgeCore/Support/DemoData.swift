@@ -1,0 +1,149 @@
+import Foundation
+
+/// Realistic sample data for UI tests and screenshots. Never runs for real
+/// users; it's only triggered by a launch argument.
+public enum DemoData {
+    public static func seed(into database: AppDatabase, catalog: ExerciseCatalog, now: Date = Date()) throws {
+        let lookup = Dictionary(uniqueKeysWithValues: catalog.exercises.map { ($0.id, $0) })
+        func exercise(_ id: String) -> Exercise? { lookup[id] }
+
+        let strength = Folder(name: "Strength", colorTag: "ember", sortOrder: 1)
+        let upperLower = Folder(parentID: strength.id, name: "Upper / Lower", sortOrder: 1)
+        let conditioning = Folder(name: "Conditioning", colorTag: "ocean", sortOrder: 2)
+        for folder in [strength, upperLower, conditioning] {
+            try database.routines.saveFolder(folder)
+        }
+
+        func sets(_ count: Int, reps: Int, repsMax: Int? = nil, weight: Double?, warmups: Int = 0) -> [RoutineSet] {
+            var result: [RoutineSet] = []
+            for index in 0..<warmups {
+                let fraction = 0.5 + 0.2 * Double(index)
+                result.append(RoutineSet(kind: .warmup, target: SetTarget(reps: 8, weight: weight.map { ($0 * fraction / 2.5).rounded() * 2.5 })))
+            }
+            for _ in 0..<count {
+                result.append(RoutineSet(target: SetTarget(reps: reps, repsMax: repsMax, weight: weight)))
+            }
+            return result
+        }
+
+        let upper = Routine(folderID: upperLower.id, name: "Upper A", notes: "Heavy horizontal push/pull", colorTag: "ember", sortOrder: 1, blocks: [
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "bench-press-barbell", sets: sets(3, reps: 5, weight: 100, warmups: 2), restSeconds: 180)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "bent-over-row-barbell", sets: sets(3, reps: 8, weight: 80), restSeconds: 120)]),
+            RoutineBlock(exercises: [
+                RoutineExercise(exerciseID: "overhead-press-dumbbell", sets: sets(3, reps: 8, repsMax: 12, weight: 24), restSeconds: 90),
+                RoutineExercise(exerciseID: "pull-up", sets: sets(3, reps: 8, weight: nil), restSeconds: 90),
+            ]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "bicep-curl-dumbbell", sets: sets(3, reps: 10, repsMax: 15, weight: 14), restSeconds: 60)]),
+        ])
+        let lower = Routine(folderID: upperLower.id, name: "Lower A", notes: "Squat focus", colorTag: "volt", sortOrder: 2, blocks: [
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "squat-barbell", sets: sets(3, reps: 5, weight: 140, warmups: 2), restSeconds: 180)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "romanian-deadlift-barbell", sets: sets(3, reps: 8, weight: 110), restSeconds: 150)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "leg-press-machine", sets: sets(3, reps: 10, repsMax: 12, weight: 200), restSeconds: 120)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "standing-calf-raise-machine", sets: sets(4, reps: 12, weight: 80), restSeconds: 60)]),
+        ])
+        let cindy = Routine(folderID: conditioning.id, name: "Cindy", notes: "20-minute AMRAP", sortOrder: 1, blocks: [
+            RoutineBlock(exercises: [
+                RoutineExercise(exerciseID: "pull-up", sets: [RoutineSet(target: SetTarget(reps: 5))]),
+                RoutineExercise(exerciseID: "push-up", sets: [RoutineSet(target: SetTarget(reps: 10))]),
+                RoutineExercise(exerciseID: "bodyweight-squat", sets: [RoutineSet(target: SetTarget(reps: 15))]),
+            ], timer: TimerConfig(kind: .amrap, duration: 20 * 60)),
+        ])
+        let engine = Routine(folderID: conditioning.id, name: "Engine EMOM", notes: "Alternate every minute", sortOrder: 2, blocks: [
+            RoutineBlock(exercises: [
+                RoutineExercise(exerciseID: "kettlebell-swing", sets: [RoutineSet(target: SetTarget(reps: 15, weight: 24))]),
+                RoutineExercise(exerciseID: "burpee", sets: [RoutineSet(target: SetTarget(reps: 10))]),
+            ], timer: TimerConfig(kind: .emom, interval: 60, rounds: 12, alternateMovements: true)),
+        ])
+        let fullBody = Routine(name: "Full Body Express", notes: "45 minutes, in and out", sortOrder: 3, blocks: [
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "deadlift-barbell", sets: sets(3, reps: 5, weight: 160), restSeconds: 180)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "incline-bench-press-dumbbell", sets: sets(3, reps: 10, weight: 30), restSeconds: 90)]),
+            RoutineBlock(exercises: [RoutineExercise(exerciseID: "plank", sets: [RoutineSet(target: SetTarget(duration: 60)), RoutineSet(target: SetTarget(duration: 60))], restSeconds: 45)]),
+        ])
+        for routine in [upper, lower, cindy, engine, fullBody] {
+            try database.routines.save(routine)
+        }
+
+        // Eight weeks of progressive training.
+        var generator = SeededGenerator(seed: 42)
+        let calendar = Calendar(identifier: .gregorian)
+        for week in 0..<8 {
+            for (dayOffset, routine) in [(0, upper), (2, lower), (4, fullBody)] {
+                let daysAgo = (7 - week) * 7 - dayOffset + 1
+                guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
+                let start = calendar.date(bySettingHour: 7 + Int(generator.next() % 3), minute: Int(generator.next() % 50), second: 0, of: day) ?? day
+                var workout = WorkoutFactory.workout(from: routine, lookup: exercise, now: start)
+                let progression = Double(week) * 1.25
+                for blockIndex in workout.blocks.indices {
+                    for exerciseIndex in workout.blocks[blockIndex].exercises.indices {
+                        let tracking = workout.blocks[blockIndex].exercises[exerciseIndex].tracking
+                        for setIndex in workout.blocks[blockIndex].exercises[exerciseIndex].sets.indices {
+                            var set = workout.blocks[blockIndex].exercises[exerciseIndex].sets[setIndex]
+                            if let target = set.target {
+                                if tracking.usesWeight, let weight = target.weight {
+                                    set.weight = ((weight * 0.9 + progression * (set.kind == .warmup ? 0.5 : 1)) / 1.25).rounded() * 1.25
+                                }
+                                if tracking.usesReps {
+                                    set.reps = max(1, (target.reps ?? 8) + Int(generator.next() % 3) - 1)
+                                }
+                                if tracking.usesDuration {
+                                    set.duration = (target.duration ?? 45) + Double(week * 5)
+                                }
+                            } else if tracking.usesReps {
+                                set.reps = 6 + Int(generator.next() % 5)
+                            }
+                            set.isCompleted = true
+                            set.completedAt = start.addingTimeInterval(Double(setIndex + blockIndex * 4) * 180)
+                            workout.blocks[blockIndex].exercises[exerciseIndex].sets[setIndex] = set
+                        }
+                    }
+                }
+                let minutes = Double(48 + Int(generator.next() % 25))
+                workout = WorkoutFactory.finalize(workout, completeRemaining: false, now: start.addingTimeInterval(minutes * 60))
+                workout.rating = 3 + Int(generator.next() % 3)
+                try database.workouts.save(workout)
+                try database.routines.markPerformed(routineID: routine.id, at: start)
+            }
+            // A weekly conditioning session.
+            if let day = calendar.date(byAdding: .day, value: -((7 - week) * 7 - 5), to: now) {
+                let start = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: day) ?? day
+                var workout = WorkoutFactory.workout(from: cindy, lookup: exercise, now: start)
+                let rounds = 14 + week / 2
+                let config = cindy.blocks[0].timer!
+                workout.blocks[0] = WorkoutFactory.applyResult(
+                    BlockResult(rounds: rounds, extraReps: Int(generator.next() % 20), elapsed: 1200),
+                    to: workout.blocks[0],
+                    program: TimerProgram(config: config),
+                    now: start.addingTimeInterval(1200)
+                )
+                workout = WorkoutFactory.finalize(workout, completeRemaining: false, now: start.addingTimeInterval(25 * 60))
+                try database.workouts.save(workout)
+            }
+            if let day = calendar.date(byAdding: .day, value: -((7 - week) * 7 - 3), to: now) {
+                try database.measurements.save(BodyMeasurement(kind: .bodyWeight, value: 84 - Double(week) * 0.35, measuredAt: day))
+            }
+        }
+        try database.measurements.save(BodyMeasurement(kind: .waist, value: 86, measuredAt: now.addingTimeInterval(-40 * 86_400)))
+        try database.measurements.save(BodyMeasurement(kind: .waist, value: 84.5, measuredAt: now.addingTimeInterval(-5 * 86_400)))
+
+        try database.timerPresets.save(TimerPreset(name: "Tabata 20/10", config: .standard(.tabata), sortOrder: 1))
+        try database.timerPresets.save(TimerPreset(name: "EMOM 10", config: .standard(.emom), sortOrder: 2))
+        try database.timerPresets.save(TimerPreset(name: "Sprint Intervals", config: TimerConfig(kind: .intervals, rounds: 8, work: 30, rest: 90), sortOrder: 3))
+    }
+}
+
+/// Deterministic generator so demo data is identical on every run.
+struct SeededGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed &+ 0x9E37_79B9_7F4A_7C15
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}

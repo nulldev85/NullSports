@@ -518,3 +518,7 @@ public final class DatabaseQueue: @unchecked Sendable {
         }
     }
 }
+
+extension DatabaseError: LocalizedError {
+    public var errorDescription: String? { message }
+}

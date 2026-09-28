@@ -1,0 +1,70 @@
+name: Forge
+options:
+  bundleIdPrefix: com.nulldev85
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Forge:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      # The platform-independent core is compiled straight into the app;
+      # Package.swift builds the same files for `swift test`.
+      - path: Sources/ForgeCore
+      - path: App
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: Forge
+        LSApplicationCategoryType: public.app-category.healthcare-fitness
+        ITSAppUsesNonExemptEncryption: false
+        # Interval-timer beeps and voice cues keep playing with the screen
+        # locked or while another app is open.
+        UIBackgroundModes: [audio]
+        # Exports appear under On My iPhone › Forge in the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.Forge
+        PRODUCT_NAME: Forge
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Forge
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+  ForgeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Forge
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.ForgeUITests
+        TEST_TARGET_NAME: Forge
+schemes:
+  Forge:
+    build:
+      targets:
+        Forge: all
+        ForgeUITests: [test]
+    test:
+      targets:
+        - ForgeUITests

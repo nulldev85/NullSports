@@ -190,3 +190,46 @@ public struct RecordBook: Sendable {
         return result
     }
 }
+
+extension RecordBook {
+    /// Records `workout` would set against this book. The book must not
+    /// already include the workout (use it right before saving).
+    public func newRecords(in workout: Workout) -> [PersonalRecord] {
+        var byExercise: [String: [SetRecord]] = [:]
+        for record in workout.setRecords where record.kind.isWorking {
+            byExercise[record.exerciseID, default: []].append(record)
+        }
+        var result: [PersonalRecord] = []
+        for exerciseID in byExercise.keys.sorted() {
+            for candidate in Self.candidates(exerciseID: exerciseID, sets: byExercise[exerciseID] ?? []) {
+                if let existing = best[exerciseID]?[candidate.kind], candidate.beats(existing) {
+                    var record = candidate
+                    record.previousValue = existing.value
+                    result.append(record)
+                }
+            }
+        }
+        return result
+    }
+}
+
+extension Workout {
+    /// Completed sets as analytics records.
+    public var setRecords: [SetRecord] {
+        allExercises.flatMap { exercise in
+            exercise.sets.filter(\.isCompleted).map { set in
+                SetRecord(
+                    workoutID: id,
+                    date: startedAt,
+                    exerciseID: exercise.exerciseID,
+                    tracking: exercise.tracking,
+                    kind: set.kind,
+                    weight: set.weight,
+                    reps: set.reps,
+                    duration: set.duration,
+                    distance: set.distance
+                )
+            }
+        }
+    }
+}

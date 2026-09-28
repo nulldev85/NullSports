@@ -205,3 +205,15 @@ final class UnitsTests: XCTestCase {
         XCTAssertNil(DurationFormat.parse("x"))
     }
 }
+
+final class NewRecordTests: XCTestCase {
+    func testNewRecordsAgainstExistingBook() {
+        let old = Fixtures.workout(on: Fixtures.date(1), [(Fixtures.bench, [(100, 5)]), (Fixtures.squat, [(140, 3)])])
+        let book = RecordBook(records: old.setRecords)
+        let fresh = Fixtures.workout(on: Fixtures.date(8), [(Fixtures.bench, [(102.5, 5)]), (Fixtures.squat, [(130, 3)]), (Fixtures.pushUp, [(nil, 30)])])
+        let records = book.newRecords(in: fresh)
+        XCTAssertTrue(records.allSatisfy { $0.exerciseID == Fixtures.bench.id }, "squat regressed and push-ups are a first performance")
+        XCTAssertEqual(records.first { $0.kind == .heaviestWeight }?.previousValue, 100)
+        XCTAssertEqual(old.setRecords.count, 2)
+    }
+}
