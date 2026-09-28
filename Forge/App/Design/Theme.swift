@@ -108,8 +108,8 @@ enum Theme {
     }
 
     static func accentOption(_ id: String) -> AccentOption {
-        let id = canonicalID(id)
-        return accents.first { $0.id == id } ?? accents[0]
+        let canonical = canonicalID(id)
+        return accents.first { $0.id == canonical } ?? accents[0]
     }
 
     static func accent(named id: String) -> Color {
@@ -123,8 +123,8 @@ enum Theme {
 
     static func tagColor(_ id: String?) -> Color? {
         guard let id else { return nil }
-        let id = canonicalID(id)
-        return tagColors.first { $0.id == id }?.color
+        let canonical = canonicalID(id)
+        return tagColors.first { $0.id == canonical }?.color
     }
 
     // MARK: Lookups
