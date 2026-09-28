@@ -17,6 +17,9 @@ final class TimerController: Identifiable {
     let program: TimerProgram
     private(set) var run: TimerRun
     private(set) var snapshot: TimerSnapshot
+    /// The clock as displayed, changed only when the text changes, for
+    /// small views (like the workout bar) that shouldn't redraw every tick.
+    private(set) var clockText: String
     var extraReps = 0
     var movements: [Movement] = []
     /// Called whenever the run's state changes (not on every tick), so it
@@ -38,7 +41,9 @@ final class TimerController: Identifiable {
         self.title = title
         let initialRun = run ?? TimerRun(config: program.config, startedAt: Date())
         self.run = initialRun
-        self.snapshot = program.snapshot(for: initialRun, at: Date())
+        let initialSnapshot = program.snapshot(for: initialRun, at: Date())
+        self.snapshot = initialSnapshot
+        self.clockText = initialSnapshot.clockText
         self.cues = cues
         self.settings = settings
         self.notifier = notifier
@@ -89,6 +94,7 @@ final class TimerController: Identifiable {
         let fired = TimerCueDetector.cues(from: lastSnapshot, to: next)
         lastSnapshot = next
         snapshot = next
+        if clockText != next.clockText { clockText = next.clockText }
         for cue in fired {
             cues.perform(cue, config: program.config, settings: settings.value)
         }
@@ -105,6 +111,7 @@ final class TimerController: Identifiable {
 
     private func refresh() {
         snapshot = program.snapshot(for: run, at: Date())
+        if clockText != snapshot.clockText { clockText = snapshot.clockText }
     }
 
     private func changed() {

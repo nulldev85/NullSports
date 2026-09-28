@@ -81,7 +81,6 @@ struct TimersView: View {
                 TimerSetupView(request: request)
                     .environment(app)
             }
-            .activeWorkoutInset()
         }
     }
 

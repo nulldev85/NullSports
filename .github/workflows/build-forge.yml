@@ -178,7 +178,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [0, 1, 2, 3, 4, 5]
+        group: [0, 1, 2, 3]
     steps:
       - name: Download screenshots
         uses: actions/download-artifact@v4
@@ -197,7 +197,7 @@ jobs:
           files = sorted(f for f in os.listdir("shots") if f.lower().endswith(".png")) if os.path.isdir("shots") else []
           group = int(os.environ["GROUP"])
           print(f"{len(files)} screenshots")
-          for name in files[group * 5:(group + 1) * 5]:
+          for name in files[group * 7:(group + 1) * 7]:
               image = Image.open(os.path.join("shots", name)).convert("RGB")
               width = 360
               image = image.resize((width, int(image.height * width / image.width)), Image.LANCZOS)

@@ -8,20 +8,27 @@ struct RootView: View {
         @Bindable var app = app
         @Bindable var session = app.session
         @Bindable var timers = app.timers
+        // The workout-in-progress bar wraps each tab's whole navigation
+        // stack, so it stays visible on every screen pushed inside it.
         TabView(selection: $app.selectedTab) {
             TrainView()
+                .activeWorkoutInset()
                 .tabItem { Label("Train", systemImage: "dumbbell.fill") }
                 .tag(AppTab.train)
             TimersView()
+                .activeWorkoutInset()
                 .tabItem { Label("Timers", systemImage: "timer") }
                 .tag(AppTab.timers)
             HistoryView()
+                .activeWorkoutInset()
                 .tabItem { Label("History", systemImage: "calendar") }
                 .tag(AppTab.history)
             ExerciseLibraryView()
+                .activeWorkoutInset()
                 .tabItem { Label("Exercises", systemImage: "list.bullet.rectangle.portrait") }
                 .tag(AppTab.exercises)
             ProgressDashboardView()
+                .activeWorkoutInset()
                 .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
                 .tag(AppTab.progress)
         }
@@ -114,6 +121,11 @@ struct ActiveWorkoutBar: View {
                                 .monospacedDigit()
                             if let rest = app.session.rest, rest.remaining(at: app.session.clock) > 0 {
                                 Text("· Rest \(DurationFormat.countdownClock(rest.remaining(at: app.session.clock)))")
+                                    .monospacedDigit()
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            if let timer = app.session.timedRun, !timer.run.isFinished {
+                                Text("· \(timer.program.config.kind.displayName) \(timer.clockText)")
                                     .monospacedDigit()
                                     .foregroundStyle(Color.accentColor)
                             }

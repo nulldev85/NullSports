@@ -165,7 +165,6 @@ struct FolderContentsView: View {
                 }
             }
         }
-        .activeWorkoutInset()
         .onAppear {
             if isRoot, draftToRestore == nil, editor == nil {
                 draftToRestore = app.routines.loadDraft()

@@ -74,7 +74,6 @@ struct ProgressDashboardView: View {
                     .accessibilityIdentifier("openSettings")
                 }
             }
-            .activeWorkoutInset()
         }
     }
 

@@ -70,7 +70,6 @@ struct HistoryView: View {
                     .accessibilityLabel("Toggle calendar")
                 }
             }
-            .activeWorkoutInset()
         }
     }
 

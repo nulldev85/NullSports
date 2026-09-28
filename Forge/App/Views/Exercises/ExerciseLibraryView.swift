@@ -76,7 +76,6 @@ struct ExerciseLibraryView: View {
                 ExerciseEditorView(request: request)
                     .environment(app)
             }
-            .activeWorkoutInset()
         }
     }
 

@@ -116,7 +116,6 @@ struct RoutineDetailView: View {
                 }
             }
         }
-        .activeWorkoutInset()
         .sheet(item: $editor) { request in
             RoutineEditorView(request: request)
                 .environment(app)
