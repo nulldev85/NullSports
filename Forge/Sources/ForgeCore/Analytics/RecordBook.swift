@@ -37,6 +37,7 @@ public enum RecordKind: String, CaseIterable, Hashable, Sendable {
         case .weightDuration: return [.heaviestWeight, .longestDuration]
         case .distanceDuration: return [.longestDistance, .longestDuration, .bestPace]
         case .weightDistance: return [.heaviestWeight, .longestDistance]
+        case .shortDistance: return [.longestDistance, .bestPace]
         }
     }
 }

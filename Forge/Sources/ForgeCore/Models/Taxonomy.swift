@@ -172,6 +172,7 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
     case weightDuration = "weight_duration"
     case distanceDuration = "distance_duration"
     case weightDistance = "weight_distance"
+    case shortDistance = "short_distance"
 
     public static var fallback: TrackingType { .weightReps }
     public var id: String { rawValue }
@@ -186,6 +187,7 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
         case .weightDuration: return "Weight & Time"
         case .distanceDuration: return "Distance & Time"
         case .weightDistance: return "Weight & Distance"
+        case .shortDistance: return "Short Distance & Time"
         }
     }
 
@@ -199,6 +201,7 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
         case .weightDuration: return "Weighted planks, farmer's holds"
         case .distanceDuration: return "Running, rowing, cycling"
         case .weightDistance: return "Farmer's walks, sled pushes"
+        case .shortDistance: return "Sprints, shuttles, handstand walks"
         }
     }
 
@@ -208,7 +211,7 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
         case .reps: return [.reps]
         case .duration: return [.duration]
         case .weightDuration: return [.weight, .duration]
-        case .distanceDuration: return [.distance, .duration]
+        case .distanceDuration, .shortDistance: return [.distance, .duration]
         case .weightDistance: return [.weight, .distance]
         }
     }
@@ -225,7 +228,7 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
 
     /// Distances for carries and sleds are short (meters/yards); runs and
     /// rides are long (km/miles).
-    public var usesShortDistance: Bool { self == .weightDistance }
+    public var usesShortDistance: Bool { self == .weightDistance || self == .shortDistance }
 }
 
 public enum SetField: String, CaseIterable, Sendable {

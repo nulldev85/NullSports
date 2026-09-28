@@ -130,16 +130,17 @@ public struct ExerciseSearchIndex: Sendable {
     }
 
     /// Matching exercises, best matches first. With an empty query the
-    /// original (alphabetical) order is kept.
-    public func search(_ query: String, filter: Filter = Filter()) -> [Exercise] {
+    /// original (alphabetical) order is kept. `boost` (typically how often
+    /// the athlete has done each exercise) breaks ties within a match rank.
+    public func search(_ query: String, filter: Filter = Filter(), boost: [String: Int] = [:]) -> [Exercise] {
         let normalizedQuery = Self.normalize(query)
         let tokens = normalizedQuery.split(separator: " ").map(String.init)
         let compactQuery = normalizedQuery.replacingOccurrences(of: " ", with: "")
 
-        var scored: [(score: Int, length: Int, name: String, exercise: Exercise)] = []
+        var scored: [(score: Int, boost: Int, length: Int, name: String, exercise: Exercise)] = []
         for item in items where filter.matches(item.exercise) {
             if tokens.isEmpty {
-                scored.append((0, 0, item.nameKey, item.exercise))
+                scored.append((0, 0, 0, item.nameKey, item.exercise))
                 continue
             }
             var allMatch = true
@@ -174,13 +175,14 @@ public struct ExerciseSearchIndex: Sendable {
             } else {
                 score = 5
             }
-            scored.append((score, item.nameKey.count, item.nameKey, item.exercise))
+            scored.append((score, boost[item.exercise.id] ?? 0, item.nameKey.count, item.nameKey, item.exercise))
         }
         if tokens.isEmpty {
             return scored.map(\.exercise)
         }
         scored.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score < rhs.score }
+            if lhs.boost != rhs.boost { return lhs.boost > rhs.boost }
             if lhs.length != rhs.length { return lhs.length < rhs.length }
             return lhs.name < rhs.name
         }

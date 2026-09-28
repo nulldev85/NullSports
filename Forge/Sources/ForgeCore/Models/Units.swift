@@ -242,13 +242,13 @@ public struct UnitPreferences: Hashable, Sendable {
         case .reps:
             return reps.map { "\($0) reps" } ?? "—"
         case .duration:
-            return duration.map { DurationFormat.clock($0) } ?? "—"
+            return duration.map { DurationFormat.precise($0) } ?? "—"
         case .weightDuration:
             let w = weightKg.map { weight($0) } ?? "—"
-            return "\(w) · \(duration.map { DurationFormat.clock($0) } ?? "—")"
-        case .distanceDuration:
-            let d = meters.map { distance($0, short: false) } ?? "—"
-            if let duration { return "\(d) in \(DurationFormat.clock(duration))" }
+            return "\(w) · \(duration.map { DurationFormat.precise($0) } ?? "—")"
+        case .distanceDuration, .shortDistance:
+            let d = meters.map { distance($0, short: tracking.usesShortDistance) } ?? "—"
+            if let duration { return "\(d) in \(DurationFormat.precise(duration))" }
             return d
         case .weightDistance:
             let w = weightKg.map { weight($0) } ?? "—"

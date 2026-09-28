@@ -73,6 +73,7 @@ public enum ExerciseMetric: String, CaseIterable, Identifiable, Hashable, Sendab
         case .weightDuration: return [.maxWeight, .totalDuration]
         case .distanceDuration: return [.totalDistance, .totalDuration, .pace]
         case .weightDistance: return [.maxWeight, .totalDistance]
+        case .shortDistance: return [.totalDistance, .pace]
         }
     }
 }

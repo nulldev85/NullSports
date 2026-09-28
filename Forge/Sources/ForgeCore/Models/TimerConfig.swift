@@ -293,6 +293,19 @@ public enum DurationFormat {
         return String(format: "%d:%02d", minutes, secs)
     }
 
+    /// Like `clock`, but keeps tenths for short efforts: "12.5s", "1:05.3".
+    public static func precise(_ seconds: Double) -> String {
+        let value = max(0, seconds)
+        let tenths = Int((value * 10).rounded()) % 10
+        let hasFraction = tenths != 0
+        if value < 60 {
+            return hasFraction ? String(format: "%.1fs", (value * 10).rounded() / 10) : "\(Int(value.rounded()))s"
+        }
+        guard hasFraction else { return clock(value.rounded()) }
+        let whole = Int((value * 10).rounded()) / 10
+        return clock(Double(whole)) + ".\(tenths)"
+    }
+
     /// Clock format that rounds up, for countdowns ("0:03" until it's done).
     public static func countdownClock(_ seconds: Double) -> String {
         clock(max(0, seconds).rounded(.up))
