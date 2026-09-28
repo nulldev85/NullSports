@@ -116,5 +116,20 @@ final class DemoDataTests: XCTestCase {
         }
         let book = RecordBook(records: try db.workouts.setRecords())
         XCTAssertFalse(book.prsByWorkout.isEmpty, "progressive demo data should produce records")
+        XCTAssertTrue(summaries.allSatisfy { $0.startedAt < Fixtures.date(28) }, "demo workouts must be in the past")
+        XCTAssertTrue(try db.measurements.all().allSatisfy { $0.measuredAt < Fixtures.date(28) })
+    }
+
+    func testImperialDemoDataUsesRoundPounds() throws {
+        let dir = TemporaryDirectory()
+        let db = try AppDatabase.open(at: dir.location)
+        let catalog = try ExerciseCatalog.load(contentsOf: CatalogTests.catalogURL)
+        try DemoData.seed(into: db, catalog: catalog, now: Fixtures.date(28), imperial: true)
+        let weights = try db.workouts.setRecords().compactMap(\.weight)
+        XCTAssertFalse(weights.isEmpty)
+        for kilograms in weights {
+            let steps = kilograms / WeightUnit.kilogramsPerPound / 5
+            XCTAssertEqual(steps, steps.rounded(), accuracy: 1e-6, "\(steps * 5) lb isn't a 5 lb step")
+        }
     }
 }

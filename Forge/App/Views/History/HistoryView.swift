@@ -39,6 +39,7 @@ struct HistoryView: View {
                                 } label: {
                                     WorkoutSummaryRow(summary: summary, prCount: app.history.records.prCount(in: summary.id))
                                 }
+                                .accessibilityIdentifier("historyWorkout")
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
                                         app.history.delete(summary.id)

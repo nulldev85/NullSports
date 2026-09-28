@@ -415,6 +415,7 @@ struct ProgressChart: View {
 
     var body: some View {
         let units = app.settings.units
+        let domain = yDomain(units: units)
         Chart(points) { point in
             LineMark(
                 x: .value("Date", point.date),
@@ -422,9 +423,12 @@ struct ProgressChart: View {
             )
             .interpolationMethod(.monotone)
             .foregroundStyle(Color.accentColor)
+            // Filled down to the bottom of the visible range rather than to
+            // zero, so progress isn't flattened.
             AreaMark(
                 x: .value("Date", point.date),
-                y: .value(metric.displayName, displayValue(point.value, units: units))
+                yStart: .value("Base", domain.lowerBound),
+                yEnd: .value(metric.displayName, displayValue(point.value, units: units))
             )
             .interpolationMethod(.monotone)
             .foregroundStyle(LinearGradient(colors: [Color.accentColor.opacity(0.25), .clear], startPoint: .top, endPoint: .bottom))
@@ -435,10 +439,17 @@ struct ProgressChart: View {
             .foregroundStyle(Color.accentColor)
             .symbolSize(points.count > 30 ? 12 : 30)
         }
-        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYScale(domain: domain)
         .chartYAxis {
             AxisMarks(position: .leading)
         }
+    }
+
+    private func yDomain(units: UnitPreferences) -> ClosedRange<Double> {
+        let values = points.map { displayValue($0.value, units: units) }
+        guard let low = values.min(), let high = values.max() else { return 0...1 }
+        let padding = Swift.max((high - low) * 0.2, high * 0.05, 1)
+        return Swift.max(0, low - padding)...(high + padding)
     }
 
     private func displayValue(_ value: Double, units: UnitPreferences) -> Double {

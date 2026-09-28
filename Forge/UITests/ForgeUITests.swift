@@ -76,12 +76,11 @@ final class ForgeUITests: XCTestCase {
         tab("History")
         XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
         snapshot("08-History")
-        let firstWorkout = app.cells.element(boundBy: 1)
-        if firstWorkout.waitForExistence(timeout: 5) {
-            firstWorkout.tap()
-            sleep(1)
-            snapshot("09-WorkoutDetail")
-        }
+        let latest = app.buttons.matching(identifier: "historyWorkout").firstMatch
+        XCTAssertTrue(reveal(latest), "history should list the workout")
+        latest.tap()
+        sleep(1)
+        snapshot("09-WorkoutDetail")
     }
 
     func testBuildRoutineWithCustomExercise() throws {
@@ -108,7 +107,7 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["saveRoutine"].waitForExistence(timeout: 10))
         snapshot("12-RoutineEditor")
         app.buttons["saveRoutine"].tap()
-        XCTAssertTrue(app.buttons["routine-Test Builder"].waitForExistence(timeout: 10), "new routine should be listed")
+        XCTAssertTrue(reveal(app.buttons["routine-Test Builder"]), "new routine should be listed")
 
         tab("Exercises")
         let librarySearch = app.searchFields.firstMatch
@@ -133,6 +132,18 @@ final class ForgeUITests: XCTestCase {
         snapshot("22-RoutineBuilder")
         app.buttons["Cancel"].firstMatch.tap()
         XCTAssertTrue(app.buttons["startRoutineWorkout"].waitForExistence(timeout: 10))
+
+        // The timed block inside a live workout, then its timer. Both are
+        // minimized so the rest of the test runs with a workout in progress.
+        app.buttons["startRoutineWorkout"].tap()
+        XCTAssertTrue(app.buttons["startTimedBlock"].waitForExistence(timeout: 10))
+        snapshot("26-TimedBlockWorkout")
+        app.buttons["startTimedBlock"].tap()
+        XCTAssertTrue(app.buttons["pauseTimer"].waitForExistence(timeout: 10))
+        sleep(2)
+        snapshot("27-AmrapTimer")
+        XCTAssertTrue(tapIfExists(app.buttons["Minimize timer"]))
+        XCTAssertTrue(tapIfExists(app.buttons["minimizeWorkout"], timeout: 10))
 
         // Exercise detail with the demo history.
         tab("Exercises")

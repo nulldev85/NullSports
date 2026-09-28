@@ -3,9 +3,34 @@ import Foundation
 /// Realistic sample data for UI tests and screenshots. Never runs for real
 /// users; it's only triggered by a launch argument.
 public enum DemoData {
-    public static func seed(into database: AppDatabase, catalog: ExerciseCatalog, now: Date = Date()) throws {
+    /// - Parameter imperial: round loads to 5 lb and body measurements to
+    ///   pounds/inches, so the sample numbers look natural in those units.
+    public static func seed(into database: AppDatabase, catalog: ExerciseCatalog, now: Date = Date(), imperial: Bool = false) throws {
         let lookup = Dictionary(uniqueKeysWithValues: catalog.exercises.map { ($0.id, $0) })
         func exercise(_ id: String) -> Exercise? { lookup[id] }
+
+        /// A loadable weight in the athlete's unit, stored as kilograms.
+        func load(_ kilograms: Double) -> Double {
+            if imperial {
+                let pounds = kilograms / WeightUnit.kilogramsPerPound
+                return (pounds / 5).rounded() * 5 * WeightUnit.kilogramsPerPound
+            }
+            return (kilograms / 1.25).rounded() * 1.25
+        }
+        func bodyWeight(_ kilograms: Double) -> Double {
+            if imperial {
+                let pounds = kilograms / WeightUnit.kilogramsPerPound
+                return (pounds * 5).rounded() / 5 * WeightUnit.kilogramsPerPound
+            }
+            return (kilograms * 10).rounded() / 10
+        }
+        func length(_ centimeters: Double) -> Double {
+            if imperial {
+                let inches = centimeters / LengthUnit.centimetersPerInch
+                return (inches * 4).rounded() / 4 * LengthUnit.centimetersPerInch
+            }
+            return (centimeters * 10).rounded() / 10
+        }
 
         let strength = Folder(name: "Strength", colorTag: "ember", sortOrder: 1)
         let upperLower = Folder(parentID: strength.id, name: "Upper / Lower", sortOrder: 1)
@@ -18,10 +43,10 @@ public enum DemoData {
             var result: [RoutineSet] = []
             for index in 0..<warmups {
                 let fraction = 0.5 + 0.2 * Double(index)
-                result.append(RoutineSet(kind: .warmup, target: SetTarget(reps: 8, weight: weight.map { ($0 * fraction / 2.5).rounded() * 2.5 })))
+                result.append(RoutineSet(kind: .warmup, target: SetTarget(reps: 8, weight: weight.map { load($0 * fraction) })))
             }
             for _ in 0..<count {
-                result.append(RoutineSet(target: SetTarget(reps: reps, repsMax: repsMax, weight: weight)))
+                result.append(RoutineSet(target: SetTarget(reps: reps, repsMax: repsMax, weight: weight.map(load))))
             }
             return result
         }
@@ -50,7 +75,7 @@ public enum DemoData {
         ])
         let engine = Routine(folderID: conditioning.id, name: "Engine EMOM", notes: "Alternate every minute", sortOrder: 2, blocks: [
             RoutineBlock(exercises: [
-                RoutineExercise(exerciseID: "kettlebell-swing", sets: [RoutineSet(target: SetTarget(reps: 15, weight: 24))]),
+                RoutineExercise(exerciseID: "kettlebell-swing", sets: [RoutineSet(target: SetTarget(reps: 15, weight: load(24)))]),
                 RoutineExercise(exerciseID: "burpee", sets: [RoutineSet(target: SetTarget(reps: 10))]),
             ], timer: TimerConfig(kind: .emom, interval: 60, rounds: 12, alternateMovements: true)),
         ])
@@ -63,13 +88,16 @@ public enum DemoData {
             try database.routines.save(routine)
         }
 
-        // Eight weeks of progressive training.
+        // Eight weeks of progressive training, the last session yesterday.
         var generator = SeededGenerator(seed: 42)
         let calendar = Calendar(identifier: .gregorian)
+        func sessionDay(week: Int, offset: Int) -> Date? {
+            // offset 0...5 within the week; offset 5 of week 7 is yesterday.
+            calendar.date(byAdding: .day, value: -((7 - week) * 7 + (5 - offset) + 1), to: now)
+        }
         for week in 0..<8 {
             for (dayOffset, routine) in [(0, upper), (2, lower), (4, fullBody)] {
-                let daysAgo = (7 - week) * 7 - dayOffset + 1
-                guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
+                guard let day = sessionDay(week: week, offset: dayOffset) else { continue }
                 let start = calendar.date(bySettingHour: 7 + Int(generator.next() % 3), minute: Int(generator.next() % 50), second: 0, of: day) ?? day
                 var workout = WorkoutFactory.workout(from: routine, lookup: exercise, now: start)
                 let progression = Double(week) * 1.25
@@ -80,7 +108,7 @@ public enum DemoData {
                             var set = workout.blocks[blockIndex].exercises[exerciseIndex].sets[setIndex]
                             if let target = set.target {
                                 if tracking.usesWeight, let weight = target.weight {
-                                    set.weight = ((weight * 0.9 + progression * (set.kind == .warmup ? 0.5 : 1)) / 1.25).rounded() * 1.25
+                                    set.weight = load(weight * 0.9 + progression * (set.kind == .warmup ? 0.5 : 1))
                                 }
                                 if tracking.usesReps {
                                     set.reps = max(1, (target.reps ?? 8) + Int(generator.next() % 3) - 1)
@@ -104,7 +132,7 @@ public enum DemoData {
                 try database.routines.markPerformed(routineID: routine.id, at: start)
             }
             // A weekly conditioning session.
-            if let day = calendar.date(byAdding: .day, value: -((7 - week) * 7 - 5), to: now) {
+            if let day = sessionDay(week: week, offset: 5) {
                 let start = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: day) ?? day
                 var workout = WorkoutFactory.workout(from: cindy, lookup: exercise, now: start)
                 let rounds = 14 + week / 2
@@ -118,12 +146,12 @@ public enum DemoData {
                 workout = WorkoutFactory.finalize(workout, completeRemaining: false, now: start.addingTimeInterval(25 * 60))
                 try database.workouts.save(workout)
             }
-            if let day = calendar.date(byAdding: .day, value: -((7 - week) * 7 - 3), to: now) {
-                try database.measurements.save(BodyMeasurement(kind: .bodyWeight, value: 84 - Double(week) * 0.35, measuredAt: day))
+            if let day = sessionDay(week: week, offset: 3) {
+                try database.measurements.save(BodyMeasurement(kind: .bodyWeight, value: bodyWeight(84 - Double(week) * 0.35), measuredAt: day))
             }
         }
-        try database.measurements.save(BodyMeasurement(kind: .waist, value: 86, measuredAt: now.addingTimeInterval(-40 * 86_400)))
-        try database.measurements.save(BodyMeasurement(kind: .waist, value: 84.5, measuredAt: now.addingTimeInterval(-5 * 86_400)))
+        try database.measurements.save(BodyMeasurement(kind: .waist, value: length(86), measuredAt: now.addingTimeInterval(-40 * 86_400)))
+        try database.measurements.save(BodyMeasurement(kind: .waist, value: length(84.5), measuredAt: now.addingTimeInterval(-5 * 86_400)))
 
         try database.timerPresets.save(TimerPreset(name: "Tabata 20/10", config: .standard(.tabata), sortOrder: 1))
         try database.timerPresets.save(TimerPreset(name: "EMOM 10", config: .standard(.emom), sortOrder: 2))

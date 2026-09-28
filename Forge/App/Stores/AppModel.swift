@@ -152,7 +152,7 @@ final class AppLauncher {
                     catalog = ExerciseCatalog(version: 0, exercises: [])
                 }
                 if seedDemo {
-                    try DemoData.seed(into: database, catalog: catalog)
+                    try DemoData.seed(into: database, catalog: catalog, imperial: Locale.current.measurementSystem == .us)
                 }
                 return .success((database, catalog))
             } catch {

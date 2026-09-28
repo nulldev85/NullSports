@@ -36,7 +36,7 @@ final class RoutineRepositoryTests: XCTestCase {
         XCTAssertEqual(loaded.blocks, routine.blocks)
         XCTAssertTrue(loaded.blocks[1].isSuperset)
         XCTAssertTrue(loaded.blocks[2].isTimed)
-        XCTAssertEqual(loaded.setCount, 4)
+        XCTAssertEqual(loaded.setCount, 3, "working sets only; the warm-up and timed block don't count")
     }
 
     func testFolderCyclesAreRejected() throws {

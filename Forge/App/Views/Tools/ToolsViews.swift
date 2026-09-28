@@ -55,6 +55,10 @@ struct PlateCalculatorView: View {
                 Button("Done") { dismissKeyboard() }
             }
         }
+        .onAppear {
+            // Start with a common load so the diagram shows right away.
+            if target == nil { target = unit == .kg ? 100 : 225 }
+        }
     }
 }
 

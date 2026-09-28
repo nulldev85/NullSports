@@ -184,7 +184,7 @@ struct WorkoutSummaryView: View {
                                 Text(exercise.name)
                                     .font(.subheadline.weight(.medium))
                                 Spacer()
-                                Text("\(exercise.sets.count) × \(bestSet(exercise))")
+                                Text(setSummary(exercise))
                                     .font(.subheadline.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
@@ -228,7 +228,8 @@ struct WorkoutSummaryView: View {
         summary.workout.allExercises.first { $0.exerciseID == record.exerciseID }?.tracking ?? .weightReps
     }
 
-    private func bestSet(_ exercise: WorkoutExercise) -> String {
+    /// "3 sets · best 225 lb × 5", or the warm-up count if that's all.
+    private func setSummary(_ exercise: WorkoutExercise) -> String {
         let working = exercise.sets.filter { $0.kind.isWorking }
         let best = working.max { lhs, rhs in
             if exercise.tracking.countsVolume { return lhs.volume < rhs.volume }
@@ -236,7 +237,12 @@ struct WorkoutSummaryView: View {
             if exercise.tracking.usesDuration { return (lhs.duration ?? 0) < (rhs.duration ?? 0) }
             return (lhs.reps ?? 0) < (rhs.reps ?? 0)
         }
-        guard let best else { return "—" }
-        return app.settings.units.setDescription(best, tracking: exercise.tracking)
+        guard let best else {
+            let warmups = exercise.sets.count
+            if warmups == 0 { return "—" }
+            return warmups == 1 ? "1 warm-up set" : "\(warmups) warm-up sets"
+        }
+        let count = working.count == 1 ? "1 set" : "\(working.count) sets"
+        return "\(count) · best \(app.settings.units.setDescription(best, tracking: exercise.tracking))"
     }
 }

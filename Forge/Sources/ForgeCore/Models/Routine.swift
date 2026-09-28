@@ -223,9 +223,11 @@ public struct Routine: Identifiable, Hashable, Codable, Sendable {
         blocks.reduce(0) { $0 + $1.exercises.count }
     }
 
+    /// Working sets; warm-ups aren't counted, matching workout totals.
     public var setCount: Int {
         blocks.reduce(0) { total, block in
-            total + block.exercises.reduce(0) { $0 + (block.isTimed ? 0 : $1.sets.count) }
+            guard !block.isTimed else { return total }
+            return total + block.exercises.reduce(0) { $0 + $1.sets.filter { $0.kind.isWorking }.count }
         }
     }
 

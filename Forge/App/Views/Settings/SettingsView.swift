@@ -20,7 +20,7 @@ struct SettingsView: View {
                             }
                         }
                     } icon: {
-                        Image(systemName: "externaldrive.badge.checkmark")
+                        Image(systemName: "clock.arrow.circlepath")
                     }
                 }
                 .accessibilityIdentifier("backupsLink")

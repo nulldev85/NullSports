@@ -27,8 +27,10 @@ struct BackupsView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        statusLine("Last snapshot", data.snapshots.first.map { $0.date.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
-                        statusLine("Last backup file", data.lastExportDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
+                        statusLine("Last snapshot", data.snapshots.map(\.date).max().map { $0.formatted(date: .abbreviated, time: .shortened) }
+                            ?? (app.settings.value.autoBackupEnabled ? "When you leave the app" : "Off"))
+                        statusLine("Last backup file", data.lastExportDate.map { $0.formatted(date: .abbreviated, time: .shortened) }
+                            ?? (app.settings.value.autoExportEnabled ? "When you leave the app" : "Off"))
                         statusLine("Backup folder", data.exportFolderName ?? "Files › On My iPhone › Forge")
                     }
                     .font(.caption)
