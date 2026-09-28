@@ -71,7 +71,8 @@ struct ExercisePickerView: View {
                     ExerciseFilterBar(filter: $filter)
                 }
                 .padding(.vertical, 8)
-                .background(.bar)
+                // Stays below the navigation bar so it never covers the title.
+                .background(Theme.canvas, ignoresSafeAreaEdges: [])
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if allowsMultiple, !selection.isEmpty {

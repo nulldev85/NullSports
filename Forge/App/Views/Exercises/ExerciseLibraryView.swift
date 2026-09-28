@@ -59,7 +59,8 @@ struct ExerciseLibraryView: View {
                     ExerciseFilterBar(filter: $filter)
                 }
                 .padding(.vertical, 8)
-                .background(.bar)
+                // Stays below the navigation bar so it never covers the title.
+                .background(Theme.canvas, ignoresSafeAreaEdges: [])
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

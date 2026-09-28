@@ -35,6 +35,9 @@ struct TimerRunView: View {
             .padding(.bottom, 12)
             .foregroundStyle(Theme.ink)
         }
+        // Resolve every adaptive color in its dark variant, whatever the
+        // presentation's appearance.
+        .environment(\.colorScheme, .dark)
         .statusBarHidden(false)
         .preferredColorScheme(.dark)
         .confirmationDialog("End this timer?", isPresented: $confirmStop, titleVisibility: .visible) {

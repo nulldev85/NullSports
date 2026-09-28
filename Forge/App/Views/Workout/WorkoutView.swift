@@ -152,7 +152,7 @@ struct WorkoutView: View {
             .fullScreenCover(isPresented: $session.isTimedRunPresented) {
                 WorkoutTimerScreen()
                     .environment(app)
-                    .themed(app.settings)
+                    .themed(app.settings, scheme: .dark)
             }
             .alert("Rename Workout", isPresented: $renaming) {
                 TextField("Workout name", text: $nameText)

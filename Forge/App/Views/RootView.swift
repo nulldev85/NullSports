@@ -43,7 +43,7 @@ struct RootView: View {
             if let controller = app.timers.active {
                 StandaloneTimerScreen(controller: controller)
                     .environment(app)
-                    .themed(app.settings)
+                    .themed(app.settings, scheme: .dark)
                     .toastOverlay(app.feedback)
             }
         }
@@ -71,11 +71,12 @@ extension View {
     /// Applies the athlete's accent color and appearance. `accentColor` is
     /// set alongside `tint` so custom drawing that uses `Color.accentColor`
     /// follows the chosen color too.
-    func themed(_ settings: SettingsStore) -> some View {
+    /// `scheme` overrides the athlete's appearance (the timers are always dark).
+    func themed(_ settings: SettingsStore, scheme: ColorScheme? = nil) -> some View {
         tint(settings.accentColor)
             .accentColor(settings.accentColor)
             .font(.app(.body))
-            .preferredColorScheme(settings.colorScheme)
+            .preferredColorScheme(scheme ?? settings.colorScheme)
     }
 
     func toastOverlay(_ feedback: Feedback) -> some View {
