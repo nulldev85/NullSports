@@ -335,6 +335,7 @@ private struct WorkoutContent: View {
 
     private func rows(_ workout: Workout) -> some View {
         let session = app.session
+        let setTimer = session.setTimer
         return List {
             WorkoutStatsHeader(workout: workout)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -373,6 +374,7 @@ private struct WorkoutContent: View {
                             groupSize: block.exercises.count,
                             position: position,
                             previous: session.previous[entry.exerciseID],
+                            setTimer: setTimer.flatMap { timer in entry.sets.contains { $0.id == timer.setID } ? timer : nil },
                             focus: focus,
                             replace: { actions.replaceExercise(entry.id) },
                             showDetails: { actions.showExercise(entry.exerciseID) }
@@ -508,11 +510,16 @@ struct LiveExerciseSection: View, Equatable {
     let position: Int
     /// Last time's sets for this exercise, for the "previous" column.
     let previous: [WorkoutSet]?
+    /// The timer of one of this exercise's sets, while it has one.
+    let setTimer: SetTimerState?
     var focus: FocusState<SetFieldID?>.Binding
     let replace: () -> Void
     let showDetails: () -> Void
     @Environment(AppModel.self) private var app
     @State private var editingNotes = false
+    /// Switching to (or back from) time, waiting on the athlete's OK
+    /// because numbers they entered would be cleared.
+    @State private var pendingByTime: Bool?
 
     /// Closures and the focus binding don't count: they only ever refer to
     /// the same entry and the same screen.
@@ -524,6 +531,7 @@ struct LiveExerciseSection: View, Equatable {
             && lhs.groupSize == rhs.groupSize
             && lhs.position == rhs.position
             && lhs.previous == rhs.previous
+            && lhs.setTimer == rhs.setTimer
     }
 
     private var isSuperset: Bool { groupSize > 1 }
@@ -532,6 +540,21 @@ struct LiveExerciseSection: View, Equatable {
         let session = app.session
         Section {
             header
+                .confirmationDialog(
+                    pendingByTime == true ? "Track \(entry.name) by time?" : "Track \(entry.name) by \(usualWay)?",
+                    isPresented: Binding(get: { pendingByTime != nil }, set: { if !$0 { pendingByTime = nil } }),
+                    titleVisibility: .visible
+                ) {
+                    Button(pendingByTime == true ? "Track by Time" : "Track by \(usualWay.capitalized)") {
+                        if let byTime = pendingByTime {
+                            app.session.setTrackedByTime(byTime, for: entry.id)
+                        }
+                        pendingByTime = nil
+                    }
+                    Button("Cancel", role: .cancel) { pendingByTime = nil }
+                } message: {
+                    Text(switchMessage)
+                }
             if editingNotes || !entry.notes.isEmpty {
                 TextField("Notes", text: Binding(
                     get: { entry.notes },
@@ -543,12 +566,15 @@ struct LiveExerciseSection: View, Equatable {
             if !entry.sets.isEmpty {
                 SetColumnsHeader(tracking: entry.tracking, showsPrevious: true, showsCheck: true)
             }
+            let plans = entry.tracking.isTimed ? entry.plannedDurations(previous: previous) : []
             ForEach(Array(entry.sets.enumerated()), id: \.element.id) { index, set in
                 LiveSetRow(
                     set: set,
                     number: entry.sets.workingNumber(at: index),
                     tracking: entry.tracking,
                     previous: previous?[safe: index],
+                    planned: plans[safe: index] ?? nil,
+                    timer: setTimer?.setID == set.id ? setTimer : nil,
                     focus: focus
                 )
                 .equatable()
@@ -574,6 +600,34 @@ struct LiveExerciseSection: View, Equatable {
                 .foregroundStyle(Color.accentColor)
             }
         }
+    }
+
+    /// Switches to (or back from) time, asking first if that clears numbers
+    /// already entered.
+    private func trackByTime(_ byTime: Bool) {
+        guard let usual = app.session.usualTracking(of: entry) else { return }
+        let tracking = byTime ? usual.timedVariant : usual
+        if entry.setsLosingValues(switchingTo: tracking) > 0 {
+            pendingByTime = byTime
+        } else {
+            app.session.setTrackedByTime(byTime, for: entry.id)
+        }
+    }
+
+    /// "distance", "reps"…: what the exercise usually counts instead of time.
+    private var usualWay: String {
+        guard let usual = app.session.usualTracking(of: entry) else { return "reps" }
+        let own = usual.fields.filter { !usual.timedVariant.fields.contains($0) }
+        return own.isEmpty ? usual.displayName.lowercased() : own.map(\.spokenName).joined(separator: " & ")
+    }
+
+    private var switchMessage: String {
+        guard let byTime = pendingByTime, let usual = app.session.usualTracking(of: entry) else { return "" }
+        let tracking = byTime ? usual.timedVariant : usual
+        let cleared = entry.tracking.fields.filter { !tracking.fields.contains($0) }.map(\.spokenName)
+        let count = entry.setsLosingValues(switchingTo: tracking)
+        let what = cleared.isEmpty ? "numbers" : cleared.joined(separator: " and ")
+        return "The \(what) entered in \(count == 1 ? "1 set" : "\(count) sets") will be cleared."
     }
 
     private var header: some View {
@@ -612,6 +666,11 @@ struct LiveExerciseSection: View, Equatable {
         if entry.tracking == .weightReps {
             Button("Add Warm-up Sets", systemImage: "flame") {
                 withAnimation(Motion.smooth) { session.addWarmups(to: entry.id) }
+            }
+        }
+        if let usual = session.usualTracking(of: entry), !usual.isTimed {
+            Toggle(isOn: Binding(get: { entry.tracking.isTimed }, set: { trackByTime($0) })) {
+                Label("Track by Time", systemImage: "hourglass")
             }
         }
         Menu("Rest Timer", systemImage: "timer") {
@@ -659,6 +718,10 @@ struct LiveSetRow: View, Equatable {
     let number: Int
     let tracking: TrackingType
     let previous: WorkoutSet?
+    /// For a timed exercise: the time this set is planned for.
+    let planned: Double?
+    /// This set's countdown, while it has one.
+    let timer: SetTimerState?
     var focus: FocusState<SetFieldID?>.Binding
     @Environment(AppModel.self) private var app
 
@@ -667,6 +730,8 @@ struct LiveSetRow: View, Equatable {
             && lhs.number == rhs.number
             && lhs.tracking == rhs.tracking
             && lhs.previous == rhs.previous
+            && lhs.planned == rhs.planned
+            && lhs.timer == rhs.timer
     }
 
     var body: some View {
@@ -681,18 +746,34 @@ struct LiveSetRow: View, Equatable {
                     workout.updateSet(set.id) { $0.rpe = value }
                 }
             }
-            Button {
-                copyPrevious()
-            } label: {
-                Text(previousText)
-                    .font(.num(.caption))
-                    .foregroundStyle(previous == nil ? Color.secondary.opacity(0.5) : Color.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if tracking.isTimed {
+                // Timed sets count down right beside their number.
+                SetTimerPill(
+                    planned: planned,
+                    timer: timer,
+                    completed: set.isCompleted,
+                    logged: set.duration,
+                    toggle: {
+                        dismissKeyboard()
+                        session.toggleSetTimer(set.id)
+                    },
+                    reset: { session.resetSetTimer() }
+                )
+                .equatable()
+            } else {
+                Button {
+                    copyPrevious()
+                } label: {
+                    Text(previousText)
+                        .font(.num(.caption))
+                        .foregroundStyle(previous == nil ? Color.secondary.opacity(0.5) : Color.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .disabled(previous == nil)
             }
-            .buttonStyle(.plain)
-            .disabled(previous == nil)
             TrackingFields(
                 tracking: tracking,
                 weight: field(\.weight),
@@ -704,6 +785,8 @@ struct LiveSetRow: View, Equatable {
                 focus: focus,
                 setID: set.id
             )
+            // The time can't change under a running countdown.
+            .disabled(timer != nil)
             Button {
                 dismissKeyboard()
                 withAnimation(Motion.snappy) {
@@ -745,11 +828,21 @@ struct LiveSetRow: View, Equatable {
         )
     }
 
-    /// Routine targets first, then last time's numbers, as greyed hints.
+    /// Routine targets first, then last time's numbers, as greyed hints (a
+    /// timed set's time is its planned time).
     private var placeholder: SetTarget? {
-        if let target = set.target, !target.isEmpty { return target }
-        guard let previous else { return nil }
-        return SetTarget(reps: previous.reps, weight: previous.weight, duration: previous.duration, distance: previous.distance)
+        var hint: SetTarget?
+        if let target = set.target, !target.isEmpty {
+            hint = target
+        } else if let previous {
+            hint = SetTarget(reps: previous.reps, weight: previous.weight, duration: previous.duration, distance: previous.distance)
+        }
+        if tracking.isTimed, let planned {
+            var timed = hint ?? SetTarget()
+            timed.duration = planned
+            hint = timed
+        }
+        return hint
     }
 
     private var previousText: String {
@@ -771,18 +864,24 @@ struct LiveSetRow: View, Equatable {
     }
 }
 
-/// Floating rest countdown at the bottom of the workout.
+/// Floating countdown at the bottom of the workout: the timed set in
+/// progress, or the rest after a set.
 struct RestTimerBar: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
+        let setTimer = app.session.setTimer
         let rest = app.session.rest
         ZStack {
-            if let rest {
+            if let setTimer {
+                SetTimerCard(timer: setTimer, title: app.session.setTimerTitle ?? "Timed set")
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if let rest {
                 RestTimerCard(rest: rest)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(Motion.smooth, value: setTimer != nil)
         .animation(Motion.smooth, value: rest != nil)
     }
 }

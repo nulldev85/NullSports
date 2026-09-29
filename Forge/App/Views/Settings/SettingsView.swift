@@ -73,15 +73,19 @@ struct SettingsView: View {
                     ForEach(RestOptions.values, id: \.self) { Text(DurationFormat.compact(Double($0))).tag($0) }
                 }
                 Toggle("Start Rest Timer Automatically", isOn: settings.binding(\.autoStartRestTimer))
-                Toggle("Rest Timer Sound", isOn: settings.binding(\.restTimerSound))
-                Toggle("Rest Timer Vibration", isOn: settings.binding(\.restTimerHaptics))
-                Toggle("Notify When Rest Ends", isOn: settings.binding(\.restTimerNotifications))
+                Picker("Get-Ready for Timed Sets", selection: settings.binding(\.timedSetLeadIn)) {
+                    Text("None").tag(0)
+                    ForEach([3, 5, 10, 15], id: \.self) { Text("\($0) seconds").tag($0) }
+                }
+                Toggle("Timer Sounds", isOn: settings.binding(\.restTimerSound))
+                Toggle("Timer Vibration", isOn: settings.binding(\.restTimerHaptics))
+                Toggle("Notify When Timers End", isOn: settings.binding(\.restTimerNotifications))
                 Toggle("Keep Screen On", isOn: settings.binding(\.keepScreenOn))
                 Stepper("Weekly Goal: \(settings.value.weeklyGoal) workouts", value: settings.binding(\.weeklyGoal), in: 1...14)
             } header: {
                 Text("Workouts")
             } footer: {
-                Text("Rest notifications alert you when the rest period ends while Forge is in the background.")
+                Text("Timer sounds, vibration and notifications cover rest periods and timed sets (exercises tracked by time). Notifications alert you when one ends while Forge is in the background.")
             }
 
             Section {
@@ -98,7 +102,7 @@ struct SettingsView: View {
             } header: {
                 Text("Interval Timers")
             } footer: {
-                Text("With background running on, cues keep playing over your music while the phone is locked.")
+                Text("With background running on, cues keep playing over your music while the phone is locked, for timed sets too.")
             }
 
             Section("Plates & Bar") {

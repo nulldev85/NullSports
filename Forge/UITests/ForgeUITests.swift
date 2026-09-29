@@ -296,6 +296,60 @@ final class ForgeUITests: XCTestCase {
         snapshot("20d-SaveCopyDone")
     }
 
+    func testTimedSetsCountDown() throws {
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        XCTAssertTrue(tapIfExists(app.buttons["startEmptyWorkout"], timeout: 10))
+        XCTAssertTrue(tapIfExists(app.buttons["workoutAddExercises"], timeout: 10))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        // (Typing an apostrophe could turn it curly.)
+        search.typeText("Farmer")
+        XCTAssertTrue(tapIfExists(app.buttons["pick-Farmer's Walk (Dumbbell)"], timeout: 10))
+        XCTAssertTrue(tapIfExists(app.buttons["confirmAddExercises"], timeout: 10))
+
+        // Done by time last time (the demo routine), so it's timed again:
+        // each set has a countdown beside its number.
+        let timer = app.buttons.matching(identifier: "setTimer").firstMatch
+        XCTAssertTrue(timer.waitForExistence(timeout: 10), "a farmer's walk last done by time is timed again")
+        sleep(1)
+        snapshot("39-TimedSets")
+
+        // Three seconds this time, then start it.
+        let time = app.textFields.matching(identifier: "Time").firstMatch
+        XCTAssertTrue(time.waitForExistence(timeout: 5))
+        time.tap()
+        time.typeText("3")
+        timer.tap()
+        XCTAssertTrue(app.buttons["finishSetTimer"].waitForExistence(timeout: 5), "the countdown shows at the bottom")
+        sleep(2)
+        snapshot("40-SetCountdown")
+
+        // At zero the set is ticked off by itself and the rest starts.
+        XCTAssertTrue(app.buttons["skipRest"].waitForExistence(timeout: 25), "the set finishes on its own and rest starts")
+        XCTAssertTrue(app.buttons["Mark set incomplete"].firstMatch.exists, "the timed set is logged")
+        sleep(1)
+        snapshot("41-TimedSetDone")
+
+        // Switching back asks first, since it would clear the logged time.
+        XCTAssertTrue(tapIfExists(app.buttons["Exercise options"].firstMatch))
+        // A toggle in a menu can show up as a button or a switch.
+        let options = [app.buttons["Track by Time"], app.switches["Track by Time"], app.descendants(matching: .any)["Track by Time"]]
+        var trackByTime: XCUIElement?
+        for _ in 0..<10 where trackByTime == nil {
+            trackByTime = options.map(\.firstMatch).first { $0.exists }
+            if trackByTime == nil { usleep(500_000) }
+        }
+        let item = try XCTUnwrap(trackByTime, "the exercise menu offers tracking by time")
+        snapshot("42-TrackByTimeMenu")
+        item.tap()
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "switching away from time asks first")
+        snapshot("43-TrackByTimeConfirm")
+        cancel.tap()
+        XCTAssertTrue(app.buttons["Mark set incomplete"].firstMatch.waitForExistence(timeout: 5), "cancelling keeps the logged set")
+    }
+
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))

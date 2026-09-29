@@ -13,6 +13,7 @@ final class Notifier {
     enum Identifier {
         static let rest = "forge.rest"
         static let timer = "forge.timer"
+        static let set = "forge.set"
     }
 
     func requestAuthorizationIfNeeded() {
@@ -33,6 +34,21 @@ final class Notifier {
 
     func cancelRestEnd() {
         center.removePendingNotificationRequests(withIdentifiers: [Identifier.rest])
+    }
+
+    /// A timed set's countdown reaching zero.
+    func scheduleSetEnd(at date: Date, exerciseName: String) {
+        let interval = date.timeIntervalSinceNow
+        guard interval > 1 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Time's up"
+        content.body = exerciseName.isEmpty ? "That set is done." : "That set of \(exerciseName) is done."
+        content.sound = .default
+        schedule(Identifier.set, content: content, after: interval)
+    }
+
+    func cancelSetEnd() {
+        center.removePendingNotificationRequests(withIdentifiers: [Identifier.set])
     }
 
     func scheduleTimerEnd(at date: Date, title: String) {

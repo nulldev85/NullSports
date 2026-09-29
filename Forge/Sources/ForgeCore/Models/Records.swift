@@ -94,6 +94,26 @@ public struct SetRecord: Hashable, Sendable {
     }
 }
 
+/// The sets an exercise was last done with, and how they were tracked.
+public struct LastPerformance: Hashable, Sendable {
+    public var tracking: TrackingType
+    public var sets: [WorkoutSet]
+
+    public init(tracking: TrackingType, sets: [WorkoutSet]) {
+        self.tracking = tracking
+        self.sets = sets
+    }
+}
+
+extension Exercise {
+    /// How to track this exercise in a new workout or routine: by time when
+    /// that's how it was last done, otherwise its usual way.
+    public func tracking(rememberedFrom last: LastPerformance?) -> TrackingType {
+        guard let last, last.tracking != tracking, last.tracking == tracking.timedVariant else { return tracking }
+        return last.tracking
+    }
+}
+
 /// Everything done for one exercise in one workout.
 public struct ExerciseSession: Identifiable, Hashable, Sendable {
     public var id: UUID

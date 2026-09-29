@@ -19,7 +19,13 @@ enum TargetFormatter {
             parts.append(units.distance(distance, short: tracking.usesShortDistance))
         }
         if tracking.usesDuration, let duration = target.duration {
-            parts.append(DurationFormat.precise(duration))
+            let time = DurationFormat.precise(duration)
+            // "32 kg for 2:00"; a run's time reads "5 km in 25:00".
+            if parts.isEmpty {
+                parts.append(time)
+            } else {
+                parts.append((tracking.isTimed ? "for " : "in ") + time)
+            }
         }
         if let rpe = target.rpe {
             parts.append("@\(NumberFormatting.string(rpe, locale: .current, maxFractionDigits: 1, grouping: false))")
@@ -38,6 +44,18 @@ enum TargetFormatter {
         case .reps: return "Reps"
         case .duration: return "Time"
         case .distance: return units.distance.symbol(short: tracking.usesShortDistance)
+        }
+    }
+}
+
+extension SetField {
+    /// "weight", "reps", "time", "distance".
+    var spokenName: String {
+        switch self {
+        case .weight: return "weight"
+        case .reps: return "reps"
+        case .duration: return "time"
+        case .distance: return "distance"
         }
     }
 }
@@ -195,7 +213,8 @@ struct SetColumnsHeader: View {
             Text("SET")
                 .frame(width: SetColumn.badge)
             if showsPrevious {
-                Text("PREVIOUS")
+                // Timed sets show their countdown where last time's numbers go.
+                Text(tracking.isTimed ? "TIMER" : "PREVIOUS")
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Spacer(minLength: 0)

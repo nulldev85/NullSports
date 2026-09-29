@@ -356,13 +356,18 @@ public final class WorkoutRepository: @unchecked Sendable {
     /// Completed sets from the most recent completed workout containing each
     /// exercise, for the "previous" column while logging.
     public func lastPerformances(exerciseIDs: [String], excluding workoutID: UUID? = nil) throws -> [String: [WorkoutSet]] {
+        try lastPerformanceDetails(exerciseIDs: exerciseIDs, excluding: workoutID).mapValues(\.sets)
+    }
+
+    /// The same, with how each exercise was tracked that time.
+    public func lastPerformanceDetails(exerciseIDs: [String], excluding workoutID: UUID? = nil) throws -> [String: LastPerformance] {
         guard !exerciseIDs.isEmpty else { return [:] }
         return try queue.read { db in
-            var result: [String: [WorkoutSet]] = [:]
+            var result: [String: LastPerformance] = [:]
             for exerciseID in Set(exerciseIDs) {
                 guard let entry = try db.queryOne(
                     """
-                    SELECT e.id AS entry_id FROM workout_exercise e
+                    SELECT e.id AS entry_id, e.tracking FROM workout_exercise e
                     JOIN workout w ON w.id = e.workout_id
                     JOIN workout_block b ON b.id = e.block_id
                     WHERE e.exercise_id = ? AND w.status = 'completed' AND w.deleted_at IS NULL AND w.id != ?
@@ -376,7 +381,7 @@ public final class WorkoutRepository: @unchecked Sendable {
                     "SELECT * FROM workout_set WHERE workout_exercise_id = ? AND is_completed = 1 ORDER BY position",
                     [entryID]
                 ).map(Self.set(from:))
-                result[exerciseID] = sets
+                result[exerciseID] = LastPerformance(tracking: TrackingType(storedValue: entry.string("tracking")), sets: sets)
             }
             return result
         }

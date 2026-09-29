@@ -136,7 +136,7 @@ struct WorkoutDetailView: View {
             TextField("Routine name", text: $routineName)
             Button("Cancel", role: .cancel) {}
             Button("Save") {
-                let routine = WorkoutFactory.routine(from: workout, name: routineName.isEmpty ? workout.name : routineName)
+                let routine = WorkoutFactory.routine(from: workout, name: routineName.isEmpty ? workout.name : routineName, lookup: app.library.exercise)
                 if app.routines.save(routine) {
                     app.feedback.show("Saved “\(routine.name)” to your routines", style: .success)
                 }

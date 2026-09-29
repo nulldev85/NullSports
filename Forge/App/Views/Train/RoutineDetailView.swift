@@ -189,7 +189,7 @@ struct RoutineExerciseSummaryRow: View {
 
     var body: some View {
         let exercise = app.library.exercise(entry.exerciseID)
-        let tracking = exercise?.tracking ?? .weightReps
+        let tracking = entry.tracking(base: exercise?.tracking ?? .weightReps)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(exercise?.name ?? "Unknown Exercise")

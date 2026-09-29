@@ -15,7 +15,7 @@ public enum WorkoutFactory {
         let blocks = routine.blocks.map { block -> WorkoutBlock in
             let exercises = block.exercises.map { entry -> WorkoutExercise in
                 let exercise = lookup(entry.exerciseID)
-                let tracking = exercise?.tracking ?? .weightReps
+                let tracking = entry.tracking(base: exercise?.tracking ?? .weightReps)
                 let sets: [WorkoutSet]
                 if block.isTimed {
                     // One template set holds the per-round target until the
@@ -48,16 +48,17 @@ public enum WorkoutFactory {
     }
 
     /// A new exercise entry for an in-progress workout: as many sets as last
-    /// time (warm-ups included), otherwise one.
-    public static func entry(for exercise: Exercise, lastPerformance: [WorkoutSet]?, restSeconds: Int? = nil) -> WorkoutExercise {
-        let previous = lastPerformance ?? []
+    /// time (warm-ups included), otherwise one, tracked the way it was last
+    /// done (by time, if that's how the athlete did it).
+    public static func entry(for exercise: Exercise, lastPerformance: LastPerformance?, restSeconds: Int? = nil) -> WorkoutExercise {
+        let previous = lastPerformance?.sets ?? []
         let sets: [WorkoutSet] = previous.isEmpty
             ? [WorkoutSet()]
             : previous.map { WorkoutSet(kind: $0.kind) }
         return WorkoutExercise(
             exerciseID: exercise.id,
             name: exercise.name,
-            tracking: exercise.tracking,
+            tracking: exercise.tracking(rememberedFrom: lastPerformance),
             sets: sets,
             restSeconds: restSeconds
         )
@@ -226,7 +227,7 @@ public enum WorkoutFactory {
 
     /// "Save as routine": the workout's structure with performed values as
     /// targets.
-    public static func routine(from workout: Workout, name: String, folderID: UUID? = nil, now: Date = Date()) -> Routine {
+    public static func routine(from workout: Workout, name: String, folderID: UUID? = nil, now: Date = Date(), lookup: (String) -> Exercise? = { _ in nil }) -> Routine {
         let blocks = workout.blocks.map { block -> RoutineBlock in
             RoutineBlock(
                 exercises: block.exercises.map { exercise in
@@ -237,13 +238,26 @@ public enum WorkoutFactory {
                     } else {
                         sets = exercise.sets.map { RoutineSet(kind: $0.kind, target: targetFrom($0, tracking: exercise.tracking)) }
                     }
-                    return RoutineExercise(exerciseID: exercise.exerciseID, sets: sets, restSeconds: exercise.restSeconds, notes: exercise.notes)
+                    return RoutineExercise(
+                        exerciseID: exercise.exerciseID,
+                        sets: sets,
+                        restSeconds: exercise.restSeconds,
+                        notes: exercise.notes,
+                        byTime: doneByTime(exercise, lookup: lookup) ?? false
+                    )
                 },
                 timer: block.timer,
                 notes: block.notes
             )
         }
         return Routine(folderID: folderID, name: name, notes: "", blocks: blocks, createdAt: now, updatedAt: now)
+    }
+
+    /// Whether an exercise was switched to time for this workout (nil when
+    /// the exercise isn't known, so it can't be told).
+    static func doneByTime(_ exercise: WorkoutExercise, lookup: (String) -> Exercise?) -> Bool? {
+        guard let base = lookup(exercise.exerciseID)?.tracking else { return nil }
+        return exercise.tracking.isTimed && !base.isTimed
     }
 
     static func targetFrom(_ set: WorkoutSet?, tracking: TrackingType) -> SetTarget {
@@ -261,7 +275,7 @@ public enum WorkoutFactory {
     /// Rewrites a routine's structure and targets from a completed workout
     /// (the "update routine" option after finishing). Rep ranges and RPE
     /// targets that the routine already had are kept.
-    public static func updatedRoutine(_ routine: Routine, from workout: Workout, now: Date = Date()) -> Routine {
+    public static func updatedRoutine(_ routine: Routine, from workout: Workout, now: Date = Date(), lookup: (String) -> Exercise? = { _ in nil }) -> Routine {
         var updated = routine
         let originalByExercise = Dictionary(grouping: routine.blocks.flatMap(\.exercises), by: \.exerciseID)
         updated.blocks = workout.blocks.map { block -> RoutineBlock in
@@ -288,7 +302,8 @@ public enum WorkoutFactory {
                         exerciseID: exercise.exerciseID,
                         sets: sets,
                         restSeconds: exercise.restSeconds ?? original?.restSeconds,
-                        notes: exercise.notes.isEmpty ? (original?.notes ?? "") : exercise.notes
+                        notes: exercise.notes.isEmpty ? (original?.notes ?? "") : exercise.notes,
+                        byTime: doneByTime(exercise, lookup: lookup) ?? original?.byTime ?? false
                     )
                 },
                 timer: block.timer,
@@ -311,10 +326,16 @@ public enum WorkoutFactory {
     }
 
     /// Whether finishing this workout could meaningfully update its routine.
-    public static func differsFromRoutine(_ workout: Workout, routine: Routine) -> Bool {
+    public static func differsFromRoutine(_ workout: Workout, routine: Routine, lookup: (String) -> Exercise? = { _ in nil }) -> Bool {
         let workoutShape = workout.blocks.map { block in block.exercises.map { "\($0.exerciseID):\(block.isTimed ? 1 : $0.sets.count)" } }
         let routineShape = routine.blocks.map { block in block.exercises.map { "\($0.exerciseID):\(block.isTimed ? 1 : $0.sets.count)" } }
         if workoutShape != routineShape { return true }
+        // Switched to (or back from) tracking by time.
+        for (block, routineBlock) in zip(workout.blocks, routine.blocks) {
+            for (exercise, routineExercise) in zip(block.exercises, routineBlock.exercises) {
+                if let base = lookup(exercise.exerciseID)?.tracking, routineExercise.tracking(base: base) != exercise.tracking { return true }
+            }
+        }
         for (block, routineBlock) in zip(workout.blocks, routine.blocks) where !block.isTimed {
             for (exercise, routineExercise) in zip(block.exercises, routineBlock.exercises) {
                 for (set, routineSet) in zip(exercise.sets, routineExercise.sets) {

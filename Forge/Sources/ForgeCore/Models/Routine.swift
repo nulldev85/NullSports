@@ -77,16 +77,20 @@ public struct RoutineExercise: Identifiable, Hashable, Codable, Sendable {
     /// Rest after each set; nil means "use the default".
     public var restSeconds: Int?
     public var notes: String
+    /// Done for a set time instead of the exercise's usual reps or distance
+    /// ("Track by Time"). Exercises that are timed anyway ignore it.
+    public var byTime: Bool
 
-    public init(id: UUID = UUID(), exerciseID: String, sets: [RoutineSet] = [], restSeconds: Int? = nil, notes: String = "") {
+    public init(id: UUID = UUID(), exerciseID: String, sets: [RoutineSet] = [], restSeconds: Int? = nil, notes: String = "", byTime: Bool = false) {
         self.id = id
         self.exerciseID = exerciseID
         self.sets = sets
         self.restSeconds = restSeconds
         self.notes = notes
+        self.byTime = byTime
     }
 
-    enum CodingKeys: String, CodingKey { case id, exerciseID, sets, restSeconds, notes }
+    enum CodingKeys: String, CodingKey { case id, exerciseID, sets, restSeconds, notes, byTime }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -95,6 +99,27 @@ public struct RoutineExercise: Identifiable, Hashable, Codable, Sendable {
         sets = c.value(.sets, default: [])
         restSeconds = c.optionalValue(.restSeconds)
         notes = c.value(.notes, default: "")
+        byTime = c.value(.byTime, default: false)
+    }
+
+    /// How the sets are tracked, given how the exercise itself is.
+    public func tracking(base: TrackingType) -> TrackingType {
+        byTime ? base.timedVariant : base
+    }
+
+    /// Sets one set's target time. Later sets of the same kind that had the
+    /// same time, or none yet, follow it, so "3 sets of 2:00" is one edit.
+    public mutating func setTargetDuration(_ seconds: Double?, at index: Int) {
+        guard sets.indices.contains(index) else { return }
+        let old = sets[index].target.duration
+        let kind = sets[index].kind
+        sets[index].target.duration = seconds
+        for later in sets.indices where later > index && sets[later].kind == kind {
+            let current = sets[later].target.duration
+            if current == nil || current == old {
+                sets[later].target.duration = seconds
+            }
+        }
     }
 }
 

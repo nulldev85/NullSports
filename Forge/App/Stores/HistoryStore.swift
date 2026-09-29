@@ -170,8 +170,13 @@ final class HistoryStore {
 
     /// Last time's sets for each exercise, read off the main thread.
     func loadLastPerformances(_ exerciseIDs: [String], excluding workoutID: UUID?) async -> [String: [WorkoutSet]] {
+        await loadLastPerformanceDetails(exerciseIDs, excluding: workoutID).mapValues(\.sets)
+    }
+
+    /// The same, with how each exercise was tracked that time.
+    func loadLastPerformanceDetails(_ exerciseIDs: [String], excluding workoutID: UUID?) async -> [String: LastPerformance] {
         guard !exerciseIDs.isEmpty else { return [:] }
-        return (try? await database.readInBackground { try $0.workouts.lastPerformances(exerciseIDs: exerciseIDs, excluding: workoutID) }) ?? [:]
+        return (try? await database.readInBackground { try $0.workouts.lastPerformanceDetails(exerciseIDs: exerciseIDs, excluding: workoutID) }) ?? [:]
     }
 
     func summaries(on day: Date, calendar: Calendar) -> [WorkoutSummary] {

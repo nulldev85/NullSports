@@ -229,6 +229,21 @@ public enum TrackingType: String, ResilientStringEnum, Identifiable, Hashable, S
     /// Distances for carries and sleds are short (meters/yards); runs and
     /// rides are long (km/miles).
     public var usesShortDistance: Bool { self == .weightDistance || self == .shortDistance }
+
+    /// Time is the goal (a hold, a carry or an effort for a set time), so a
+    /// workout counts each set down.
+    public var isTimed: Bool { self == .duration || self == .weightDuration }
+
+    /// The same exercise done for a set time instead ("Track by Time"):
+    /// carries, reps and runs become efforts for time, keeping the weight
+    /// where there is one.
+    public var timedVariant: TrackingType {
+        switch self {
+        case .duration, .weightDuration: return self
+        case .weightReps, .weightedBodyweight, .weightDistance: return .weightDuration
+        case .reps, .assistedBodyweight, .distanceDuration, .shortDistance: return .duration
+        }
+    }
 }
 
 public enum SetField: String, CaseIterable, Sendable {

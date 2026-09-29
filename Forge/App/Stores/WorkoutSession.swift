@@ -14,6 +14,11 @@ final class WorkoutSession {
     private(set) var workout: Workout?
     private(set) var header: Header?
     private(set) var rest: RestTimerState?
+    /// The countdown of a timed set in progress (like `rest`, it changes
+    /// far less often than the workout).
+    private(set) var setTimer: SetTimerState?
+    /// "Farmer's Walk · Set 2", for the timed set in progress.
+    private(set) var setTimerTitle: String?
     var isPresented = false
     /// The Finish sheet is up.
     var isFinishing = false
@@ -48,6 +53,10 @@ final class WorkoutSession {
     private var retryTask: Task<Void, Never>?
     private var restEndTimer: Timer?
     private var restClearTimer: Timer?
+    /// The next moment a timed set needs attention (a tick, the start, the end).
+    private var setTimerEvent: Timer?
+    private var setTimerHoldsAudio = false
+    private var setTimerKeepsAlive = false
 
     struct Header: Equatable {
         var id: UUID
@@ -121,6 +130,14 @@ final class WorkoutSession {
         if header != newHeader { header = newHeader }
         let newRest = new?.runtime.restTimer
         if rest != newRest { rest = newRest }
+        let newSetTimer = new?.runtime.setTimer
+        if setTimer != newSetTimer { setTimer = newSetTimer }
+        var newTitle: String?
+        if let timer = newSetTimer, let new, let location = new.location(ofSet: timer.setID) {
+            let exercise = new.blocks[location.block].exercises[location.exercise]
+            newTitle = "\(exercise.name) · Set \(exercise.sets.workingNumber(at: location.set))"
+        }
+        if setTimerTitle != newTitle { setTimerTitle = newTitle }
     }
 
     // MARK: Lifecycle
@@ -162,6 +179,7 @@ final class WorkoutSession {
         if let blockID = active.runtime.runningBlockID, let run = active.runtime.runningTimer, active.block(blockID) != nil {
             attachTimedRun(blockID: blockID, run: run)
         }
+        resumeSetTimerAfterRelaunch()
     }
 
     /// Opens a new workout right away; last time's numbers and body weight
@@ -282,31 +300,56 @@ final class WorkoutSession {
     }
 
     func toggleCompletion(of setID: UUID) {
+        guard let set = workout?.set(setID) else { return }
+        if set.isCompleted {
+            mutate(immediate: true) { workout in
+                workout.updateSet(setID) {
+                    $0.isCompleted = false
+                    $0.completedAt = nil
+                }
+            }
+        } else if let timer = setTimer, timer.setID == setID {
+            // Ending a timed set early logs the time actually done.
+            completeTimedSet(at: Date(), early: true, late: false)
+        } else {
+            completeSet(setID, at: Date())
+        }
+    }
+
+    /// Ticks a set off: empty fields are filled from its target (a timed
+    /// set's from its planned time) and last time's numbers, and the rest
+    /// timer starts. `duration` is the time a set timer measured; `plan`
+    /// is what it was planned for, kept as the target of a set ended early.
+    private func completeSet(_ setID: UUID, duration: Double? = nil, plan: Double? = nil, at date: Date) {
         guard let workout, let location = workout.location(ofSet: setID) else { return }
         let block = workout.blocks[location.block]
         let exercise = block.exercises[location.exercise]
         var set = exercise.sets[location.set]
-        if set.isCompleted {
-            set.isCompleted = false
-            set.completedAt = nil
-        } else {
-            set.fillEmptyFields(from: set.target, tracking: exercise.tracking)
-            if let prior = previousSet(for: exercise, index: location.set) {
-                set.fillEmptyFields(from: SetTarget(reps: prior.reps, weight: prior.weight, duration: prior.duration, distance: prior.distance), tracking: exercise.tracking)
-            }
-            set.isCompleted = true
-            set.completedAt = Date()
+        guard !set.isCompleted else { return }
+        if let duration { set.duration = duration }
+        if let plan, set.target?.duration == nil {
+            var target = set.target ?? SetTarget()
+            target.duration = plan
+            set.target = target
         }
+        if exercise.tracking.isTimed, set.duration == nil {
+            set.duration = plannedDuration(for: setID)
+        }
+        set.fillEmptyFields(from: set.target, tracking: exercise.tracking)
+        if let prior = previousSet(for: exercise, index: location.set) {
+            set.fillEmptyFields(from: SetTarget(reps: prior.reps, weight: prior.weight, duration: prior.duration, distance: prior.distance), tracking: exercise.tracking)
+        }
+        set.isCompleted = true
+        set.completedAt = date
         let updated = set
         mutate(immediate: true) { $0.updateSet(setID) { $0 = updated } }
-        guard updated.isCompleted else { return }
 
         if settings.value.restTimerHaptics { cues.haptic(.medium) }
         let isLastInBlock = location.exercise == block.exercises.count - 1
         if settings.value.autoStartRestTimer, !block.isTimed, isLastInBlock {
             let seconds = exercise.restSeconds ?? library.restSeconds(for: exercise.exerciseID) ?? settings.value.defaultRestSeconds
             if seconds > 0 {
-                startRest(seconds: seconds, exerciseName: exercise.name)
+                startRest(seconds: seconds, exerciseName: exercise.name, startedAt: date)
             }
         }
     }
@@ -330,6 +373,7 @@ final class WorkoutSession {
         guard let workout, let location = workout.location(ofSet: setID) else { return }
         let entry = workout.blocks[location.block].exercises[location.exercise]
         let removed = entry.sets[location.set]
+        if setTimer?.setID == setID { clearSetTimer() }
         mutate(immediate: true) { $0.removeSet(setID) }
         // A set with anything logged in it can be put back.
         if removed.isCompleted || removed.hasValues {
@@ -388,13 +432,14 @@ final class WorkoutSession {
     func addExercises(_ exercises: [Exercise], asSuperset: Bool) {
         guard !exercises.isEmpty, let workoutID = workout?.id else { return }
         Task {
-            let last = await history.loadLastPerformances(exercises.map(\.id), excluding: workoutID)
+            let last = await history.loadLastPerformanceDetails(exercises.map(\.id), excluding: workoutID)
             guard self.workout?.id == workoutID else { return }
+            // Each is tracked the way it was last done (by time, say).
             let entries = exercises.map { exercise in
                 WorkoutFactory.entry(for: exercise, lastPerformance: last[exercise.id], restSeconds: library.restSeconds(for: exercise.id))
             }
             withAnimation(Motion.smooth) {
-                previous.merge(last) { _, new in new }
+                previous.merge(last.mapValues(\.sets)) { _, new in new }
                 mutate(immediate: true) { workout in
                     if asSuperset, entries.count > 1 {
                         workout.blocks.append(WorkoutBlock(exercises: entries))
@@ -414,13 +459,16 @@ final class WorkoutSession {
     }
 
     func replaceExercise(_ entryID: UUID, with exercise: Exercise) {
-        guard let workoutID = workout?.id else { return }
+        guard let workoutID = workout?.id, let old = workout?.exercise(entryID) else { return }
+        clearSetTimer(ifIn: old)
+        // An exercise switched to time stays timed with its replacement.
+        let byTime = isTrackedByTime(old)
         withAnimation(Motion.smooth) {
             mutate(immediate: true) { workout in
                 workout.updateExercise(entryID) { entry in
                     entry.exerciseID = exercise.id
                     entry.name = exercise.name
-                    entry.tracking = exercise.tracking
+                    entry.tracking = byTime ? exercise.tracking.timedVariant : exercise.tracking
                     entry.sets = entry.sets.map { WorkoutSet(kind: $0.kind, target: nil) }
                 }
             }
@@ -435,7 +483,34 @@ final class WorkoutSession {
     }
 
     func removeExercise(_ entryID: UUID) {
+        if let entry = workout?.exercise(entryID) { clearSetTimer(ifIn: entry) }
         mutate(immediate: true) { $0.removeExercise(entryID) }
+    }
+
+    // MARK: Tracking by time
+
+    /// How an exercise in the workout is usually tracked.
+    func usualTracking(of entry: WorkoutExercise) -> TrackingType? {
+        library.exercise(entry.exerciseID)?.tracking
+    }
+
+    /// Switched to time for this workout (rather than timed anyway).
+    func isTrackedByTime(_ entry: WorkoutExercise) -> Bool {
+        guard let usual = usualTracking(of: entry) else { return false }
+        return entry.tracking.isTimed && !usual.isTimed
+    }
+
+    /// Switches an exercise between its usual tracking and tracking by
+    /// time. Numbers the new way doesn't use are cleared (the screen asks
+    /// first when any were entered).
+    func setTrackedByTime(_ byTime: Bool, for entryID: UUID) {
+        guard let entry = workout?.exercise(entryID), let usual = usualTracking(of: entry) else { return }
+        let tracking = byTime ? usual.timedVariant : usual
+        guard tracking != entry.tracking else { return }
+        clearSetTimer(ifIn: entry)
+        withAnimation(Motion.smooth) {
+            mutate(immediate: true) { $0.updateExercise(entryID) { $0.retrack(tracking) } }
+        }
     }
 
     func moveBlock(_ blockID: UUID, by offset: Int) {
@@ -456,8 +531,8 @@ final class WorkoutSession {
 
     // MARK: Rest timer
 
-    func startRest(seconds: Int, exerciseName: String) {
-        let state = RestTimerState(startedAt: Date(), duration: Double(seconds), exerciseName: exerciseName)
+    func startRest(seconds: Int, exerciseName: String, startedAt: Date = Date()) {
+        let state = RestTimerState(startedAt: startedAt, duration: Double(seconds), exerciseName: exerciseName)
         mutate(immediate: true) { $0.runtime.restTimer = state }
         if settings.value.restTimerNotifications {
             notifier.requestAuthorizationIfNeeded()
@@ -536,6 +611,231 @@ final class WorkoutSession {
         return timer
     }
 
+    // MARK: Timed sets
+
+    /// The time a set of a timed exercise is planned for (see
+    /// `WorkoutExercise.plannedDurations`); nil counts up.
+    func plannedDuration(for setID: UUID) -> Double? {
+        guard let workout, let location = workout.location(ofSet: setID) else { return nil }
+        let exercise = workout.blocks[location.block].exercises[location.exercise]
+        return exercise.plannedDurations(previous: previous[exercise.exerciseID])[safe: location.set] ?? nil
+    }
+
+    /// The button beside a timed set's number: start, pause or resume.
+    func toggleSetTimer(_ setID: UUID) {
+        if let timer = setTimer, timer.setID == setID {
+            if timer.isPaused {
+                resumeSetTimer()
+            } else {
+                pauseSetTimer()
+            }
+        } else {
+            startSetTimer(setID)
+        }
+    }
+
+    /// Counts a set down from its planned time, after a short "get ready".
+    /// Starting a set ends the rest before it, and any other set's timer.
+    func startSetTimer(_ setID: UUID) {
+        guard let workout, let location = workout.location(ofSet: setID) else { return }
+        let block = workout.blocks[location.block]
+        let exercise = block.exercises[location.exercise]
+        guard !block.isTimed, exercise.tracking.isTimed, !exercise.sets[location.set].isCompleted else { return }
+        let state = SetTimerState(
+            setID: setID,
+            duration: plannedDuration(for: setID),
+            leadIn: Double(max(0, settings.value.timedSetLeadIn)),
+            startedAt: Date()
+        )
+        cancelSetTimerEvent()
+        notifier.cancelSetEnd()
+        if rest != nil {
+            notifier.cancelRestEnd()
+            cancelRestTimers()
+        }
+        mutate(immediate: true) { workout in
+            workout.runtime.restTimer = nil
+            workout.runtime.setTimer = state
+        }
+        holdSetTimerAudio(true)
+        if state.leadIn > 0 {
+            if settings.value.restTimerHaptics { cues.haptic(.light) }
+        } else {
+            playSetCue(.go)
+        }
+        scheduleSetTimerEvent()
+        scheduleSetEndNotification()
+    }
+
+    func pauseSetTimer() {
+        guard var timer = setTimer, !timer.isPaused else { return }
+        timer.pause(at: Date())
+        let paused = timer
+        mutate(immediate: true) { $0.runtime.setTimer = paused }
+        cancelSetTimerEvent()
+        notifier.cancelSetEnd()
+        holdSetTimerAudio(false)
+    }
+
+    func resumeSetTimer() {
+        guard var timer = setTimer, timer.isPaused else { return }
+        timer.resume(at: Date())
+        let resumed = timer
+        mutate(immediate: true) { $0.runtime.setTimer = resumed }
+        holdSetTimerAudio(true)
+        scheduleSetTimerEvent()
+        scheduleSetEndNotification()
+    }
+
+    /// Stops a set's timer without logging anything.
+    func resetSetTimer() {
+        clearSetTimer()
+    }
+
+    private func clearSetTimer() {
+        cancelSetTimerEvent()
+        notifier.cancelSetEnd()
+        holdSetTimerAudio(false)
+        if workout?.runtime.setTimer != nil {
+            mutate(immediate: true) { $0.runtime.setTimer = nil }
+        }
+    }
+
+    private func clearSetTimer(ifIn entry: WorkoutExercise) {
+        guard let timer = setTimer, entry.sets.contains(where: { $0.id == timer.setID }) else { return }
+        clearSetTimer()
+    }
+
+    /// The countdown reached zero, or the athlete ended the set early with
+    /// its check button: the set is logged with the time done, and the rest
+    /// timer starts from when it ended.
+    private func completeTimedSet(at end: Date, early: Bool, late: Bool) {
+        guard let timer = setTimer else { return }
+        let elapsed = timer.elapsed(at: end)
+        clearSetTimer()
+        guard workout?.set(timer.setID) != nil else { return }
+        var duration: Double?
+        if early {
+            // Ended before the set got going: logged like any other tick.
+            if elapsed >= 1 { duration = elapsed.rounded() }
+        } else {
+            duration = timer.duration ?? elapsed.rounded()
+        }
+        if !early, !late { playSetCue(.finish) }
+        completeSet(timer.setID, duration: duration, plan: early && duration != nil ? timer.duration : nil, at: end)
+    }
+
+    /// Picks the timed set back up after the app was closed: finished while
+    /// away means it's logged as done when it ended.
+    private func resumeSetTimerAfterRelaunch() {
+        guard let timer = setTimer else { return }
+        guard workout?.set(timer.setID)?.isCompleted == false else {
+            clearSetTimer()
+            return
+        }
+        if !timer.isPaused { holdSetTimerAudio(true) }
+        scheduleSetTimerEvent()
+    }
+
+    private enum SetTimerMoment {
+        case tick, go, end
+    }
+
+    /// The next thing a running set timer does: a tick in the last seconds
+    /// of the "get ready" or of the set, the start, or the end. One timer at
+    /// a time, rather than a ticker; the countdown itself is drawn by views.
+    private func nextSetTimerMoment(after now: Date) -> (date: Date, moment: SetTimerMoment)? {
+        guard let timer = setTimer, !timer.isPaused else { return nil }
+        var moments: [(date: Date, moment: SetTimerMoment)] = []
+        if let start = timer.workStartsAt {
+            for second in [3.0, 2.0, 1.0] where timer.leadIn >= second {
+                moments.append((start.addingTimeInterval(-second), .tick))
+            }
+            moments.append((start, .go))
+        }
+        if let end = timer.endsAt {
+            if let duration = timer.duration, duration >= 10 {
+                for second in [3.0, 2.0, 1.0] {
+                    moments.append((end.addingTimeInterval(-second), .tick))
+                }
+            }
+            moments.append((end, .end))
+        }
+        return moments.filter { $0.date > now }.min { $0.date < $1.date }
+    }
+
+    private func scheduleSetTimerEvent() {
+        cancelSetTimerEvent()
+        guard let timer = setTimer, !timer.isPaused else { return }
+        let now = Date()
+        // Ran out while the app was away.
+        if timer.isFinished(at: now) {
+            withAnimation(Motion.snappy) {
+                completeTimedSet(at: timer.endsAt ?? now, early: false, late: true)
+            }
+            return
+        }
+        guard let next = nextSetTimerMoment(after: now) else { return }
+        setTimerEvent = Self.oneShot(at: next.date) { [weak self] in
+            self?.setTimerMomentArrived(next.moment, scheduledFor: next.date)
+        }
+    }
+
+    private func setTimerMomentArrived(_ moment: SetTimerMoment, scheduledFor date: Date) {
+        setTimerEvent = nil
+        // Firing late means the app was in the background: no stale beeps.
+        let late = Date().timeIntervalSince(date) > 1.5
+        switch moment {
+        case .tick:
+            if !late { playSetCue(.tick) }
+        case .go:
+            if !late { playSetCue(.go) }
+        case .end:
+            if let timer = setTimer, timer.isFinished(at: Date()) {
+                withAnimation(Motion.snappy) {
+                    completeTimedSet(at: late ? (timer.endsAt ?? Date()) : Date(), early: false, late: late)
+                }
+                return
+            }
+        }
+        scheduleSetTimerEvent()
+    }
+
+    private func cancelSetTimerEvent() {
+        setTimerEvent?.invalidate()
+        setTimerEvent = nil
+    }
+
+    private func playSetCue(_ tone: CuePlayer.Tone) {
+        if settings.value.restTimerSound { cues.play(tone) }
+        guard settings.value.restTimerHaptics else { return }
+        switch tone {
+        case .tick: cues.haptic(.light)
+        case .go: cues.haptic(.heavy)
+        default: break
+        }
+    }
+
+    /// Keeps the sound ready (and, with background running on, the app
+    /// awake) while a set counts down, so every beep lands on time.
+    private func holdSetTimerAudio(_ hold: Bool) {
+        guard hold != setTimerHoldsAudio else { return }
+        setTimerHoldsAudio = hold
+        if hold {
+            setTimerKeepsAlive = settings.value.timerBackgroundAudio
+            cues.acquire(keepAlive: setTimerKeepsAlive)
+        } else {
+            cues.release(keepAlive: setTimerKeepsAlive)
+        }
+    }
+
+    private func scheduleSetEndNotification() {
+        guard settings.value.restTimerNotifications, let timer = setTimer, let end = timer.endsAt,
+              let workout, let location = workout.location(ofSet: timer.setID) else { return }
+        notifier.requestAuthorizationIfNeeded()
+        notifier.scheduleSetEnd(at: end, exerciseName: workout.blocks[location.block].exercises[location.exercise].name)
+    }
+
     // MARK: Timed blocks
 
     func runTimedBlock(_ blockID: UUID) {
@@ -544,6 +844,8 @@ final class WorkoutSession {
             return
         }
         guard let block = workout?.block(blockID), let config = block.timer else { return }
+        // The block's timer takes over from any timed set.
+        pauseSetTimer()
         var effective = config
         effective.leadIn = Double(settings.value.defaultLeadIn)
         let run = TimerRun(config: effective, startedAt: Date())
@@ -627,7 +929,7 @@ final class WorkoutSession {
     func routineDiffers() -> Bool {
         guard let workout, let routine = routines.routine(workout.routineID) else { return false }
         let finished = WorkoutFactory.finalize(workout, completeRemaining: false)
-        return WorkoutFactory.differsFromRoutine(finished, routine: routine)
+        return WorkoutFactory.differsFromRoutine(finished, routine: routine, lookup: library.exercise)
     }
 
     /// Saves the finished workout off the main thread. Only once it's on
@@ -665,7 +967,7 @@ final class WorkoutSession {
 
         timedRun?.stop()
         if options.updateRoutine, let routineID = finished.routineID, let routine = routines.routine(routineID) {
-            routines.save(WorkoutFactory.updatedRoutine(routine, from: finished))
+            routines.save(WorkoutFactory.updatedRoutine(routine, from: finished, lookup: library.exercise))
         }
         // The summary takes the workout's place in the same screen, as the
         // Finish sheet slides away.
@@ -744,6 +1046,9 @@ final class WorkoutSession {
         retryTask?.cancel()
         notifier.cancelRestEnd()
         cancelRestTimers()
+        notifier.cancelSetEnd()
+        cancelSetTimerEvent()
+        holdSetTimerAudio(false)
         timedRun = nil
         timedBlockID = nil
         isTimedRunPresented = false

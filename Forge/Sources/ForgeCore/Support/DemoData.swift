@@ -83,6 +83,13 @@ public enum DemoData {
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "deadlift-barbell", sets: sets(3, reps: 5, weight: 160), restSeconds: 180)]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "incline-bench-press-dumbbell", sets: sets(3, reps: 10, weight: 30), restSeconds: 90)]),
             RoutineBlock(exercises: [RoutineExercise(exerciseID: "plank", sets: [RoutineSet(target: SetTarget(duration: 60)), RoutineSet(target: SetTarget(duration: 60))], restSeconds: 45)]),
+            // Carried for time rather than distance.
+            RoutineBlock(exercises: [RoutineExercise(
+                exerciseID: "farmers-walk-dumbbell",
+                sets: (0..<3).map { _ in RoutineSet(target: SetTarget(weight: load(32), duration: 60)) },
+                restSeconds: 90,
+                byTime: true
+            )]),
         ])
         for routine in [upper, lower, cindy, engine, fullBody] {
             try database.routines.save(routine)

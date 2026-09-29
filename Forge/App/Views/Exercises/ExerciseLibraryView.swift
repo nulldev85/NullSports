@@ -264,9 +264,22 @@ struct ExerciseDetailView: View {
         note = app.library.note(for: exercise.id)
     }
 
+    /// The exercise's own charts, plus any for other ways it was done
+    /// (time, for a carry done by time).
+    private func chartMetrics(for exercise: Exercise) -> [ExerciseMetric] {
+        var result = ExerciseMetric.metrics(for: exercise.tracking)
+        var seen: Set<TrackingType> = [exercise.tracking]
+        for session in sessions where seen.insert(session.tracking).inserted {
+            for metric in ExerciseMetric.metrics(for: session.tracking) where !result.contains(metric) {
+                result.append(metric)
+            }
+        }
+        return result
+    }
+
     @ViewBuilder
     private func summarySection(_ exercise: Exercise) -> some View {
-        let metrics = ExerciseMetric.metrics(for: exercise.tracking)
+        let metrics = chartMetrics(for: exercise)
         let selected = metric ?? metrics.first ?? .maxReps
         let points = Stats.series(sessions, metric: selected)
         Section {

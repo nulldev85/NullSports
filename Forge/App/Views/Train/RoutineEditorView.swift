@@ -258,13 +258,13 @@ struct RoutineEditorView: View {
     }
 
     /// Last time's sets as targets, or a sensible start.
-    private func defaultSets(for exercise: Exercise, last: [WorkoutSet]) -> [RoutineSet] {
+    private func defaultSets(tracking: TrackingType, last: [WorkoutSet]) -> [RoutineSet] {
         if !last.isEmpty {
             return last.map { set in
                 RoutineSet(kind: set.kind, target: SetTarget(reps: set.reps, weight: set.weight, duration: set.duration, distance: set.distance))
             }
         }
-        switch exercise.tracking {
+        switch tracking {
         case .duration, .weightDuration:
             return Array(repeating: RoutineSet(target: SetTarget(duration: 60)), count: 3).map { RoutineSet(kind: $0.kind, target: $0.target) }
         case .distanceDuration, .shortDistance, .weightDistance:
@@ -283,8 +283,17 @@ struct RoutineEditorView: View {
             let history = app.history
             let library = app.library
             Task {
-                let last = await history.loadLastPerformances(exercises.map(\.id), excluding: nil)
-                let entries = exercises.map { RoutineExercise(exerciseID: $0.id, sets: defaultSets(for: $0, last: last[$0.id] ?? []), restSeconds: library.restSeconds(for: $0.id)) }
+                let last = await history.loadLastPerformanceDetails(exercises.map(\.id), excluding: nil)
+                // Each is set up the way it was last done (by time, say).
+                let entries = exercises.map { exercise -> RoutineExercise in
+                    let tracking = exercise.tracking(rememberedFrom: last[exercise.id])
+                    return RoutineExercise(
+                        exerciseID: exercise.id,
+                        sets: defaultSets(tracking: tracking, last: last[exercise.id]?.sets ?? []),
+                        restSeconds: library.restSeconds(for: exercise.id),
+                        byTime: tracking != exercise.tracking
+                    )
+                }
                 withAnimation(Motion.smooth) {
                     if superset, entries.count > 1 {
                         draft.blocks.append(RoutineBlock(exercises: entries))
@@ -540,7 +549,8 @@ struct EditorExerciseRows: View {
 
     var body: some View {
         let exercise = app.library.exercise(entry.exerciseID)
-        let tracking = exercise?.tracking ?? .weightReps
+        let usual = exercise?.tracking ?? .weightReps
+        let tracking = entry.tracking(base: usual)
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -561,6 +571,14 @@ struct EditorExerciseRows: View {
                             ForEach(RestOptions.values, id: \.self) { seconds in
                                 Button(DurationFormat.compact(Double(seconds))) { entry.restSeconds = seconds }
                             }
+                        }
+                    }
+                    if !isTimed, exercise != nil, !usual.isTimed {
+                        Toggle(isOn: Binding(
+                            get: { entry.byTime },
+                            set: { value in withAnimation(Motion.smooth) { entry.byTime = value } }
+                        )) {
+                            Label("Track by Time", systemImage: "hourglass")
                         }
                     }
                     Button(entry.notes.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") { showingNotes = true }
@@ -627,11 +645,26 @@ struct EditorExerciseRows: View {
                 tracking: tracking,
                 weight: targetBinding(index, \.weight),
                 reps: targetBinding(index, \.reps),
-                duration: targetBinding(index, \.duration),
+                duration: tracking.isTimed ? linkedDurationBinding(index) : targetBinding(index, \.duration),
                 distance: targetBinding(index, \.distance),
                 repsMax: targetBinding(index, \.repsMax)
             )
         }
+    }
+
+    /// A timed exercise's set times: later sets follow an edit until they're
+    /// given a time of their own, so "3 sets of 2:00" is typed once.
+    private func linkedDurationBinding(_ index: Int) -> Binding<Double?> {
+        Binding(
+            get: { index < entry.sets.count ? entry.sets[index].target.duration : nil },
+            set: { newValue in
+                if index < entry.sets.count {
+                    entry.setTargetDuration(newValue, at: index)
+                } else if index == 0 {
+                    entry.sets = [RoutineSet(target: SetTarget(duration: newValue))]
+                }
+            }
+        )
     }
 
     private func timedTarget(_ tracking: TrackingType) -> some View {
@@ -669,11 +702,12 @@ struct EditorExerciseRows: View {
     }
 
     private func addSet() {
+        let tracking = entry.tracking(base: app.library.exercise(entry.exerciseID)?.tracking ?? .weightReps)
         withAnimation(Motion.smooth) {
             if let last = entry.sets.last {
                 entry.sets.append(RoutineSet(kind: last.kind == .warmup ? .normal : last.kind, target: last.target))
             } else {
-                entry.sets.append(RoutineSet(target: SetTarget(reps: 10)))
+                entry.sets.append(RoutineSet(target: tracking.isTimed ? SetTarget(duration: 60) : SetTarget(reps: 10)))
             }
         }
     }

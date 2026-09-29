@@ -138,6 +138,53 @@ public struct WorkoutExercise: Identifiable, Hashable, Codable, Sendable {
     }
 
     public var completedSets: [WorkoutSet] { sets.filter(\.isCompleted) }
+
+    /// The time each set of a timed exercise is planned for, in order: the
+    /// time entered in the set, else its target, else a time entered in an
+    /// earlier set (so "3 sets of 2:00" is typed once), else last time's,
+    /// else the set before's plan. Nil where nothing says, and the set's
+    /// timer then counts up instead.
+    public func plannedDurations(previous: [WorkoutSet]? = nil) -> [Double?] {
+        var plans: [Double?] = []
+        var carried: Double?
+        for (index, set) in sets.enumerated() {
+            // A finished set's plan is its target when it has one (a set
+            // stopped early logs the time actually done).
+            let given = set.isCompleted ? (set.target?.duration ?? set.duration) : set.duration
+            let plan = given
+                ?? set.target?.duration
+                ?? carried
+                ?? previous?[safe: index]?.duration
+                ?? (plans.last ?? nil)
+            plans.append(plan)
+            if let given { carried = given }
+        }
+        return plans
+    }
+
+    /// How many sets have numbers entered that tracking this exercise
+    /// another way would clear.
+    public func setsLosingValues(switchingTo tracking: TrackingType) -> Int {
+        sets.filter { set in
+            (!tracking.usesWeight && set.weight != nil)
+                || (!tracking.usesReps && set.reps != nil)
+                || (!tracking.usesDuration && set.duration != nil)
+                || (!tracking.usesDistance && set.distance != nil)
+        }.count
+    }
+
+    /// Switches how the sets are tracked. Numbers the new way doesn't use
+    /// are cleared, so nothing hidden is ever logged; targets stay, since
+    /// only the ones the tracking uses are read.
+    public mutating func retrack(_ newTracking: TrackingType) {
+        tracking = newTracking
+        for index in sets.indices {
+            if !newTracking.usesWeight { sets[index].weight = nil }
+            if !newTracking.usesReps { sets[index].reps = nil }
+            if !newTracking.usesDuration { sets[index].duration = nil }
+            if !newTracking.usesDistance { sets[index].distance = nil }
+        }
+    }
 }
 
 /// Outcome of a timed block or standalone timer.
@@ -226,23 +273,119 @@ public struct WorkoutRuntimeState: Hashable, Codable, Sendable {
     public var restTimer: RestTimerState?
     public var runningBlockID: UUID?
     public var runningTimer: TimerRun?
+    /// The countdown of a timed set in progress.
+    public var setTimer: SetTimerState?
 
-    public init(restTimer: RestTimerState? = nil, runningBlockID: UUID? = nil, runningTimer: TimerRun? = nil) {
+    public init(restTimer: RestTimerState? = nil, runningBlockID: UUID? = nil, runningTimer: TimerRun? = nil, setTimer: SetTimerState? = nil) {
         self.restTimer = restTimer
         self.runningBlockID = runningBlockID
         self.runningTimer = runningTimer
+        self.setTimer = setTimer
     }
 
-    enum CodingKeys: String, CodingKey { case restTimer, runningBlockID, runningTimer }
+    enum CodingKeys: String, CodingKey { case restTimer, runningBlockID, runningTimer, setTimer }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         restTimer = c.optionalValue(.restTimer)
         runningBlockID = c.optionalValue(.runningBlockID)
         runningTimer = c.optionalValue(.runningTimer)
+        setTimer = c.optionalValue(.setTimer)
     }
 
-    public var isEmpty: Bool { restTimer == nil && runningBlockID == nil && runningTimer == nil }
+    public var isEmpty: Bool { restTimer == nil && runningBlockID == nil && runningTimer == nil && setTimer == nil }
+}
+
+/// The countdown for one set of a timed exercise, or a stopwatch when no
+/// time is planned. Kept with the workout, so it carries on if the app is
+/// closed and reopened.
+public struct SetTimerState: Hashable, Codable, Sendable {
+    public var setID: UUID
+    /// Seconds planned for the set; nil counts up instead.
+    public var duration: Double?
+    /// "Get ready" seconds before the set's own clock starts.
+    public var leadIn: Double
+    /// When it was last started or resumed; nil while paused.
+    public var resumedAt: Date?
+    /// Seconds already run (lead-in included) before the last pause.
+    public var banked: Double
+
+    public init(setID: UUID, duration: Double?, leadIn: Double = 0, startedAt: Date) {
+        self.setID = setID
+        self.duration = duration.map { max(1, $0) }
+        self.leadIn = max(0, leadIn)
+        self.resumedAt = startedAt
+        self.banked = 0
+    }
+
+    enum CodingKeys: String, CodingKey { case setID, duration, leadIn, resumedAt, banked }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        setID = try c.decode(UUID.self, forKey: .setID)
+        duration = c.optionalValue(.duration)
+        leadIn = c.value(.leadIn, default: 0)
+        resumedAt = c.optionalValue(.resumedAt)
+        banked = c.value(.banked, default: 0)
+    }
+
+    public var isPaused: Bool { resumedAt == nil }
+
+    /// Seconds since it started, lead-in included and pauses left out.
+    public func total(at now: Date) -> Double {
+        banked + (resumedAt.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+    }
+
+    /// Seconds of the set itself, after the lead-in (never past the plan).
+    public func elapsed(at now: Date) -> Double {
+        let value = max(0, total(at: now) - leadIn)
+        return duration.map { min($0, value) } ?? value
+    }
+
+    /// "Get ready" seconds left; 0 once the set is under way.
+    public func leadInRemaining(at now: Date) -> Double {
+        max(0, leadIn - total(at: now))
+    }
+
+    /// Seconds left of the planned time (nil when counting up).
+    public func remaining(at now: Date) -> Double? {
+        duration.map { max(0, $0 - elapsed(at: now)) }
+    }
+
+    /// Share of the planned time still to go: 1 at the start, 0 at the end.
+    public func fractionRemaining(at now: Date) -> Double {
+        guard let duration, duration > 0 else { return 1 }
+        return min(1, max(0, 1 - elapsed(at: now) / duration))
+    }
+
+    public func isFinished(at now: Date) -> Bool {
+        guard let duration else { return false }
+        // A hair of slack, so a timer firing right on the end always counts.
+        return total(at: now) >= leadIn + duration - 0.01
+    }
+
+    /// When the set's own clock starts, while the lead-in is running.
+    public var workStartsAt: Date? {
+        guard let resumedAt, banked < leadIn else { return nil }
+        return resumedAt.addingTimeInterval(leadIn - banked)
+    }
+
+    /// When the countdown reaches zero, while it's running.
+    public var endsAt: Date? {
+        guard let resumedAt, let duration else { return nil }
+        return resumedAt.addingTimeInterval(leadIn + duration - banked)
+    }
+
+    public mutating func pause(at now: Date) {
+        guard resumedAt != nil else { return }
+        banked = total(at: now)
+        resumedAt = nil
+    }
+
+    public mutating func resume(at now: Date) {
+        guard resumedAt == nil else { return }
+        resumedAt = now
+    }
 }
 
 public struct RestTimerState: Hashable, Codable, Sendable {

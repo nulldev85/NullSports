@@ -74,6 +74,8 @@ public struct AppSettings: Hashable, Codable, Sendable {
     public var keepScreenOn: Bool
     public var showRPE: Bool
     public var weeklyGoal: Int
+    /// "Get ready" seconds before a timed set's countdown starts.
+    public var timedSetLeadIn: Int
 
     // Interval timers
     public var timerVoice: Bool
@@ -112,6 +114,7 @@ public struct AppSettings: Hashable, Codable, Sendable {
         keepScreenOn: Bool = true,
         showRPE: Bool = false,
         weeklyGoal: Int = 3,
+        timedSetLeadIn: Int = 5,
         timerVoice: Bool = true,
         timerBeeps: Bool = true,
         timerHaptics: Bool = true,
@@ -139,6 +142,7 @@ public struct AppSettings: Hashable, Codable, Sendable {
         self.keepScreenOn = keepScreenOn
         self.showRPE = showRPE
         self.weeklyGoal = weeklyGoal
+        self.timedSetLeadIn = timedSetLeadIn
         self.timerVoice = timerVoice
         self.timerBeeps = timerBeeps
         self.timerHaptics = timerHaptics
@@ -170,7 +174,7 @@ public struct AppSettings: Hashable, Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case weightUnit, distanceUnit, lengthUnit
         case defaultRestSeconds, autoStartRestTimer, restTimerSound, restTimerHaptics, restTimerNotifications
-        case keepScreenOn, showRPE, weeklyGoal
+        case keepScreenOn, showRPE, weeklyGoal, timedSetLeadIn
         case timerVoice, timerBeeps, timerHaptics, timerBackgroundAudio, timerAnnounceRemaining, defaultLeadIn
         case firstWeekday, barWeightKg, barWeightLb, platesKg, platesLb
         case accent, appearance, autoBackupEnabled, autoExportEnabled
@@ -190,6 +194,7 @@ public struct AppSettings: Hashable, Codable, Sendable {
         keepScreenOn = c.value(.keepScreenOn, default: d.keepScreenOn)
         showRPE = c.value(.showRPE, default: d.showRPE)
         weeklyGoal = c.value(.weeklyGoal, default: d.weeklyGoal)
+        timedSetLeadIn = c.value(.timedSetLeadIn, default: d.timedSetLeadIn)
         timerVoice = c.value(.timerVoice, default: d.timerVoice)
         timerBeeps = c.value(.timerBeeps, default: d.timerBeeps)
         timerHaptics = c.value(.timerHaptics, default: d.timerHaptics)
