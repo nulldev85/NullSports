@@ -9,6 +9,8 @@ struct ForgeApp: App {
         if ProcessInfo.processInfo.arguments.contains("-ForgeUITest") {
             // Keeps UI tests fast and deterministic.
             UIView.setAnimationsEnabled(false)
+            // Records any main-thread stall, for the CI report.
+            StallMonitor.shared.start()
         }
     }
 

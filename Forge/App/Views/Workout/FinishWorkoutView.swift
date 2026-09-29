@@ -48,6 +48,7 @@ struct FinishWorkoutView: View {
             }
             .canvasBackground()
             .navigationTitle("Finish Workout")
+            .stallContext("Finish")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -273,6 +274,7 @@ struct WorkoutSummaryView: View {
                 .padding(20)
             }
             .background(Theme.canvas)
+            .stallContext("Summary")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

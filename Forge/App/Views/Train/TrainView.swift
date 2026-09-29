@@ -170,6 +170,7 @@ struct FolderContentsView: View {
         .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(isRoot ? "Train" : (folder?.name ?? "Folder"))
+        .stallContext(isRoot ? "Train" : "Folder")
         .navigationBarTitleDisplayMode(isRoot ? .large : .inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search routines")
         .toolbar {

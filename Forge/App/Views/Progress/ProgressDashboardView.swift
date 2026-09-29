@@ -66,6 +66,7 @@ struct ProgressDashboardView: View {
             }
             .background(Theme.canvas)
             .navigationTitle("Progress")
+            .stallContext("Progress")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -314,6 +315,7 @@ struct AllRecordsView: View {
         }
         .canvasBackground()
         .navigationTitle("Personal Records")
+        .stallContext("Records")
     }
 
     private var groupedRecords: [(exercise: Exercise, records: [PersonalRecord])] {

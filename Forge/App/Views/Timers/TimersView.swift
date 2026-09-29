@@ -74,6 +74,7 @@ struct TimersView: View {
             }
             .background(Theme.canvas)
             .navigationTitle("Timers")
+            .stallContext("Timers")
             .navigationDestination(for: ToolRoute.self) { route in
                 switch route {
                 case .plates: PlateCalculatorView()
@@ -253,6 +254,7 @@ struct TimerSetupView: View {
             }
             .canvasBackground()
             .navigationTitle(request.presetID == nil ? config.kind.displayName : name)
+            .stallContext("Timer setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

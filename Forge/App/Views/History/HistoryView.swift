@@ -78,6 +78,7 @@ struct HistoryView: View {
             .canvasBackground()
             .listStyle(.insetGrouped)
             .navigationTitle("History")
+            .stallContext("History")
             .searchable(text: $query, prompt: "Search workouts, exercises, notes")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {

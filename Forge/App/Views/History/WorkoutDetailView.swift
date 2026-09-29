@@ -103,6 +103,7 @@ struct WorkoutDetailView: View {
         .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(workout.name)
+        .stallContext("Workout detail")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -278,6 +279,7 @@ struct WorkoutEditorView: View {
             }
             .canvasBackground()
             .navigationTitle("Edit Workout")
+            .stallContext("Edit workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

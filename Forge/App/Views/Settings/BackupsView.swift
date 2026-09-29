@@ -191,6 +191,7 @@ struct BackupsView: View {
         }
         .canvasBackground()
         .navigationTitle("Backups & Export")
+        .stallContext("Backups")
         .onAppear {
             data.refresh()
             data.refreshIntegrity()

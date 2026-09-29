@@ -33,6 +33,7 @@ struct RecoveryView: View {
         }
         .canvasBackground()
         .navigationTitle("Find Missing Data")
+        .stallContext("Find missing data")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

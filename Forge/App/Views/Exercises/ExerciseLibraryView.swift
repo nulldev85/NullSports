@@ -48,6 +48,7 @@ struct ExerciseLibraryView: View {
             .canvasBackground()
             .listStyle(.plain)
             .navigationTitle("Exercises")
+            .stallContext("Exercises")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search \(app.library.activeCount) exercises")
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 8) {
@@ -194,6 +195,7 @@ struct ExerciseDetailView: View {
         .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(exercise.name)
+        .stallContext("Exercise detail")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

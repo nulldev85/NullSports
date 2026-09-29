@@ -60,6 +60,7 @@ struct RoutineEditorView: View {
             .canvasBackground()
             .listStyle(.insetGrouped)
             .navigationTitle(request.isNew ? "New Routine" : "Edit Routine")
+            .stallContext("Routine editor")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -701,6 +702,7 @@ struct TimedBlockSetupView: View {
             }
             .canvasBackground()
             .navigationTitle(setup.blockID == nil ? "New Timed Block" : "Edit Timer")
+            .stallContext("Timed block setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

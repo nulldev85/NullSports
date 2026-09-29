@@ -100,6 +100,7 @@ struct WorkoutView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .stallContext("Workout")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 RestTimerBar()
             }

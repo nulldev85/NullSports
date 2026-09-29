@@ -109,6 +109,7 @@ jobs:
           print(preferred[-1]["udid"])
           ')
           echo "Using simulator $device"
+          echo "SIM_DEVICE=$device" >> "$GITHUB_ENV"
           # Boot fully before testing; launching into a simulator that is
           # still starting up can time out.
           xcrun simctl bootstatus "$device" -b
@@ -121,6 +122,45 @@ jobs:
           status=$?
           grep -E "error:|Test Case|Executed|TEST (SUCCEEDED|FAILED)|XCTAssert" build/uitest.log | head -150
           exit $status
+
+      - name: Main-thread stall report
+        if: always()
+        run: |
+          set -uo pipefail
+          container=$(xcrun simctl get_app_container "${SIM_DEVICE:-booted}" com.nulldev85.Forge data 2>/dev/null || true)
+          log="$container/Library/Caches/forge-stalls.log"
+          if [ -z "$container" ] || [ ! -f "$log" ]; then
+            echo "No stall log found (container: $container)"
+            exit 0
+          fi
+          cp "$log" build/stalls.log
+          python3 - <<'PY'
+          import re
+          lines = open("build/stalls.log").read().splitlines()
+          stalls = []
+          test = "run"
+          for line in lines:
+              if line.startswith("=== launch "):
+                  test = " ".join(line.split()[2:-1])
+                  continue
+              m = re.match(r"stall\s+(\d+) ms\s+at\s+([\d.]+) s\s+(.*)", line)
+              if m:
+                  stalls.append((int(m.group(1)), float(m.group(2)), m.group(3).strip(), test))
+          print(f"{len(stalls)} main-thread stalls of 48 ms or more")
+          if stalls:
+              total = sum(s[0] for s in stalls)
+              print(f"total {total} ms, worst {max(s[0] for s in stalls)} ms, over 100 ms: {sum(1 for s in stalls if s[0] >= 100)}")
+              by_screen = {}
+              for ms, at, screen, t in stalls:
+                  entry = by_screen.setdefault(screen, [0, 0, 0])
+                  entry[0] += 1; entry[1] += ms; entry[2] = max(entry[2], ms)
+              print("by screen (count, total ms, worst ms):")
+              for screen, (count, total_ms, worst) in sorted(by_screen.items(), key=lambda kv: -kv[1][1]):
+                  print(f"  {screen:<22} {count:>3} {total_ms:>6} {worst:>5}")
+              print("every stall:")
+              for ms, at, screen, t in stalls:
+                  print(f"  {ms:>5} ms  {at:>7.2f} s  {screen:<22} {t}")
+          PY
 
       - name: Export screenshots
         if: always()

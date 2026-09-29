@@ -101,6 +101,7 @@ struct RoutineDetailView: View {
         .canvasBackground()
         .listStyle(.insetGrouped)
         .navigationTitle(routine.name)
+        .stallContext("Routine")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

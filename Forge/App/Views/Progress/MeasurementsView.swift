@@ -38,6 +38,7 @@ struct MeasurementsView: View {
         }
         .canvasBackground()
         .navigationTitle("Body")
+        .stallContext("Body")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -152,6 +153,7 @@ struct MeasurementDetailView: View {
         }
         .canvasBackground()
         .navigationTitle(kind.displayName)
+        .stallContext("Measurement")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

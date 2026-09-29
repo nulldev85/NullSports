@@ -183,6 +183,7 @@ struct LogResultView: View {
             }
             .canvasBackground()
             .navigationTitle("Log \(config.kind.displayName)")
+            .stallContext("Log result")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

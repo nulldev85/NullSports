@@ -132,6 +132,7 @@ struct SettingsView: View {
         }
         .canvasBackground()
         .navigationTitle("Settings")
+        .stallContext("Settings")
         .onAppear { app.dataSafety.refresh() }
     }
 
@@ -331,6 +332,7 @@ struct RecentlyDeletedView: View {
         }
         .canvasBackground()
         .navigationTitle("Recently Deleted")
+        .stallContext("Recently deleted")
     }
 
     private func expiryText(_ deletedAt: Date) -> String {

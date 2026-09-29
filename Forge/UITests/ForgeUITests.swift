@@ -9,6 +9,8 @@ final class ForgeUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ForgeUITest", "-ForgeSeedDemoData"]
+        // Labels this test's lines in the stall report.
+        app.launchEnvironment["FORGE_TEST_NAME"] = name
         app.launch()
     }
 

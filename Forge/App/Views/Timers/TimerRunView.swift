@@ -38,6 +38,7 @@ struct TimerRunView: View {
             .padding(.bottom, 12)
             .foregroundStyle(Theme.ink)
         }
+        .stallContext("Timer")
         // Resolve every adaptive color in its dark variant, whatever the
         // presentation's appearance.
         .environment(\.colorScheme, .dark)

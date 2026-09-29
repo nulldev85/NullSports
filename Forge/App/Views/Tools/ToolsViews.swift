@@ -50,6 +50,7 @@ struct PlateCalculatorView: View {
         }
         .canvasBackground()
         .navigationTitle("Plate Calculator")
+        .stallContext("Plate calculator")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()

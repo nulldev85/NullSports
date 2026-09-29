@@ -85,6 +85,7 @@ struct ExercisePickerView: View {
             }
             .sensoryFeedback(.selection, trigger: selection)
             .navigationTitle(title)
+            .stallContext("Exercise picker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -289,6 +290,7 @@ struct ExerciseEditorView: View {
             }
             .canvasBackground()
             .navigationTitle(isNew ? "New Exercise" : "Edit Exercise")
+            .stallContext("Exercise editor")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
