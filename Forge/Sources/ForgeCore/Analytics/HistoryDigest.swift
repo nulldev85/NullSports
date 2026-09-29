@@ -19,6 +19,10 @@ public struct HistoryDigest: Sendable {
     public private(set) var monthOfWorkout: [UUID: Date] = [:]
     public private(set) var allTime = PeriodTotals()
     public private(set) var firstWorkoutDate: Date?
+    /// When each routine was last done: its newest workout in History. It
+    /// follows History, so deleting, restoring or re-dating a workout
+    /// changes it.
+    public private(set) var lastDoneByRoutine: [UUID: Date] = [:]
     /// Working sets per muscle per week (primary 1, each secondary 0.5).
     private var muscleWeeks: [Date: [MuscleGroup: Double]] = [:]
     /// Normalized name, notes, exercises and timers per workout.
@@ -42,6 +46,9 @@ public struct HistoryDigest: Sendable {
             if firstWorkoutDate.map({ summary.startedAt < $0 }) ?? true {
                 firstWorkoutDate = summary.startedAt
             }
+            if let routineID = summary.routineID, lastDoneByRoutine[routineID].map({ summary.startedAt > $0 }) ?? true {
+                lastDoneByRoutine[routineID] = summary.startedAt
+            }
         }
         // Every set of a workout shares its start date, so look each week up
         // once per workout.
@@ -60,6 +67,11 @@ public struct HistoryDigest: Sendable {
                 muscleWeeks[week, default: [:]][secondary, default: 0] += 0.5
             }
         }
+    }
+
+    /// When the routine was last done, if it's in History at all.
+    public func lastDone(routineID: UUID) -> Date? {
+        lastDoneByRoutine[routineID]
     }
 
     // MARK: Totals

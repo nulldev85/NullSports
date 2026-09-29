@@ -182,15 +182,6 @@ public final class RoutineRepository: @unchecked Sendable {
         }
     }
 
-    public func markPerformed(routineID: UUID, at date: Date) throws {
-        try queue.write { db in
-            try db.run(
-                "UPDATE routine SET last_performed_at = MAX(COALESCE(last_performed_at, 0), ?) WHERE id = ?",
-                [date, routineID]
-            )
-        }
-    }
-
     public func softDelete(routineID: UUID, at date: Date = Date()) throws {
         try queue.write { db in
             try db.run("UPDATE routine SET deleted_at = ?, updated_at = ? WHERE id = ?", [date, date, routineID])

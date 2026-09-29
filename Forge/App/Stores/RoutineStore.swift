@@ -224,14 +224,6 @@ final class RoutineStore {
         save(routine)
     }
 
-    func markPerformed(_ routineID: UUID, at date: Date) {
-        if let index = routines.firstIndex(where: { $0.id == routineID }) {
-            let current = routines[index].lastPerformedAt ?? .distantPast
-            if date > current { routines[index].lastPerformedAt = date }
-        }
-        persist("update the routine") { try $0.routines.markPerformed(routineID: routineID, at: date) }
-    }
-
     /// Persists a new manual order for the items shown in one folder.
     func reorder(_ ids: [UUID]) {
         var orders: [UUID: Double] = [:]

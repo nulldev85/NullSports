@@ -129,7 +129,6 @@ public enum DemoData {
                 workout = WorkoutFactory.finalize(workout, completeRemaining: false, now: start.addingTimeInterval(minutes * 60))
                 workout.rating = 3 + Int(generator.next() % 3)
                 try database.workouts.save(workout)
-                try database.routines.markPerformed(routineID: routine.id, at: start)
             }
             // A weekly conditioning session.
             if let day = sessionDay(week: week, offset: 5) {

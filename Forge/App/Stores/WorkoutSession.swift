@@ -187,6 +187,20 @@ final class WorkoutSession {
         }
     }
 
+    /// Reloads the "previous" column after History changed (a past workout
+    /// deleted, restored or edited while this one is open), so it never
+    /// shows numbers from a workout that's gone.
+    func refreshPrevious() {
+        guard let workout else { return }
+        let ids = workout.allExercises.map(\.exerciseID)
+        let workoutID = workout.id
+        Task {
+            let last = await history.loadLastPerformances(ids, excluding: workoutID)
+            guard self.workout?.id == workoutID, last != previous else { return }
+            withAnimation(Motion.smooth) { previous = last }
+        }
+    }
+
     /// Last time's sets for the "previous" column, read off the main thread.
     private func loadPrevious() {
         guard let workout else { return }
@@ -650,11 +664,8 @@ final class WorkoutSession {
         }
 
         timedRun?.stop()
-        if let routineID = finished.routineID {
-            routines.markPerformed(routineID, at: finished.startedAt)
-            if options.updateRoutine, let routine = routines.routine(routineID) {
-                routines.save(WorkoutFactory.updatedRoutine(routine, from: finished))
-            }
+        if options.updateRoutine, let routineID = finished.routineID, let routine = routines.routine(routineID) {
+            routines.save(WorkoutFactory.updatedRoutine(routine, from: finished))
         }
         // The summary takes the workout's place in the same screen, as the
         // Finish sheet slides away.
@@ -671,11 +682,9 @@ final class WorkoutSession {
         // summary closes, so they refresh after its transition instead of
         // competing with it.
         let history = history
-        let library = library
         afterDelay(0.6) {
             history.reload()
             history.markChanged()
-            library.refreshUsageInBackground()
         }
         return true
     }
@@ -720,6 +729,7 @@ final class WorkoutSession {
                 }
                 tearDown(keepingScreen: false)
                 history.reload()
+                history.markChanged()
             case .failure(let error):
                 isClosing = false
                 saveNow()

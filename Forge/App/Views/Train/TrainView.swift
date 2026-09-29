@@ -439,7 +439,7 @@ struct RoutineRow: View {
                         Label(folderName, systemImage: "folder")
                     }
                     Text(detailText)
-                    if let last = routine.lastPerformedAt {
+                    if let last = app.history.lastDone(routine.id) {
                         Text("· \(last.relativeDayText)")
                     }
                 }

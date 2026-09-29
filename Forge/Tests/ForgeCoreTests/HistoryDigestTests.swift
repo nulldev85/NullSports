@@ -165,6 +165,46 @@ final class HistoryDigestTests: XCTestCase {
         XCTAssertEqual(snapshot.recentRecords.first?.workoutID, second.id, "the heavier session set the newest record")
     }
 
+    func testLastDoneFollowsTheWorkoutsInHistory() throws {
+        let directory = TemporaryDirectory()
+        let database = try AppDatabase.open(at: directory.location)
+        let routineID = UUID()
+        let otherRoutineID = UUID()
+        var older = Fixtures.workout(on: Fixtures.date(2), [(Fixtures.bench, [(100, 5)])])
+        older.routineID = routineID
+        var newer = Fixtures.workout(on: Fixtures.date(9), [(Fixtures.bench, [(105, 5)])])
+        newer.routineID = routineID
+        var other = Fixtures.workout(on: Fixtures.date(12), [(Fixtures.squat, [(140, 5)])])
+        other.routineID = otherRoutineID
+        let unplanned = Fixtures.workout(on: Fixtures.date(14), [(Fixtures.pushUp, [(nil, 20)])])
+        for workout in [older, newer, other, unplanned] {
+            try database.workouts.save(workout)
+        }
+        func lastDone(_ id: UUID) throws -> Date? {
+            try HistorySnapshot.load(from: database, calendar: calendar, exercises: [:]).digest.lastDone(routineID: id)
+        }
+
+        XCTAssertEqual(try lastDone(routineID), newer.startedAt)
+        XCTAssertEqual(try lastDone(otherRoutineID), other.startedAt)
+        XCTAssertNil(try lastDone(UUID()), "a routine that was never done has no date")
+
+        // Deleting the newest session falls back to the one before it, and
+        // with none left the routine counts as never done.
+        try database.workouts.softDelete(workoutID: newer.id)
+        XCTAssertEqual(try lastDone(routineID), older.startedAt)
+        try database.workouts.softDelete(workoutID: older.id)
+        XCTAssertNil(try lastDone(routineID))
+
+        // Restoring brings it back; moving a workout to another day moves
+        // "last done" with it.
+        try database.workouts.restore(workoutID: newer.id)
+        XCTAssertEqual(try lastDone(routineID), newer.startedAt)
+        var redated = newer
+        redated.startedAt = Fixtures.date(5)
+        try database.workouts.save(redated)
+        XCTAssertEqual(try lastDone(routineID), Fixtures.date(5))
+    }
+
     func testEmptyHistory() {
         let digest = HistoryDigest(summaries: [], records: [], calendar: calendar, exercises: [:])
         XCTAssertEqual(digest.weekStreak(now: now), 0)

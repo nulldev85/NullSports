@@ -53,7 +53,14 @@ final class AppModel {
         // Any change to what the athlete has saved schedules a fresh backup
         // file (written a little later, off the main thread).
         let dataSafety = dataSafety
-        history.onChange = { [weak dataSafety] in dataSafety?.noteDataChanged() }
+        // Anything worked out from History follows it: deleting, restoring
+        // or editing a workout also updates recent exercises and the
+        // "previous" numbers of a workout in progress.
+        history.onChange = { [weak dataSafety, weak library, weak session = self.session] in
+            dataSafety?.noteDataChanged()
+            library?.refreshUsageInBackground()
+            session?.refreshPrevious()
+        }
         routines.onChange = { [weak dataSafety] in dataSafety?.noteDataChanged() }
         measurements.onChange = { [weak dataSafety] in dataSafety?.noteDataChanged() }
         timers.onPresetsChange = { [weak dataSafety] in dataSafety?.noteDataChanged() }

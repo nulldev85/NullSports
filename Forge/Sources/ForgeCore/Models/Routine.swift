@@ -171,6 +171,9 @@ public struct Routine: Identifiable, Hashable, Codable, Sendable {
     public var blocks: [RoutineBlock]
     public var createdAt: Date
     public var updatedAt: Date
+    /// No longer kept up to date: when a routine was last done comes from
+    /// History (`HistoryDigest.lastDone(routineID:)`), so it follows deleted
+    /// and restored workouts. Kept so older backups still read.
     public var lastPerformedAt: Date?
     public var deletedAt: Date?
 

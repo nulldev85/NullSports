@@ -91,6 +91,11 @@ final class HistoryStore {
         return RecordBook(records: (try? database.workouts.setRecords()) ?? [])
     }
 
+    /// When the routine was last done, from the workouts in History.
+    func lastDone(_ routineID: UUID) -> Date? {
+        digest.lastDone(routineID: routineID)
+    }
+
     func workout(_ id: UUID) -> Workout? {
         try? database.workouts.workout(id: id)
     }

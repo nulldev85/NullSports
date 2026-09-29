@@ -39,7 +39,7 @@ struct RoutineDetailView: View {
                             Pill(text: folder.name, color: .secondary)
                         }
                     }
-                    if let last = routine.lastPerformedAt {
+                    if let last = app.history.lastDone(routine.id) {
                         Label("Last done \(last.relativeDayText)", systemImage: "clock.arrow.circlepath")
                             .font(.app(.caption))
                             .foregroundStyle(.secondary)
