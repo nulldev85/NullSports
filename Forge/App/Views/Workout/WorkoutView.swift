@@ -405,22 +405,25 @@ struct WorkoutStatsHeader: View {
             .flatMap(\.exercises)
             .reduce(0) { $0 + $1.sets.filter { $0.kind.isWorking }.count }
         let volume = workout.volume
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                miniStat(title: "Time") {
-                    Text(workout.startedAt, style: .timer)
-                }
-                miniStat(title: "Sets") {
-                    Text(total == 0 ? "—" : "\(completed)/\(total)")
-                        .contentTransition(.numericText(value: Double(completed)))
-                }
-                miniStat(title: "Volume") {
-                    Text(app.settings.units.volume(volume))
-                        .contentTransition(.numericText(value: volume))
+        HStack(spacing: 10) {
+            miniStat(title: "Time") {
+                Text(workout.startedAt, style: .timer)
+            }
+            miniStat(title: "Sets") {
+                Text(total == 0 ? "—" : "\(completed)/\(total)")
+                    .contentTransition(.numericText(value: Double(completed)))
+            }
+            // How much is checked off, tucked into the tile's bottom edge.
+            .overlay(alignment: .bottom) {
+                if total > 0 {
+                    SetsProgressBar(fraction: Double(completed) / Double(total), height: 3)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 5)
                 }
             }
-            if total > 0 {
-                SetsProgressBar(fraction: Double(completed) / Double(total))
+            miniStat(title: "Volume") {
+                Text(app.settings.units.volume(volume))
+                    .contentTransition(.numericText(value: volume))
             }
         }
         .animation(Motion.numeric, value: completed)
@@ -447,6 +450,7 @@ struct WorkoutStatsHeader: View {
 /// How much of the workout is checked off.
 struct SetsProgressBar: View {
     let fraction: Double
+    var height: CGFloat = 4
 
     var body: some View {
         let clamped = CGFloat(max(0, min(1, fraction)))
@@ -459,7 +463,7 @@ struct SetsProgressBar: View {
                     .frame(width: max(minimum, proxy.size.width * clamped))
             }
         }
-        .frame(height: 4)
+        .frame(height: height)
         .animation(Motion.smooth, value: clamped)
         .accessibilityElement()
         .accessibilityLabel("\(Int((fraction * 100).rounded())) percent of sets done")

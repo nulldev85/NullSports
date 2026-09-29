@@ -251,10 +251,13 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
-                Picker("Metric", selection: Binding(get: { selected }, set: { metric = $0 })) {
+                Picker("Metric", selection: Binding(get: { selected }, set: { value in
+                    withAnimation(Motion.smooth) { metric = value }
+                })) {
                     ForEach(metrics) { Text($0.displayName).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .sensoryFeedback(.selection, trigger: selected)
                 if points.count >= 1 {
                     ProgressChart(points: points, metric: selected, tracking: exercise.tracking)
                         .frame(height: 200)
