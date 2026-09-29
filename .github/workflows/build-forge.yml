@@ -134,32 +134,140 @@ jobs:
             exit 0
           fi
           cp "$log" build/stalls.log
-          python3 - <<'PY'
-          import re
-          lines = open("build/stalls.log").read().splitlines()
-          stalls = []
+          python3 - <<'PY' || echo "stall report failed"
+          import glob, os, platform, re, subprocess
+          from collections import defaultdict
+
+          stalls = []  # [ms, at, screen, test, {sample_ms: [(image, base, addr, symbol)]}]
           test = "run"
-          for line in lines:
+          for line in open("build/stalls.log").read().splitlines():
               if line.startswith("=== launch "):
                   test = " ".join(line.split()[2:-1])
                   continue
               m = re.match(r"stall\s+(\d+) ms\s+at\s+([\d.]+) s\s+(.*)", line)
               if m:
-                  stalls.append((int(m.group(1)), float(m.group(2)), m.group(3).strip(), test))
+                  stalls.append([int(m.group(1)), float(m.group(2)), m.group(3).strip(), test, {}])
+                  continue
+              m = re.match(r"\s+@(\d+) (\S+) 0x([0-9a-f]+) 0x([0-9a-f]+)(?: (.*))?$", line)
+              if m and stalls:
+                  frames = stalls[-1][4].setdefault(int(m.group(1)), [])
+                  frames.append((m.group(2), int(m.group(3), 16), int(m.group(4), 16), m.group(5) or ""))
+
           print(f"{len(stalls)} main-thread stalls of 48 ms or more")
-          if stalls:
-              total = sum(s[0] for s in stalls)
-              print(f"total {total} ms, worst {max(s[0] for s in stalls)} ms, over 100 ms: {sum(1 for s in stalls if s[0] >= 100)}")
-              by_screen = {}
-              for ms, at, screen, t in stalls:
-                  entry = by_screen.setdefault(screen, [0, 0, 0])
-                  entry[0] += 1; entry[1] += ms; entry[2] = max(entry[2], ms)
-              print("by screen (count, total ms, worst ms):")
-              for screen, (count, total_ms, worst) in sorted(by_screen.items(), key=lambda kv: -kv[1][1]):
-                  print(f"  {screen:<22} {count:>3} {total_ms:>6} {worst:>5}")
-              print("every stall:")
-              for ms, at, screen, t in stalls:
-                  print(f"  {ms:>5} ms  {at:>7.2f} s  {screen:<22} {t}")
+          if not stalls:
+              raise SystemExit(0)
+          total = sum(s[0] for s in stalls)
+          print(f"total {total} ms, worst {max(s[0] for s in stalls)} ms, over 100 ms: {sum(1 for s in stalls if s[0] >= 100)}")
+          by_screen = {}
+          for ms, at, screen, t, _ in stalls:
+              entry = by_screen.setdefault(screen, [0, 0, 0])
+              entry[0] += 1; entry[1] += ms; entry[2] = max(entry[2], ms)
+          print("by screen (count, total ms, worst ms):")
+          for screen, (count, total_ms, worst) in sorted(by_screen.items(), key=lambda kv: -kv[1][1]):
+              print(f"  {screen:<22} {count:>3} {total_ms:>6} {worst:>5}")
+          print("every stall:")
+          for ms, at, screen, t, _ in stalls:
+              print(f"  {ms:>5} ms  {at:>7.2f} s  {screen:<22} {t}")
+
+          # Name the app's own frames with atos (the build's symbols), and
+          # demangle everything else.
+          apps = glob.glob("build/sim/Build/Products/*-iphonesimulator/Forge.app")
+          arch = platform.machine()
+          names = {}
+          wanted = defaultdict(set)
+          for s in stalls:
+              for frames in s[4].values():
+                  for image, base, addr, symbol in frames:
+                      if image.startswith("Forge"):
+                          wanted[(image, base)].add(addr)
+          for (image, base), addrs in wanted.items():
+              binary = os.path.join(apps[0], image) if apps else ""
+              if not os.path.exists(binary):
+                  continue
+              addrs = sorted(addrs)
+              for i in range(0, len(addrs), 400):
+                  chunk = addrs[i:i + 400]
+                  try:
+                      out = subprocess.run(["xcrun", "atos", "-o", binary, "-arch", arch, "-l", hex(base)] + [hex(a) for a in chunk],
+                                           capture_output=True, text=True, timeout=180).stdout.splitlines()
+                  except Exception as error:
+                      print("atos failed:", error)
+                      break
+                  for addr, text in zip(chunk, out):
+                      names[addr] = re.sub(r" \(in [^)]*\)", "", text.strip())
+          mangled = sorted({f[3] for s in stalls for frames in s[4].values() for f in frames if f[3].startswith(("$s", "_$s"))})
+          demangled = {}
+          if mangled:
+              try:
+                  out = subprocess.run(["xcrun", "swift-demangle", "--simplified", "--compact"], input="\n".join(mangled) + "\n",
+                                       capture_output=True, text=True, timeout=180).stdout.splitlines()
+                  demangled = dict(zip(mangled, out))
+              except Exception as error:
+                  print("swift-demangle failed:", error)
+
+          def name(frame):
+              image, base, addr, symbol = frame
+              if addr in names:
+                  return names[addr]
+              return demangled.get(symbol, symbol) or hex(addr)
+
+          def cause(s):
+              images = {f[0] for frames in s[4].values() for f in frames}
+              if not images:
+                  return "no stack"
+              if any(image.startswith(("XCT", "libXCT")) for image in images):
+                  return "UI test harness (XCUITest query)"
+              if any("sqlite" in image for image in images):
+                  return "database"
+              if any(a in image for image in images for a in ("AVFAudio", "AudioToolbox", "TextToSpeech", "AVFoundation", "MediaExperience")):
+                  return "audio"
+              if any(a in image for image in images for a in ("Accessibility", "AXRuntime", "AXCore")):
+                  return "accessibility (on only under test)"
+              if any(image.startswith("Forge") for image in images):
+                  return "app code under SwiftUI/UIKit"
+              return "SwiftUI/UIKit only"
+
+          causes = defaultdict(lambda: [0, 0])
+          for s in stalls:
+              c = causes[cause(s)]
+              c[0] += 1; c[1] += s[0]
+          print("by cause (count, total ms):")
+          for c, (count, ms) in sorted(causes.items(), key=lambda kv: -kv[1][1]):
+              print(f"  {c:<42} {count:>3} {ms:>6}")
+
+          # App functions on the main thread during stalls the harness didn't
+          # cause (each function counted once per stall).
+          hot = defaultdict(lambda: [0, 0])
+          for s in stalls:
+              if cause(s).startswith("UI test"):
+                  continue
+              seen = set()
+              for frames in s[4].values():
+                  for f in frames:
+                      if f[0].startswith("Forge"):
+                          n = name(f)
+                          n = re.sub(r"\s*\(\S+:\d+\)$", "", n)
+                          if n not in seen:
+                              seen.add(n); hot[n][0] += 1; hot[n][1] += s[0]
+          print("app functions during stalls (stalls, total ms):")
+          for n, (count, ms) in sorted(hot.items(), key=lambda kv: -kv[1][1])[:40]:
+              print(f"  {count:>3} {ms:>6}  {n[:150]}")
+
+          print("slowest stalls, with the main thread's stack:")
+          for s in sorted((s for s in stalls if not cause(s).startswith("UI test")), key=lambda s: -s[0])[:40]:
+              ms, at, screen, t, samples = s
+              print(f"  -- {ms} ms  {screen}  {t}  [{cause(s)}]")
+              for sample_ms, frames in list(samples.items())[:2]:
+                  print(f"     sampled at {sample_ms} ms:")
+                  shown = 0
+                  for f in frames[:6]:
+                      print(f"       {f[0][:22]:<22} {name(f)[:150]}")
+                      shown += 1
+                  app = [f for f in frames[6:] if f[0].startswith("Forge")][:8]
+                  if app:
+                      print("       ...")
+                  for f in app:
+                      print(f"       {f[0][:22]:<22} {name(f)[:150]}")
           PY
 
       - name: Export screenshots
