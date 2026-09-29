@@ -164,6 +164,16 @@ final class DataSafetyStore {
     /// When a copy off the iPhone counts as old.
     static let offDeviceCopyMaxAge: TimeInterval = 7 * 86_400
 
+    /// Whether `url` is inside the app's own container (deleted with it).
+    nonisolated static func isInsideApp(_ url: URL) -> Bool {
+        func path(_ url: URL) -> String {
+            url.standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let item = path(url)
+        let home = path(URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+        return item == home || item.hasPrefix(home + "/")
+    }
+
     /// Saves a complete backup file wherever the athlete chooses in the
     /// save picker (iCloud Drive, typically). It's a copy made by iOS, so it
     /// works however Forge was installed; Forge remembers when and where.
@@ -183,6 +193,13 @@ final class DataSafetyStore {
             DocumentPicker.shared.saveCopy(of: file) { [weak self] destination in
                 try? FileManager.default.removeItem(at: file)
                 guard let self, let destination else { return }
+                // The save screen starts in Forge's own folder, which goes
+                // when the app does: a copy there protects nothing.
+                if Self.isInsideApp(destination) {
+                    try? FileManager.default.removeItem(at: destination)
+                    self.feedback.show("That's Forge's own folder on this iPhone, which is deleted along with the app. Save again and pick iCloud Drive: tap the back arrow at the top left.", style: .warning, duration: 7)
+                    return
+                }
                 let folder = destination.deletingLastPathComponent().lastPathComponent
                 let now = Date()
                 withAnimation(Motion.smooth) {

@@ -289,7 +289,9 @@ final class ForgeUITests: XCTestCase {
             throw XCTSkip("Couldn't find a place to save in the simulator's picker")
         }
         confirm.tap()
-        let answer = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Backup saved to")).firstMatch
+        // Anywhere else is confirmed by name; Forge's own folder (where the
+        // simulator's picker lands) is caught, since it goes with the app.
+        let answer = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ OR label CONTAINS %@", "Backup saved to", "Forge's own folder")).firstMatch
         XCTAssertTrue(answer.waitForExistence(timeout: 10), "saving the copy reaches the app")
         snapshot("20d-SaveCopyDone")
     }
