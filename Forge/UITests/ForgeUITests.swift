@@ -256,7 +256,7 @@ final class ForgeUITests: XCTestCase {
         snapshot("36-FreshInstall")
     }
 
-    func testBackupFolderGuideExplainsThePicker() throws {
+    func testChoosingABackupFolder() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         // The system folder picker doesn't explain itself, so a short guide
         // comes first.
@@ -264,8 +264,26 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["openFolderPicker"].waitForExistence(timeout: 5), "the guide opens before the picker")
         XCTAssertTrue(app.staticTexts["Tap Open at the top right"].exists)
         snapshot("20c-BackupFolderGuide")
-        app.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["chooseBackupFolder"].waitForExistence(timeout: 5), "cancelling leaves the suggestion in place")
+
+        // Then the picker, where tapping Open must always reach the app.
+        app.buttons["openFolderPicker"].tap()
+        let open = app.buttons["Open"].firstMatch
+        guard open.waitForExistence(timeout: 15) else {
+            snapshot("20d-FolderPicker")
+            throw XCTSkip("The system folder picker isn't visible to UI tests here")
+        }
+        sleep(1)
+        snapshot("20d-FolderPicker")
+        guard open.isEnabled else {
+            app.buttons["Cancel"].firstMatch.tap()
+            throw XCTSkip("The picker started somewhere with no folder to open")
+        }
+        open.tap()
+        // It starts in Forge's own folder, which is refused with a message;
+        // any other folder is confirmed by name.
+        let answer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR label BEGINSWITH %@", "Forge's own folder", "Backups will also be saved")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 10), "tapping Open reaches the app")
+        snapshot("20e-FolderAnswer")
     }
 
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {

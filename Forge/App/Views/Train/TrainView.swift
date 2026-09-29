@@ -50,14 +50,9 @@ struct FolderContentsView: View {
     @State private var searchText = ""
     @State private var draftToRestore: Routine?
     @State private var showingImporter = false
-    @State private var importerMode: TrainImporter = .backupFolder
     @State private var showingFolderGuide = false
     @State private var pendingImport: BackupArchive?
     @AppStorage("forge.restoreCardDismissed") private var restoreCardDismissed = false
-
-    enum TrainImporter {
-        case backupFolder, backupFile
-    }
 
     private var isRoot: Bool { folderID == nil }
     private var folder: Folder? { app.routines.folder(folderID) }
@@ -98,7 +93,6 @@ struct FolderContentsView: View {
                 if offersRestore {
                     Section {
                         RestoreBackupCard {
-                            importerMode = .backupFile
                             showingImporter = true
                         } startFresh: {
                             withAnimation(Motion.smooth) { restoreCardDismissed = true }
@@ -203,17 +197,12 @@ struct FolderContentsView: View {
                 draftToRestore = app.routines.loadDraft()
             }
         }
-        .backupFolderGuide(isPresented: $showingFolderGuide) {
-            importerMode = .backupFolder
-            showingImporter = true
+        .backupFolderGuide(isPresented: $showingFolderGuide) { url in
+            app.dataSafety.setExportFolder(url)
         }
-        // One importer for both uses: SwiftUI only honors a single
-        // fileImporter per view.
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: importerMode == .backupFolder ? [.folder] : [.json, .data]) { result in
-            switch (importerMode, result) {
-            case (.backupFolder, .success(let url)):
-                app.dataSafety.setExportFolder(url)
-            case (.backupFile, .success(let url)):
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json, .data]) { result in
+            switch result {
+            case .success(let url):
                 let dataSafety = app.dataSafety
                 let feedback = app.feedback
                 Task {
@@ -223,9 +212,7 @@ struct FolderContentsView: View {
                         feedback.report(error, while: "read that backup")
                     }
                 }
-            case (.backupFolder, .failure(let error)):
-                app.feedback.report(error, while: "use that folder")
-            case (.backupFile, .failure(let error)):
+            case .failure(let error):
                 app.feedback.report(error, while: "open that file")
             }
         }

@@ -82,16 +82,16 @@ private struct GuideStep: View {
 }
 
 extension View {
-    /// The backup-folder guide; `choose` runs once it has closed, since the
-    /// system picker can't open while the guide is still up.
-    func backupFolderGuide(isPresented: Binding<Bool>, choose: @escaping () -> Void) -> some View {
-        modifier(BackupFolderGuidePresenter(isPresented: isPresented, choose: choose))
+    /// The backup-folder guide, then the system folder picker once the guide
+    /// has closed (it can't open over it); `onPick` gets the chosen folder.
+    func backupFolderGuide(isPresented: Binding<Bool>, onPick: @escaping (URL) -> Void) -> some View {
+        modifier(BackupFolderGuidePresenter(isPresented: isPresented, onPick: onPick))
     }
 }
 
 private struct BackupFolderGuidePresenter: ViewModifier {
     @Binding var isPresented: Bool
-    let choose: () -> Void
+    let onPick: (URL) -> Void
     @State private var proceeding = false
 
     func body(content: Content) -> some View {
@@ -99,7 +99,7 @@ private struct BackupFolderGuidePresenter: ViewModifier {
             .sheet(isPresented: $isPresented, onDismiss: {
                 guard proceeding else { return }
                 proceeding = false
-                choose()
+                FolderPicker.shared.present(onPick: onPick)
             }) {
                 BackupFolderGuide { proceeding = true }
             }

@@ -6,12 +6,7 @@ struct BackupsView: View {
     @State private var exportURL: URL?
     @State private var csvURL: URL?
     @State private var showingImporter = false
-    @State private var importerMode: ImporterMode = .backupFile
     @State private var showingFolderGuide = false
-
-    enum ImporterMode {
-        case backupFile, folder
-    }
     @State private var pendingImport: BackupArchive?
     @State private var restoring: BackupManager.Snapshot?
     @State private var errorMessage: String?
@@ -124,7 +119,6 @@ struct BackupsView: View {
                         restoreBlocked = reason
                         return
                     }
-                    importerMode = .backupFile
                     showingImporter = true
                 } label: {
                     progressLabel("Restore from Backup File", systemImage: "square.and.arrow.down", busy: preparing == .reading || data.isReplacingData)
@@ -213,19 +207,14 @@ struct BackupsView: View {
         .sheet(item: Binding(get: { csvURL.map(ShareableFile.init) }, set: { csvURL = $0?.url })) { file in
             ShareSheet(items: [file.url])
         }
-        .backupFolderGuide(isPresented: $showingFolderGuide) {
-            importerMode = .folder
-            showingImporter = true
+        .backupFolderGuide(isPresented: $showingFolderGuide) { url in
+            data.setExportFolder(url)
         }
-        // One importer for both uses: SwiftUI only honors a single
-        // fileImporter per view.
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: importerMode == .folder ? [.folder] : [.json, .data]) { result in
-            switch (importerMode, result) {
-            case (.folder, .success(let url)):
-                data.setExportFolder(url)
-            case (.backupFile, .success(let url)):
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json, .data]) { result in
+            switch result {
+            case .success(let url):
                 prepare(.reading) { pendingImport = try await data.readArchive(at: url) }
-            case (_, .failure(let error)):
+            case .failure(let error):
                 errorMessage = error.localizedDescription
             }
         }
