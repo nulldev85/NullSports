@@ -27,9 +27,9 @@ struct BackupFolderGuide: View {
                         GuideStep(number: 2, title: "Open the folder you want", detail: "Tap a folder to go inside it. To make a new one, tap ••• at the top, then New Folder.")
                         GuideStep(number: 3, title: "Tap Open at the top right", detail: "That picks the folder you're in. Forge copies each backup there from then on.")
                     }
-                    Label("Not On My iPhone › Forge: that folder is deleted along with the app.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Any folder in iCloud Drive works, even one named Forge. Just not On My iPhone › Forge: that's Forge's own folder, and it's deleted along with the app.", systemImage: "info.circle.fill")
                         .font(.app(.footnote, .medium))
-                        .foregroundStyle(Theme.warning)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(24)
             }
