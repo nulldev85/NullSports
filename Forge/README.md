@@ -111,8 +111,15 @@ Forge/
 - App: `cd Forge && xcodegen generate && open Forge.xcodeproj`.
 - Look and feel: colors live in `App/Design/Theme.swift`, type in
   `App/Design/Typography.swift` (Manrope for text, Geist Mono for numbers,
-  both SIL OFL 1.1). `python3 Tools/make_fonts.py` rebuilds the bundled font
-  files and `python3 Tools/make_icon.py` the app icon.
+  both SIL OFL 1.1), motion and haptics in `App/Design/Motion.swift`.
+  `python3 Tools/make_fonts.py` rebuilds the bundled font files and
+  `python3 Tools/make_icon.py` the app icon.
+- Keeping it smooth: the live workout observes the whole workout in one view
+  (`WorkoutContent`); its rows are equatable and bound to their own values,
+  and small views read `WorkoutSession.header`/`rest`. Saves go through a
+  background `CoalescingWriter`. History math belongs in `HistoryDigest`,
+  built off the main thread; timer text reads `TimerController.display`,
+  and only the ring redraws every frame.
 - Exercise library: edit `Tools/generate_exercises.py`, then run
   `python3 Tools/generate_exercises.py`. Never change or remove an existing
   exercise id — history refers to it.
