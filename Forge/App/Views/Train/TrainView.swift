@@ -49,8 +49,6 @@ struct FolderContentsView: View {
     @State private var deletingRoutine: Routine?
     @State private var searchText = ""
     @State private var draftToRestore: Routine?
-    @State private var showingImporter = false
-    @State private var showingFolderGuide = false
     @State private var pendingImport: BackupArchive?
     @AppStorage("forge.restoreCardDismissed") private var restoreCardDismissed = false
 
@@ -67,6 +65,24 @@ struct FolderContentsView: View {
     private var offersRestore: Bool {
         !restoreCardDismissed && app.history.isLoaded && !hasData
             && app.history.deleted.isEmpty && app.routines.folders.isEmpty && !app.session.isActive
+    }
+
+    /// Brings in a copy of a backup file the athlete picks (from iCloud
+    /// Drive, say) and asks before restoring it.
+    private func importBackupFile() {
+        let dataSafety = app.dataSafety
+        let feedback = app.feedback
+        DocumentPicker.shared.importCopy(of: [.json, .data]) { url in
+            guard let url else { return }
+            Task {
+                do {
+                    pendingImport = try await dataSafety.readArchive(at: url)
+                } catch {
+                    feedback.report(error, while: "read that backup")
+                }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     }
 
     var body: some View {
@@ -93,15 +109,15 @@ struct FolderContentsView: View {
                 if offersRestore {
                     Section {
                         RestoreBackupCard {
-                            showingImporter = true
+                            importBackupFile()
                         } startFresh: {
                             withAnimation(Motion.smooth) { restoreCardDismissed = true }
                         }
                     }
-                } else if hasData, app.dataSafety.shouldSuggestExternalFolder {
+                } else if hasData, app.dataSafety.shouldSuggestOffDeviceCopy(newestWorkout: app.history.summaries.first?.startedAt) {
                     Section {
-                        BackupFolderCard {
-                            showingFolderGuide = true
+                        OffDeviceCopyCard(lastSave: app.dataSafety.lastOffDeviceSave, folder: app.dataSafety.offDeviceFolderName, isPreparing: app.dataSafety.isPreparingCopy) {
+                            app.dataSafety.saveCopyOffDevice()
                         } snooze: {
                             withAnimation(Motion.smooth) {
                                 app.dataSafety.snoozeFolderSuggestion()
@@ -195,25 +211,6 @@ struct FolderContentsView: View {
         .onAppear {
             if isRoot, draftToRestore == nil, editor == nil {
                 draftToRestore = app.routines.loadDraft()
-            }
-        }
-        .backupFolderGuide(isPresented: $showingFolderGuide) { url in
-            app.dataSafety.setExportFolder(url)
-        }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json, .data]) { result in
-            switch result {
-            case .success(let url):
-                let dataSafety = app.dataSafety
-                let feedback = app.feedback
-                Task {
-                    do {
-                        pendingImport = try await dataSafety.readArchive(at: url)
-                    } catch {
-                        feedback.report(error, while: "read that backup")
-                    }
-                }
-            case .failure(let error):
-                app.feedback.report(error, while: "open that file")
             }
         }
         .confirmationDialog(
@@ -610,29 +607,50 @@ struct DraftBanner: View {
     }
 }
 
-/// Suggests keeping backup files outside the app, which matters most for
-/// sideloaded installs that may get deleted and reinstalled.
-struct BackupFolderCard: View {
-    let choose: () -> Void
+/// Suggests saving a backup copy off the iPhone (iCloud Drive), which
+/// matters most for sideloaded installs that may get deleted and
+/// reinstalled, and a fresh copy once the last one is old.
+struct OffDeviceCopyCard: View {
+    let lastSave: Date?
+    var folder: String?
+    let isPreparing: Bool
+    let save: () -> Void
     let snooze: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Keep a copy off this iPhone", systemImage: "icloud.and.arrow.up")
+            Label(lastSave == nil ? "Keep a copy off this iPhone" : "Time for a fresh copy", systemImage: "icloud.and.arrow.up")
                 .font(.app(.subheadline, .semibold))
-            Text("Forge backs up on this iPhone after every change, but those files go if the app is deleted. Choose an iCloud Drive folder and every backup is copied there too.")
+            Text(message)
                 .font(.app(.subheadline))
                 .foregroundStyle(.secondary)
             HStack {
-                Button("Choose Folder", action: choose)
-                    .buttonStyle(.borderedProminent)
-                    .foregroundStyle(Theme.onAccent)
-                    .accessibilityIdentifier("chooseBackupFolder")
+                Button(action: save) {
+                    HStack(spacing: 6) {
+                        if isPreparing {
+                            ProgressView()
+                                .tint(Theme.onAccent)
+                        }
+                        Text("Save to iCloud Drive")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .foregroundStyle(Theme.onAccent)
+                .disabled(isPreparing)
+                .accessibilityIdentifier("saveBackupCopy")
                 Button("Not Now", action: snooze)
                     .buttonStyle(.bordered)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var message: String {
+        if let lastSave {
+            let place = folder.map { "in “\($0)”" } ?? "off this iPhone"
+            return "Your latest copy \(place) is from \(lastSave.formatted(date: .abbreviated, time: .omitted)). Save a fresh one so it has your newest workouts."
+        }
+        return "Forge backs up on this iPhone after every change, but those backups go if the app is deleted. Save a copy to iCloud Drive, and Forge will remind you when it's time for a fresh one."
     }
 }
 

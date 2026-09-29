@@ -14,7 +14,6 @@ struct RecoveryView: View {
     @State private var includeMeasurements = true
     @State private var includePresets = true
     @State private var selectionScan = -1
-    @State private var showingFilePicker = false
     @State private var confirmingRestore = false
     @State private var restoredCount: Int?
 
@@ -39,7 +38,7 @@ struct RecoveryView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Scan Again", systemImage: "arrow.clockwise") { scan() }
-                    Button("Scan a Backup File…", systemImage: "doc.badge.plus") { showingFilePicker = true }
+                    Button("Scan a Backup File…", systemImage: "doc.badge.plus") { scanBackupFile() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -50,12 +49,6 @@ struct RecoveryView: View {
             if data.scanProgress == nil, let report = data.recoveryReport, !report.isEmpty {
                 restoreBar(report)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.json, .data]) { result in
-            switch result {
-            case .success(let url): scan(including: url)
-            case .failure(let error): app.feedback.report(error, while: "open that file")
             }
         }
         .confirmationDialog(
@@ -240,7 +233,7 @@ struct RecoveryView: View {
         }
         Section {
             Button {
-                showingFilePicker = true
+                scanBackupFile()
             } label: {
                 Label("Scan a Backup File…", systemImage: "doc.badge.plus")
             }
@@ -384,6 +377,14 @@ struct RecoveryView: View {
     }
 
     // MARK: Actions
+
+    /// Looks through a backup file the athlete picks. It's read from a copy,
+    /// which works however Forge was installed.
+    private func scanBackupFile() {
+        DocumentPicker.shared.importCopy(of: [.json, .data]) { url in
+            if let url { scan(including: url) }
+        }
+    }
 
     private func scan(including file: URL? = nil) {
         restoredCount = nil

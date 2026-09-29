@@ -24,6 +24,10 @@ public final class MetaRepository: @unchecked Sendable {
         public static let integrityProblems = "integrity.problems"
         /// Fingerprint of the last exported content, to skip identical exports.
         public static let lastExportFingerprint = "export.last_fingerprint"
+        /// When the athlete last saved a backup copy off the iPhone (to iCloud
+        /// Drive, say), and the name of the folder it went to.
+        public static let offDeviceSavedAt = "export.off_device_saved_at"
+        public static let offDeviceFolder = "export.off_device_folder"
     }
 
     public func get(_ key: String) throws -> String? {

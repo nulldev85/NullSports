@@ -256,34 +256,42 @@ final class ForgeUITests: XCTestCase {
         snapshot("36-FreshInstall")
     }
 
-    func testChoosingABackupFolder() throws {
+    func testSavingABackupCopy() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
-        // The system folder picker doesn't explain itself, so a short guide
-        // comes first.
-        XCTAssertTrue(tapIfExists(app.buttons["chooseBackupFolder"], timeout: 10), "the Train screen suggests a backup folder")
-        XCTAssertTrue(app.buttons["openFolderPicker"].waitForExistence(timeout: 5), "the guide opens before the picker")
-        XCTAssertTrue(app.staticTexts["Tap Open at the top right"].exists)
-        snapshot("20c-BackupFolderGuide")
-
-        // Then the picker, where tapping Open must always reach the app.
-        app.buttons["openFolderPicker"].tap()
-        let open = app.buttons["Open"].firstMatch
-        guard open.waitForExistence(timeout: 15) else {
-            snapshot("20d-FolderPicker")
-            throw XCTSkip("The system folder picker isn't visible to UI tests here")
+        // Copies off the iPhone go through Apple's save picker, which works
+        // however the app was installed.
+        XCTAssertTrue(tapIfExists(app.buttons["saveBackupCopy"], timeout: 10), "the Train screen suggests saving a copy")
+        let browse = app.buttons["Browse"].firstMatch
+        guard browse.waitForExistence(timeout: 15) else {
+            snapshot("20c-SaveCopyPicker")
+            throw XCTSkip("The system save picker isn't visible to UI tests here")
         }
         sleep(1)
-        snapshot("20d-FolderPicker")
-        guard open.isEnabled else {
-            app.buttons["Cancel"].firstMatch.tap()
-            throw XCTSkip("The picker started somewhere with no folder to open")
+        snapshot("20c-SaveCopyPicker")
+        func confirmButton() -> XCUIElement? {
+            ["Save", "Move", "Copy", "Export", "Done"]
+                .map { app.buttons[$0].firstMatch }
+                .first { $0.exists && $0.isEnabled }
         }
-        open.tap()
-        // It starts in Forge's own folder, which is refused with a message;
-        // any other folder is confirmed by name.
-        let answer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR label BEGINSWITH %@", "Forge's own folder", "Backups will also be saved")).firstMatch
-        XCTAssertTrue(answer.waitForExistence(timeout: 10), "tapping Open reaches the app")
-        snapshot("20e-FolderAnswer")
+        // Somewhere the picker can save: this app's folder on the simulator.
+        if confirmButton() == nil {
+            browse.tap()
+            _ = tapIfExists(app.staticTexts["On My iPhone"].firstMatch, timeout: 5)
+            _ = tapIfExists(app.staticTexts["Forge"].firstMatch, timeout: 5)
+            sleep(1)
+        }
+        guard let confirm = confirmButton() else {
+            snapshot("20d-SaveCopyPicker")
+            for label in ["Cancel", "Close"] where app.buttons[label].firstMatch.exists {
+                app.buttons[label].firstMatch.tap()
+                break
+            }
+            throw XCTSkip("Couldn't find a place to save in the simulator's picker")
+        }
+        confirm.tap()
+        let answer = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Backup saved to")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 10), "saving the copy reaches the app")
+        snapshot("20d-SaveCopyDone")
     }
 
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {

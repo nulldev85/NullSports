@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Everything that protects the athlete's data beyond the live database:
-/// on-device snapshots, JSON/CSV exports, imports, automatic exports to a
-/// folder of their choice (e.g. iCloud Drive) that survive deleting the app,
-/// integrity checks, and finding data that went missing.
+/// on-device snapshots, automatic backup files, JSON/CSV exports, copies
+/// saved off the iPhone (e.g. iCloud Drive) that survive deleting the app,
+/// imports, integrity checks, and finding data that went missing.
 @MainActor
 @Observable
 final class DataSafetyStore {
@@ -16,6 +16,12 @@ final class DataSafetyStore {
     /// A snapshot restore or an import is replacing the data.
     private(set) var isReplacingData = false
     private(set) var folderSuggestionSnoozedUntil: Date?
+    /// When a backup copy was last saved off the iPhone (through the save
+    /// picker), and the name of the folder it went to.
+    private(set) var lastOffDeviceSave: Date?
+    private(set) var offDeviceFolderName: String?
+    /// A backup file is being prepared for the save picker.
+    private(set) var isPreparingCopy = false
     /// The last full integrity check of the data file.
     private(set) var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
     /// Dated backup files in Files › On My iPhone › Forge › Backups.
@@ -54,6 +60,8 @@ final class DataSafetyStore {
         var lastExportDate: Date?
         var exportFolderName: String?
         var folderSuggestionSnoozedUntil: Date?
+        var lastOffDeviceSave: Date?
+        var offDeviceFolderName: String?
         var localBackupFileCount = 0
         var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
     }
@@ -66,6 +74,9 @@ final class DataSafetyStore {
         loaded.exportFolderName = resolveExportFolder(database)?.lastPathComponent
         let snoozedText: String? = try? database.meta.get(MetaRepository.Key.folderSuggestionSnoozedUntil)
         loaded.folderSuggestionSnoozedUntil = snoozedText.flatMap(ISO8601.date(from:))
+        let savedText: String? = try? database.meta.get(MetaRepository.Key.offDeviceSavedAt)
+        loaded.lastOffDeviceSave = savedText.flatMap(ISO8601.date(from:))
+        loaded.offDeviceFolderName = try? database.meta.get(MetaRepository.Key.offDeviceFolder)
         loaded.localBackupFileCount = datedBackups(in: documentsBackupFolder).count
         loaded.integrity = database.integrityStatus
         return loaded
@@ -83,6 +94,8 @@ final class DataSafetyStore {
         if lastExportDate != loaded.lastExportDate { lastExportDate = loaded.lastExportDate }
         if exportFolderName != loaded.exportFolderName { exportFolderName = loaded.exportFolderName }
         if folderSuggestionSnoozedUntil != loaded.folderSuggestionSnoozedUntil { folderSuggestionSnoozedUntil = loaded.folderSuggestionSnoozedUntil }
+        if lastOffDeviceSave != loaded.lastOffDeviceSave { lastOffDeviceSave = loaded.lastOffDeviceSave }
+        if offDeviceFolderName != loaded.offDeviceFolderName { offDeviceFolderName = loaded.offDeviceFolderName }
         if localBackupFileCount != loaded.localBackupFileCount { localBackupFileCount = loaded.localBackupFileCount }
         applyIntegrity(loaded.integrity)
     }
@@ -137,12 +150,52 @@ final class DataSafetyStore {
         }
     }
 
-    /// Backup files in the app's own folder are removed if the app is
-    /// deleted, so suggest a folder outside it (e.g. iCloud Drive).
-    var shouldSuggestExternalFolder: Bool {
-        guard settings.value.autoExportEnabled, exportFolderName == nil else { return false }
-        if let until = folderSuggestionSnoozedUntil, until > Date() { return false }
-        return true
+    /// Backups on the iPhone go if the app is deleted, so suggest saving a
+    /// copy elsewhere (iCloud Drive), and a fresh one once the last copy is
+    /// a week old and there's been a workout since.
+    func shouldSuggestOffDeviceCopy(newestWorkout: Date?, now: Date = Date()) -> Bool {
+        // A folder that already gets every backup needs no reminders.
+        guard exportFolderName == nil else { return false }
+        if let until = folderSuggestionSnoozedUntil, until > now { return false }
+        guard let last = lastOffDeviceSave else { return true }
+        return now.timeIntervalSince(last) > Self.offDeviceCopyMaxAge && (newestWorkout ?? .distantPast) > last
+    }
+
+    /// When a copy off the iPhone counts as old.
+    static let offDeviceCopyMaxAge: TimeInterval = 7 * 86_400
+
+    /// Saves a complete backup file wherever the athlete chooses in the
+    /// save picker (iCloud Drive, typically). It's a copy made by iOS, so it
+    /// works however Forge was installed; Forge remembers when and where.
+    func saveCopyOffDevice() {
+        guard !isPreparingCopy else { return }
+        withAnimation(Motion.snappy) { isPreparingCopy = true }
+        Task {
+            let file: URL
+            do {
+                file = try await makeExportFile()
+            } catch {
+                withAnimation(Motion.snappy) { isPreparingCopy = false }
+                feedback.report(error, while: "prepare the backup")
+                return
+            }
+            withAnimation(Motion.snappy) { isPreparingCopy = false }
+            DocumentPicker.shared.saveCopy(of: file) { [weak self] destination in
+                try? FileManager.default.removeItem(at: file)
+                guard let self, let destination else { return }
+                let folder = destination.deletingLastPathComponent().lastPathComponent
+                let now = Date()
+                withAnimation(Motion.smooth) {
+                    self.lastOffDeviceSave = now
+                    self.offDeviceFolderName = folder
+                }
+                self.feedback.show("Backup saved to “\(folder)”. You'll get a reminder when it's time for a fresh one.", style: .success, duration: 4)
+                self.database.writeInBackground({ database in
+                    try database.meta.set(MetaRepository.Key.offDeviceSavedAt, value: ISO8601.string(from: now))
+                    try database.meta.set(MetaRepository.Key.offDeviceFolder, value: folder)
+                })
+            }
+        }
     }
 
     func snoozeFolderSuggestion(days: Double = 7) {
@@ -288,47 +341,6 @@ final class DataSafetyStore {
     }
 
     // MARK: Automatic export
-
-    func setExportFolder(_ url: URL) {
-        // The picker starts in Forge's own folder, which goes when the app
-        // does: copies there would protect nothing.
-        guard !Self.isInsideApp(url) else {
-            feedback.show("That's Forge's own folder, which is deleted along with the app. Choose a folder in iCloud Drive instead.", style: .warning, duration: 6)
-            return
-        }
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-            let name = url.lastPathComponent
-            withAnimation(Motion.smooth) { exportFolderName = name }
-            database.writeInBackground({ try $0.meta.set(MetaRepository.Key.autoExportBookmark, value: bookmark.base64EncodedString()) }) { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .success:
-                    self.feedback.show("Backups will also be saved to “\(name)”.", style: .success, duration: 4)
-                    // Writes the first copy there now; if the folder can't
-                    // be written to, that shows as a warning.
-                    self.exportNow(quiet: true)
-                case .failure(let error):
-                    self.feedback.report(error, while: "use that folder")
-                    self.refresh()
-                }
-            }
-        } catch {
-            feedback.report(error, while: "use that folder")
-        }
-    }
-
-    /// Whether `url` is inside the app's own container (deleted with it).
-    nonisolated static func isInsideApp(_ url: URL) -> Bool {
-        func path(_ url: URL) -> String {
-            url.standardizedFileURL.resolvingSymlinksInPath().path
-        }
-        let folder = path(url)
-        let home = path(URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
-        return folder == home || folder.hasPrefix(home + "/")
-    }
 
     func clearExportFolder() {
         exportFolderName = nil

@@ -5,8 +5,6 @@ struct BackupsView: View {
     @Environment(AppModel.self) private var app
     @State private var exportURL: URL?
     @State private var csvURL: URL?
-    @State private var showingImporter = false
-    @State private var showingFolderGuide = false
     @State private var pendingImport: BackupArchive?
     @State private var restoring: BackupManager.Snapshot?
     @State private var errorMessage: String?
@@ -58,18 +56,24 @@ struct BackupsView: View {
                         statusRow("Saving", "Instant, verified", symbol: "checkmark.circle.fill", tint: Theme.success)
                         statusRow("Snapshots", snapshotStatus, symbol: data.snapshots.isEmpty ? "circle.dashed" : "checkmark.circle.fill", tint: data.snapshots.isEmpty ? .secondary : Theme.success)
                         statusRow("Backup files", backupFileStatus, symbol: data.lastExportDate == nil ? "circle.dashed" : "checkmark.circle.fill", tint: data.lastExportDate == nil ? .secondary : Theme.success)
-                        statusRow("Off this iPhone", data.exportFolderName ?? "Not set up", symbol: data.exportFolderName == nil ? "exclamationmark.circle.fill" : "checkmark.circle.fill", tint: data.exportFolderName == nil ? Theme.warning : Theme.success)
+                        statusRow("Off this iPhone", offDeviceStatus, symbol: hasFreshOffDeviceCopy ? "checkmark.circle.fill" : "exclamationmark.circle.fill", tint: hasFreshOffDeviceCopy ? Theme.success : Theme.warning)
                         statusRow("Health check", integrityStatus, symbol: data.integrity.problems.isEmpty ? "checkmark.circle.fill" : "xmark.octagon.fill", tint: data.integrity.problems.isEmpty ? Theme.success : Theme.danger)
                     }
                     .font(.app(.caption))
                     if data.exportFolderName == nil {
                         Button {
-                            showingFolderGuide = true
+                            data.saveCopyOffDevice()
                         } label: {
-                            Label("Keep Copies in iCloud Drive…", systemImage: "icloud.and.arrow.up")
-                                .font(.app(.subheadline, .semibold))
+                            HStack(spacing: 6) {
+                                if data.isPreparingCopy {
+                                    ProgressView()
+                                }
+                                Label(data.lastOffDeviceSave == nil ? "Save a Copy to iCloud Drive" : "Save a Fresh Copy to iCloud Drive", systemImage: "icloud.and.arrow.up")
+                                    .font(.app(.subheadline, .semibold))
+                            }
                         }
                         .buttonStyle(.bordered)
+                        .disabled(data.isPreparingCopy)
                         .padding(.top, 2)
                     }
                 }
@@ -119,7 +123,7 @@ struct BackupsView: View {
                         restoreBlocked = reason
                         return
                     }
-                    showingImporter = true
+                    importBackupFile()
                 } label: {
                     progressLabel("Restore from Backup File", systemImage: "square.and.arrow.down", busy: preparing == .reading || data.isReplacingData)
                 }
@@ -132,11 +136,6 @@ struct BackupsView: View {
 
             Section {
                 Toggle("Automatic Backup Files", isOn: app.settings.binding(\.autoExportEnabled))
-                Button {
-                    showingFolderGuide = true
-                } label: {
-                    Label(data.exportFolderName == nil ? "Also Save to a Folder…" : "Change Folder…", systemImage: "folder.badge.plus")
-                }
                 if data.exportFolderName != nil {
                     Button("Stop Saving to \(data.exportFolderName ?? "Folder")", role: .destructive) {
                         data.clearExportFolder()
@@ -157,7 +156,7 @@ struct BackupsView: View {
             } header: {
                 Text("Automatic Backup Files")
             } footer: {
-                Text("After every change, Forge writes a backup file to Files › On My iPhone › Forge › Backups. The newest are all kept, then one a day for a month and one a week for six months. Pick an iCloud Drive folder to keep copies off this iPhone too — the best protection if the app is ever deleted or reinstalled.")
+                Text("After every change, Forge writes a backup file to Files › On My iPhone › Forge › Backups. The newest are all kept, then one a day for a month and one a week for six months. Those stay on this iPhone, so also save a copy to iCloud Drive now and then: Forge reminds you when yours is a week old.")
             }
 
             Section {
@@ -206,17 +205,6 @@ struct BackupsView: View {
         }
         .sheet(item: Binding(get: { csvURL.map(ShareableFile.init) }, set: { csvURL = $0?.url })) { file in
             ShareSheet(items: [file.url])
-        }
-        .backupFolderGuide(isPresented: $showingFolderGuide) { url in
-            data.setExportFolder(url)
-        }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json, .data]) { result in
-            switch result {
-            case .success(let url):
-                prepare(.reading) { pendingImport = try await data.readArchive(at: url) }
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-            }
         }
         .confirmationDialog(
             "Replace all data with this backup?",
@@ -300,7 +288,7 @@ struct BackupsView: View {
     /// Snapshots, backup files and an off-device folder are all in place.
     private var isFullyProtected: Bool {
         let data = app.dataSafety
-        return !data.snapshots.isEmpty && data.lastExportDate != nil && data.exportFolderName != nil && data.integrity.problems.isEmpty
+        return !data.snapshots.isEmpty && data.lastExportDate != nil && hasFreshOffDeviceCopy && data.integrity.problems.isEmpty
     }
 
     private var snapshotStatus: String {
@@ -309,6 +297,37 @@ struct BackupsView: View {
             return app.settings.value.autoBackupEnabled ? "When you leave the app" : "Off"
         }
         return "\(snapshots.count) · newest \(newest.formatted(.relative(presentation: .named)))"
+    }
+
+    /// Where the latest copy off this iPhone is, and how old.
+    private var offDeviceStatus: String {
+        let data = app.dataSafety
+        if let folder = data.exportFolderName {
+            return "Every backup · \(folder)"
+        }
+        guard let saved = data.lastOffDeviceSave else { return "Not yet" }
+        let when = saved.formatted(.relative(presentation: .named))
+        return data.offDeviceFolderName.map { "\($0) · \(when)" } ?? when
+    }
+
+    /// A folder gets every backup, or a copy was saved within the week.
+    private var hasFreshOffDeviceCopy: Bool {
+        let data = app.dataSafety
+        if data.exportFolderName != nil { return true }
+        guard let saved = data.lastOffDeviceSave else { return false }
+        return Date().timeIntervalSince(saved) <= DataSafetyStore.offDeviceCopyMaxAge
+    }
+
+    /// Brings in a copy of a backup file and asks before restoring it.
+    private func importBackupFile() {
+        let data = app.dataSafety
+        DocumentPicker.shared.importCopy(of: [.json, .data]) { url in
+            guard let url else { return }
+            prepare(.reading) {
+                defer { try? FileManager.default.removeItem(at: url) }
+                pendingImport = try await data.readArchive(at: url)
+            }
+        }
     }
 
     private var backupFileStatus: String {
