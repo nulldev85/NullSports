@@ -240,7 +240,7 @@ final class ForgeUITests: XCTestCase {
         findMissing.tap()
         XCTAssertTrue(app.navigationBars["Find Missing Data"].waitForExistence(timeout: 10))
         let finished = NSPredicate(format: "label BEGINSWITH 'Nothing is missing' OR label BEGINSWITH 'Found '")
-        XCTAssertTrue(app.staticTexts.matching(finished).firstMatch.waitForExistence(timeout: 60), "the scan should finish")
+        XCTAssertTrue(app.descendants(matching: .any).matching(finished).firstMatch.waitForExistence(timeout: 60), "the scan should finish")
         sleep(1)
         snapshot("20b-FindMissingData")
     }
@@ -269,7 +269,8 @@ final class ForgeUITests: XCTestCase {
             reps.tap()
             reps.typeText("7")
             app.buttons["finishWorkout"].tap()
-            XCTAssertTrue(app.switches["keepEnteredSets"].waitForExistence(timeout: 10), "typed-in sets are offered on the Finish screen")
+            XCTAssertTrue(app.buttons["saveFinishedWorkout"].waitForExistence(timeout: 10))
+            XCTAssertTrue(reveal(app.switches["keepEnteredSets"]), "typed-in sets are offered on the Finish screen")
             snapshot("37-FinishTypedSets")
         } else {
             app.buttons["finishWorkout"].tap()
