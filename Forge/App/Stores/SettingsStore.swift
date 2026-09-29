@@ -20,11 +20,16 @@ final class SettingsStore {
         }
     }
 
+    /// Called after a change, with the previous and new settings.
+    @ObservationIgnored var onChange: ((AppSettings, AppSettings) -> Void)?
+
     func update(_ change: (inout AppSettings) -> Void) {
         var copy = value
         change(&copy)
         guard copy != value else { return }
+        let previous = value
         value = copy
+        onChange?(previous, copy)
         do {
             try database.meta.saveSettings(copy)
         } catch {

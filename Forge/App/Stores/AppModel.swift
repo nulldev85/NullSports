@@ -26,7 +26,8 @@ final class AppModel {
     /// example, recovery from a damaged database).
     var launchNotice: String?
 
-    init(database: AppDatabase, catalog: ExerciseCatalog) {
+    /// `history` is history already loaded off the main thread at launch.
+    init(database: AppDatabase, catalog: ExerciseCatalog, history preloadedHistory: HistorySnapshot? = nil) {
         self.database = database
         let feedback = Feedback()
         let cues = CuePlayer()
@@ -34,7 +35,7 @@ final class AppModel {
         let settings = SettingsStore(database: database, feedback: feedback)
         let library = LibraryStore(database: database, catalog: catalog, feedback: feedback)
         let routines = RoutineStore(database: database, feedback: feedback)
-        let history = HistoryStore(database: database, feedback: feedback)
+        let history = HistoryStore(database: database, feedback: feedback, settings: settings, library: library, preloaded: preloadedHistory)
         self.feedback = feedback
         self.cues = cues
         self.notifier = notifier
@@ -49,6 +50,12 @@ final class AppModel {
 
         dataSafety.onDataReplaced = { [weak self] in self?.reloadAll() }
         history.onChange = { [weak self] in self?.dataSafety.needsExport = true }
+        // History's numbers depend on the week's first day and on custom
+        // exercises' muscles.
+        settings.onChange = { [weak history] old, new in
+            if old.calendar() != new.calendar() { history?.reload() }
+        }
+        library.onChange = { [weak history] in history?.reload() }
         launchNotice = Self.notice(for: database.report)
 
         purgeExpiredDeletions()
@@ -92,7 +99,7 @@ final class AppModel {
     func handle(_ phase: ScenePhase) {
         switch phase {
         case .background:
-            session.saveNow()
+            session.flush()
             let database = database
             let snapshots = settings.value.autoBackupEnabled
             BackgroundWork.run("Forge maintenance") {
@@ -110,7 +117,8 @@ final class AppModel {
                 }
             }
         case .inactive:
-            session.saveNow()
+            // The app switcher can close the app without a background step.
+            session.flush()
         @unknown default:
             break
         }
@@ -136,7 +144,7 @@ final class AppLauncher {
         let seedDemo = arguments.contains("-ForgeSeedDemoData")
         // UI tests can start in dark mode to capture both appearances.
         let forceDark = isUITest && arguments.contains("-ForgeDarkMode")
-        let result = await Task.detached(priority: .userInitiated) { () -> Result<(AppDatabase, ExerciseCatalog), Error> in
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<(AppDatabase, ExerciseCatalog, HistorySnapshot?), Error> in
             do {
                 let location: StorageLocation
                 if isUITest {
@@ -161,14 +169,25 @@ final class AppLauncher {
                     settings.appearance = .dark
                     try database.meta.saveSettings(settings)
                 }
-                return .success((database, catalog))
+                // History is the heaviest thing to load; do it here, off the
+                // main thread, so the first screen appears complete.
+                let settings = (try? database.meta.loadSettings(default: .defaults(usesMetric: Locale.current.measurementSystem != .us)))
+                    ?? .defaults(usesMetric: Locale.current.measurementSystem != .us)
+                var exercises: [String: Exercise] = [:]
+                for exercise in catalog.exercises { exercises[exercise.id] = exercise }
+                for exercise in (try? database.exercises.customExercises()) ?? [] { exercises[exercise.id] = exercise }
+                let history = try? HistorySnapshot.load(from: database, calendar: settings.calendar(), exercises: exercises)
+                return .success((database, catalog, history))
             } catch {
                 return .failure(error)
             }
         }.value
         switch result {
-        case .success(let (database, catalog)):
-            state = .ready(AppModel(database: database, catalog: catalog))
+        case .success(let (database, catalog, history)):
+            let model = AppModel(database: database, catalog: catalog, history: history)
+            withAnimation(Motion.gentle) {
+                state = .ready(model)
+            }
         case .failure(let error):
             let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             state = .failed(detail)

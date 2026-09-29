@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A timed block (AMRAP, EMOM, Tabata…) inside the live workout.
-struct TimedBlockSection: View {
+struct TimedBlockSection: View, Equatable {
     let block: WorkoutBlock
     let index: Int
     let isRunning: Bool
@@ -11,6 +11,11 @@ struct TimedBlockSection: View {
     let remove: () -> Void
     let clearResult: () -> Void
     @Environment(AppModel.self) private var app
+
+    /// The actions always refer to this same block, so they don't count.
+    nonisolated static func == (lhs: TimedBlockSection, rhs: TimedBlockSection) -> Bool {
+        lhs.block == rhs.block && lhs.index == rhs.index && lhs.isRunning == rhs.isRunning
+    }
 
     var body: some View {
         let config = block.timer ?? .standard(.amrap)
@@ -47,6 +52,7 @@ struct TimedBlockSection: View {
                 HStack {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(Theme.success)
+                        .symbolEffect(.bounce, value: block.result != nil)
                     Text(result.summary(for: config))
                         .font(.app(.title3, .semibold))
                         .monospacedDigit()
@@ -122,11 +128,15 @@ struct TimedMovementRow: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Reads the value this row was drawn with, so the fields never observe
+    /// the whole workout.
     private func targetBinding<T>(_ keyPath: WritableKeyPath<SetTarget, T?>) -> Binding<T?> {
-        Binding(
-            get: { app.session.workout?.exercise(entry.id)?.sets.first?.target?[keyPath: keyPath] },
+        let session = app.session
+        let current = entry.sets.first?.target?[keyPath: keyPath]
+        return Binding(
+            get: { current },
             set: { newValue in
-                app.session.mutate { workout in
+                session.mutate { workout in
                     workout.updateExercise(entry.id) { exercise in
                         if exercise.sets.isEmpty { exercise.sets = [WorkoutSet(target: SetTarget())] }
                         var target = exercise.sets[0].target ?? SetTarget()

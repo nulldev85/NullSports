@@ -64,7 +64,9 @@ struct ExerciseFilterBar: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 4)
+            .animation(Motion.snappy, value: filter)
         }
+        .sensoryFeedback(.selection, trigger: filter)
     }
 
     private func summary(_ names: [String]) -> String {

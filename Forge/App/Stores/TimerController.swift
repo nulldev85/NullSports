@@ -1,5 +1,31 @@
 import SwiftUI
 
+/// What a timer screen shows in text: it changes a few times a second at
+/// most, so views observing it don't redraw on every tick. The ring reads
+/// the run directly, once per frame (see `TimerRing`).
+struct TimerDisplay: Equatable {
+    var phaseIndex: Int
+    var phase: TimerPhase
+    var nextPhase: TimerPhase?
+    var clockText: String
+    /// Whole-run time left ("3:20"), when the run has an end.
+    var remainingText: String?
+    var roundsCompleted: Int
+    var isPaused: Bool
+    var isFinished: Bool
+
+    init(_ snapshot: TimerSnapshot) {
+        phaseIndex = snapshot.phaseIndex
+        phase = snapshot.phase
+        nextPhase = snapshot.nextPhase
+        clockText = snapshot.clockText
+        remainingText = snapshot.totalRemaining.map(DurationFormat.countdownClock)
+        roundsCompleted = snapshot.roundsCompleted
+        isPaused = snapshot.isPaused
+        isFinished = snapshot.isFinished
+    }
+}
+
 /// Drives one timer run: ticks the display, fires cues, keeps the screen
 /// awake and the audio session alive. All timing comes from `TimerRun`
 /// (wall clock), so pauses in ticking — backgrounding, a slow frame — never
@@ -16,10 +42,11 @@ final class TimerController: Identifiable {
     let title: String
     let program: TimerProgram
     private(set) var run: TimerRun
-    private(set) var snapshot: TimerSnapshot
-    /// The clock as displayed, changed only when the text changes, for
-    /// small views (like the workout bar) that shouldn't redraw every tick.
-    private(set) var clockText: String
+    /// Published only when something visible changes.
+    private(set) var display: TimerDisplay
+    /// The latest tick, for cue detection and results; deliberately not
+    /// observed.
+    @ObservationIgnored private var snapshot: TimerSnapshot
     var extraReps = 0
     var movements: [Movement] = []
     /// Called whenever the run's state changes (not on every tick), so it
@@ -43,13 +70,13 @@ final class TimerController: Identifiable {
         self.run = initialRun
         let initialSnapshot = program.snapshot(for: initialRun, at: Date())
         self.snapshot = initialSnapshot
-        self.clockText = initialSnapshot.clockText
+        self.display = TimerDisplay(initialSnapshot)
         self.cues = cues
         self.settings = settings
         self.notifier = notifier
     }
 
-    var isFinished: Bool { run.isFinished || snapshot.isFinished }
+    var isFinished: Bool { run.isFinished || display.isFinished }
     var isPaused: Bool { run.isPaused }
 
     /// Starts ticking (the run itself may already be in progress).
@@ -93,14 +120,13 @@ final class TimerController: Identifiable {
         let next = program.snapshot(for: run, at: now)
         let fired = TimerCueDetector.cues(from: lastSnapshot, to: next)
         lastSnapshot = next
-        snapshot = next
-        if clockText != next.clockText { clockText = next.clockText }
+        publish(next)
         for cue in fired {
             cues.perform(cue, config: program.config, settings: settings.value)
         }
         if next.isFinished, !run.isFinished {
             run.finish(at: now, program: program)
-            snapshot = program.snapshot(for: run, at: now)
+            publish(program.snapshot(for: run, at: now))
             onChange?(run)
             ticker?.invalidate()
             ticker = nil
@@ -110,8 +136,13 @@ final class TimerController: Identifiable {
     }
 
     private func refresh() {
-        snapshot = program.snapshot(for: run, at: Date())
-        if clockText != snapshot.clockText { clockText = snapshot.clockText }
+        publish(program.snapshot(for: run, at: Date()))
+    }
+
+    private func publish(_ next: TimerSnapshot) {
+        snapshot = next
+        let nextDisplay = TimerDisplay(next)
+        if nextDisplay != display { display = nextDisplay }
     }
 
     private func changed() {

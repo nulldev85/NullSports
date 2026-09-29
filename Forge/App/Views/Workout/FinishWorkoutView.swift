@@ -122,16 +122,21 @@ struct RatingPicker: View {
             Spacer()
             ForEach(1...5, id: \.self) { value in
                 Button {
-                    rating = rating == value ? nil : value
+                    withAnimation(Motion.snappy) {
+                        rating = rating == value ? nil : value
+                    }
                 } label: {
                     Image(systemName: (rating ?? 0) >= value ? "star.fill" : "star")
                         .foregroundStyle((rating ?? 0) >= value ? Theme.record : Color.secondary)
                         .font(.app(.title3))
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: rating == value)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(value) stars")
             }
         }
+        .sensoryFeedback(.selection, trigger: rating)
     }
 }
 
@@ -149,11 +154,26 @@ struct WorkoutSummaryView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     VStack(spacing: 8) {
-                        Image(systemName: summary.records.isEmpty ? "checkmark.seal.fill" : "trophy.fill")
-                            .font(.system(size: 64, weight: .bold))
-                            .foregroundStyle(summary.records.isEmpty ? Color.accentColor : Theme.record)
-                            .scaleEffect(appeared ? 1 : 0.4)
-                            .opacity(appeared ? 1 : 0)
+                        let tint = summary.records.isEmpty ? Color.accentColor : Theme.record
+                        ZStack {
+                            // A soft halo and one ripple ring as it lands.
+                            Circle()
+                                .fill(tint.opacity(0.14))
+                                .frame(width: 118, height: 118)
+                                .scaleEffect(appeared ? 1 : 0.5)
+                            Circle()
+                                .stroke(tint.opacity(appeared ? 0 : 0.6), lineWidth: 2)
+                                .frame(width: 118, height: 118)
+                                .scaleEffect(appeared ? 1.7 : 0.8)
+                                .animation(.easeOut(duration: 1.1).delay(0.15), value: appeared)
+                            Image(systemName: summary.records.isEmpty ? "checkmark.seal.fill" : "trophy.fill")
+                                .font(.system(size: 60, weight: .bold))
+                                .foregroundStyle(tint)
+                                .symbolEffect(.bounce, value: appeared)
+                                .scaleEffect(appeared ? 1 : 0.4)
+                        }
+                        .opacity(appeared ? 1 : 0)
+                        .padding(.bottom, 6)
                         Text(summary.records.isEmpty ? "Workout complete" : "New personal records!")
                             .font(.app(.title2, .semibold))
                         Text(workout.name)
@@ -167,6 +187,7 @@ struct WorkoutSummaryView: View {
                         StatTile(title: "Sets", value: "\(workout.completedWorkingSets.count)", symbol: "checkmark.circle")
                         StatTile(title: "Records", value: "\(summary.records.count)", symbol: "trophy", tint: Theme.record)
                     }
+                    .entrance(appeared, delay: 0.12)
 
                     if !summary.records.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
@@ -176,6 +197,7 @@ struct WorkoutSummaryView: View {
                                     .cardStyle(padding: 12)
                             }
                         }
+                        .entrance(appeared, delay: 0.22)
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -203,6 +225,7 @@ struct WorkoutSummaryView: View {
                             .cardStyle(padding: 12)
                         }
                     }
+                    .entrance(appeared, delay: summary.records.isEmpty ? 0.22 : 0.32)
                 }
                 .padding(20)
             }
@@ -215,7 +238,7 @@ struct WorkoutSummaryView: View {
                 }
             }
             .onAppear {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.1)) {
+                withAnimation(Motion.lively.delay(0.1)) {
                     appeared = true
                 }
                 if app.settings.value.timerHaptics {

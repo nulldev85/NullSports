@@ -11,6 +11,10 @@ final class LibraryStore {
     private(set) var lastUsed: [String: Date] = [:]
     private(set) var index: ExerciseSearchIndex
     private var byID: [String: Exercise] = [:]
+    private var usageTask: Task<Void, Never>?
+    /// Called after custom exercises change (their muscles feed the
+    /// history numbers).
+    @ObservationIgnored var onChange: (() -> Void)?
 
     private let database: AppDatabase
     private let feedback: Feedback
@@ -39,6 +43,21 @@ final class LibraryStore {
         lastUsed = (try? database.workouts.lastUsedDates()) ?? [:]
     }
 
+    /// Same as `refreshUsage`, with the queries off the main thread (after a
+    /// workout is saved, when nothing is waiting on the numbers).
+    func refreshUsageInBackground() {
+        let workouts = database.workouts
+        usageTask?.cancel()
+        usageTask = Task { [weak self] in
+            let loaded = await Task.detached(priority: .utility) {
+                ((try? workouts.exerciseUsageCounts()) ?? [:], (try? workouts.lastUsedDates()) ?? [:])
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            if self.usageCounts != loaded.0 { self.usageCounts = loaded.0 }
+            if self.lastUsed != loaded.1 { self.lastUsed = loaded.1 }
+        }
+    }
+
     private func rebuild() {
         var map: [String: Exercise] = [:]
         for exercise in builtins { map[exercise.id] = exercise }
@@ -47,7 +66,12 @@ final class LibraryStore {
         let active = (builtins + customs.filter { !$0.isArchived })
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         index = ExerciseSearchIndex(exercises: active)
+        onChange?()
     }
+
+    /// Every exercise by ID, archived customs included (a value copy that's
+    /// safe to hand to background work).
+    var exerciseMap: [String: Exercise] { byID }
 
     /// Includes archived custom exercises so old workouts still resolve.
     func exercise(_ id: String) -> Exercise? {

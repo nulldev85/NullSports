@@ -50,6 +50,7 @@ struct StatTile: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
             if let detail {
                 Text(detail)
                     .font(.app(.caption))
@@ -142,14 +143,42 @@ struct PrimaryButtonStyle: ButtonStyle {
     var color: Color = .accentColor
 
     func makeBody(configuration: Configuration) -> some View {
+        PrimaryButtonBody(configuration: configuration, color: color)
+    }
+}
+
+/// The primary button's look: a solid accent slab with a soft lift that
+/// settles as it's pressed.
+private struct PrimaryButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let color: Color
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        let pressed = configuration.isPressed
+        // A tinted lift reads as depth on light backgrounds; on dark ones a
+        // neutral shadow does.
+        let shadow = colorScheme == .dark ? Color.black.opacity(0.35) : color.opacity(0.28)
         configuration.label
             .font(.app(.headline))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
             .foregroundStyle(Theme.onAccent)
-            .background(color.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(color)
+                    .overlay(
+                        // A faint top sheen keeps the flat color from looking dead.
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(LinearGradient(colors: [.white.opacity(0.14), .clear], startPoint: .top, endPoint: .center))
+                    )
+                    .shadow(color: isEnabled ? shadow : .clear, radius: pressed ? 3 : 10, y: pressed ? 1 : 5)
+            }
+            .brightness(pressed ? -0.06 : 0)
+            .scaleEffect(pressed ? 0.975 : 1)
+            .opacity(isEnabled ? 1 : 0.5)
+            .animation(Motion.snappy, value: pressed)
     }
 }
 
@@ -163,6 +192,8 @@ struct SecondaryButtonStyle: ButtonStyle {
             .padding(.vertical, 14)
             .foregroundStyle(color)
             .background(color.opacity(configuration.isPressed ? 0.22 : 0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .animation(Motion.snappy, value: configuration.isPressed)
     }
 }
 
@@ -220,26 +251,40 @@ struct ToastBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.12), radius: 14, y: 4)
+        .floatingCapsule()
         .padding(.horizontal, 20)
     }
 }
 
-/// Circular progress used by timers.
+/// Circular progress used by timers: a soft track, the arc in the phase
+/// color with a faint glow, and a bright dot riding its leading edge.
 struct ProgressRing: View {
     var progress: Double
     var color: Color
     var lineWidth: CGFloat = 14
+    var glows = false
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(color.opacity(0.16), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: max(0.0001, min(1, progress)))
-                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+        let clamped = max(0.0001, min(1, progress))
+        GeometryReader { proxy in
+            let radius = min(proxy.size.width, proxy.size.height) / 2
+            ZStack {
+                Circle()
+                    .stroke(color.opacity(0.16), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: clamped)
+                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: glows ? color.opacity(0.5) : .clear, radius: lineWidth * 1.1)
+                if glows {
+                    Circle()
+                        .fill(Color.white.opacity(0.9))
+                        .frame(width: lineWidth * 0.55, height: lineWidth * 0.55)
+                        .offset(y: -(radius - lineWidth / 2))
+                        .rotationEffect(.degrees(360 * clamped))
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }

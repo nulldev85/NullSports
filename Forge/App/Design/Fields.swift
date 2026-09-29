@@ -168,6 +168,8 @@ struct NumberStepper: View {
             Text(suffix.map { "\(value) \($0)" } ?? "\(value)")
                 .font(.app(.body, .semibold))
                 .monospacedDigit()
+                .contentTransition(.numericText(value: Double(value)))
+                .animation(Motion.numeric, value: value)
                 .frame(minWidth: 54)
             Button {
                 value = min(range.upperBound, value + step)
@@ -179,6 +181,7 @@ struct NumberStepper: View {
             .disabled(value >= range.upperBound)
             .accessibilityLabel("Increase \(title)")
         }
+        .sensoryFeedback(.selection, trigger: value)
     }
 }
 
@@ -247,7 +250,7 @@ struct DurationRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.snappy) { expanded.toggle() }
+                withAnimation(Motion.smooth) { expanded.toggle() }
             } label: {
                 HStack {
                     Text(title)
@@ -255,6 +258,8 @@ struct DurationRow: View {
                     Spacer()
                     Text(seconds > 0 || allowsZero ? DurationFormat.clock(seconds) : "Off")
                         .monospacedDigit()
+                        .contentTransition(.numericText(value: seconds))
+                        .animation(Motion.numeric, value: seconds)
                         .foregroundStyle(expanded ? Color.accentColor : .secondary)
                 }
                 .contentShape(Rectangle())
@@ -263,6 +268,7 @@ struct DurationRow: View {
             if expanded {
                 DurationPicker(title: title, seconds: $seconds, maxMinutes: maxMinutes, secondStep: secondStep, allowsZero: allowsZero, showsHeader: false)
                     .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }

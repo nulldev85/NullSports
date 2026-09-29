@@ -75,10 +75,15 @@ struct ExercisePickerView: View {
                 .background(Theme.canvas, ignoresSafeAreaEdges: [])
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if allowsMultiple, !selection.isEmpty {
-                    addBar
+                ZStack {
+                    if allowsMultiple, !selection.isEmpty {
+                        addBar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
+                .animation(Motion.smooth, value: selection.isEmpty)
             }
+            .sensoryFeedback(.selection, trigger: selection)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -146,16 +151,21 @@ struct ExercisePickerView: View {
 
     @ViewBuilder
     private func selectionIndicator(for exercise: Exercise) -> some View {
-        if let position = selection.firstIndex(of: exercise.id) {
-            Text("\(position + 1)")
-                .font(.num(.caption, .semibold))
-                .foregroundStyle(Theme.onAccent)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(Color.accentColor))
-        } else if allowsMultiple {
-            Circle()
-                .strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1.5)
-                .frame(width: 26, height: 26)
+        if allowsMultiple {
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1.5)
+                if let position = selection.firstIndex(of: exercise.id) {
+                    Text("\(position + 1)")
+                        .font(.num(.caption, .semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .contentTransition(.numericText())
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.accentColor))
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                }
+            }
+            .frame(width: 26, height: 26)
         }
     }
 
@@ -165,10 +175,12 @@ struct ExercisePickerView: View {
             dismiss()
             return
         }
-        if let index = selection.firstIndex(of: exercise.id) {
-            selection.remove(at: index)
-        } else {
-            selection.append(exercise.id)
+        withAnimation(Motion.snappy) {
+            if let index = selection.firstIndex(of: exercise.id) {
+                selection.remove(at: index)
+            } else {
+                selection.append(exercise.id)
+            }
         }
     }
 

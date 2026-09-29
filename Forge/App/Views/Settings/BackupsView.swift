@@ -208,7 +208,7 @@ struct BackupsView: View {
     /// A restore replaces everything, so it waits until nothing is in
     /// progress that would be mixed into the restored data.
     private var restoreBlockedReason: String? {
-        if app.session.workout != nil {
+        if app.session.isActive {
             return "Finish or discard the workout in progress first, so it isn't mixed into the restored data."
         }
         if app.timers.active != nil {

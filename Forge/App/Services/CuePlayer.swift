@@ -24,6 +24,12 @@ final class CuePlayer {
     private var buffers: [Tone: AVAudioPCMBuffer] = [:]
     private var silentBuffer: AVAudioPCMBuffer?
     private let synthesizer = AVSpeechSynthesizer()
+    // Kept and re-primed after each use, so countdown ticks land on time
+    // instead of waiting for the Taptic Engine to wake.
+    private let lightImpact = UIImpactFeedbackGenerator(style: .light)
+    private let mediumImpact = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyImpact = UIImpactFeedbackGenerator(style: .heavy)
+    private let notification = UINotificationFeedbackGenerator()
     private var holds = 0
     private var keepAliveHolds = 0
     private var observers: [NSObjectProtocol] = []
@@ -152,11 +158,21 @@ final class CuePlayer {
 
     func haptic(_ kind: Haptic) {
         switch kind {
-        case .light: UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .medium: UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        case .heavy: UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        case .success: UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .warning: UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        case .light:
+            lightImpact.impactOccurred()
+            lightImpact.prepare()
+        case .medium:
+            mediumImpact.impactOccurred()
+            mediumImpact.prepare()
+        case .heavy:
+            heavyImpact.impactOccurred()
+            heavyImpact.prepare()
+        case .success:
+            notification.notificationOccurred(.success)
+            notification.prepare()
+        case .warning:
+            notification.notificationOccurred(.warning)
+            notification.prepare()
         }
     }
 

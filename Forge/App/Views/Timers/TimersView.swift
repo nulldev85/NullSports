@@ -14,7 +14,10 @@ struct TimersView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if let active = app.timers.active {
-                        activeCard(active)
+                        ActiveTimerCard(controller: active) {
+                            app.timers.isPresented = true
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         SectionHeader(title: "Formats", subtitle: "Tap one to set it up")
@@ -27,7 +30,7 @@ struct TimersView: View {
                                 } label: {
                                     FormatTile(kind: kind)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.pressable)
                                 .accessibilityIdentifier("timerFormat-\(kind.rawValue)")
                             }
                         }
@@ -64,9 +67,10 @@ struct TimersView: View {
                         }
                         .accessibilityIdentifier("tool-warmup")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                 }
                 .padding(16)
+                .animation(Motion.smooth, value: app.timers.active?.id)
             }
             .background(Theme.canvas)
             .navigationTitle("Timers")
@@ -83,21 +87,29 @@ struct TimersView: View {
             }
         }
     }
+}
 
-    private func activeCard(_ controller: TimerController) -> some View {
-        Button {
-            app.timers.isPresented = true
-        } label: {
+/// The timer that's running (or waiting to be saved). Its own view, so the
+/// clock ticking over redraws this card and not the whole Timers tab.
+struct ActiveTimerCard: View {
+    let controller: TimerController
+    let open: () -> Void
+
+    var body: some View {
+        let display = controller.display
+        Button(action: open) {
             HStack(spacing: 12) {
                 IconBadge(symbol: controller.program.config.kind.symbolName, color: Theme.onAccent, size: 42)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(controller.isFinished ? "\(controller.title) finished" : "\(controller.title) running")
+                    Text(display.isFinished ? "\(controller.title) finished" : "\(controller.title) running")
                         .font(.app(.headline))
                         .foregroundStyle(.primary)
-                    Text(controller.isFinished ? "Tap to save the result" : controller.snapshot.clockText)
+                    Text(display.isFinished ? "Tap to save the result" : display.clockText)
                         .font(.num(.subheadline))
                         .foregroundStyle(.secondary)
+                        .contentTransition(.numericText(countsDown: !display.phase.countsUp))
+                        .animation(Motion.numeric, value: display.clockText)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -105,7 +117,7 @@ struct TimersView: View {
             }
             .cardStyle(padding: 14)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 

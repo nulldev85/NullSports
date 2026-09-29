@@ -13,24 +13,27 @@ struct TimerRunView: View {
     @State private var confirmDiscard = false
 
     var body: some View {
-        let snapshot = controller.snapshot
+        let display = controller.display
         let finished = controller.isFinished
-        let color = finished ? Color.accentColor : Theme.color(for: snapshot.phase.kind)
+        let color = finished ? Color.accentColor : Theme.color(for: display.phase.kind)
         ZStack {
             Theme.night
                 .ignoresSafeArea()
             // A soft glow in the phase's color instead of a full-bleed fill.
             RadialGradient(colors: [color.opacity(0.42), color.opacity(0.10), .clear], center: .top, startRadius: 10, endRadius: 560)
                 .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.6), value: snapshot.phase.kind)
+                .animation(Motion.gentle, value: color)
             VStack(spacing: 16) {
                 topBar
                 if finished {
                     resultPanel
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 } else {
-                    runningContent(snapshot, color: color)
+                    runningContent(display, color: color)
+                        .transition(.opacity)
                 }
             }
+            .animation(Motion.smooth, value: finished)
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
             .foregroundStyle(Theme.ink)
@@ -57,8 +60,9 @@ struct TimerRunView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.white.opacity(0.07)))
+                    .glassCircle(fallbackOpacity: 0.07)
             }
+            .buttonStyle(PressableStyle(scale: 0.9))
             .accessibilityLabel("Minimize timer")
             Spacer()
             Text(controller.title)
@@ -74,85 +78,108 @@ struct TimerRunView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.white.opacity(0.07)))
+                    .glassCircle(fallbackOpacity: 0.07)
             }
+            .buttonStyle(PressableStyle(scale: 0.9))
             .accessibilityLabel("End timer")
             .accessibilityIdentifier("endTimer")
         }
     }
 
-    @ViewBuilder
-    private func runningContent(_ snapshot: TimerSnapshot, color: Color) -> some View {
+    private func runningContent(_ display: TimerDisplay, color: Color) -> some View {
         let kind = controller.program.config.kind
-        VStack(spacing: 6) {
-            Text(phaseTitle(snapshot))
-                .font(.num(.subheadline, .medium))
-                .tracking(2.5)
-                .textCase(.uppercase)
-                .foregroundStyle(color)
-            if let roundText = roundText(snapshot) {
-                Text(roundText)
+        return VStack(spacing: 16) {
+            VStack(spacing: 6) {
+                // Each phase's title slides in over the last one.
+                ZStack {
+                    Text(phaseTitle(display))
+                        .font(.num(.subheadline, .medium))
+                        .tracking(2.5)
+                        .textCase(.uppercase)
+                        .foregroundStyle(color)
+                        .id(display.phaseIndex)
+                        .transition(.push(from: .bottom).combined(with: .opacity))
+                }
+                .clipped()
+                if let roundText = roundText(display) {
+                    Text(roundText)
+                        .font(.app(.subheadline, .medium))
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.top, 8)
+
+            ZStack {
+                TimerRing(controller: controller, color: color)
+                    .opacity(display.isPaused ? 0.45 : 1)
+                VStack(spacing: 6) {
+                    Text(display.clockText)
+                        .font(.num(size: 86, .light))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.4)
+                        .contentTransition(.numericText(countsDown: !display.phase.countsUp))
+                        .opacity(display.isPaused ? 0.55 : 1)
+                    if let reps = display.phase.targetReps {
+                        Text("\(reps) reps")
+                            .font(.app(.title3, .semibold))
+                            .contentTransition(.numericText())
+                    }
+                    if let remaining = display.remainingText, display.phase.kind != .prepare {
+                        Text("\(remaining) left")
+                            .font(.num(.subheadline))
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.numericText(countsDown: true))
+                    }
+                    if display.isPaused {
+                        Text("Paused")
+                            .eyebrow()
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(.white.opacity(0.1)))
+                            .phaseAnimator([1.0, 0.45]) { content, opacity in
+                                content.opacity(opacity)
+                            } animation: { _ in
+                                .easeInOut(duration: 1.1)
+                            }
+                            .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    }
+                }
+                .padding(30)
+            }
+            .frame(maxWidth: 320, maxHeight: 320)
+            .accessibilityElement(children: .combine)
+
+            if let next = display.nextPhase {
+                Text("Next: \(next.label)\(next.duration.map { " · \(DurationFormat.clock($0))" } ?? "")")
                     .font(.app(.subheadline, .medium))
                     .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
             }
-        }
-        .padding(.top, 8)
 
-        ZStack {
-            ProgressRing(progress: snapshot.phase.duration == nil ? 1 : snapshot.phaseProgress, color: color, lineWidth: 8)
-            VStack(spacing: 6) {
-                Text(snapshot.clockText)
-                    .font(.num(size: 86, .light))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.4)
-                    .contentTransition(.numericText(countsDown: !snapshot.phase.countsUp))
-                    .animation(.default, value: snapshot.clockText)
-                if let reps = snapshot.phase.targetReps {
-                    Text("\(reps) reps")
-                        .font(.app(.title3, .semibold))
-                }
-                if let total = snapshot.totalRemaining, snapshot.phase.kind != .prepare {
-                    Text("\(DurationFormat.countdownClock(total)) left")
-                        .font(.num(.subheadline))
-                        .foregroundStyle(.secondary)
-                }
-                if snapshot.isPaused {
-                    Text("Paused")
-                        .eyebrow()
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(.white.opacity(0.1)))
-                }
+            if !controller.movements.isEmpty {
+                movementsList(display, color: color)
             }
-            .padding(30)
+
+            Spacer(minLength: 0)
+
+            if kind.countsRounds || kind == .stopwatch {
+                roundCounter(kind: kind, display: display, color: color)
+            }
+
+            controls(kind: kind, display: display)
         }
-        .frame(maxWidth: 320, maxHeight: 320)
-        .accessibilityElement(children: .combine)
-
-        if let next = snapshot.nextPhase {
-            Text("Next: \(next.label)\(next.duration.map { " · \(DurationFormat.clock($0))" } ?? "")")
-                .font(.app(.subheadline, .medium))
-                .foregroundStyle(.secondary)
-        }
-
-        if !controller.movements.isEmpty {
-            movementsList(snapshot, color: color)
-        }
-
-        Spacer(minLength: 0)
-
-        if kind.countsRounds || kind == .stopwatch {
-            roundCounter(kind: kind, snapshot: snapshot, color: color)
-        }
-
-        controls(kind: kind, snapshot: snapshot)
+        .animation(Motion.smooth, value: display.phaseIndex)
+        .animation(Motion.numeric, value: display.clockText)
+        .animation(Motion.snappy, value: display.isPaused)
+        .animation(Motion.lively, value: display.roundsCompleted)
     }
 
-    private func movementsList(_ snapshot: TimerSnapshot, color: Color) -> some View {
+    private func movementsList(_ display: TimerDisplay, color: Color) -> some View {
         let config = controller.program.config
         let alternating = config.alternateMovements && controller.movements.count > 1
-        let current = snapshot.phase.kind == .work ? snapshot.phase.workIndex % max(1, controller.movements.count) : -1
+        let current = display.phase.kind == .work ? display.phase.workIndex % max(1, controller.movements.count) : -1
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(controller.movements.enumerated()), id: \.offset) { index, movement in
                 let highlighted = alternating && index == current
@@ -172,18 +199,20 @@ struct TimerRunView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(highlighted ? color.opacity(0.22) : .white.opacity(0.06))
                 )
+                .scaleEffect(highlighted ? 1.02 : 1)
             }
         }
     }
 
-    private func roundCounter(kind: TimerKind, snapshot: TimerSnapshot, color: Color) -> some View {
+    private func roundCounter(kind: TimerKind, display: TimerDisplay, color: Color) -> some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(kind == .stopwatch ? "Laps" : "Rounds")
                     .eyebrow()
-                Text("\(snapshot.roundsCompleted)")
+                Text("\(display.roundsCompleted)")
                     .font(.num(size: 38, .regular))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(display.roundsCompleted)))
             }
             Button {
                 controller.undoRound()
@@ -191,9 +220,11 @@ struct TimerRunView: View {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(.white.opacity(0.08)))
+                    .glassCircle()
             }
-            .disabled(snapshot.roundsCompleted == 0)
+            .buttonStyle(PressableStyle(scale: 0.9))
+            .disabled(display.roundsCompleted == 0)
+            .opacity(display.roundsCompleted == 0 ? 0.4 : 1)
             .accessibilityLabel("Undo round")
             Button {
                 controller.markRound()
@@ -205,24 +236,27 @@ struct TimerRunView: View {
                     .padding(.vertical, 16)
                     .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(color.opacity(0.18)))
             }
-            .disabled(snapshot.phase.kind == .prepare)
+            .buttonStyle(PressableStyle(scale: 0.96))
+            .disabled(display.phase.kind == .prepare)
             .accessibilityIdentifier("markRound")
         }
     }
 
-    private func controls(kind: TimerKind, snapshot: TimerSnapshot) -> some View {
+    private func controls(kind: TimerKind, display: TimerDisplay) -> some View {
         HStack(spacing: 22) {
             circleButton("backward.fill", label: "Previous interval") { controller.back() }
             Button {
                 controller.togglePause()
             } label: {
-                Image(systemName: snapshot.isPaused ? "play.fill" : "pause.fill")
+                Image(systemName: display.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: 28, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(Theme.night)
                     .frame(width: 82, height: 82)
                     .background(Circle().fill(Theme.ink))
             }
-            .accessibilityLabel(snapshot.isPaused ? "Resume" : "Pause")
+            .buttonStyle(PressableStyle(scale: 0.92))
+            .accessibilityLabel(display.isPaused ? "Resume" : "Pause")
             .accessibilityIdentifier("pauseTimer")
             if kind == .forTime || kind == .stopwatch || kind == .deathBy || kind == .amrap {
                 circleButton("flag.checkered", label: kind == .forTime ? "Done" : "Stop") { controller.finishNow() }
@@ -239,12 +273,13 @@ struct TimerRunView: View {
                 Image(systemName: symbol)
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 58, height: 58)
-                    .background(Circle().fill(.white.opacity(0.08)))
+                    .glassCircle()
                 Text(label)
                     .font(.app(.caption2, .medium))
                     .foregroundStyle(.secondary)
             }
         }
+        .buttonStyle(PressableStyle(scale: 0.92))
         .accessibilityLabel(label)
     }
 
@@ -330,7 +365,7 @@ struct TimerRunView: View {
                 Button { value.wrappedValue -= 1 } label: {
                     Image(systemName: "minus")
                         .frame(width: 40, height: 40)
-                        .background(Circle().fill(.white.opacity(0.08)))
+                        .glassCircle()
                 }
             }
             Text("\(value.wrappedValue)")
@@ -340,7 +375,7 @@ struct TimerRunView: View {
                 Button { value.wrappedValue += 1 } label: {
                     Image(systemName: "plus")
                         .frame(width: 40, height: 40)
-                        .background(Circle().fill(.white.opacity(0.08)))
+                        .glassCircle()
                 }
             }
         }
@@ -350,24 +385,24 @@ struct TimerRunView: View {
 
     // MARK: Text
 
-    private func phaseTitle(_ snapshot: TimerSnapshot) -> String {
-        switch snapshot.phase.kind {
+    private func phaseTitle(_ display: TimerDisplay) -> String {
+        switch display.phase.kind {
         case .prepare: return "Get Ready"
-        case .rest: return snapshot.phase.label == "Rest" ? "Rest" : snapshot.phase.label
+        case .rest: return display.phase.label == "Rest" ? "Rest" : display.phase.label
         case .setRest: return "Set Rest"
         case .work:
             let kind = controller.program.config.kind
             switch kind {
-            case .custom: return snapshot.phase.label
+            case .custom: return display.phase.label
             case .emom: return "Work"
-            case .deathBy: return "Round \(snapshot.phase.round)"
+            case .deathBy: return "Round \(display.phase.round)"
             default: return kind == .tabata || kind == .intervals ? "Work" : kind.displayName
             }
         }
     }
 
-    private func roundText(_ snapshot: TimerSnapshot) -> String? {
-        let phase = snapshot.phase
+    private func roundText(_ display: TimerDisplay) -> String? {
+        let phase = display.phase
         guard phase.kind != .prepare else { return nil }
         var parts: [String] = []
         if phase.totalRounds > 0, controller.program.config.kind != .forTime {
@@ -379,6 +414,31 @@ struct TimerRunView: View {
             parts.append("Set \(phase.set) of \(phase.totalSets)")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// The ring, redrawn every frame from the run's wall-clock time so it sweeps
+/// smoothly; nothing else on the timer screen redraws that often.
+struct TimerRing: View {
+    let controller: TimerController
+    let color: Color
+
+    var body: some View {
+        let display = controller.display
+        TimelineView(.animation(minimumInterval: AppEnvironment.isUITest ? 0.5 : nil, paused: display.isPaused || display.isFinished)) { context in
+            let snapshot = controller.program.snapshot(for: controller.run, at: context.date)
+            ProgressRing(progress: Self.progress(snapshot), color: color, lineWidth: 8, glows: true)
+        }
+    }
+
+    /// Timed phases fill once; open-ended ones (stopwatch, For Time without a
+    /// cap) sweep once a minute like a second hand.
+    static func progress(_ snapshot: TimerSnapshot) -> Double {
+        if snapshot.isFinished { return 1 }
+        if snapshot.phase.duration == nil {
+            return snapshot.phaseElapsed.truncatingRemainder(dividingBy: 60) / 60
+        }
+        return snapshot.phaseProgress
     }
 }
 

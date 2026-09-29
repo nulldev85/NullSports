@@ -68,10 +68,10 @@ struct FolderContentsView: View {
                     Section {
                         DraftBanner(draft: draft) {
                             editor = RoutineEditorRequest(routine: draft, isNew: app.routines.routine(draft.id) == nil, isRestoredDraft: true)
-                            draftToRestore = nil
+                            withAnimation(Motion.smooth) { draftToRestore = nil }
                         } discard: {
                             app.routines.saveDraft(nil)
-                            draftToRestore = nil
+                            withAnimation(Motion.smooth) { draftToRestore = nil }
                         }
                     }
                 }
@@ -80,7 +80,9 @@ struct FolderContentsView: View {
                         BackupFolderCard {
                             choosingBackupFolder = true
                         } snooze: {
-                            app.dataSafety.snoozeFolderSuggestion()
+                            withAnimation(Motion.smooth) {
+                                app.dataSafety.snoozeFolderSuggestion()
+                            }
                         }
                     }
                 }
@@ -409,7 +411,7 @@ struct QuickStartCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let workout = app.session.workout {
+            if let workout = app.session.header {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Workout in progress")
@@ -449,6 +451,7 @@ struct QuickStartCard: View {
             }
         }
         .padding(18)
+        .animation(Motion.smooth, value: app.session.isActive)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Theme.surface)
@@ -474,7 +477,7 @@ struct QuickStartCard: View {
 
     private var subtitle: String {
         let calendar = app.settings.calendar
-        let thisWeek = Stats.totals(app.history.summaries, from: Stats.weekStart(of: Date(), calendar: calendar)).workouts
+        let thisWeek = app.history.digest.totals(since: Stats.weekStart(of: Date(), calendar: calendar)).workouts
         let goal = app.settings.value.weeklyGoal
         if thisWeek == 0 {
             return "Pick a routine below or start a blank session."

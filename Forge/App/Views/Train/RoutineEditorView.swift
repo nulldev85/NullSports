@@ -185,7 +185,7 @@ struct RoutineEditorView: View {
         EditorBlockSection.Actions(
             moveUp: { move(id, by: -1) },
             moveDown: { move(id, by: 1) },
-            delete: { draft.blocks.removeAll { $0.id == id } },
+            delete: { withAnimation(Motion.smooth) { draft.blocks.removeAll { $0.id == id } } },
             mergeWithNext: { merge(id) },
             split: { split(id) },
             addMovements: { picker = .addMovements(id) },
@@ -203,7 +203,7 @@ struct RoutineEditorView: View {
         guard let index = draft.blocks.firstIndex(where: { $0.id == id }) else { return }
         let target = index + offset
         guard draft.blocks.indices.contains(target) else { return }
-        withAnimation {
+        withAnimation(Motion.smooth) {
             draft.blocks.swapAt(index, target)
         }
     }
@@ -211,7 +211,7 @@ struct RoutineEditorView: View {
     private func merge(_ id: UUID) {
         guard let index = draft.blocks.firstIndex(where: { $0.id == id }), index + 1 < draft.blocks.count,
               !draft.blocks[index].isTimed, !draft.blocks[index + 1].isTimed else { return }
-        withAnimation {
+        withAnimation(Motion.smooth) {
             let next = draft.blocks.remove(at: index + 1)
             draft.blocks[index].exercises.append(contentsOf: next.exercises)
         }
@@ -219,7 +219,7 @@ struct RoutineEditorView: View {
 
     private func split(_ id: UUID) {
         guard let index = draft.blocks.firstIndex(where: { $0.id == id }), draft.blocks[index].exercises.count > 1 else { return }
-        withAnimation {
+        withAnimation(Motion.smooth) {
             let block = draft.blocks.remove(at: index)
             let singles = block.exercises.enumerated().map { offset, exercise in
                 RoutineBlock(id: offset == 0 ? block.id : UUID(), exercises: [exercise], notes: offset == 0 ? block.notes : "")
@@ -230,7 +230,7 @@ struct RoutineEditorView: View {
 
     private func removeExercise(_ entryID: UUID, from blockID: UUID) {
         guard let index = draft.blocks.firstIndex(where: { $0.id == blockID }) else { return }
-        withAnimation {
+        withAnimation(Motion.smooth) {
             draft.blocks[index].exercises.removeAll { $0.id == entryID }
             if draft.blocks[index].exercises.isEmpty, !draft.blocks[index].isTimed {
                 draft.blocks.remove(at: index)
@@ -260,7 +260,7 @@ struct RoutineEditorView: View {
         switch purpose {
         case .addExercises:
             let entries = exercises.map { RoutineExercise(exerciseID: $0.id, sets: defaultSets(for: $0), restSeconds: app.library.restSeconds(for: $0.id)) }
-            withAnimation {
+            withAnimation(Motion.smooth) {
                 if superset, entries.count > 1 {
                     draft.blocks.append(RoutineBlock(exercises: entries))
                 } else {
@@ -581,7 +581,7 @@ struct EditorExerciseRows: View {
                 if index < entry.sets.count { entry.sets[index].kind = kind }
             } onDelete: {
                 if index < entry.sets.count {
-                    _ = withAnimation { entry.sets.remove(at: index) }
+                    _ = withAnimation(Motion.smooth) { entry.sets.remove(at: index) }
                 }
             } onRPE: { value in
                 if index < entry.sets.count { entry.sets[index].target.rpe = value }
@@ -633,7 +633,7 @@ struct EditorExerciseRows: View {
     }
 
     private func addSet() {
-        withAnimation {
+        withAnimation(Motion.smooth) {
             if let last = entry.sets.last {
                 entry.sets.append(RoutineSet(kind: last.kind == .warmup ? .normal : last.kind, target: last.target))
             } else {

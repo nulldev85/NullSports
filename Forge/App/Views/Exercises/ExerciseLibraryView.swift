@@ -112,6 +112,7 @@ struct ExerciseDetailView: View {
     @State private var editing: ExerciseEditorRequest?
     @State private var confirmArchive = false
     @State private var note = ""
+    @State private var loaded = false
 
     enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -203,10 +204,13 @@ struct ExerciseDetailView: View {
                 .accessibilityLabel("Favorite")
             }
         }
-        .task(id: app.history.revision) {
+        // Loaded before the first frame, so pushing this screen never shows
+        // an empty state that then fills in.
+        .onAppear {
+            if !loaded { load(exercise) }
+        }
+        .onChange(of: app.history.revision) { _, _ in
             sessions = app.history.sessions(for: exercise.id)
-            if metric == nil { metric = ExerciseMetric.metrics(for: exercise.tracking).first }
-            note = app.library.note(for: exercise.id)
         }
         .sheet(item: $editing) { request in
             ExerciseEditorView(request: request)
@@ -220,6 +224,13 @@ struct ExerciseDetailView: View {
         } message: {
             Text("It disappears from the library but all history is kept. You can restore it from Settings › Archived Exercises.")
         }
+    }
+
+    private func load(_ exercise: Exercise) {
+        loaded = true
+        sessions = app.history.sessions(for: exercise.id)
+        if metric == nil { metric = ExerciseMetric.metrics(for: exercise.tracking).first }
+        note = app.library.note(for: exercise.id)
     }
 
     @ViewBuilder

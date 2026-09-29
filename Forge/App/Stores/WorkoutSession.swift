@@ -3,10 +3,17 @@ import SwiftUI
 /// The workout in progress. Every change is written to the database — set
 /// completions and structural edits immediately, typing after a short pause —
 /// so force-quitting, a crash, or a dead battery never loses a logged set.
+/// Writes happen on a background queue, so the screen never waits for the
+/// disk; leaving the app waits until everything queued is on disk.
 @MainActor
 @Observable
 final class WorkoutSession {
+    /// The whole workout. Views that only need its name or the rest timer
+    /// observe `header` and `rest`, which change far less often than this
+    /// does while the athlete types.
     private(set) var workout: Workout?
+    private(set) var header: Header?
+    private(set) var rest: RestTimerState?
     var isPresented = false
     /// Last completed performance per exercise, for the "previous" column.
     private(set) var previous: [String: [WorkoutSet]] = [:]
@@ -27,12 +34,17 @@ final class WorkoutSession {
     private let cues: CuePlayer
     private let notifier: Notifier
 
+    private let writer: CoalescingWriter<Workout>
     private var saveTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
-    private var restTicker: Timer?
-    private var restCueFired = false
-    /// Drives the rest-timer display; bumped by the rest ticker.
-    private(set) var clock = Date()
+    private var restEndTimer: Timer?
+    private var restClearTimer: Timer?
+
+    struct Header: Equatable {
+        var id: UUID
+        var name: String
+        var startedAt: Date
+    }
 
     struct FinishedWorkout: Identifiable {
         let workout: Workout
@@ -59,9 +71,30 @@ final class WorkoutSession {
         self.history = history
         self.cues = cues
         self.notifier = notifier
+        let workouts = database.workouts
+        writer = CoalescingWriter(label: "forge.workout-writer") { workout in
+            try workouts.save(workout)
+        }
+        writer.onCompletion { [weak self] workout, error in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.writeFinished(workoutID: workout.id, error: error)
+                }
+            }
+        }
     }
 
-    var isActive: Bool { workout != nil }
+    var isActive: Bool { header != nil }
+
+    /// Sets the workout and refreshes the lightweight mirrors, touching each
+    /// only when its value actually changed.
+    private func setWorkout(_ new: Workout?) {
+        workout = new
+        let newHeader = new.map { Header(id: $0.id, name: $0.name, startedAt: $0.startedAt) }
+        if header != newHeader { header = newHeader }
+        let newRest = new?.runtime.restTimer
+        if rest != newRest { rest = newRest }
+    }
 
     // MARK: Lifecycle
 
@@ -70,9 +103,9 @@ final class WorkoutSession {
         guard workout == nil else { return }
         do {
             guard let active = try database.workouts.activeWorkout() else { return }
-            workout = active
+            setWorkout(active)
             loadPrevious()
-            if active.runtime.restTimer != nil { startRestTicker() }
+            scheduleRestTimers()
             if let blockID = active.runtime.runningBlockID, let run = active.runtime.runningTimer, active.block(blockID) != nil {
                 attachTimedRun(blockID: blockID, run: run)
             }
@@ -88,7 +121,7 @@ final class WorkoutSession {
         }
         var new = routine.map { WorkoutFactory.workout(from: $0, lookup: library.exercise) } ?? WorkoutFactory.emptyWorkout()
         new.bodyweight = try? database.measurements.bodyweight(onOrBefore: Date())
-        workout = new
+        setWorkout(new)
         loadPrevious()
         saveNow()
         isPresented = true
@@ -106,7 +139,7 @@ final class WorkoutSession {
         guard var current = workout else { return }
         change(&current)
         current.updatedAt = Date()
-        workout = current
+        setWorkout(current)
         if immediate {
             saveNow()
         } else {
@@ -123,18 +156,26 @@ final class WorkoutSession {
         }
     }
 
-    /// Writes the current state synchronously.
+    /// Queues the current state for the background writer. It's on disk
+    /// within milliseconds; versions queued in a burst are coalesced.
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
         guard let workout else { return }
-        do {
-            try database.workouts.save(workout)
-            if saveFailed {
-                saveFailed = false
-                feedback.show("Workout saved", style: .success)
-            }
-        } catch {
+        writer.submit(workout)
+    }
+
+    /// Queues the current state and waits until everything is on disk. Used
+    /// when the app leaves the foreground and before a final write.
+    func flush() {
+        saveNow()
+        writer.flush()
+    }
+
+    private func writeFinished(workoutID: UUID, error: Error?) {
+        // A write that finished after the workout was closed has nothing to report.
+        guard workout?.id == workoutID else { return }
+        if let error {
             if !saveFailed {
                 feedback.report(error, while: "save your workout. It's still open and Forge will keep retrying")
             }
@@ -145,6 +186,9 @@ final class WorkoutSession {
                 guard !Task.isCancelled else { return }
                 self?.saveNow()
             }
+        } else if saveFailed {
+            saveFailed = false
+            feedback.show("Workout saved", style: .success)
         }
     }
 
@@ -292,66 +336,80 @@ final class WorkoutSession {
 
     // MARK: Rest timer
 
-    var rest: RestTimerState? { workout?.runtime.restTimer }
-
     func startRest(seconds: Int, exerciseName: String) {
         let state = RestTimerState(startedAt: Date(), duration: Double(seconds), exerciseName: exerciseName)
         mutate(immediate: true) { $0.runtime.restTimer = state }
-        restCueFired = false
         if settings.value.restTimerNotifications {
             notifier.requestAuthorizationIfNeeded()
             notifier.scheduleRestEnd(at: state.endsAt, exerciseName: exerciseName)
         }
-        startRestTicker()
+        scheduleRestTimers()
     }
 
     func adjustRest(by seconds: Double) {
         mutate(immediate: true) { $0.runtime.restTimer?.adjust(by: seconds, now: Date()) }
-        restCueFired = false
         if let rest, settings.value.restTimerNotifications {
             notifier.scheduleRestEnd(at: rest.endsAt, exerciseName: rest.exerciseName)
         }
+        scheduleRestTimers()
     }
 
     func skipRest() {
         mutate(immediate: true) { $0.runtime.restTimer = nil }
         notifier.cancelRestEnd()
-        stopRestTicker()
+        cancelRestTimers()
     }
 
-    private func startRestTicker() {
-        restTicker?.invalidate()
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tickRest() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        restTicker = timer
-        tickRest()
-    }
-
-    private func stopRestTicker() {
-        restTicker?.invalidate()
-        restTicker = nil
-    }
-
-    private func tickRest() {
+    /// Two one-shot timers instead of a ticker: one plays the "rest over" cue
+    /// the moment the countdown ends, one clears the finished bar a few
+    /// seconds later. The countdown itself is drawn by the views.
+    private func scheduleRestTimers() {
+        cancelRestTimers()
+        guard let rest else { return }
         let now = Date()
-        clock = now
-        guard let rest else {
-            stopRestTicker()
+        if rest.endsAt > now {
+            restEndTimer = Self.oneShot(at: rest.endsAt) { [weak self] in self?.restEnded() }
+        }
+        restClearTimer = Self.oneShot(at: max(now, rest.endsAt.addingTimeInterval(4))) { [weak self] in
+            self?.clearFinishedRest()
+        }
+    }
+
+    private func cancelRestTimers() {
+        restEndTimer?.invalidate()
+        restClearTimer?.invalidate()
+        restEndTimer = nil
+        restClearTimer = nil
+    }
+
+    private func restEnded() {
+        guard let rest else { return }
+        guard rest.remaining(at: Date()) <= 0.02 else {
+            scheduleRestTimers()
             return
         }
-        guard rest.remaining(at: now) <= 0 else { return }
-        if !restCueFired {
-            restCueFired = true
-            if settings.value.restTimerSound { cues.play(.restDone) }
-            if settings.value.restTimerHaptics { cues.haptic(.success) }
+        if settings.value.restTimerSound { cues.play(.restDone) }
+        if settings.value.restTimerHaptics { cues.haptic(.success) }
+    }
+
+    private func clearFinishedRest() {
+        guard let rest else { return }
+        guard rest.remaining(at: Date()) <= 0 else {
+            scheduleRestTimers()
+            return
         }
-        // Leave "rest over" on screen briefly, then clear it.
-        if now.timeIntervalSince(rest.endsAt) > 4 {
+        withAnimation(Motion.gentle) {
             mutate { $0.runtime.restTimer = nil }
-            stopRestTicker()
         }
+    }
+
+    private static func oneShot(at date: Date, _ action: @escaping @MainActor () -> Void) -> Timer {
+        let timer = Timer(fire: date, interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated { action() }
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 
     // MARK: Timed blocks
@@ -459,6 +517,8 @@ final class WorkoutSession {
         var finished = WorkoutFactory.finalize(current, completeRemaining: options.completeRemaining, now: options.endedAt)
         finished.duration = max(0, options.endedAt.timeIntervalSince(options.startedAt))
         let records = history.currentRecords().newRecords(in: finished)
+        // Anything still queued must land before the finished version, never after it.
+        flush()
         do {
             try database.workouts.save(finished)
         } catch {
@@ -474,7 +534,7 @@ final class WorkoutSession {
         tearDown()
         history.reload()
         history.markChanged()
-        library.refreshUsage()
+        library.refreshUsageInBackground()
         // Let the workout screen finish dismissing before presenting the
         // summary on the tab view.
         let summary = FinishedWorkout(workout: finished, records: records)
@@ -489,6 +549,8 @@ final class WorkoutSession {
     func discard() {
         guard let current = workout else { return }
         timedRun?.stop()
+        // A queued write landing after the delete would bring the workout back.
+        flush()
         do {
             if current.hasCompletedSets {
                 var kept = WorkoutFactory.finalize(current, completeRemaining: false)
@@ -510,11 +572,11 @@ final class WorkoutSession {
         saveTask?.cancel()
         retryTask?.cancel()
         notifier.cancelRestEnd()
-        stopRestTicker()
+        cancelRestTimers()
         timedRun = nil
         timedBlockID = nil
         isTimedRunPresented = false
-        workout = nil
+        setWorkout(nil)
         previous = [:]
         isPresented = false
         saveFailed = false

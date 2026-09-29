@@ -37,29 +37,32 @@ struct ProgressDashboardView: View {
     var body: some View {
         NavigationStack {
             let calendar = app.settings.calendar
-            let summaries = app.history.summaries
+            let digest = app.history.digest
             let start = startDate(calendar: calendar)
-            let totals = Stats.totals(summaries, from: start)
+            let totals = digest.totals(since: start)
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Picker("Period", selection: $period) {
                         ForEach(Period.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .sensoryFeedback(.selection, trigger: period)
 
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         StatTile(title: "Workouts", value: "\(totals.workouts)", detail: averagePerWeek(totals, start: start), symbol: "figure.strengthtraining.traditional")
                         StatTile(title: "Time", value: DurationFormat.compact(totals.duration), detail: totals.workouts > 0 ? "\(DurationFormat.compact(totals.duration / Double(totals.workouts))) avg" : nil, symbol: "clock")
                         StatTile(title: "Volume", value: app.settings.units.volume(totals.volume), symbol: "scalemass")
-                        StatTile(title: "Streak", value: "\(Stats.weekStreak(summaries, calendar: calendar)) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: Theme.sand)
+                        StatTile(title: "Streak", value: "\(digest.weekStreak()) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: Theme.sand)
                     }
 
-                    weeklyChart(calendar: calendar)
-                    muscleSection(start: start)
+                    weeklyChart(digest: digest)
+                    muscleSection(start: start, digest: digest)
                     recordsSection
                     bodySection
                 }
                 .padding(16)
+                .animation(Motion.smooth, value: period)
+                .animation(Motion.smooth, value: chartMetric)
             }
             .background(Theme.canvas)
             .navigationTitle("Progress")
@@ -87,7 +90,7 @@ struct ProgressDashboardView: View {
         let weeks: Double
         if let start {
             weeks = max(1, Date().timeIntervalSince(start) / (7 * 86_400))
-        } else if let first = app.history.summaries.last?.startedAt {
+        } else if let first = app.history.digest.firstWorkoutDate {
             weeks = max(1, Date().timeIntervalSince(first) / (7 * 86_400))
         } else {
             return nil
@@ -97,9 +100,9 @@ struct ProgressDashboardView: View {
 
     // MARK: Weekly chart
 
-    private func weeklyChart(calendar: Calendar) -> some View {
+    private func weeklyChart(digest: HistoryDigest) -> some View {
         let weeks = min(period.weeks ?? 26, 26)
-        let buckets = Stats.weekly(app.history.summaries, weeks: weeks, calendar: calendar)
+        let buckets = digest.weekly(weeks: weeks)
         let goal = app.settings.value.weeklyGoal
         let units = app.settings.units
         return VStack(alignment: .leading, spacing: 12) {
@@ -173,9 +176,8 @@ struct ProgressDashboardView: View {
 
     // MARK: Muscles
 
-    private func muscleSection(start: Date?) -> some View {
-        let since = start ?? Date.distantPast
-        let shares = Stats.muscleShares(app.history.setRecords, since: since, lookup: app.library.exercise).prefix(10)
+    private func muscleSection(start: Date?, digest: HistoryDigest) -> some View {
+        let shares = digest.muscleShares(since: start).prefix(10)
         return VStack(alignment: .leading, spacing: 12) {
             Text("Muscles Trained")
                 .font(.app(.title3, .semibold))
@@ -215,10 +217,7 @@ struct ProgressDashboardView: View {
     // MARK: Records
 
     private var recordsSection: some View {
-        let recent = app.history.records.prsByWorkout.values
-            .flatMap { $0 }
-            .sorted { $0.date > $1.date }
-            .prefix(6)
+        let recent = app.history.recentRecords.prefix(6)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Recent Records")

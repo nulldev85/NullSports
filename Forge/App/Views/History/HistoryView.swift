@@ -14,10 +14,10 @@ struct HistoryView: View {
             List {
                 if showingCalendar, query.isEmpty {
                     Section {
-                        MonthCalendar(month: $month, selectedDay: $selectedDay, workoutDays: Stats.workoutDays(app.history.summaries, calendar: calendar), calendar: calendar)
+                        MonthCalendar(month: $month, selectedDay: $selectedDay, workoutDays: app.history.digest.workoutDays, calendar: calendar)
                             .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                     } footer: {
-                        HistoryMonthFooter(month: month, summaries: app.history.summaries, calendar: calendar)
+                        HistoryMonthFooter(month: month, calendar: calendar)
                     }
                 }
 
@@ -42,7 +42,9 @@ struct HistoryView: View {
                                 .accessibilityIdentifier("historyWorkout")
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
-                                        app.history.delete(summary.id)
+                                        withAnimation(Motion.smooth) {
+                                            app.history.delete(summary.id)
+                                        }
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -61,10 +63,12 @@ struct HistoryView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if selectedDay != nil {
-                        Button("Show All") { selectedDay = nil }
+                        Button("Show All") {
+                            withAnimation(Motion.smooth) { selectedDay = nil }
+                        }
                     }
                     Button {
-                        withAnimation { showingCalendar.toggle() }
+                        withAnimation(Motion.smooth) { showingCalendar.toggle() }
                     } label: {
                         Image(systemName: showingCalendar ? "calendar.circle.fill" : "calendar.circle")
                     }
@@ -79,14 +83,11 @@ struct HistoryView: View {
         if let day = selectedDay {
             items = items.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
         }
+        // Search text is normalized once per history change, not per keystroke.
         let key = ExerciseSearchIndex.normalize(query)
         if !key.isEmpty {
-            items = items.filter { summary in
-                ExerciseSearchIndex.normalize(summary.name).contains(key)
-                    || ExerciseSearchIndex.normalize(summary.notes).contains(key)
-                    || summary.exerciseNames.contains { ExerciseSearchIndex.normalize($0).contains(key) }
-                    || summary.timerSummaries.contains { ExerciseSearchIndex.normalize($0).contains(key) }
-            }
+            let digest = app.history.digest
+            items = items.filter { digest.workout($0.id, matches: key) }
         }
         return items
     }
@@ -98,9 +99,10 @@ struct HistoryView: View {
     }
 
     private func groupByMonth(_ items: [WorkoutSummary], calendar: Calendar) -> [MonthGroup] {
+        let months = app.history.digest.monthOfWorkout
         var groups: [Date: [WorkoutSummary]] = [:]
         for item in items {
-            let start = calendar.dateInterval(of: .month, for: item.startedAt)?.start ?? item.startedAt
+            let start = months[item.id] ?? calendar.dateInterval(of: .month, for: item.startedAt)?.start ?? item.startedAt
             groups[start, default: []].append(item)
         }
         return groups.keys.sorted(by: >).map { start in
@@ -113,15 +115,14 @@ struct HistoryView: View {
 
 struct HistoryMonthFooter: View {
     let month: Date
-    let summaries: [WorkoutSummary]
     let calendar: Calendar
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        let interval = calendar.dateInterval(of: .month, for: month)
-        let totals = Stats.totals(summaries, from: interval?.start, to: interval?.end)
-        if totals.workouts > 0 {
+        let start = calendar.dateInterval(of: .month, for: month)?.start ?? month
+        if let totals = app.history.digest.months[start], totals.workouts > 0 {
             Text("\(totals.workouts) workouts · \(DurationFormat.compact(totals.duration)) · \(app.settings.units.volume(totals.volume))")
+                .contentTransition(.numericText())
         }
     }
 }
@@ -206,6 +207,15 @@ struct MonthCalendar: View {
     @Binding var selectedDay: Date?
     let workoutDays: Set<Date>
     let calendar: Calendar
+    /// +1 when moving forward in time, -1 back; months slide accordingly.
+    @State private var direction = 1
+
+    private var slide: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: direction > 0 ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: direction > 0 ? .leading : .trailing).combined(with: .opacity)
+        )
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -217,8 +227,13 @@ struct MonthCalendar: View {
                         .frame(width: 36, height: 30)
                 }
                 Spacer()
-                Text(month.formatted(.dateTime.month(.wide).year()))
-                    .font(.app(.headline))
+                ZStack {
+                    Text(month.formatted(.dateTime.month(.wide).year()))
+                        .font(.app(.headline))
+                        .id(month)
+                        .transition(.push(from: direction > 0 ? .trailing : .leading).combined(with: .opacity))
+                }
+                .clipped()
                 Spacer()
                 Button {
                     shift(1)
@@ -238,16 +253,23 @@ struct MonthCalendar: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 6) {
-                ForEach(Array(days.enumerated()), id: \.offset) { _, day in
-                    if let day {
-                        dayCell(day)
-                    } else {
-                        Color.clear.frame(height: 36)
+            ZStack {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 6) {
+                    ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                        if let day {
+                            dayCell(day)
+                        } else {
+                            Color.clear.frame(height: 36)
+                        }
                     }
                 }
+                .id(month)
+                .transition(slide)
             }
+            .clipped()
         }
+        .sensoryFeedback(.selection, trigger: month)
+        .sensoryFeedback(.selection, trigger: selectedDay)
         .gesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { value in
@@ -262,10 +284,8 @@ struct MonthCalendar: View {
         let hasWorkout = workoutDays.contains(calendar.startOfDay(for: day))
         let isToday = calendar.isDateInToday(day)
         return Button {
-            if isSelected {
-                selectedDay = nil
-            } else {
-                selectedDay = day
+            withAnimation(Motion.snappy) {
+                selectedDay = isSelected ? nil : day
             }
         } label: {
             VStack(spacing: 3) {
@@ -304,8 +324,12 @@ struct MonthCalendar: View {
     }
 
     private func shift(_ months: Int) {
-        if let next = calendar.date(byAdding: .month, value: months, to: month) {
-            withAnimation(.snappy) { month = next }
+        guard let next = calendar.date(byAdding: .month, value: months, to: month) else { return }
+        // Set the direction first and change the month on the next turn, so
+        // the outgoing month already knows which way to leave.
+        direction = months > 0 ? 1 : -1
+        DispatchQueue.main.async {
+            withAnimation(Motion.smooth) { month = next }
         }
     }
 }

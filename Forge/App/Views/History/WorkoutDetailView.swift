@@ -15,10 +15,15 @@ struct WorkoutDetailView: View {
             if let workout {
                 content(workout)
             } else {
-                ProgressView()
+                Theme.canvas
             }
         }
-        .task(id: app.history.revision) {
+        // Loaded before the first frame (onAppear runs before it draws), so
+        // the push animation shows the finished screen, not a spinner.
+        .onAppear {
+            if workout == nil { workout = app.history.workout(workoutID) }
+        }
+        .onChange(of: app.history.revision) { _, _ in
             workout = app.history.workout(workoutID)
         }
     }

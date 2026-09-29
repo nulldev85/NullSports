@@ -99,58 +99,94 @@ extension View {
     }
 }
 
+/// The workout-in-progress bar. Observes only the workout's header, the
+/// rest timer and the timed block, never the sets, so logging doesn't
+/// redraw it.
 struct ActiveWorkoutBar: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        if let workout = app.session.workout, !app.session.isPresented {
-            Button {
-                app.session.isPresented = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "figure.strengthtraining.traditional")
-                        .font(.app(.title3, .semibold))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(width: 40, height: 40)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(workout.name)
-                            .font(.app(.subheadline, .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        HStack(spacing: 6) {
-                            Text(workout.startedAt, style: .timer)
-                                .monospacedDigit()
-                            if let rest = app.session.rest, rest.remaining(at: app.session.clock) > 0 {
-                                Text("· Rest \(DurationFormat.countdownClock(rest.remaining(at: app.session.clock)))")
+        let session = app.session
+        let visible = session.header != nil && !session.isPresented
+        ZStack {
+            if visible, let header = session.header {
+                Button {
+                    session.isPresented = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.strengthtraining.traditional")
+                            .font(.app(.title3, .semibold))
+                            .foregroundStyle(Theme.onAccent)
+                            .frame(width: 40, height: 40)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(header.name)
+                                .font(.app(.subheadline, .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            HStack(spacing: 6) {
+                                Text(header.startedAt, style: .timer)
                                     .monospacedDigit()
-                                    .foregroundStyle(Color.accentColor)
+                                if let rest = session.rest {
+                                    RestCountdownText(rest: rest)
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                if let timer = session.timedRun {
+                                    TimedRunClockText(controller: timer)
+                                        .foregroundStyle(Color.accentColor)
+                                }
                             }
-                            if let timer = app.session.timedRun, !timer.run.isFinished {
-                                Text("· \(timer.program.config.kind.displayName) \(timer.clockText)")
-                                    .monospacedDigit()
-                                    .foregroundStyle(Color.accentColor)
-                            }
+                            .font(.app(.caption))
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.app(.caption))
-                        .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("Resume")
+                            .font(.app(.subheadline, .semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.accentColor.opacity(0.15), in: Capsule())
                     }
-                    Spacer()
-                    Text("Resume")
-                        .font(.app(.subheadline, .semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .floatingSurface(cornerRadius: 18)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
+                .buttonStyle(PressableStyle(scale: 0.98))
+                .accessibilityIdentifier("resumeWorkoutBar")
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("resumeWorkoutBar")
+        }
+        .animation(Motion.smooth, value: visible)
+    }
+}
+
+/// "· Rest 1:23", updated exactly when the displayed second changes and
+/// hidden once the rest is over.
+struct RestCountdownText: View {
+    let rest: RestTimerState
+
+    var body: some View {
+        // Ticks aligned to the end time, so each tick is a new second.
+        TimelineView(.periodic(from: rest.endsAt.addingTimeInterval(-86_400), by: 1)) { context in
+            let remaining = rest.remaining(at: context.date)
+            if remaining > 0 {
+                Text("· Rest \(DurationFormat.countdownClock(remaining))")
+                    .monospacedDigit()
+            }
+        }
+    }
+}
+
+/// "· AMRAP 12:34" for a timed block running inside the workout.
+struct TimedRunClockText: View {
+    let controller: TimerController
+
+    var body: some View {
+        let display = controller.display
+        if !display.isFinished {
+            Text("· \(controller.program.config.kind.displayName) \(display.clockText)")
+                .monospacedDigit()
         }
     }
 }

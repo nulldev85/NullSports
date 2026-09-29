@@ -1,6 +1,10 @@
 import SwiftUI
 
 /// Completed workouts plus everything derived from them (records, stats).
+///
+/// Loading happens off the main thread and lands all at once, so the
+/// screens never wait on the database or recompute totals while drawing.
+/// Deletes and restores update the lists immediately, then reload.
 @MainActor
 @Observable
 final class HistoryStore {
@@ -8,13 +12,19 @@ final class HistoryStore {
     private(set) var deleted: [WorkoutSummary] = []
     private(set) var setRecords: [SetRecord] = []
     private(set) var records = RecordBook()
+    /// The newest personal records, newest first.
+    private(set) var recentRecords: [PersonalRecord] = []
+    /// Totals, streaks, calendar days and search text, precomputed.
+    private(set) var digest = HistoryDigest()
     private(set) var isLoaded = false
     /// Bumped whenever history changes so dependent views can refresh.
     private(set) var revision = 0
 
     private let database: AppDatabase
     private let feedback: Feedback
-    private var loadTask: Task<Void, Never>?
+    private let settings: SettingsStore
+    private let library: LibraryStore
+    private var generation = 0
     /// Called when workouts are added, edited or deleted.
     var onChange: (() -> Void)?
 
@@ -22,38 +32,54 @@ final class HistoryStore {
         onChange?()
     }
 
-    init(database: AppDatabase, feedback: Feedback) {
+    /// `preloaded` is history loaded during launch; without it the store
+    /// loads in the background.
+    init(database: AppDatabase, feedback: Feedback, settings: SettingsStore, library: LibraryStore, preloaded: HistorySnapshot? = nil) {
         self.database = database
         self.feedback = feedback
-        reload()
+        self.settings = settings
+        self.library = library
+        if let preloaded {
+            apply(preloaded)
+        } else {
+            reload()
+        }
     }
 
-    /// Reloads summaries immediately and recomputes analytics in the
-    /// background.
+    /// Reloads everything in the background and swaps it in when ready.
     func reload() {
-        do {
-            summaries = try database.workouts.summaries()
-            deleted = try database.workouts.summaries(deleted: true)
-        } catch {
-            feedback.report(error, while: "load your history")
-        }
-        revision += 1
-        loadTask?.cancel()
+        generation += 1
+        let current = generation
         let database = database
-        loadTask = Task { [weak self] in
-            let computed = await Task.detached(priority: .userInitiated) { () -> ([SetRecord], RecordBook)? in
-                guard let records = try? database.workouts.setRecords() else { return nil }
-                return (records, RecordBook(records: records))
+        let calendar = settings.calendar
+        let exercises = library.exerciseMap
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try HistorySnapshot.load(from: database, calendar: calendar, exercises: exercises) }
             }.value
-            guard let self, !Task.isCancelled, let computed else { return }
-            self.setRecords = computed.0
-            self.records = computed.1
-            self.isLoaded = true
-            self.revision += 1
+            // A newer reload supersedes this one.
+            guard let self, current == self.generation else { return }
+            switch result {
+            case .success(let snapshot):
+                self.apply(snapshot)
+            case .failure(let error):
+                self.feedback.report(error, while: "load your history")
+            }
         }
     }
 
-    /// The record book, computed on the spot if the background load hasn't
+    private func apply(_ snapshot: HistorySnapshot) {
+        if summaries != snapshot.summaries { summaries = snapshot.summaries }
+        if deleted != snapshot.deleted { deleted = snapshot.deleted }
+        setRecords = snapshot.setRecords
+        records = snapshot.records
+        recentRecords = snapshot.recentRecords
+        digest = snapshot.digest
+        isLoaded = true
+        revision += 1
+    }
+
+    /// The record book, computed on the spot if the first load hasn't
     /// finished yet (so a workout finished right after launch still gets
     /// its records).
     func currentRecords() -> RecordBook {
@@ -84,6 +110,11 @@ final class HistoryStore {
     func delete(_ id: UUID) {
         do {
             try database.workouts.softDelete(workoutID: id)
+            if let index = summaries.firstIndex(where: { $0.id == id }) {
+                var removed = summaries.remove(at: index)
+                removed.deletedAt = Date()
+                deleted.insert(removed, at: 0)
+            }
             reload()
             markChanged()
             feedback.show("Workout moved to Recently Deleted", style: .info)
@@ -95,6 +126,12 @@ final class HistoryStore {
     func restore(_ id: UUID) {
         do {
             try database.workouts.restore(workoutID: id)
+            if let index = deleted.firstIndex(where: { $0.id == id }) {
+                var restored = deleted.remove(at: index)
+                restored.deletedAt = nil
+                let position = summaries.firstIndex { $0.startedAt < restored.startedAt } ?? summaries.count
+                summaries.insert(restored, at: position)
+            }
             reload()
             markChanged()
         } catch {
@@ -105,6 +142,7 @@ final class HistoryStore {
     func purge(_ id: UUID) {
         do {
             try database.workouts.purge(workoutID: id)
+            deleted.removeAll { $0.id == id }
             reload()
         } catch {
             feedback.report(error, while: "delete the workout")

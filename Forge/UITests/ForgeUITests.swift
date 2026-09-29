@@ -70,6 +70,7 @@ final class ForgeUITests: XCTestCase {
         snapshot("06-Finish")
         app.buttons["saveFinishedWorkout"].tap()
         XCTAssertTrue(app.buttons["summaryDone"].waitForExistence(timeout: 15))
+        sleep(1)
         snapshot("07-Summary")
         app.buttons["summaryDone"].tap()
 

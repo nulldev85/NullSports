@@ -9,14 +9,14 @@ final class Feedback {
 
     func show(_ message: String, style: Toast.Style = .info, duration: TimeInterval = 2.6) {
         dismissTask?.cancel()
-        withAnimation(.spring(duration: 0.35)) {
+        withAnimation(Motion.lively) {
             toast = Toast(message: message, style: style)
         }
         dismissTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.25)) { self?.toast = nil }
+                withAnimation(Motion.smooth) { self?.toast = nil }
             }
         }
     }
@@ -28,6 +28,6 @@ final class Feedback {
 
     func dismiss() {
         dismissTask?.cancel()
-        withAnimation { toast = nil }
+        withAnimation(Motion.smooth) { toast = nil }
     }
 }

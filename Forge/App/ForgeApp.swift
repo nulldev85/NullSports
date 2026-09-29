@@ -26,21 +26,40 @@ struct LaunchView: View {
     var body: some View {
         switch launcher.state {
         case .loading:
-            VStack(spacing: 16) {
-                Image(systemName: "dumbbell.fill")
-                    .font(.system(size: 40, weight: .regular))
-                    .foregroundStyle(Color.accentColor)
-                ProgressView()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.canvas)
+            LaunchPlaceholder()
+                .transition(.opacity)
         case .ready(let model):
             RootView()
                 .environment(model)
+                .transition(.opacity)
         case .failed(let message):
             LaunchFailureView(message: message) {
                 Task { await launcher.launch() }
             }
+            .transition(.opacity)
+        }
+    }
+}
+
+/// Continues the launch screen (a plain canvas) while data loads, then the
+/// app fades in. The mark and a spinner only appear if loading is slow, so a
+/// normal launch never flashes them.
+struct LaunchPlaceholder: View {
+    @State private var showsProgress = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "dumbbell.fill")
+                .font(.system(size: 40, weight: .regular))
+                .foregroundStyle(Color.accentColor)
+            ProgressView()
+        }
+        .opacity(showsProgress ? 1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.canvas)
+        .task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            withAnimation(Motion.gentle) { showsProgress = true }
         }
     }
 }

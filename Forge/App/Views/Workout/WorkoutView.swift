@@ -1,6 +1,10 @@
 import SwiftUI
 
 /// The live workout logger.
+///
+/// Built so typing stays instant: only `WorkoutContent` observes the whole
+/// workout, and every exercise and set below it is an equatable view that
+/// redraws only when its own values change.
 struct WorkoutView: View {
     @Environment(AppModel.self) private var app
     @State private var picker: WorkoutPicker?
@@ -40,8 +44,8 @@ struct WorkoutView: View {
         @Bindable var session = app.session
         NavigationStack {
             Group {
-                if let workout = app.session.workout {
-                    workoutList(workout)
+                if app.session.isActive {
+                    WorkoutContent(actions: actions, focus: $focusedField, focusScrollTarget: focusScrollTarget)
                 } else {
                     Theme.canvas
                 }
@@ -59,19 +63,9 @@ struct WorkoutView: View {
                     .accessibilityIdentifier("minimizeWorkout")
                 }
                 ToolbarItem(placement: .principal) {
-                    if let workout = app.session.workout {
-                        VStack(spacing: 0) {
-                            Text(workout.name)
-                                .font(.app(.subheadline, .semibold))
-                                .lineLimit(1)
-                            Text(workout.startedAt, style: .timer)
-                                .font(.num(.caption))
-                                .foregroundStyle(.secondary)
-                        }
-                        .onTapGesture {
-                            nameText = workout.name
-                            renaming = true
-                        }
+                    WorkoutTitle { name in
+                        nameText = name
+                        renaming = true
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -181,95 +175,18 @@ struct WorkoutView: View {
         }
     }
 
-    private func workoutList(_ workout: Workout) -> some View {
-        ScrollViewReader { proxy in
-            workoutRows(workout)
-                .onChange(of: focusScrollTarget) { _, target in
-                    guard let target else { return }
-                    withAnimation { proxy.scrollTo(target.setID, anchor: .center) }
-                }
-        }
-    }
-
-    private func workoutRows(_ workout: Workout) -> some View {
-        List {
-            WorkoutStatsHeader(workout: workout)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
-
-            if app.session.saveFailed {
-                Label("Changes aren't saved yet. Forge keeps retrying — don't close the workout.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.app(.footnote))
-                    .foregroundStyle(Theme.warning)
-            }
-
-            ForEach(Array(workout.blocks.enumerated()), id: \.element.id) { index, block in
-                if block.isTimed {
-                    TimedBlockSection(
-                        block: block,
-                        index: index,
-                        isRunning: app.session.timedBlockID == block.id,
-                        run: { app.session.runTimedBlock(block.id) },
-                        logManually: { loggingResult = block.id },
-                        editTimer: { editingTimer = EditingTimer(blockID: block.id, config: block.timer ?? .standard(.amrap)) },
-                        remove: { app.session.mutate(immediate: true) { $0.blocks.removeAll { $0.id == block.id } } },
-                        clearResult: { app.session.clearResult(for: block.id) }
-                    )
-                } else {
-                    ForEach(block.exercises) { entry in
-                        LiveExerciseSection(
-                            entry: entry,
-                            block: block,
-                            blockIndex: index,
-                            blockCount: workout.blocks.count,
-                            focus: $focusedField,
-                            replace: { picker = .replace(entry.id) },
-                            showDetails: { viewingExercise = ExerciseRoute(id: entry.exerciseID) }
-                        )
-                    }
-                }
-            }
-
-            Section {
-                Button {
-                    picker = .add
-                } label: {
-                    Label("Add Exercises", systemImage: "plus.circle.fill")
-                        .font(.app(.body, .semibold))
-                }
-                .accessibilityIdentifier("workoutAddExercises")
-                Button {
-                    addingTimedBlock = RoutineEditorView.TimedBlockSetup(blockID: nil, config: .standard(.amrap))
-                } label: {
-                    Label("Add Timed Block", systemImage: "timer")
-                }
-                Button {
-                    showingPlates = true
-                } label: {
-                    Label("Plate Calculator", systemImage: "circle.grid.2x1")
-                }
-            }
-
-            Section {
-                TextField("Workout notes", text: Binding(
-                    get: { app.session.workout?.notes ?? "" },
-                    set: { value in app.session.mutate { $0.notes = value } }
-                ), axis: .vertical)
-                .lineLimit(1...5)
-            } header: {
-                Text("Notes")
-            }
-
-            Section {
-                Button("Discard Workout", role: .destructive) {
-                    confirmDiscard = true
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .canvasBackground()
-        .listStyle(.insetGrouped)
-        .scrollDismissesKeyboard(.interactively)
+    /// What the rows can ask the screen to present.
+    private var actions: WorkoutActions {
+        WorkoutActions(
+            addExercises: { picker = .add },
+            replaceExercise: { picker = .replace($0) },
+            showExercise: { viewingExercise = ExerciseRoute(id: $0) },
+            addTimedBlock: { addingTimedBlock = RoutineEditorView.TimedBlockSetup(blockID: nil, config: .standard(.amrap)) },
+            editTimer: { blockID, config in editingTimer = EditingTimer(blockID: blockID, config: config) },
+            logResult: { loggingResult = $0 },
+            showPlates: { showingPlates = true },
+            discard: { confirmDiscard = true }
+        )
     }
 
     /// Every set input in on-screen order, for keyboard navigation.
@@ -308,19 +225,25 @@ struct WorkoutView: View {
         switch purpose {
         case .add:
             ExercisePickerView(title: "Add Exercises", allowsMultiple: true, offersSuperset: true) { exercises, superset in
-                app.session.addExercises(exercises, asSuperset: superset)
+                withAnimation(Motion.smooth) {
+                    app.session.addExercises(exercises, asSuperset: superset)
+                }
             }
             .environment(app)
         case .replace(let entryID):
             ExercisePickerView(title: "Replace Exercise", allowsMultiple: false) { exercises, _ in
                 if let exercise = exercises.first {
-                    app.session.replaceExercise(entryID, with: exercise)
+                    withAnimation(Motion.smooth) {
+                        app.session.replaceExercise(entryID, with: exercise)
+                    }
                 }
             }
             .environment(app)
         case .timedMovements(let config):
             ExercisePickerView(title: "Movements", allowsMultiple: true) { exercises, _ in
-                app.session.addTimedBlock(config: config, exercises: exercises)
+                withAnimation(Motion.smooth) {
+                    app.session.addTimedBlock(config: config, exercises: exercises)
+                }
             }
             .environment(app)
         }
@@ -331,7 +254,144 @@ struct IdentifiedUUID: Identifiable {
     let id: UUID
 }
 
-/// Live totals at the top of the workout.
+/// Things rows ask the workout screen to present (pickers, sheets, dialogs).
+struct WorkoutActions {
+    var addExercises: () -> Void
+    var replaceExercise: (UUID) -> Void
+    var showExercise: (String) -> Void
+    var addTimedBlock: () -> Void
+    var editTimer: (UUID, TimerConfig) -> Void
+    var logResult: (UUID) -> Void
+    var showPlates: () -> Void
+    var discard: () -> Void
+}
+
+/// Name and running clock in the navigation bar. Observes only the
+/// workout's header, so typing in a set never redraws it.
+private struct WorkoutTitle: View {
+    let rename: (String) -> Void
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        if let header = app.session.header {
+            VStack(spacing: 0) {
+                Text(header.name)
+                    .font(.app(.subheadline, .semibold))
+                    .lineLimit(1)
+                Text(header.startedAt, style: .timer)
+                    .font(.num(.caption))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { rename(header.name) }
+        }
+    }
+}
+
+/// The rows of the workout: the one view that observes every change.
+private struct WorkoutContent: View {
+    let actions: WorkoutActions
+    var focus: FocusState<SetFieldID?>.Binding
+    let focusScrollTarget: SetFieldID?
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        if let workout = app.session.workout {
+            ScrollViewReader { proxy in
+                rows(workout)
+                    .onChange(of: focusScrollTarget) { _, target in
+                        guard let target else { return }
+                        withAnimation(Motion.smooth) { proxy.scrollTo(target.setID, anchor: .center) }
+                    }
+            }
+        }
+    }
+
+    private func rows(_ workout: Workout) -> some View {
+        let session = app.session
+        return List {
+            WorkoutStatsHeader(workout: workout)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
+
+            if session.saveFailed {
+                Label("Changes aren't saved yet. Forge keeps retrying — don't close the workout.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.app(.footnote))
+                    .foregroundStyle(Theme.warning)
+            }
+
+            ForEach(Array(workout.blocks.enumerated()), id: \.element.id) { index, block in
+                if block.isTimed {
+                    TimedBlockSection(
+                        block: block,
+                        index: index,
+                        isRunning: session.timedBlockID == block.id,
+                        run: { session.runTimedBlock(block.id) },
+                        logManually: { actions.logResult(block.id) },
+                        editTimer: { actions.editTimer(block.id, block.timer ?? .standard(.amrap)) },
+                        remove: {
+                            withAnimation(Motion.smooth) {
+                                session.mutate(immediate: true) { $0.blocks.removeAll { $0.id == block.id } }
+                            }
+                        },
+                        clearResult: { session.clearResult(for: block.id) }
+                    )
+                    .equatable()
+                } else {
+                    ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, entry in
+                        LiveExerciseSection(
+                            entry: entry,
+                            blockID: block.id,
+                            blockIndex: index,
+                            blockCount: workout.blocks.count,
+                            groupSize: block.exercises.count,
+                            position: position,
+                            previous: session.previous[entry.exerciseID],
+                            focus: focus,
+                            replace: { actions.replaceExercise(entry.id) },
+                            showDetails: { actions.showExercise(entry.exerciseID) }
+                        )
+                        .equatable()
+                    }
+                }
+            }
+
+            Section {
+                Button(action: actions.addExercises) {
+                    Label("Add Exercises", systemImage: "plus.circle.fill")
+                        .font(.app(.body, .semibold))
+                }
+                .accessibilityIdentifier("workoutAddExercises")
+                Button(action: actions.addTimedBlock) {
+                    Label("Add Timed Block", systemImage: "timer")
+                }
+                Button(action: actions.showPlates) {
+                    Label("Plate Calculator", systemImage: "circle.grid.2x1")
+                }
+            }
+
+            Section {
+                TextField("Workout notes", text: Binding(
+                    get: { workout.notes },
+                    set: { value in session.mutate { $0.notes = value } }
+                ), axis: .vertical)
+                .lineLimit(1...5)
+            } header: {
+                Text("Notes")
+            }
+
+            Section {
+                Button("Discard Workout", role: .destructive, action: actions.discard)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .canvasBackground()
+        .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
+    }
+}
+
+/// Live totals at the top of the workout, with a thin bar for sets done.
 struct WorkoutStatsHeader: View {
     let workout: Workout
     @Environment(AppModel.self) private var app
@@ -344,17 +404,27 @@ struct WorkoutStatsHeader: View {
             .filter { !$0.isTimed || $0.result != nil }
             .flatMap(\.exercises)
             .reduce(0) { $0 + $1.sets.filter { $0.kind.isWorking }.count }
-        HStack(spacing: 10) {
-            miniStat(title: "Time") {
-                Text(workout.startedAt, style: .timer)
+        let volume = workout.volume
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                miniStat(title: "Time") {
+                    Text(workout.startedAt, style: .timer)
+                }
+                miniStat(title: "Sets") {
+                    Text(total == 0 ? "—" : "\(completed)/\(total)")
+                        .contentTransition(.numericText(value: Double(completed)))
+                }
+                miniStat(title: "Volume") {
+                    Text(app.settings.units.volume(volume))
+                        .contentTransition(.numericText(value: volume))
+                }
             }
-            miniStat(title: "Sets") {
-                Text(total == 0 ? "—" : "\(completed)/\(total)")
-            }
-            miniStat(title: "Volume") {
-                Text(app.settings.units.volume(workout.volume))
+            if total > 0 {
+                SetsProgressBar(fraction: Double(completed) / Double(total))
             }
         }
+        .animation(Motion.numeric, value: completed)
+        .animation(Motion.numeric, value: volume)
     }
 
     private func miniStat<Value: View>(title: String, @ViewBuilder value: () -> Value) -> some View {
@@ -374,28 +444,67 @@ struct WorkoutStatsHeader: View {
     }
 }
 
+/// How much of the workout is checked off.
+struct SetsProgressBar: View {
+    let fraction: Double
+
+    var body: some View {
+        let clamped = max(0, min(1, fraction))
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.fill)
+                Capsule()
+                    .fill(clamped >= 1 ? Theme.success : Color.accentColor)
+                    .frame(width: max(clamped > 0 ? 6 : 0, proxy.size.width * clamped))
+            }
+        }
+        .frame(height: 4)
+        .animation(Motion.smooth, value: clamped)
+        .accessibilityElement()
+        .accessibilityLabel("\(Int((clamped * 100).rounded())) percent of sets done")
+    }
+}
+
 /// One exercise in the live workout: header, sets, add-set button.
-struct LiveExerciseSection: View {
+struct LiveExerciseSection: View, Equatable {
     let entry: WorkoutExercise
-    let block: WorkoutBlock
+    let blockID: UUID
     let blockIndex: Int
     let blockCount: Int
+    /// Exercises in this block (more than one for a superset or circuit).
+    let groupSize: Int
+    /// This exercise's place within its block.
+    let position: Int
+    /// Last time's sets for this exercise, for the "previous" column.
+    let previous: [WorkoutSet]?
     var focus: FocusState<SetFieldID?>.Binding
     let replace: () -> Void
     let showDetails: () -> Void
     @Environment(AppModel.self) private var app
     @State private var editingNotes = false
 
-    private var isSuperset: Bool { block.exercises.count > 1 }
-    private var positionInBlock: Int { block.exercises.firstIndex { $0.id == entry.id } ?? 0 }
+    /// Closures and the focus binding don't count: they only ever refer to
+    /// the same entry and the same screen.
+    nonisolated static func == (lhs: LiveExerciseSection, rhs: LiveExerciseSection) -> Bool {
+        lhs.entry == rhs.entry
+            && lhs.blockID == rhs.blockID
+            && lhs.blockIndex == rhs.blockIndex
+            && lhs.blockCount == rhs.blockCount
+            && lhs.groupSize == rhs.groupSize
+            && lhs.position == rhs.position
+            && lhs.previous == rhs.previous
+    }
+
+    private var isSuperset: Bool { groupSize > 1 }
 
     var body: some View {
+        let session = app.session
         Section {
             header
             if editingNotes || !entry.notes.isEmpty {
                 TextField("Notes", text: Binding(
-                    get: { app.session.workout?.exercise(entry.id)?.notes ?? "" },
-                    set: { value in app.session.mutate { $0.updateExercise(entry.id) { $0.notes = value } } }
+                    get: { entry.notes },
+                    set: { value in session.mutate { $0.updateExercise(entry.id) { $0.notes = value } } }
                 ), axis: .vertical)
                 .font(.app(.subheadline))
                 .lineLimit(1...4)
@@ -408,23 +517,27 @@ struct LiveExerciseSection: View {
                     set: set,
                     number: entry.sets.workingNumber(at: index),
                     tracking: entry.tracking,
-                    previous: app.session.previousSet(for: entry, index: index),
+                    previous: previous?[safe: index],
                     focus: focus
                 )
+                .equatable()
             }
             Button {
-                app.session.addSet(to: entry.id)
+                withAnimation(Motion.smooth) {
+                    session.addSet(to: entry.id)
+                }
             } label: {
                 Label("Add Set", systemImage: "plus")
                     .font(.app(.subheadline, .semibold))
                     .frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("addSet-\(entry.name)")
+            .sensoryFeedback(.impact(weight: .light), trigger: entry.sets.count)
         } header: {
             if isSuperset {
                 HStack(spacing: 6) {
                     Image(systemName: "link")
-                    Text(block.exercises.count > 2 ? "Circuit · \(positionInBlock + 1) of \(block.exercises.count)" : "Superset · \(positionInBlock + 1) of \(block.exercises.count)")
+                    Text(groupSize > 2 ? "Circuit · \(position + 1) of \(groupSize)" : "Superset · \(position + 1) of \(groupSize)")
                 }
                 .font(.app(.caption, .semibold))
                 .foregroundStyle(Color.accentColor)
@@ -461,43 +574,56 @@ struct LiveExerciseSection: View {
 
     @ViewBuilder
     private var exerciseMenu: some View {
-        Button(entry.notes.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") { editingNotes = true }
+        let session = app.session
+        Button(entry.notes.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") {
+            withAnimation(Motion.smooth) { editingNotes = true }
+        }
         if entry.tracking == .weightReps {
-            Button("Add Warm-up Sets", systemImage: "flame") { app.session.addWarmups(to: entry.id) }
+            Button("Add Warm-up Sets", systemImage: "flame") {
+                withAnimation(Motion.smooth) { session.addWarmups(to: entry.id) }
+            }
         }
         Menu("Rest Timer", systemImage: "timer") {
-            Button("Default (\(DurationFormat.compact(Double(app.settings.value.defaultRestSeconds))))") { app.session.setRestSeconds(nil, for: entry.id) }
-            Button("Off") { app.session.setRestSeconds(0, for: entry.id) }
+            Button("Default (\(DurationFormat.compact(Double(app.settings.value.defaultRestSeconds))))") { session.setRestSeconds(nil, for: entry.id) }
+            Button("Off") { session.setRestSeconds(0, for: entry.id) }
             ForEach(RestOptions.values, id: \.self) { seconds in
-                Button(DurationFormat.compact(Double(seconds))) { app.session.setRestSeconds(seconds, for: entry.id) }
+                Button(DurationFormat.compact(Double(seconds))) { session.setRestSeconds(seconds, for: entry.id) }
             }
         }
         Button("Replace Exercise", systemImage: "arrow.triangle.2.circlepath", action: replace)
         if blockIndex > 0 {
-            Button("Move Up", systemImage: "arrow.up") { app.session.moveBlock(block.id, by: -1) }
+            Button("Move Up", systemImage: "arrow.up") {
+                withAnimation(Motion.smooth) { session.moveBlock(blockID, by: -1) }
+            }
         }
         if blockIndex < blockCount - 1 {
-            Button("Move Down", systemImage: "arrow.down") { app.session.moveBlock(block.id, by: 1) }
-            Button("Superset with Next", systemImage: "link") { app.session.mergeWithNext(block.id) }
+            Button("Move Down", systemImage: "arrow.down") {
+                withAnimation(Motion.smooth) { session.moveBlock(blockID, by: 1) }
+            }
+            Button("Superset with Next", systemImage: "link") {
+                withAnimation(Motion.smooth) { session.mergeWithNext(blockID) }
+            }
         }
         if isSuperset {
-            Button("Split Superset", systemImage: "scissors") { app.session.splitBlock(block.id) }
+            Button("Split Superset", systemImage: "scissors") {
+                withAnimation(Motion.smooth) { session.splitBlock(blockID) }
+            }
         }
         Divider()
         Button("Remove Exercise", systemImage: "trash", role: .destructive) {
-            app.session.removeExercise(entry.id)
+            withAnimation(Motion.smooth) { session.removeExercise(entry.id) }
         }
     }
 
     private var restText: String {
         let seconds = entry.restSeconds ?? app.library.restSeconds(for: entry.exerciseID) ?? app.settings.value.defaultRestSeconds
         if seconds == 0 { return "Rest timer off" }
-        if isSuperset, positionInBlock < block.exercises.count - 1 { return "Rest after the last exercise in the superset" }
+        if isSuperset, position < groupSize - 1 { return "Rest after the last exercise in the superset" }
         return "Rest \(DurationFormat.compact(Double(seconds)))"
     }
 }
 
-struct LiveSetRow: View {
+struct LiveSetRow: View, Equatable {
     let set: WorkoutSet
     let number: Int
     let tracking: TrackingType
@@ -505,15 +631,22 @@ struct LiveSetRow: View {
     var focus: FocusState<SetFieldID?>.Binding
     @Environment(AppModel.self) private var app
 
+    nonisolated static func == (lhs: LiveSetRow, rhs: LiveSetRow) -> Bool {
+        lhs.set == rhs.set
+            && lhs.number == rhs.number
+            && lhs.tracking == rhs.tracking
+            && lhs.previous == rhs.previous
+    }
+
     var body: some View {
-        let binding = app.session.setBinding(set.id, fallback: set)
+        let session = app.session
         HStack(spacing: 8) {
             SetKindMenu(kind: set.kind, number: number, completed: set.isCompleted, rpe: set.rpe) { kind in
-                app.session.setKind(kind, for: set.id)
+                session.setKind(kind, for: set.id)
             } onDelete: {
-                app.session.removeSet(set.id)
+                withAnimation(Motion.smooth) { session.removeSet(set.id) }
             } onRPE: { value in
-                app.session.mutate(immediate: true) { workout in
+                session.mutate(immediate: true) { workout in
                     workout.updateSet(set.id) { $0.rpe = value }
                 }
             }
@@ -531,10 +664,10 @@ struct LiveSetRow: View {
             .disabled(previous == nil)
             TrackingFields(
                 tracking: tracking,
-                weight: binding.weight,
-                reps: binding.reps,
-                duration: binding.duration,
-                distance: binding.distance,
+                weight: field(\.weight),
+                reps: field(\.reps),
+                duration: field(\.duration),
+                distance: field(\.distance),
                 placeholder: placeholder,
                 completed: set.isCompleted,
                 focus: focus,
@@ -542,11 +675,15 @@ struct LiveSetRow: View {
             )
             Button {
                 dismissKeyboard()
-                app.session.toggleCompletion(of: set.id)
+                withAnimation(Motion.snappy) {
+                    session.toggleCompletion(of: set.id)
+                }
             } label: {
                 Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.app(.title2))
                     .foregroundStyle(set.isCompleted ? Theme.success : Color.secondary.opacity(0.5))
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: set.isCompleted)
                     .frame(width: SetColumn.check, height: 36)
                     .contentShape(Rectangle())
             }
@@ -558,11 +695,23 @@ struct LiveSetRow: View {
         .listRowBackground(set.isCompleted ? Theme.success.opacity(0.10) : Theme.surface)
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                app.session.removeSet(set.id)
+                withAnimation(Motion.smooth) { session.removeSet(set.id) }
             } label: {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    /// A binding to one of this set's values. It reads the value this row
+    /// was drawn with, so the fields never observe the whole workout.
+    private func field<Value>(_ keyPath: WritableKeyPath<WorkoutSet, Value>) -> Binding<Value> {
+        let session = app.session
+        let id = set.id
+        let current = set[keyPath: keyPath]
+        return Binding(
+            get: { current },
+            set: { newValue in session.updateSet(id) { $0[keyPath: keyPath] = newValue } }
+        )
     }
 
     /// Routine targets first, then last time's numbers, as greyed hints.
@@ -579,6 +728,7 @@ struct LiveSetRow: View {
 
     private func copyPrevious() {
         guard let previous else { return }
+        let tracking = tracking
         app.session.mutate { workout in
             workout.updateSet(set.id) { current in
                 if tracking.usesWeight { current.weight = previous.weight }
@@ -595,11 +745,30 @@ struct RestTimerBar: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        if let rest = app.session.rest {
-            let now = app.session.clock
-            let remaining = rest.remaining(at: now)
+        let rest = app.session.rest
+        ZStack {
+            if let rest {
+                RestTimerCard(rest: rest)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Motion.smooth, value: rest != nil)
+    }
+}
+
+/// The rest countdown itself. The bar sweeps smoothly and the digits roll
+/// over each second; nothing outside this card redraws while it counts.
+private struct RestTimerCard: View {
+    let rest: RestTimerState
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let session = app.session
+        TimelineView(.animation(minimumInterval: AppEnvironment.isUITest ? 0.5 : 1.0 / 30.0)) { context in
+            let remaining = rest.remaining(at: context.date)
             let done = remaining <= 0
-            VStack(spacing: 8) {
+            let clock = done ? "Go!" : DurationFormat.countdownClock(remaining)
+            VStack(spacing: 10) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(done ? "Rest complete" : "Rest")
@@ -607,26 +776,30 @@ struct RestTimerBar: View {
                             .tracking(0.9)
                             .textCase(.uppercase)
                             .foregroundStyle(done ? Theme.success : .secondary)
-                        Text(done ? "Go!" : DurationFormat.countdownClock(remaining))
+                        Text(clock)
                             .font(.num(size: 30, .semibold))
                             .monospacedDigit()
-                            .contentTransition(.numericText())
+                            .foregroundStyle(done ? Theme.success : Color.primary)
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(Motion.numeric, value: clock)
                     }
                     Spacer()
                     HStack(spacing: 8) {
-                        Button("−15") { app.session.adjustRest(by: -15) }
+                        Button("−15") { session.adjustRest(by: -15) }
                             .buttonStyle(.bordered)
-                        Button("+15") { app.session.adjustRest(by: 15) }
+                        Button("+15") { session.adjustRest(by: 15) }
                             .buttonStyle(.bordered)
-                        Button(done ? "Done" : "Skip") { app.session.skipRest() }
-                            .buttonStyle(.borderedProminent)
-                            .foregroundStyle(Theme.onAccent)
-                            .accessibilityIdentifier("skipRest")
+                        Button(done ? "Done" : "Skip") {
+                            withAnimation(Motion.smooth) { session.skipRest() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .foregroundStyle(Theme.onAccent)
+                        .accessibilityIdentifier("skipRest")
                     }
                     .font(.app(.subheadline, .semibold))
+                    .sensoryFeedback(.selection, trigger: rest.duration)
                 }
-                ProgressView(value: rest.progress(at: now))
-                    .tint(done ? Theme.success : .accentColor)
+                RestProgressBar(progress: rest.progress(at: context.date), done: done)
                 if !rest.exerciseName.isEmpty, !done {
                     Text("Next: \(rest.exerciseName)")
                         .font(.app(.caption))
@@ -634,12 +807,30 @@ struct RestTimerBar: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(14)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(Motion.smooth, value: done)
         }
+        .padding(14)
+        .floatingSurface(cornerRadius: 22)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+    }
+}
+
+/// The rest countdown's track.
+private struct RestProgressBar: View {
+    let progress: Double
+    let done: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.1))
+                Capsule()
+                    .fill(done ? Theme.success : Color.accentColor)
+                    .frame(width: max(6, proxy.size.width * max(0, min(1, progress))))
+            }
+        }
+        .frame(height: 5)
+        .accessibilityHidden(true)
     }
 }
