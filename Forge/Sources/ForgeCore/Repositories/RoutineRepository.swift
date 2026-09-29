@@ -215,14 +215,21 @@ public final class RoutineRepository: @unchecked Sendable {
     public func purge(routineID: UUID) throws {
         try queue.write { db in
             try db.run("DELETE FROM routine WHERE id = ? AND deleted_at IS NOT NULL", [routineID])
+            if db.changes > 0 {
+                try Tombstones.record(.routine, routineID, db: db)
+            }
         }
     }
 
     @discardableResult
     public func purgeDeleted(before cutoff: Date) throws -> Int {
         try queue.write { db in
-            try db.run("DELETE FROM routine WHERE deleted_at IS NOT NULL AND deleted_at < ?", [cutoff])
-            return db.changes
+            let ids = try db.query("SELECT id FROM routine WHERE deleted_at IS NOT NULL AND deleted_at < ?", [cutoff]).compactMap { $0.uuid("id") }
+            for id in ids {
+                try db.run("DELETE FROM routine WHERE id = ?", [id])
+                try Tombstones.record(.routine, id, db: db)
+            }
+            return ids.count
         }
     }
 }

@@ -19,24 +19,75 @@ struct BackupsView: View {
     var body: some View {
         let data = app.dataSafety
         List {
+            if !data.integrity.problems.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Forge found damage in its data file", systemImage: "exclamationmark.triangle.fill")
+                            .font(.app(.headline))
+                            .foregroundStyle(Theme.danger)
+                        Text("Export a backup file now to keep a copy of everything that's readable, then restore the newest snapshot below. Find Missing Data can bring back anything newer.")
+                            .font(.app(.subheadline))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Your data is protected", systemImage: "checkmark.shield.fill")
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(isFullyProtected ? "Your data is protected" : "Your data is saved on this iPhone", systemImage: isFullyProtected ? "checkmark.shield.fill" : "shield.lefthalf.filled")
                         .font(.app(.headline))
-                        .foregroundStyle(Theme.success)
-                    Text("Every set is written to disk the moment you log it. Forge also keeps daily snapshots on this iPhone and exports a full backup file you can keep anywhere.")
+                        .foregroundStyle(isFullyProtected ? Theme.success : Theme.warning)
+                    Text("Every set is written to disk the moment you log it and checked after saving. Forge also keeps snapshots on this iPhone and writes backup files you can keep anywhere.")
                         .font(.app(.subheadline))
                         .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        statusLine("Last snapshot", data.snapshots.map(\.date).max().map { $0.formatted(date: .abbreviated, time: .shortened) }
-                            ?? (app.settings.value.autoBackupEnabled ? "When you leave the app" : "Off"))
-                        statusLine("Last backup file", data.lastExportDate.map { $0.formatted(date: .abbreviated, time: .shortened) }
-                            ?? (app.settings.value.autoExportEnabled ? "When you leave the app" : "Off"))
-                        statusLine("Backup folder", data.exportFolderName ?? "Files › On My iPhone › Forge")
+                    VStack(spacing: 8) {
+                        statusRow("Saving", "Instant, verified", symbol: "checkmark.circle.fill", tint: Theme.success)
+                        statusRow("Snapshots", snapshotStatus, symbol: data.snapshots.isEmpty ? "circle.dashed" : "checkmark.circle.fill", tint: data.snapshots.isEmpty ? .secondary : Theme.success)
+                        statusRow("Backup files", backupFileStatus, symbol: data.lastExportDate == nil ? "circle.dashed" : "checkmark.circle.fill", tint: data.lastExportDate == nil ? .secondary : Theme.success)
+                        statusRow("Off this iPhone", data.exportFolderName ?? "Not set up", symbol: data.exportFolderName == nil ? "exclamationmark.circle.fill" : "checkmark.circle.fill", tint: data.exportFolderName == nil ? Theme.warning : Theme.success)
+                        statusRow("Health check", integrityStatus, symbol: data.integrity.problems.isEmpty ? "checkmark.circle.fill" : "xmark.octagon.fill", tint: data.integrity.problems.isEmpty ? Theme.success : Theme.danger)
                     }
                     .font(.app(.caption))
+                    if data.exportFolderName == nil {
+                        Button {
+                            importerMode = .folder
+                            showingImporter = true
+                        } label: {
+                            Label("Keep Copies in iCloud Drive…", systemImage: "icloud.and.arrow.up")
+                                .font(.app(.subheadline, .semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 2)
+                    }
                 }
                 .padding(.vertical, 6)
+            }
+
+            Section {
+                NavigationLink {
+                    RecoveryView()
+                } label: {
+                    Label("Find Missing Data", systemImage: "sparkle.magnifyingglass")
+                }
+                .accessibilityIdentifier("findMissingData")
+                NavigationLink {
+                    RecentlyDeletedView()
+                } label: {
+                    HStack {
+                        Label("Recently Deleted", systemImage: "trash")
+                        Spacer()
+                        let count = app.history.deleted.count + app.routines.deletedRoutines.count
+                        if count > 0 {
+                            Text("\(count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Recovery")
+            } footer: {
+                Text("Something missing? Find Missing Data looks through every snapshot and backup file for workouts, routines and other items that aren't in Forge anymore, and lets you bring them back without changing anything else.")
             }
 
             Section {
@@ -103,7 +154,7 @@ struct BackupsView: View {
             } header: {
                 Text("Automatic Backup Files")
             } footer: {
-                Text("Once a day (and after workouts) Forge writes a backup file to Files › On My iPhone › Forge › Backups, keeping the last 7. Pick an iCloud Drive folder to keep copies off this iPhone too — the best protection if the app is ever deleted or reinstalled.")
+                Text("After every change, Forge writes a backup file to Files › On My iPhone › Forge › Backups. The newest are all kept, then one a day for a month and one a week for six months. Pick an iCloud Drive folder to keep copies off this iPhone too — the best protection if the app is ever deleted or reinstalled.")
             }
 
             Section {
@@ -124,7 +175,7 @@ struct BackupsView: View {
                         SnapshotRow(snapshot: snapshot, summary: data.summary(of: snapshot))
                     }
                     .buttonStyle(.plain)
-                    .swipeActions {
+                    .swipeActions(allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             data.delete(snapshot)
                         } label: {
@@ -135,12 +186,15 @@ struct BackupsView: View {
             } header: {
                 Text("Snapshots on This iPhone")
             } footer: {
-                Text("Snapshots are full copies of your data, made daily and before any update or restore. Tap one to restore it — your current data is snapshotted first, so a restore can always be undone.")
+                Text("Snapshots are full copies of your data, made daily, after every workout, and before any app update or restore. Tap one to restore it — your current data is snapshotted first, so a restore can always be undone.")
             }
         }
         .canvasBackground()
         .navigationTitle("Backups & Export")
-        .onAppear { data.refresh() }
+        .onAppear {
+            data.refresh()
+            data.refreshIntegrity()
+        }
         .sheet(item: Binding(get: { exportURL.map(ShareableFile.init) }, set: { exportURL = $0?.url })) { file in
             ShareSheet(items: [file.url])
         }
@@ -217,14 +271,48 @@ struct BackupsView: View {
         return nil
     }
 
-    private func statusLine(_ title: String, _ value: String) -> some View {
-        HStack {
+    /// Snapshots, backup files and an off-device folder are all in place.
+    private var isFullyProtected: Bool {
+        let data = app.dataSafety
+        return !data.snapshots.isEmpty && data.lastExportDate != nil && data.exportFolderName != nil && data.integrity.problems.isEmpty
+    }
+
+    private var snapshotStatus: String {
+        let snapshots = app.dataSafety.snapshots
+        guard let newest = snapshots.map(\.date).max() else {
+            return app.settings.value.autoBackupEnabled ? "When you leave the app" : "Off"
+        }
+        return "\(snapshots.count) · newest \(newest.formatted(.relative(presentation: .named)))"
+    }
+
+    private var backupFileStatus: String {
+        let data = app.dataSafety
+        guard let last = data.lastExportDate else {
+            return app.settings.value.autoExportEnabled ? "When you leave the app" : "Off"
+        }
+        let count = data.localBackupFileCount
+        return "\(count) · updated \(last.formatted(.relative(presentation: .named)))"
+    }
+
+    private var integrityStatus: String {
+        let integrity = app.dataSafety.integrity
+        if !integrity.problems.isEmpty { return "Problems found" }
+        guard let checked = integrity.checkedAt else { return "Runs every few days" }
+        return "Passed \(checked.formatted(.relative(presentation: .named)))"
+    }
+
+    private func statusRow(_ title: String, _ value: String, symbol: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(tint)
+                .frame(width: 16)
             Text(title)
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 8)
             Text(value)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
     }
 }

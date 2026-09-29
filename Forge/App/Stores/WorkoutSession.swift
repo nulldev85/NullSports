@@ -58,9 +58,15 @@ final class WorkoutSession {
         var rating: Int?
         var startedAt: Date
         var endedAt: Date
+        /// Log unticked sets that have numbers typed in (on by default).
+        var keepEnteredSets: Bool = true
+        /// Also log untouched sets from their targets.
         var completeRemaining: Bool
         var updateRoutine: Bool
     }
+
+    /// Earlier unfinished workouts found at launch and saved to History.
+    private(set) var recoveredAtLaunch: [Workout] = []
 
     init(database: AppDatabase, feedback: Feedback, settings: SettingsStore, library: LibraryStore, routines: RoutineStore, history: HistoryStore, cues: CuePlayer, notifier: Notifier) {
         self.database = database
@@ -102,7 +108,15 @@ final class WorkoutSession {
     func restoreIfNeeded() {
         guard workout == nil else { return }
         do {
-            guard let active = try database.workouts.activeWorkout() else { return }
+            // Never leave an older unfinished workout stranded where it
+            // can't be seen: those are saved to History first.
+            let outcome = try UnfinishedWorkouts.resolve(in: database)
+            recoveredAtLaunch += outcome.recovered
+            if !outcome.recovered.isEmpty {
+                history.reload()
+                history.markChanged()
+            }
+            guard let active = outcome.active else { return }
             setWorkout(active)
             loadPrevious()
             scheduleRestTimers()
@@ -115,6 +129,14 @@ final class WorkoutSession {
     }
 
     func start(from routine: Routine? = nil) {
+        // A workout left open (and not yet loaded) is resumed, never
+        // replaced by a new one.
+        if workout == nil {
+            restoreIfNeeded()
+            if workout != nil {
+                feedback.show("Picked up your unfinished workout", style: .info)
+            }
+        }
         guard workout == nil else {
             isPresented = true
             return
@@ -244,7 +266,28 @@ final class WorkoutSession {
     }
 
     func removeSet(_ setID: UUID) {
+        guard let workout, let location = workout.location(ofSet: setID) else { return }
+        let entry = workout.blocks[location.block].exercises[location.exercise]
+        let removed = entry.sets[location.set]
         mutate(immediate: true) { $0.removeSet(setID) }
+        // A set with anything logged in it can be put back.
+        if removed.isCompleted || removed.hasValues {
+            feedback.show("Set deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+                self?.restoreSet(removed, in: entry.id, at: location.set)
+            })
+        }
+    }
+
+    private func restoreSet(_ set: WorkoutSet, in entryID: UUID, at index: Int) {
+        guard workout?.exercise(entryID) != nil else { return }
+        withAnimation(Motion.smooth) {
+            mutate(immediate: true) { workout in
+                _ = workout.updateExercise(entryID) { exercise in
+                    guard !exercise.sets.contains(where: { $0.id == set.id }) else { return }
+                    exercise.sets.insert(set, at: min(index, exercise.sets.count))
+                }
+            }
+        }
     }
 
     func setKind(_ kind: SetKind, for setID: UUID) {
@@ -518,13 +561,15 @@ final class WorkoutSession {
         current.notes = options.notes
         current.rating = options.rating
         current.startedAt = options.startedAt
-        var finished = WorkoutFactory.finalize(current, completeRemaining: options.completeRemaining, now: options.endedAt)
+        var finished = WorkoutFactory.finalize(current, completeRemaining: options.completeRemaining, keepEnteredSets: options.keepEnteredSets, now: options.endedAt)
         finished.duration = max(0, options.endedAt.timeIntervalSince(options.startedAt))
         let records = history.currentRecords().newRecords(in: finished)
         // Anything still queued must land before the finished version, never after it.
         flush()
         do {
-            try database.workouts.save(finished)
+            // Read back and checked before the workout closes, so a failed
+            // save is caught while everything is still on screen.
+            try database.workouts.saveVerified(finished)
         } catch {
             feedback.report(error, while: "finish the workout. It's still open so nothing is lost")
             return false
@@ -539,6 +584,11 @@ final class WorkoutSession {
         history.reload()
         history.markChanged()
         library.refreshUsageInBackground()
+        // A fresh snapshot, so the newest backup always includes this workout.
+        let database = database
+        BackgroundWork.run("Forge workout backup") {
+            database.snapshotAfterWorkout()
+        }
         // Let the workout screen finish dismissing before presenting the
         // summary on the tab view.
         let summary = FinishedWorkout(workout: finished, records: records)
@@ -556,11 +606,13 @@ final class WorkoutSession {
         // A queued write landing after the delete would bring the workout back.
         flush()
         do {
-            if current.hasCompletedSets {
-                var kept = WorkoutFactory.finalize(current, completeRemaining: false)
+            // Anything typed in — even sets never ticked — goes to Recently
+            // Deleted rather than disappearing.
+            if current.hasUserInput {
+                var kept = WorkoutFactory.finalize(current, completeRemaining: false, keepEnteredSets: true)
                 kept.deletedAt = Date()
                 try database.workouts.save(kept)
-                feedback.show("Workout discarded. Logged sets are in Recently Deleted for 30 days.", style: .info, duration: 4)
+                feedback.show("Workout discarded. What you logged is in Recently Deleted for 30 days.", style: .info, duration: 5)
             } else {
                 try database.workouts.purge(workoutID: current.id)
             }

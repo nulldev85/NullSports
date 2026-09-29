@@ -211,12 +211,23 @@ struct MuscleTags: View {
     }
 }
 
+/// A button on a toast, such as Undo.
+struct ToastAction {
+    var title: String
+    var perform: @MainActor () -> Void
+}
+
 /// Transient message shown at the top of the screen.
 struct Toast: Identifiable, Equatable {
     enum Style { case info, success, warning, error }
     let id = UUID()
     var message: String
     var style: Style = .info
+    var action: ToastAction?
+
+    static func == (lhs: Toast, rhs: Toast) -> Bool {
+        lhs.id == rhs.id
+    }
 
     var symbol: String {
         switch style {
@@ -239,6 +250,7 @@ struct Toast: Identifiable, Equatable {
 
 struct ToastBanner: View {
     let toast: Toast
+    var dismiss: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 10) {
@@ -248,9 +260,25 @@ struct ToastBanner: View {
                 .font(.app(.subheadline, .medium))
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
+            if let action = toast.action {
+                Spacer(minLength: 4)
+                Button {
+                    action.perform()
+                    dismiss()
+                } label: {
+                    Text(action.title)
+                        .font(.app(.subheadline, .bold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor.opacity(0.14), in: Capsule())
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityIdentifier("toastAction")
+            }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, toast.action == nil ? 12 : 8)
         .floatingCapsule()
         .padding(.horizontal, 20)
     }

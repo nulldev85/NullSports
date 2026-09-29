@@ -30,10 +30,13 @@ public struct HistorySnapshot: Sendable {
 
     /// `exercises` maps exercise IDs (built-in and custom) to exercises, for
     /// the muscles-trained numbers.
+    ///
+    /// Only the workout list itself must load; if records or Recently
+    /// Deleted can't be read, the list still shows.
     public static func load(from database: AppDatabase, calendar: Calendar, exercises: [String: Exercise]) throws -> HistorySnapshot {
         let summaries = try database.workouts.summaries()
-        let deleted = try database.workouts.summaries(deleted: true)
-        let setRecords = try database.workouts.setRecords()
+        let deleted = (try? database.workouts.summaries(deleted: true)) ?? []
+        let setRecords = (try? database.workouts.setRecords()) ?? []
         let records = RecordBook(records: setRecords)
         let all: [PersonalRecord] = records.prsByWorkout.values.flatMap { $0 }
         let recent = all.sorted(by: Self.newerFirst).prefix(20)

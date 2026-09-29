@@ -10,6 +10,8 @@ final class RoutineStore {
 
     private let database: AppDatabase
     private let feedback: Feedback
+    /// Called after routines or folders change on disk.
+    @ObservationIgnored var onChange: (() -> Void)?
 
     init(database: AppDatabase, feedback: Feedback) {
         self.database = database
@@ -25,6 +27,7 @@ final class RoutineStore {
         } catch {
             feedback.report(error, while: "load your routines")
         }
+        onChange?()
     }
 
     // MARK: Queries

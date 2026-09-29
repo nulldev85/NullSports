@@ -49,10 +49,29 @@ struct FolderContentsView: View {
     @State private var deletingRoutine: Routine?
     @State private var searchText = ""
     @State private var draftToRestore: Routine?
-    @State private var choosingBackupFolder = false
+    @State private var showingImporter = false
+    @State private var importerMode: TrainImporter = .backupFolder
+    @State private var pendingImport: BackupArchive?
+    @AppStorage("forge.restoreCardDismissed") private var restoreCardDismissed = false
+
+    enum TrainImporter {
+        case backupFolder, backupFile
+    }
 
     private var isRoot: Bool { folderID == nil }
     private var folder: Folder? { app.routines.folder(folderID) }
+
+    /// Anything worth protecting yet.
+    private var hasData: Bool {
+        !app.history.summaries.isEmpty || !app.routines.routines.isEmpty
+    }
+
+    /// A brand-new install (or a reinstall): offer to bring a backup back
+    /// before anything else.
+    private var offersRestore: Bool {
+        !restoreCardDismissed && app.history.isLoaded && !hasData
+            && app.history.deleted.isEmpty && app.routines.folders.isEmpty && !app.session.isActive
+    }
 
     var body: some View {
         let subfolders = app.routines.subfolders(of: folderID)
@@ -75,10 +94,20 @@ struct FolderContentsView: View {
                         }
                     }
                 }
-                if app.dataSafety.shouldSuggestExternalFolder, app.history.summaries.count >= 3 {
+                if offersRestore {
+                    Section {
+                        RestoreBackupCard {
+                            importerMode = .backupFile
+                            showingImporter = true
+                        } startFresh: {
+                            withAnimation(Motion.smooth) { restoreCardDismissed = true }
+                        }
+                    }
+                } else if hasData, app.dataSafety.shouldSuggestExternalFolder {
                     Section {
                         BackupFolderCard {
-                            choosingBackupFolder = true
+                            importerMode = .backupFolder
+                            showingImporter = true
                         } snooze: {
                             withAnimation(Motion.smooth) {
                                 app.dataSafety.snoozeFolderSuggestion()
@@ -173,10 +202,37 @@ struct FolderContentsView: View {
                 draftToRestore = app.routines.loadDraft()
             }
         }
-        .fileImporter(isPresented: $choosingBackupFolder, allowedContentTypes: [.folder]) { result in
-            switch result {
-            case .success(let url): app.dataSafety.setExportFolder(url)
-            case .failure(let error): app.feedback.report(error, while: "use that folder")
+        // One importer for both uses: SwiftUI only honors a single
+        // fileImporter per view.
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: importerMode == .backupFolder ? [.folder] : [.json, .data]) { result in
+            switch (importerMode, result) {
+            case (.backupFolder, .success(let url)):
+                app.dataSafety.setExportFolder(url)
+            case (.backupFile, .success(let url)):
+                do {
+                    pendingImport = try app.dataSafety.readArchive(at: url)
+                } catch {
+                    app.feedback.report(error, while: "read that backup")
+                }
+            case (.backupFolder, .failure(let error)):
+                app.feedback.report(error, while: "use that folder")
+            case (.backupFile, .failure(let error)):
+                app.feedback.report(error, while: "open that file")
+            }
+        }
+        .confirmationDialog(
+            "Restore this backup?",
+            isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Restore Backup") {
+                if let archive = pendingImport { app.dataSafety.applyImport(archive) }
+                pendingImport = nil
+            }
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+        } message: {
+            if let archive = pendingImport {
+                Text("The backup from \(archive.exportedAt.formatted(date: .abbreviated, time: .shortened)) has \(archive.completedWorkoutCount) workouts and \(archive.activeRoutineCount) routines.")
             }
         }
         .sheet(item: $editor) { request in
@@ -568,7 +624,7 @@ struct BackupFolderCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Keep a copy off this iPhone", systemImage: "icloud.and.arrow.up")
                 .font(.app(.subheadline, .semibold))
-            Text("Forge backs up on this iPhone every day, but those files go if the app is deleted. Choose an iCloud Drive folder and every backup is copied there too.")
+            Text("Forge backs up on this iPhone after every change, but those files go if the app is deleted. Choose an iCloud Drive folder and every backup is copied there too.")
                 .font(.app(.subheadline))
                 .foregroundStyle(.secondary)
             HStack {
@@ -577,6 +633,31 @@ struct BackupFolderCard: View {
                     .foregroundStyle(Theme.onAccent)
                     .accessibilityIdentifier("chooseBackupFolder")
                 Button("Not Now", action: snooze)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Shown on a fresh install: bring back a backup file before starting.
+struct RestoreBackupCard: View {
+    let restore: () -> Void
+    let startFresh: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Have a Forge backup?", systemImage: "arrow.counterclockwise.icloud")
+                .font(.app(.subheadline, .semibold))
+            Text("If you've used Forge before, restore a backup file (for example from iCloud Drive) to bring back your workouts, routines and settings.")
+                .font(.app(.subheadline))
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Restore Backup", action: restore)
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Theme.onAccent)
+                    .accessibilityIdentifier("restoreBackupFile")
+                Button("Start Fresh", action: startFresh)
                     .buttonStyle(.bordered)
             }
         }

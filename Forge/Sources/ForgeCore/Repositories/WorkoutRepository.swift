@@ -18,6 +18,35 @@ public final class WorkoutRepository: @unchecked Sendable {
         }
     }
 
+    /// Saves, then reads the workout back and confirms every set arrived.
+    /// Used for the saves that matter most (finishing a workout), so a
+    /// problem surfaces while the workout is still open instead of later.
+    public func saveVerified(_ workout: Workout) throws {
+        try save(workout)
+        guard let stored = try self.workout(id: workout.id) else {
+            throw DatabaseError(code: 1, message: "The workout couldn't be read back after saving.")
+        }
+        let expected = workout.allExercises.flatMap(\.sets)
+        let actual = stored.allExercises.flatMap(\.sets)
+        let matches = stored.status == workout.status
+            && expected.map(\.id) == actual.map(\.id)
+            && zip(expected, actual).allSatisfy { lhs, rhs in
+                lhs.isCompleted == rhs.isCompleted && lhs.reps == rhs.reps
+                    && Self.same(lhs.weight, rhs.weight) && Self.same(lhs.duration, rhs.duration) && Self.same(lhs.distance, rhs.distance)
+            }
+        guard matches else {
+            throw DatabaseError(code: 1, message: "The saved workout didn't match what was logged.")
+        }
+    }
+
+    private static func same(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (l?, r?): return abs(l - r) < 1e-6
+        default: return false
+        }
+    }
+
     static func insert(_ workout: Workout, db: Connection) throws {
         let runtime: String? = workout.runtime.isEmpty ? nil : try JSONCoding.encodeString(workout.runtime)
         try db.run(
@@ -96,6 +125,14 @@ public final class WorkoutRepository: @unchecked Sendable {
     public func activeWorkout() throws -> Workout? {
         try queue.read { db in
             try Self.load(where: "w.status = 'active' AND w.deleted_at IS NULL", arguments: [], order: "w.started_at DESC", db: db).first
+        }
+    }
+
+    /// Every workout still marked in progress, newest first. Normally there
+    /// is at most one; more means an earlier one was never closed.
+    public func activeWorkouts() throws -> [Workout] {
+        try queue.read { db in
+            try Self.load(where: "w.status = 'active' AND w.deleted_at IS NULL", arguments: [], order: "w.started_at DESC", db: db)
         }
     }
 
@@ -451,6 +488,7 @@ public final class WorkoutRepository: @unchecked Sendable {
             try db.run("DELETE FROM workout_exercise WHERE workout_id = ?", [workoutID])
             try db.run("DELETE FROM workout_block WHERE workout_id = ?", [workoutID])
             try db.run("DELETE FROM workout WHERE id = ?", [workoutID])
+            try Tombstones.record(.workout, workoutID, db: db)
         }
     }
 

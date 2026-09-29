@@ -8,6 +8,7 @@ struct FinishWorkoutView: View {
     @State private var rating: Int?
     @State private var startedAt = Date()
     @State private var endedAt = Date()
+    @State private var keepEnteredSets = true
     @State private var completeRemaining = false
     @State private var updateRoutine = false
     @State private var loaded = false
@@ -16,7 +17,8 @@ struct FinishWorkoutView: View {
         NavigationStack {
             Form {
                 if let workout = app.session.workout {
-                    summarySection(workout)
+                    // The numbers show exactly what will be saved.
+                    summarySection(WorkoutFactory.finalize(workout, completeRemaining: completeRemaining, keepEnteredSets: logsEnteredSets, now: endedAt))
                     Section("Details") {
                         TextField("Workout name", text: $name)
                         TextField("How did it go?", text: $notes, axis: .vertical)
@@ -34,13 +36,7 @@ struct FinishWorkoutView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    if workout.incompleteSetCount > 0 {
-                        Section {
-                            Toggle("Log unchecked sets as done", isOn: $completeRemaining)
-                        } footer: {
-                            Text("\(workout.incompleteSetCount) \(workout.incompleteSetCount == 1 ? "set wasn't" : "sets weren't") checked off. Leave this off to drop them, or turn it on to log them using their entered values or targets.")
-                        }
-                    }
+                    uncheckedSetsSection(workout)
                     if let routineID = workout.routineID, let routine = app.routines.routine(routineID), app.session.routineDiffers() {
                         Section {
                             Toggle("Update “\(routine.name)”", isOn: $updateRoutine)
@@ -64,6 +60,52 @@ struct FinishWorkoutView: View {
                 }
             }
             .onAppear(perform: load)
+        }
+    }
+
+    /// Sets with numbers typed in are logged unless the athlete says not
+    /// to; untouched ones only if asked.
+    private var logsEnteredSets: Bool { keepEnteredSets || completeRemaining }
+
+    @ViewBuilder
+    private func uncheckedSetsSection(_ workout: Workout) -> some View {
+        let entered = workout.enteredUncheckedSetCount
+        let empty = workout.emptyUncheckedSetCount
+        if entered > 0 || empty > 0 {
+            Section {
+                if entered > 0 {
+                    Toggle(isOn: Binding(get: { logsEnteredSets }, set: { keepEnteredSets = $0 })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Log sets with numbers entered")
+                            Text("\(entered) \(entered == 1 ? "set has" : "sets have") numbers but \(entered == 1 ? "wasn't" : "weren't") checked off")
+                                .font(.app(.caption))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(completeRemaining)
+                    .accessibilityIdentifier("keepEnteredSets")
+                }
+                if empty > 0 {
+                    Toggle(isOn: $completeRemaining.animation(Motion.snappy)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Log empty sets from targets")
+                            Text("\(empty) \(empty == 1 ? "set is" : "sets are") still empty")
+                                .font(.app(.caption))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("completeRemaining")
+                }
+            } header: {
+                Text("Unchecked Sets")
+            } footer: {
+                if entered > 0, !logsEnteredSets {
+                    Label("The numbers in \(entered == 1 ? "that set" : "those sets") won't be saved.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.warning)
+                } else {
+                    Text("Checked sets are always saved. Empty sets are left out unless you log them from their targets.")
+                }
+            }
         }
     }
 
@@ -102,6 +144,7 @@ struct FinishWorkoutView: View {
             rating: rating,
             startedAt: startedAt,
             endedAt: max(endedAt, startedAt),
+            keepEnteredSets: logsEnteredSets,
             completeRemaining: completeRemaining,
             updateRoutine: updateRoutine
         )

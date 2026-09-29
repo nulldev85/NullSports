@@ -26,6 +26,7 @@ public final class MeasurementRepository: @unchecked Sendable {
     }
 
     static func insert(_ measurement: BodyMeasurement, db: Connection) throws {
+        Tombstones.clear(.measurement, measurement.id.uuidString, db: db)
         try db.run(
             """
             INSERT INTO measurement (id, kind, value, measured_at, note, created_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -44,6 +45,7 @@ public final class MeasurementRepository: @unchecked Sendable {
     public func delete(id: UUID) throws {
         try queue.write { db in
             try db.run("DELETE FROM measurement WHERE id = ?", [id])
+            try Tombstones.record(.measurement, id, db: db)
         }
     }
 
@@ -83,6 +85,7 @@ public final class TimerPresetRepository: @unchecked Sendable {
     }
 
     static func insert(_ preset: TimerPreset, db: Connection) throws {
+        Tombstones.clear(.timerPreset, preset.id.uuidString, db: db)
         try db.run(
             """
             INSERT INTO timer_preset (id, name, config, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -101,6 +104,7 @@ public final class TimerPresetRepository: @unchecked Sendable {
     public func delete(id: UUID) throws {
         try queue.write { db in
             try db.run("DELETE FROM timer_preset WHERE id = ?", [id])
+            try Tombstones.record(.timerPreset, id, db: db)
         }
     }
 }

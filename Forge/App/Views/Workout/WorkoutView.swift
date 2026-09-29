@@ -698,7 +698,7 @@ struct LiveSetRow: View, Equatable {
             .sensoryFeedback(.success, trigger: set.isCompleted) { old, new in !old && new }
         }
         .listRowBackground(set.isCompleted ? Theme.success.opacity(0.10) : Theme.surface)
-        .swipeActions(edge: .trailing) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 withAnimation(Motion.smooth) { session.removeSet(set.id) }
             } label: {

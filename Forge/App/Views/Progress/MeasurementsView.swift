@@ -140,7 +140,7 @@ struct MeasurementDetailView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
-                    .swipeActions {
+                    .swipeActions(allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             withAnimation(Motion.smooth) { app.measurements.delete(entry.id) }
                         } label: {

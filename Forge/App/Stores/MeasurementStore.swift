@@ -10,6 +10,8 @@ final class MeasurementStore {
 
     private let database: AppDatabase
     private let feedback: Feedback
+    /// Called after measurements change on disk.
+    @ObservationIgnored var onChange: (() -> Void)?
 
     init(database: AppDatabase, feedback: Feedback) {
         self.database = database
@@ -25,6 +27,7 @@ final class MeasurementStore {
         } catch {
             feedback.report(error, while: "load your measurements")
         }
+        onChange?()
     }
 
     private static func group(_ entries: [BodyMeasurement]) -> [MeasurementKind: [BodyMeasurement]] {
@@ -62,9 +65,15 @@ final class MeasurementStore {
     }
 
     func delete(_ id: UUID) {
+        let removed = all.first { $0.id == id }
         do {
             try database.measurements.delete(id: id)
             reload()
+            if let removed {
+                feedback.show("Entry deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+                    withAnimation(Motion.smooth) { self?.save(removed) }
+                })
+            }
         } catch {
             feedback.report(error, while: "delete the measurement")
         }

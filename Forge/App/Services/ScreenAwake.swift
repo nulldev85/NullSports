@@ -61,3 +61,20 @@ func afterDelay(_ seconds: Double, _ work: @escaping @MainActor () -> Void) {
         work()
     }
 }
+
+/// Identifies this exact build of the app, so the data can be snapshotted
+/// the first time a new build opens it.
+enum AppBuild {
+    static var fingerprint: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        // Installing a new build (or re-signing one) replaces the binary.
+        var stamp = ""
+        if let path = Bundle.main.executablePath,
+           let modified = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date {
+            stamp = String(Int(modified.timeIntervalSince1970))
+        }
+        return "\(version) (\(build)) \(stamp)"
+    }
+}

@@ -405,6 +405,29 @@ public struct Workout: Identifiable, Hashable, Codable, Sendable {
         allExercises.reduce(0) { $0 + $1.sets.filter { !$0.isCompleted }.count }
     }
 
+    /// Unchecked sets (outside timed blocks) that have numbers typed in.
+    public var enteredUncheckedSetCount: Int {
+        blocks.filter { !$0.isTimed }.flatMap(\.exercises).reduce(0) { total, exercise in
+            total + exercise.sets.filter { !$0.isCompleted && $0.hasValues }.count
+        }
+    }
+
+    /// Unchecked sets (outside timed blocks) with nothing typed in.
+    public var emptyUncheckedSetCount: Int {
+        blocks.filter { !$0.isTimed }.flatMap(\.exercises).reduce(0) { total, exercise in
+            total + exercise.sets.filter { !$0.isCompleted && !$0.hasValues }.count
+        }
+    }
+
+    /// Whether the athlete put anything into this workout: a checked set,
+    /// numbers typed into any set, a timed result, or notes. A workout with
+    /// input is never deleted outright.
+    public var hasUserInput: Bool {
+        hasCompletedSets
+            || allExercises.contains { exercise in exercise.sets.contains(where: \.hasValues) || !exercise.notes.isEmpty }
+            || !notes.isEmpty
+    }
+
     // MARK: ID-based editing
     //
     // Views edit by identifier, never by index, so an edit that races a

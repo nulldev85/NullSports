@@ -27,8 +27,9 @@ public struct StorageLocation: Sendable {
 public struct OpenReport: Sendable {
     public enum Recovery: Sendable, Equatable {
         /// The database was damaged; it was set aside and the newest intact
-        /// backup was restored.
-        case restoredFromBackup(Date)
+        /// backup was restored, plus anything newer that could still be read
+        /// from the damaged file (`salvaged` items).
+        case restoredFromBackup(Date, salvaged: Int)
         /// The database was damaged and no intact backup existed. The damaged
         /// file is kept in the quarantine folder.
         case startedFresh
@@ -102,7 +103,7 @@ public final class AppDatabase: @unchecked Sendable {
                 if let snapshot = backups.latestValidSnapshot() {
                     try fileManager.copyItem(at: snapshot.url, to: location.databaseURL)
                     queue = try DatabaseQueue(path: path)
-                    report.recovery = .restoredFromBackup(snapshot.date)
+                    report.recovery = .restoredFromBackup(snapshot.date, salvaged: 0)
                 } else {
                     queue = try DatabaseQueue(path: path)
                     report.recovery = .startedFresh
@@ -125,9 +126,34 @@ public final class AppDatabase: @unchecked Sendable {
             report.migratedTo = result.to
         }
 
-        let database = AppDatabase(queue: queue, location: location, backups: backups, report: report)
+        var database = AppDatabase(queue: queue, location: location, backups: backups, report: report)
         try database.meta.setIfMissing("created_at", value: ISO8601.string(from: now))
+        if case .restoredFromBackup(let date, _) = report.recovery {
+            // The snapshot can be hours old: pull in whatever newer data the
+            // damaged file still gives up.
+            let salvaged = database.salvageFromSetAsideFiles()
+            if salvaged > 0 {
+                report.recovery = .restoredFromBackup(date, salvaged: salvaged)
+                database = AppDatabase(queue: queue, location: location, backups: backups, report: report)
+            }
+        }
         return database
+    }
+
+    /// Adds back everything readable in set-aside (damaged) database files
+    /// that the live data lacks. Returns how many items were added.
+    @discardableResult
+    public func salvageFromSetAsideFiles() -> Int {
+        let sources = RecoveryService.deviceSources(for: self).filter { $0.kind == .damagedDatabase }
+        guard !sources.isEmpty,
+              let report = try? RecoveryService.scan(self, sources: sources),
+              !report.isEmpty else { return 0 }
+        do {
+            try RecoveryService.restore(report, into: self)
+            return report.itemCount
+        } catch {
+            return 0
+        }
     }
 
     private static func openVerified(path: String) throws -> DatabaseQueue {
@@ -202,6 +228,76 @@ public final class AppDatabase: @unchecked Sendable {
 
     public func checkpoint() {
         queue.checkpoint()
+    }
+
+    /// Takes a "Before app update" snapshot the first time a different
+    /// build opens this data, before the new build changes anything. The
+    /// build is only recorded once the snapshot exists, so a failed attempt
+    /// is retried on the next launch.
+    @discardableResult
+    public func snapshotIfNewBuild(_ build: String, now: Date = Date()) -> BackupManager.Snapshot? {
+        let previous: String? = try? meta.get(MetaRepository.Key.lastBuild)
+        guard previous != build else { return nil }
+        guard hasUserData() else {
+            try? meta.set(MetaRepository.Key.lastBuild, value: build)
+            return nil
+        }
+        guard let snapshot = try? backups.createSnapshot(from: queue, reason: .preUpdate, now: now) else { return nil }
+        try? meta.set(MetaRepository.Key.lastBuild, value: build)
+        backups.prune()
+        return snapshot
+    }
+
+    /// A snapshot right after a workout is saved, so the newest backup is
+    /// never more than one workout behind.
+    @discardableResult
+    public func snapshotAfterWorkout(now: Date = Date()) -> BackupManager.Snapshot? {
+        let snapshot = try? backups.createSnapshot(from: queue, reason: .afterWorkout, now: now)
+        backups.prune()
+        return snapshot
+    }
+
+    public struct IntegrityStatus: Sendable, Equatable {
+        public var checkedAt: Date?
+        /// Empty when everything was fine.
+        public var problems: [String]
+    }
+
+    /// The last full integrity check.
+    public var integrityStatus: IntegrityStatus {
+        let checkedText: String? = try? meta.get(MetaRepository.Key.integrityCheckedAt)
+        let problemsText: String? = try? meta.get(MetaRepository.Key.integrityProblems)
+        let problems = problemsText ?? ""
+        return IntegrityStatus(
+            checkedAt: checkedText.flatMap(ISO8601.date(from:)),
+            problems: problems.isEmpty ? [] : problems.components(separatedBy: "\n")
+        )
+    }
+
+    /// Runs SQLite's full integrity check if the last one is older than
+    /// `interval` (launch only runs the quick check). Returns the problems
+    /// found, or nil if no check was due.
+    @discardableResult
+    public func fullIntegrityCheckIfDue(now: Date = Date(), interval: TimeInterval = 6 * 86_400) -> [String]? {
+        if let last = integrityStatus.checkedAt, now.timeIntervalSince(last) < interval, last <= now {
+            return nil
+        }
+        var problems: [String]
+        do {
+            problems = try queue.read { try $0.integrityProblems(full: true) }
+            if !problems.isEmpty {
+                // What a full check finds beyond the quick one is almost
+                // always in indexes, which are rebuilt from the tables
+                // themselves without touching a row.
+                try? queue.write { try $0.execute("REINDEX") }
+                problems = try queue.read { try $0.integrityProblems(full: true) }
+            }
+        } catch {
+            problems = [String(describing: error)]
+        }
+        try? meta.set(MetaRepository.Key.integrityCheckedAt, value: ISO8601.string(from: now))
+        try? meta.set(MetaRepository.Key.integrityProblems, value: problems.prefix(20).joined(separator: "\n"))
+        return problems
     }
 
     public var fileSize: Int {

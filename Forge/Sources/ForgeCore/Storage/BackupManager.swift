@@ -15,21 +15,26 @@ public enum BackupError: Error, CustomStringConvertible {
 }
 
 /// Point-in-time copies of the whole database, kept next to it. They are
-/// made automatically (daily, before migrations, before restores) and can be
-/// restored from Settings.
+/// made automatically — daily, after every finished workout, before every
+/// app update, data upgrade, restore and import — and can be restored or
+/// searched for missing data from Settings.
 public final class BackupManager: @unchecked Sendable {
     public enum Reason: String, CaseIterable, Sendable {
         case automatic = "auto"
         case manual = "manual"
+        case afterWorkout = "workout"
+        case preUpdate = "preupdate"
         case preMigration = "premigration"
         case preRestore = "prerestore"
         case preImport = "preimport"
 
         public var displayName: String {
             switch self {
-            case .automatic: return "Automatic"
+            case .automatic: return "Daily"
             case .manual: return "Manual"
-            case .preMigration: return "Before update"
+            case .afterWorkout: return "After workout"
+            case .preUpdate: return "Before app update"
+            case .preMigration: return "Before data upgrade"
             case .preRestore: return "Before restore"
             case .preImport: return "Before import"
             }
@@ -150,10 +155,18 @@ public final class BackupManager: @unchecked Sendable {
         return now.timeIntervalSince(last) >= interval || last > now
     }
 
-    /// Keeps the newest `keepAutomatic` automatic snapshots plus one per week
-    /// for older weeks (up to `keepWeekly`), and the newest `keepOther` of
-    /// each other kind. Manual snapshots are never removed automatically.
-    public func prune(keepAutomatic: Int = 10, keepWeekly: Int = 8, keepOther: Int = 5, calendar: Calendar = Calendar(identifier: .gregorian)) {
+    /// Keeps the newest `keepAutomatic` daily snapshots plus one per week for
+    /// older weeks (up to `keepWeekly`), the newest `keepAfterWorkout` and
+    /// `keepBeforeUpdate`, and the newest `keepOther` of each other kind.
+    /// Manual snapshots are never removed automatically.
+    public func prune(
+        keepAutomatic: Int = 14,
+        keepWeekly: Int = 12,
+        keepAfterWorkout: Int = 10,
+        keepBeforeUpdate: Int = 10,
+        keepOther: Int = 5,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) {
         let all = snapshots()
         var remove: [Snapshot] = []
 
@@ -169,9 +182,15 @@ public final class BackupManager: @unchecked Sendable {
                 remove.append(snapshot)
             }
         }
-        for reason in [Reason.preMigration, .preRestore, .preImport] {
-            let ofKind = all.filter { $0.reason == reason }
-            remove.append(contentsOf: ofKind.dropFirst(keepOther))
+        let limits: [(Reason, Int)] = [
+            (.afterWorkout, keepAfterWorkout),
+            (.preUpdate, keepBeforeUpdate),
+            (.preMigration, keepOther),
+            (.preRestore, keepOther),
+            (.preImport, keepOther),
+        ]
+        for (reason, keep) in limits {
+            remove.append(contentsOf: all.filter { $0.reason == reason }.dropFirst(keep))
         }
         for snapshot in remove {
             try? fileManager.removeItem(at: snapshot.url)

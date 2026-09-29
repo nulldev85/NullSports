@@ -6,6 +6,7 @@ struct RoutineEditorView: View {
     let request: RoutineEditorRequest
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var draft: Routine
     @State private var picker: EditorPicker?
     @State private var timedSetup: TimedBlockSetup?
@@ -106,6 +107,13 @@ struct RoutineEditorView: View {
             }
             .onChange(of: draft) { _, newValue in
                 scheduleDraftSave(newValue)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Leaving the app: the draft is saved now, not after the pause.
+                if phase != .active, hasChanges {
+                    draftSaveTask?.cancel()
+                    app.routines.saveDraft(draft)
+                }
             }
             .onAppear {
                 if request.isNew, draft.name.isEmpty { nameFocused = true }

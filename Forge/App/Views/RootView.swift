@@ -82,7 +82,7 @@ extension View {
     func toastOverlay(_ feedback: Feedback) -> some View {
         overlay(alignment: .top) {
             if let toast = feedback.toast {
-                ToastBanner(toast: toast)
+                ToastBanner(toast: toast) { feedback.dismiss() }
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .onTapGesture { feedback.dismiss() }

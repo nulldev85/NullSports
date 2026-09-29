@@ -469,6 +469,16 @@ public final class DatabaseQueue: @unchecked Sendable {
         try configure()
     }
 
+    /// Opens a database file for reading only what's there: no journal
+    /// changes, no checks. Used to look inside backups and set-aside files
+    /// (on a copy, so the original is never touched).
+    public init(inspecting path: String) throws {
+        self.path = path
+        self.connection = try Connection(path: path)
+        self.queue = DispatchQueue(label: "forge.database.inspect", qos: .userInitiated)
+        queue.setSpecific(key: queueKey, value: 1)
+    }
+
     private func configure() throws {
         try connection.execute("PRAGMA foreign_keys = ON")
         let mode = try connection.scalar("PRAGMA journal_mode = WAL")
@@ -480,6 +490,12 @@ public final class DatabaseQueue: @unchecked Sendable {
         // FULL syncs the WAL on every commit: a saved set survives even a
         // power loss or OS crash, not just an app crash.
         try connection.execute("PRAGMA synchronous = FULL")
+        // On Apple platforms a plain fsync can leave data in the drive's
+        // cache; F_FULLFSYNC makes commits and checkpoints truly durable.
+        // (Ignored elsewhere.) Workout saves run in the background, so the
+        // extra time never shows.
+        try connection.execute("PRAGMA fullfsync = ON")
+        try connection.execute("PRAGMA checkpoint_fullfsync = ON")
     }
 
     private var isOnQueue: Bool {

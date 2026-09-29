@@ -288,7 +288,7 @@ struct RecentlyDeletedView: View {
                             Button("Restore") { withAnimation(Motion.smooth) { app.history.restore(summary.id) } }
                                 .buttonStyle(.bordered)
                         }
-                        .swipeActions {
+                        .swipeActions(allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 withAnimation(Motion.smooth) { app.history.purge(summary.id) }
                             } label: {
@@ -318,7 +318,7 @@ struct RecentlyDeletedView: View {
                             Button("Restore") { withAnimation(Motion.smooth) { app.routines.restore(routine.id) } }
                                 .buttonStyle(.bordered)
                         }
-                        .swipeActions {
+                        .swipeActions(allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 withAnimation(Motion.smooth) { app.routines.purge(routine.id) }
                             } label: {

@@ -17,6 +17,13 @@ public final class MetaRepository: @unchecked Sendable {
         public static let lastAutoExport = "export.last_at"
         public static let folderSuggestionSnoozedUntil = "export.folder_suggestion_snoozed_until"
         public static let catalogVersion = "catalog.version"
+        /// The build that last opened this data (to snapshot before updates).
+        public static let lastBuild = "app.last_build"
+        public static let integrityCheckedAt = "integrity.checked_at"
+        /// Empty when the last full check found nothing wrong.
+        public static let integrityProblems = "integrity.problems"
+        /// Fingerprint of the last exported content, to skip identical exports.
+        public static let lastExportFingerprint = "export.last_fingerprint"
     }
 
     public func get(_ key: String) throws -> String? {

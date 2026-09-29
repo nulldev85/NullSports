@@ -59,9 +59,12 @@ jobs:
         run: |
           set +e
           mkdir -p build
+          # Each CI run gets its own build number, so the app can tell an
+          # update apart and snapshot the data before the new build runs.
           xcodebuild -project Forge.xcodeproj -scheme Forge \
             -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} build \
             > build/device-build.log 2>&1
           status=$?
           grep -E "error:|BUILD (SUCCEEDED|FAILED)" build/device-build.log | sort -u | head -150
@@ -75,6 +78,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$app/Info.plist" | grep -q audio
           /usr/libexec/PlistBuddy -c "Print :UIFileSharingEnabled" "$app/Info.plist" | grep -q true
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Info.plist" | grep -qx "${{ github.run_number }}"
 
       - name: Package IPA
         run: |

@@ -99,7 +99,7 @@ final class HistoryStore {
         var copy = workout
         copy.updatedAt = Date()
         do {
-            try database.workouts.save(copy)
+            try database.workouts.saveVerified(copy)
             reload()
             markChanged()
         } catch {
@@ -117,7 +117,9 @@ final class HistoryStore {
             }
             reload()
             markChanged()
-            feedback.show("Workout moved to Recently Deleted", style: .info)
+            feedback.show("Workout moved to Recently Deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+                withAnimation(Motion.smooth) { self?.restore(id) }
+            })
         } catch {
             feedback.report(error, while: "delete the workout")
         }

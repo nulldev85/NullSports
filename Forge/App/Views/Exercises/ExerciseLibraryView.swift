@@ -106,6 +106,7 @@ struct ExerciseDetailView: View {
     let exerciseID: String
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: DetailTab = .summary
     @State private var metric: ExerciseMetric?
     @State private var sessions: [ExerciseSession] = []
@@ -290,6 +291,9 @@ struct ExerciseDetailView: View {
                     }
                 }
                 .onDisappear { saveNote(for: exercise.id) }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase != .active { saveNote(for: exercise.id) }
+                }
             Picker("Default Rest", selection: Binding(
                 get: { app.library.restSeconds(for: exercise.id) ?? -1 },
                 set: { app.library.setRestSeconds($0 < 0 ? nil : $0, for: exercise.id) }

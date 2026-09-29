@@ -40,7 +40,7 @@ struct HistoryView: View {
                                     WorkoutSummaryRow(summary: summary, prCount: app.history.records.prCount(in: summary.id))
                                 }
                                 .accessibilityIdentifier("historyWorkout")
-                                .swipeActions(edge: .trailing) {
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) {
                                         withAnimation(Motion.smooth) {
                                             app.history.delete(summary.id)
@@ -53,6 +53,25 @@ struct HistoryView: View {
                         } header: {
                             Text(group.title)
                         }
+                    }
+                }
+
+                if query.isEmpty, !app.history.deleted.isEmpty {
+                    Section {
+                        NavigationLink {
+                            RecentlyDeletedView()
+                        } label: {
+                            HStack {
+                                Label("Recently Deleted", systemImage: "trash")
+                                Spacer()
+                                Text("\(app.history.deleted.count)")
+                                    .foregroundStyle(.secondary)
+                                    .contentTransition(.numericText())
+                            }
+                        }
+                        .accessibilityIdentifier("historyRecentlyDeleted")
+                    } footer: {
+                        Text("Deleted workouts stay here for 30 days.")
                     }
                 }
             }

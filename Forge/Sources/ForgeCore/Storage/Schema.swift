@@ -14,6 +14,9 @@ public enum Schema {
         Migration(version: 1, name: "initial") { db in
             try db.execute(version1)
         },
+        Migration(version: 2, name: "tombstones") { db in
+            try db.execute(version2)
+        },
     ]
 
     public static var latestVersion: Int { migrations.last?.version ?? 0 }
@@ -40,6 +43,16 @@ public enum Schema {
             return (start, version)
         }
     }
+
+    /// Items deleted for good (see `Tombstones`).
+    static let version2 = """
+    CREATE TABLE IF NOT EXISTS tombstone (
+        kind TEXT NOT NULL,
+        id TEXT NOT NULL,
+        deleted_at REAL NOT NULL,
+        PRIMARY KEY (kind, id)
+    );
+    """
 
     static let version1 = """
     CREATE TABLE IF NOT EXISTS meta (

@@ -233,5 +233,59 @@ final class ForgeUITests: XCTestCase {
         backups.tap()
         XCTAssertTrue(app.navigationBars["Backups & Export"].waitForExistence(timeout: 10))
         snapshot("20-Backups")
+
+        // The recovery scan runs on its own and ends with a result either way.
+        let findMissing = app.buttons["findMissingData"]
+        XCTAssertTrue(reveal(findMissing), "Find Missing Data should be in Backups")
+        findMissing.tap()
+        XCTAssertTrue(app.navigationBars["Find Missing Data"].waitForExistence(timeout: 10))
+        let finished = NSPredicate(format: "label BEGINSWITH 'Nothing is missing' OR label BEGINSWITH 'Found '")
+        XCTAssertTrue(app.staticTexts.matching(finished).firstMatch.waitForExistence(timeout: 60), "the scan should finish")
+        sleep(1)
+        snapshot("20b-FindMissingData")
+    }
+
+    func testFreshInstallOffersRestore() throws {
+        app.terminate()
+        app.launchArguments = ["-ForgeUITest"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["restoreBackupFile"].waitForExistence(timeout: 10), "a fresh install offers to restore a backup")
+        snapshot("36-FreshInstall")
+    }
+
+    func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Upper / Lower"]))
+        XCTAssertTrue(tapIfExists(app.buttons["routine-Upper A"]))
+        XCTAssertTrue(app.buttons["startRoutineWorkout"].waitForExistence(timeout: 10))
+        app.buttons["startRoutineWorkout"].tap()
+        XCTAssertTrue(app.buttons["finishWorkout"].waitForExistence(timeout: 10))
+
+        // Type reps into the first set without ticking it.
+        let reps = app.textFields.matching(identifier: "Reps").firstMatch
+        if reps.waitForExistence(timeout: 5) {
+            reps.tap()
+            reps.typeText("7")
+            app.buttons["finishWorkout"].tap()
+            XCTAssertTrue(app.switches["keepEnteredSets"].waitForExistence(timeout: 10), "typed-in sets are offered on the Finish screen")
+            snapshot("37-FinishTypedSets")
+        } else {
+            app.buttons["finishWorkout"].tap()
+        }
+        XCTAssertTrue(app.buttons["saveFinishedWorkout"].waitForExistence(timeout: 10))
+        app.buttons["saveFinishedWorkout"].tap()
+        XCTAssertTrue(tapIfExists(app.buttons["summaryDone"], timeout: 15))
+
+        // Deleting from History needs a deliberate tap and can be undone.
+        tab("History")
+        let latest = app.buttons.matching(identifier: "historyWorkout").firstMatch
+        XCTAssertTrue(reveal(latest), "history should list the workout")
+        latest.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.buttons["Delete"]))
+        XCTAssertTrue(app.buttons["toastAction"].waitForExistence(timeout: 5), "a delete offers Undo")
+        snapshot("38-UndoDelete")
+        app.buttons["toastAction"].tap()
     }
 }

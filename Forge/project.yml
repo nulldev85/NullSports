@@ -23,6 +23,10 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Forge
+        # CI sets the build number per run; the app snapshots the data the
+        # first time a new build opens it.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.healthcare-fitness
         ITSAppUsesNonExemptEncryption: false
         # Interval-timer beeps and voice cues keep playing with the screen

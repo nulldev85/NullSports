@@ -70,6 +70,14 @@ public struct BackupArchive: Codable, Sendable {
         timerPresets = c.value(.timerPresets, default: [])
     }
 
+    /// An archive with nothing in it.
+    public static var empty: BackupArchive {
+        BackupArchive(
+            exportedAt: Date(timeIntervalSince1970: 0), appVersion: "", settings: nil, folders: [], routines: [],
+            customExercises: [], exercisePreferences: [], workouts: [], measurements: [], timerPresets: []
+        )
+    }
+
     public var completedWorkoutCount: Int {
         workouts.filter { $0.status == .completed && $0.deletedAt == nil }.count
     }

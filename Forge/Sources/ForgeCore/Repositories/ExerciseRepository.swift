@@ -98,6 +98,7 @@ public final class ExerciseRepository: @unchecked Sendable {
                 throw DatabaseError(code: 19, message: "This exercise is used by \(uses) workouts or routines and can only be archived.")
             }
             try db.run("DELETE FROM custom_exercise WHERE id = ?", [id])
+            try Tombstones.record(.customExercise, id, db: db)
             try db.run("DELETE FROM exercise_pref WHERE exercise_id = ?", [id])
         }
     }

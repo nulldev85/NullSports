@@ -14,6 +14,8 @@ final class TimerStore {
     private let history: HistoryStore
     private let cues: CuePlayer
     private let notifier: Notifier
+    /// Called after saved timers change on disk.
+    @ObservationIgnored var onPresetsChange: (() -> Void)?
 
     /// What gets persisted so a running timer survives the app being closed.
     struct ActiveRecord: Codable {
@@ -38,6 +40,7 @@ final class TimerStore {
         } catch {
             feedback.report(error, while: "load your timers")
         }
+        onPresetsChange?()
     }
 
     // MARK: Running
@@ -96,7 +99,7 @@ final class TimerStore {
             notes: notes
         )
         do {
-            try database.workouts.save(workout)
+            try database.workouts.saveVerified(workout)
             feedback.show("\(controller.title) saved to History", style: .success)
             history.reload()
             history.markChanged()

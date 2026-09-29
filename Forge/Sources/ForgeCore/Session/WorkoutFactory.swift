@@ -174,10 +174,16 @@ public enum WorkoutFactory {
 
     // MARK: Finishing
 
-    /// Prepares an active workout for saving as completed: drops sets that
-    /// were never checked off (unless asked to complete them) and empty
-    /// exercises, and stamps the end time and duration.
-    public static func finalize(_ workout: Workout, completeRemaining: Bool, now: Date = Date()) -> Workout {
+    /// Prepares an active workout for saving as completed, and stamps the
+    /// end time and duration.
+    ///
+    /// - Checked sets are always kept.
+    /// - Unchecked sets with numbers typed in are kept and marked done when
+    ///   `keepEnteredSets` is on (the default).
+    /// - With `completeRemaining`, untouched sets are logged from their
+    ///   targets too.
+    /// - Everything else, and exercises left with no sets, is dropped.
+    public static func finalize(_ workout: Workout, completeRemaining: Bool, keepEnteredSets: Bool = true, now: Date = Date()) -> Workout {
         var finished = workout
         for blockIndex in finished.blocks.indices {
             let isTimed = finished.blocks[blockIndex].isTimed
@@ -186,16 +192,21 @@ public enum WorkoutFactory {
                 var sets = finished.blocks[blockIndex].exercises[exerciseIndex].sets
                 if isTimed, finished.blocks[blockIndex].result == nil {
                     sets = []
-                } else if completeRemaining {
+                } else {
                     for setIndex in sets.indices where !sets[setIndex].isCompleted {
-                        sets[setIndex].fillEmptyFields(from: sets[setIndex].target, tracking: tracking)
-                        if sets[setIndex].hasValues {
+                        // Numbers typed into a set mean it was almost always
+                        // done, just not ticked; those are kept unless the
+                        // athlete says otherwise.
+                        let entered = sets[setIndex].hasValues
+                        if completeRemaining {
+                            sets[setIndex].fillEmptyFields(from: sets[setIndex].target, tracking: tracking)
+                        }
+                        let keep = (keepEnteredSets && entered) || (completeRemaining && sets[setIndex].hasValues)
+                        if keep {
                             sets[setIndex].isCompleted = true
                             sets[setIndex].completedAt = now
                         }
                     }
-                    sets = sets.filter(\.isCompleted)
-                } else {
                     sets = sets.filter(\.isCompleted)
                 }
                 finished.blocks[blockIndex].exercises[exerciseIndex].sets = sets
