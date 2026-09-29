@@ -7,6 +7,7 @@ struct BackupsView: View {
     @State private var csvURL: URL?
     @State private var showingImporter = false
     @State private var importerMode: ImporterMode = .backupFile
+    @State private var showingFolderGuide = false
 
     enum ImporterMode {
         case backupFile, folder
@@ -68,8 +69,7 @@ struct BackupsView: View {
                     .font(.app(.caption))
                     if data.exportFolderName == nil {
                         Button {
-                            importerMode = .folder
-                            showingImporter = true
+                            showingFolderGuide = true
                         } label: {
                             Label("Keep Copies in iCloud Drive…", systemImage: "icloud.and.arrow.up")
                                 .font(.app(.subheadline, .semibold))
@@ -139,8 +139,7 @@ struct BackupsView: View {
             Section {
                 Toggle("Automatic Backup Files", isOn: app.settings.binding(\.autoExportEnabled))
                 Button {
-                    importerMode = .folder
-                    showingImporter = true
+                    showingFolderGuide = true
                 } label: {
                     Label(data.exportFolderName == nil ? "Also Save to a Folder…" : "Change Folder…", systemImage: "folder.badge.plus")
                 }
@@ -213,6 +212,10 @@ struct BackupsView: View {
         }
         .sheet(item: Binding(get: { csvURL.map(ShareableFile.init) }, set: { csvURL = $0?.url })) { file in
             ShareSheet(items: [file.url])
+        }
+        .backupFolderGuide(isPresented: $showingFolderGuide) {
+            importerMode = .folder
+            showingImporter = true
         }
         // One importer for both uses: SwiftUI only honors a single
         // fileImporter per view.

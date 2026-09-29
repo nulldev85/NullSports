@@ -290,16 +290,26 @@ final class DataSafetyStore {
     // MARK: Automatic export
 
     func setExportFolder(_ url: URL) {
+        // The picker starts in Forge's own folder, which goes when the app
+        // does: copies there would protect nothing.
+        guard !Self.isInsideApp(url) else {
+            feedback.show("That's Forge's own folder, which is deleted along with the app. Choose a folder in iCloud Drive instead.", style: .warning, duration: 6)
+            return
+        }
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-            exportFolderName = url.lastPathComponent
+            let name = url.lastPathComponent
+            withAnimation(Motion.smooth) { exportFolderName = name }
             database.writeInBackground({ try $0.meta.set(MetaRepository.Key.autoExportBookmark, value: bookmark.base64EncodedString()) }) { [weak self] result in
                 guard let self else { return }
                 switch result {
                 case .success:
-                    self.exportNow()
+                    self.feedback.show("Backups will also be saved to “\(name)”.", style: .success, duration: 4)
+                    // Writes the first copy there now; if the folder can't
+                    // be written to, that shows as a warning.
+                    self.exportNow(quiet: true)
                 case .failure(let error):
                     self.feedback.report(error, while: "use that folder")
                     self.refresh()
@@ -308,6 +318,16 @@ final class DataSafetyStore {
         } catch {
             feedback.report(error, while: "use that folder")
         }
+    }
+
+    /// Whether `url` is inside the app's own container (deleted with it).
+    nonisolated static func isInsideApp(_ url: URL) -> Bool {
+        func path(_ url: URL) -> String {
+            url.standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let folder = path(url)
+        let home = path(URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+        return folder == home || folder.hasPrefix(home + "/")
     }
 
     func clearExportFolder() {

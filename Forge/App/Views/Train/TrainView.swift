@@ -51,6 +51,7 @@ struct FolderContentsView: View {
     @State private var draftToRestore: Routine?
     @State private var showingImporter = false
     @State private var importerMode: TrainImporter = .backupFolder
+    @State private var showingFolderGuide = false
     @State private var pendingImport: BackupArchive?
     @AppStorage("forge.restoreCardDismissed") private var restoreCardDismissed = false
 
@@ -106,8 +107,7 @@ struct FolderContentsView: View {
                 } else if hasData, app.dataSafety.shouldSuggestExternalFolder {
                     Section {
                         BackupFolderCard {
-                            importerMode = .backupFolder
-                            showingImporter = true
+                            showingFolderGuide = true
                         } snooze: {
                             withAnimation(Motion.smooth) {
                                 app.dataSafety.snoozeFolderSuggestion()
@@ -202,6 +202,10 @@ struct FolderContentsView: View {
             if isRoot, draftToRestore == nil, editor == nil {
                 draftToRestore = app.routines.loadDraft()
             }
+        }
+        .backupFolderGuide(isPresented: $showingFolderGuide) {
+            importerMode = .backupFolder
+            showingImporter = true
         }
         // One importer for both uses: SwiftUI only honors a single
         // fileImporter per view.

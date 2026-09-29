@@ -256,6 +256,18 @@ final class ForgeUITests: XCTestCase {
         snapshot("36-FreshInstall")
     }
 
+    func testBackupFolderGuideExplainsThePicker() throws {
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        // The system folder picker doesn't explain itself, so a short guide
+        // comes first.
+        XCTAssertTrue(tapIfExists(app.buttons["chooseBackupFolder"], timeout: 10), "the Train screen suggests a backup folder")
+        XCTAssertTrue(app.buttons["openFolderPicker"].waitForExistence(timeout: 5), "the guide opens before the picker")
+        XCTAssertTrue(app.staticTexts["Tap Open at the top right"].exists)
+        snapshot("20c-BackupFolderGuide")
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["chooseBackupFolder"].waitForExistence(timeout: 5), "cancelling leaves the suggestion in place")
+    }
+
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))
