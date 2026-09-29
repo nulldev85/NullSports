@@ -270,10 +270,6 @@ final class LibraryStore {
         }
     }
 
-    func usageCount(of id: String) -> Int {
-        (try? database.exercises.usageCount(exerciseID: id)) ?? 1
-    }
-
     /// Only possible for an exercise nothing refers to; removed from the
     /// list once the database agrees.
     func deletePermanently(_ id: String) {

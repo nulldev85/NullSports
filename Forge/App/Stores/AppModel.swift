@@ -84,6 +84,12 @@ final class AppModel {
                 : "Forge found \(recovered) unfinished workouts from earlier sessions and saved them to History, with every set you'd entered."
             launchNotice = [launchNotice, text].compactMap { $0 }.joined(separator: "\n\n")
         }
+        // Timer and rest sounds are set up in the background once the first
+        // screen is up, so the first beep plays without a delay.
+        Task { [cues] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            cues.prepare()
+        }
     }
 
     private static func notice(for report: OpenReport) -> String? {

@@ -7,6 +7,10 @@ import UIKit
 /// player can keep an inaudible stream going so iOS lets the app keep
 /// counting — and announcing — with the screen locked. Audio mixes with the
 /// athlete's music rather than stopping it.
+///
+/// Everything that touches the audio hardware runs on its own queue (see
+/// `CueOutput`): starting the audio session or engine can take a moment,
+/// and a timer opening or a set being ticked off never waits for it.
 @MainActor
 final class CuePlayer {
     enum Tone: CaseIterable {
@@ -17,13 +21,7 @@ final class CuePlayer {
         case light, medium, heavy, success, warning
     }
 
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private let silence = AVAudioPlayerNode()
-    private let format: AVAudioFormat
-    private var buffers: [Tone: AVAudioPCMBuffer] = [:]
-    private var silentBuffer: AVAudioPCMBuffer?
-    private let synthesizer = AVSpeechSynthesizer()
+    private let output = CueOutput()
     // Kept and re-primed after each use, so countdown ticks land on time
     // instead of waiting for the Taptic Engine to wake.
     private let lightImpact = UIImpactFeedbackGenerator(style: .light)
@@ -35,29 +33,22 @@ final class CuePlayer {
     private var observers: [NSObjectProtocol] = []
 
     init() {
-        format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-        engine.attach(player)
-        engine.attach(silence)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.connect(silence, to: engine.mainMixerNode, format: format)
-        buffers[.tick] = makeTone([(880, 0.12, 0)], volume: 0.7)
-        buffers[.go] = makeTone([(1320, 0.42, 0)], volume: 0.8)
-        buffers[.rest] = makeTone([(660, 0.16, 0.08), (660, 0.16, 0)], volume: 0.75)
-        buffers[.finish] = makeTone([(1320, 0.14, 0.07), (1320, 0.14, 0.07), (1760, 0.5, 0)], volume: 0.85)
-        buffers[.restDone] = makeTone([(988, 0.1, 0.06), (1319, 0.22, 0)], volume: 0.8)
-        buffers[.round] = makeTone([(1175, 0.08, 0)], volume: 0.6)
-        silentBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate))
-        silentBuffer?.frameLength = silentBuffer?.frameCapacity ?? 0
-
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
             guard type == .ended else { return }
             MainActor.assumeIsolated { self?.recover() }
         })
-        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+        // The app's only engine is the cue engine.
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.recover() }
         })
+    }
+
+    /// Builds the engine, tones and voice in the background ahead of the
+    /// first cue (called once the app is on screen).
+    func prepare() {
+        output.prepare()
     }
 
     // MARK: Session lifetime
@@ -68,48 +59,19 @@ final class CuePlayer {
         idleStop?.cancel()
         holds += 1
         if keepAlive { keepAliveHolds += 1 }
-        activate()
+        output.activate(keepAlive: keepAliveHolds > 0)
     }
 
     func release(keepAlive: Bool) {
         holds = max(0, holds - 1)
         if keepAlive { keepAliveHolds = max(0, keepAliveHolds - 1) }
-        if keepAliveHolds == 0 { silence.stop() }
-        if holds == 0 {
-            player.stop()
-            engine.stop()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
-    }
-
-    private func activate() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
-        } catch {
-            // No audio route (e.g. some simulators): cues become silent,
-            // timing is unaffected.
-        }
-        startEngineIfNeeded()
-        if keepAliveHolds > 0 { startSilence() }
-    }
-
-    private func startEngineIfNeeded() {
-        guard !engine.isRunning else { return }
-        engine.prepare()
-        try? engine.start()
-    }
-
-    private func startSilence() {
-        guard engine.isRunning, !silence.isPlaying, let silentBuffer else { return }
-        silence.scheduleBuffer(silentBuffer, at: nil, options: .loops)
-        silence.play()
+        if keepAliveHolds == 0 { output.stopSilence() }
+        if holds == 0 { output.deactivate(unlessSpeaking: false) }
     }
 
     private func recover() {
         guard holds > 0 else { return }
-        activate()
+        output.activate(keepAlive: keepAliveHolds > 0)
     }
 
     // MARK: Output
@@ -122,38 +84,26 @@ final class CuePlayer {
         idleStop?.cancel()
         idleStop = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard let self, !Task.isCancelled, self.holds == 0, !self.synthesizer.isSpeaking else { return }
-            self.player.stop()
-            self.engine.stop()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            guard let self, !Task.isCancelled, self.holds == 0 else { return }
+            self.output.deactivate(unlessSpeaking: true)
         }
     }
 
     func play(_ tone: Tone) {
         if holds == 0 {
             // A one-off sound (e.g. rest finished in the foreground).
-            activate()
+            output.activate(keepAlive: false)
             scheduleIdleStop()
         }
-        startEngineIfNeeded()
-        guard engine.isRunning, let buffer = buffers[tone] else { return }
-        player.scheduleBuffer(buffer, at: nil, options: .interrupts)
-        if !player.isPlaying { player.play() }
+        output.play(tone)
     }
 
     func speak(_ text: String) {
         if holds == 0 {
-            activate()
+            output.activate(keepAlive: false)
             scheduleIdleStop()
         }
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
-        utterance.volume = 1
-        utterance.prefersAssistiveTechnologySettings = false
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .word)
-        }
-        synthesizer.speak(utterance)
+        output.speak(text)
     }
 
     func haptic(_ kind: Haptic) {
@@ -231,10 +181,130 @@ final class CuePlayer {
             return "Go"
         }
     }
+}
+
+/// The audio side of cues: the audio session, the engine, the tones and the
+/// voice, all used on one serial queue in the order they're asked for.
+/// Activating the session and starting the engine are blocking calls into
+/// the audio system, so none of this runs on the main thread.
+private final class CueOutput: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.nulldev85.Forge.cues", qos: .userInitiated)
+    /// Built on first use; only touched on `queue`.
+    private var built: CueRig?
+
+    private var rig: CueRig {
+        if let built { return built }
+        let rig = CueRig()
+        built = rig
+        return rig
+    }
+
+    func prepare() {
+        queue.async { [self] in _ = rig }
+    }
+
+    func activate(keepAlive: Bool) {
+        queue.async { [self] in
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true)
+            } catch {
+                // No audio route (e.g. some simulators): cues become silent,
+                // timing is unaffected.
+            }
+            let rig = self.rig
+            rig.startEngineIfNeeded()
+            if keepAlive { rig.startSilence() }
+        }
+    }
+
+    func stopSilence() {
+        queue.async { [self] in built?.silence.stop() }
+    }
+
+    /// Stops the engine and gives the audio session back to other apps.
+    /// With `unlessSpeaking`, an announcement still being spoken is left to
+    /// finish.
+    func deactivate(unlessSpeaking: Bool) {
+        queue.async { [self] in
+            guard let rig = built else { return }
+            if unlessSpeaking, rig.synthesizer.isSpeaking { return }
+            rig.player.stop()
+            rig.engine.stop()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    func play(_ tone: CuePlayer.Tone) {
+        queue.async { [self] in
+            let rig = self.rig
+            rig.startEngineIfNeeded()
+            guard rig.engine.isRunning, let buffer = rig.buffers[tone] else { return }
+            rig.player.scheduleBuffer(buffer, at: nil, options: .interrupts)
+            if !rig.player.isPlaying { rig.player.play() }
+        }
+    }
+
+    func speak(_ text: String) {
+        queue.async { [self] in
+            let synthesizer = rig.synthesizer
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+            utterance.volume = 1
+            utterance.prefersAssistiveTechnologySettings = false
+            if synthesizer.isSpeaking {
+                synthesizer.stopSpeaking(at: .word)
+            }
+            synthesizer.speak(utterance)
+        }
+    }
+}
+
+/// The engine with its two players (cues, and the inaudible keep-alive
+/// stream), the synthesized tones and the speech voice.
+private final class CueRig {
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    let silence = AVAudioPlayerNode()
+    let synthesizer = AVSpeechSynthesizer()
+    let buffers: [CuePlayer.Tone: AVAudioPCMBuffer]
+    let silentBuffer: AVAudioPCMBuffer?
+
+    init() {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+        var buffers: [CuePlayer.Tone: AVAudioPCMBuffer] = [:]
+        buffers[.tick] = CueRig.makeTone([(880, 0.12, 0)], volume: 0.7, format: format)
+        buffers[.go] = CueRig.makeTone([(1320, 0.42, 0)], volume: 0.8, format: format)
+        buffers[.rest] = CueRig.makeTone([(660, 0.16, 0.08), (660, 0.16, 0)], volume: 0.75, format: format)
+        buffers[.finish] = CueRig.makeTone([(1320, 0.14, 0.07), (1320, 0.14, 0.07), (1760, 0.5, 0)], volume: 0.85, format: format)
+        buffers[.restDone] = CueRig.makeTone([(988, 0.1, 0.06), (1319, 0.22, 0)], volume: 0.8, format: format)
+        buffers[.round] = CueRig.makeTone([(1175, 0.08, 0)], volume: 0.6, format: format)
+        self.buffers = buffers
+        let silent = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate))
+        silent?.frameLength = silent?.frameCapacity ?? 0
+        silentBuffer = silent
+        engine.attach(player)
+        engine.attach(silence)
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.connect(silence, to: engine.mainMixerNode, format: format)
+    }
+
+    func startEngineIfNeeded() {
+        guard !engine.isRunning else { return }
+        engine.prepare()
+        try? engine.start()
+    }
+
+    func startSilence() {
+        guard engine.isRunning, !silence.isPlaying, let silentBuffer else { return }
+        silence.scheduleBuffer(silentBuffer, at: nil, options: .loops)
+        silence.play()
+    }
 
     // MARK: Synthesis
 
-    private func makeTone(_ segments: [(frequency: Double, duration: Double, gap: Double)], volume: Float) -> AVAudioPCMBuffer? {
+    private static func makeTone(_ segments: [(frequency: Double, duration: Double, gap: Double)], volume: Float, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let rate = format.sampleRate
         let total = segments.reduce(0) { $0 + $1.duration + $1.gap }
         let frames = AVAudioFrameCount(total * rate)

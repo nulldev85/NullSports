@@ -169,14 +169,6 @@ final class HistoryStore {
         return (try? await database.readInBackground { try $0.workouts.lastPerformances(exerciseIDs: exerciseIDs, excluding: workoutID) }) ?? [:]
     }
 
-    func sessions(for exerciseID: String) -> [ExerciseSession] {
-        (try? database.workouts.sessions(exerciseID: exerciseID)) ?? []
-    }
-
-    func lastPerformances(_ exerciseIDs: [String], excluding workoutID: UUID?) -> [String: [WorkoutSet]] {
-        (try? database.workouts.lastPerformances(exerciseIDs: exerciseIDs, excluding: workoutID)) ?? [:]
-    }
-
     func summaries(on day: Date, calendar: Calendar) -> [WorkoutSummary] {
         summaries.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
     }
