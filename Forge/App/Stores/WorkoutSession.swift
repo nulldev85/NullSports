@@ -384,10 +384,14 @@ final class WorkoutSession {
 
     private func restEnded() {
         guard let rest else { return }
-        guard rest.remaining(at: Date()) <= 0.02 else {
+        let remaining = rest.remaining(at: Date())
+        guard remaining <= 0.02 else {
             scheduleRestTimers()
             return
         }
+        // Firing late means the app was in the background, where the
+        // notification already did the job.
+        guard Date().timeIntervalSince(rest.endsAt) < 2 else { return }
         if settings.value.restTimerSound { cues.play(.restDone) }
         if settings.value.restTimerHaptics { cues.haptic(.success) }
     }

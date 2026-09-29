@@ -185,13 +185,13 @@ struct FolderContentsView: View {
         }
         .sheet(item: $movingRoutine) { routine in
             FolderPickerView(title: "Move “\(routine.name)”", current: routine.folderID, excluded: []) { destination in
-                app.routines.move(routine.id, to: destination)
+                withAnimation(Motion.smooth) { app.routines.move(routine.id, to: destination) }
             }
             .environment(app)
         }
         .sheet(item: $movingFolder) { folder in
             FolderPickerView(title: "Move “\(folder.name)”", current: folder.parentID, excluded: excludedDestinations(for: folder)) { destination in
-                app.routines.moveFolder(folder.id, to: destination)
+                withAnimation(Motion.smooth) { app.routines.moveFolder(folder.id, to: destination) }
             }
             .environment(app)
         }
@@ -199,7 +199,9 @@ struct FolderContentsView: View {
             TextField("Folder name", text: $newFolderName)
             Button("Cancel", role: .cancel) {}
             Button("Create") {
-                app.routines.createFolder(name: newFolderName, parent: folderID)
+                withAnimation(Motion.smooth) {
+                    _ = app.routines.createFolder(name: newFolderName, parent: folderID)
+                }
             }
         } message: {
             Text("Folders keep routines organized. They can contain other folders too.")
@@ -222,11 +224,11 @@ struct FolderContentsView: View {
         ) {
             if let folder = deletingFolder {
                 Button("Delete Folder, Keep Routines") {
-                    app.routines.deleteFolder(folder.id, keepContents: true)
+                    withAnimation(Motion.smooth) { app.routines.deleteFolder(folder.id, keepContents: true) }
                     deletingFolder = nil
                 }
                 Button("Delete Folder and Routines", role: .destructive) {
-                    app.routines.deleteFolder(folder.id, keepContents: false)
+                    withAnimation(Motion.smooth) { app.routines.deleteFolder(folder.id, keepContents: false) }
                     deletingFolder = nil
                 }
             }
@@ -241,7 +243,7 @@ struct FolderContentsView: View {
         ) {
             if let routine = deletingRoutine {
                 Button("Delete Routine", role: .destructive) {
-                    app.routines.delete(routine)
+                    withAnimation(Motion.smooth) { app.routines.delete(routine) }
                     deletingRoutine = nil
                 }
             }
@@ -339,13 +341,13 @@ struct FolderContentsView: View {
             Button(role: .destructive) { deletingRoutine = routine } label: { Label("Delete", systemImage: "trash") }
             Button { movingRoutine = routine } label: { Label("Move", systemImage: "folder") }
                 .tint(Theme.lavender)
-            Button { app.routines.duplicate(routine) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+            Button { withAnimation(Motion.smooth) { _ = app.routines.duplicate(routine) } } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                 .tint(.gray)
         }
         .contextMenu {
             Button("Start Workout", systemImage: "play.fill") { app.session.start(from: routine) }
             Button("Edit", systemImage: "pencil") { editor = RoutineEditorRequest(routine: routine, isNew: false) }
-            Button("Duplicate", systemImage: "plus.square.on.square") { app.routines.duplicate(routine) }
+            Button("Duplicate", systemImage: "plus.square.on.square") { withAnimation(Motion.smooth) { _ = app.routines.duplicate(routine) } }
             Button("Move to Folder", systemImage: "folder") { movingRoutine = routine }
             Button("Delete", systemImage: "trash", role: .destructive) { deletingRoutine = routine }
         }
@@ -434,12 +436,20 @@ struct QuickStartCard: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(greeting)
-                        .font(.app(.title3, .semibold))
-                    Text(subtitle)
-                        .font(.app(.subheadline))
-                        .foregroundStyle(.secondary)
+                let goal = app.settings.value.weeklyGoal
+                let done = workoutsThisWeek
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(greeting)
+                            .font(.app(.title3, .semibold))
+                        Text(subtitle(done: done, goal: goal))
+                            .font(.app(.subheadline))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    if goal > 0 {
+                        WeeklyGoalRing(done: done, goal: goal)
+                    }
                 }
                 Button {
                     app.session.start()
@@ -475,10 +485,12 @@ struct QuickStartCard: View {
         }
     }
 
-    private var subtitle: String {
+    private var workoutsThisWeek: Int {
         let calendar = app.settings.calendar
-        let thisWeek = app.history.digest.totals(since: Stats.weekStart(of: Date(), calendar: calendar)).workouts
-        let goal = app.settings.value.weeklyGoal
+        return app.history.digest.totals(since: Stats.weekStart(of: Date(), calendar: calendar)).workouts
+    }
+
+    private func subtitle(done thisWeek: Int, goal: Int) -> String {
         if thisWeek == 0 {
             return "Pick a routine below or start a blank session."
         }
@@ -486,6 +498,39 @@ struct QuickStartCard: View {
             return "\(thisWeek) workouts this week — weekly goal reached."
         }
         return "\(thisWeek) of \(goal) workouts this week."
+    }
+}
+
+/// This week's workouts against the weekly goal, as a small ring that
+/// fills in when the card appears.
+struct WeeklyGoalRing: View {
+    let done: Int
+    let goal: Int
+    @State private var shown = false
+
+    var body: some View {
+        let reached = done >= goal
+        ZStack {
+            ProgressRing(progress: shown ? Double(done) / Double(max(goal, 1)) : 0, color: reached ? Theme.success : Color.accentColor, lineWidth: 5)
+            if reached {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.success)
+                    .transition(.scale.combined(with: .opacity))
+            } else {
+                Text("\(done)/\(goal)")
+                    .font(.num(.caption, .semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(done)))
+            }
+        }
+        .frame(width: 52, height: 52)
+        .onAppear {
+            withAnimation(Motion.gentle.delay(0.15)) { shown = true }
+        }
+        .animation(Motion.smooth, value: done)
+        .accessibilityElement()
+        .accessibilityLabel("\(done) of \(goal) workouts this week")
     }
 }
 

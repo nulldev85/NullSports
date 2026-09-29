@@ -4,6 +4,9 @@ import SwiftUI
 @Observable
 final class MeasurementStore {
     private(set) var all: [BodyMeasurement] = []
+    /// Entries per kind, oldest first; rebuilt on each load rather than
+    /// filtered and sorted on every redraw.
+    private var byKind: [MeasurementKind: [BodyMeasurement]] = [:]
 
     private let database: AppDatabase
     private let feedback: Feedback
@@ -16,18 +19,26 @@ final class MeasurementStore {
 
     func reload() {
         do {
-            all = try database.measurements.all()
+            let loaded = try database.measurements.all()
+            byKind = Self.group(loaded)
+            all = loaded
         } catch {
             feedback.report(error, while: "load your measurements")
         }
     }
 
+    private static func group(_ entries: [BodyMeasurement]) -> [MeasurementKind: [BodyMeasurement]] {
+        Dictionary(grouping: entries, by: \.kind).mapValues { list in
+            list.sorted { $0.measuredAt < $1.measuredAt }
+        }
+    }
+
     func entries(_ kind: MeasurementKind) -> [BodyMeasurement] {
-        all.filter { $0.kind == kind }.sorted { $0.measuredAt < $1.measuredAt }
+        byKind[kind] ?? []
     }
 
     func latest(_ kind: MeasurementKind) -> BodyMeasurement? {
-        all.filter { $0.kind == kind }.max { $0.measuredAt < $1.measuredAt }
+        byKind[kind]?.last
     }
 
     /// Change from the previous entry to the latest.
@@ -38,8 +49,7 @@ final class MeasurementStore {
     }
 
     var trackedKinds: [MeasurementKind] {
-        let used = Set(all.map(\.kind))
-        return MeasurementKind.allCases.filter { used.contains($0) }
+        MeasurementKind.allCases.filter { byKind[$0] != nil }
     }
 
     func save(_ measurement: BodyMeasurement) {

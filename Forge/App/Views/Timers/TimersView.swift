@@ -47,7 +47,7 @@ struct TimersView: View {
                             } edit: {
                                 setup = TimerSetupRequest(config: preset.config, presetID: preset.id, name: preset.name)
                             } delete: {
-                                app.timers.deletePreset(preset.id)
+                                withAnimation(Motion.smooth) { app.timers.deletePreset(preset.id) }
                             }
                         }
                     }

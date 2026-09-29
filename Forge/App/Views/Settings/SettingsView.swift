@@ -150,8 +150,10 @@ struct AccentPicker: View {
             Text("Accent Color")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 10) {
                 ForEach(Theme.accents) { option in
+                    let isSelected = Theme.canonicalID(selection) == option.id
                     Button {
-                        selection = option.id
+                        // The whole app re-tints, so let the change glide.
+                        withAnimation(Motion.gentle) { selection = option.id }
                     } label: {
                         Circle()
                             .fill(option.color)
@@ -160,15 +162,24 @@ struct AccentPicker: View {
                                 Image(systemName: "checkmark")
                                     .font(.app(.caption, .semibold))
                                     .foregroundStyle(Theme.onAccent)
-                                    .opacity(Theme.canonicalID(selection) == option.id ? 1 : 0)
+                                    .scaleEffect(isSelected ? 1 : 0.4)
+                                    .opacity(isSelected ? 1 : 0)
+                            )
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(option.color.opacity(0.45), lineWidth: 2)
+                                    .padding(-5)
+                                    .opacity(isSelected ? 1 : 0)
                             )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableStyle(scale: 0.9))
                     .accessibilityLabel(option.name)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
         }
         .padding(.vertical, 4)
+        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -274,12 +285,12 @@ struct RecentlyDeletedView: View {
                                 }
                             }
                             Spacer()
-                            Button("Restore") { app.history.restore(summary.id) }
+                            Button("Restore") { withAnimation(Motion.smooth) { app.history.restore(summary.id) } }
                                 .buttonStyle(.bordered)
                         }
                         .swipeActions {
                             Button(role: .destructive) {
-                                app.history.purge(summary.id)
+                                withAnimation(Motion.smooth) { app.history.purge(summary.id) }
                             } label: {
                                 Label("Delete Forever", systemImage: "trash")
                             }
@@ -304,12 +315,12 @@ struct RecentlyDeletedView: View {
                                 }
                             }
                             Spacer()
-                            Button("Restore") { app.routines.restore(routine.id) }
+                            Button("Restore") { withAnimation(Motion.smooth) { app.routines.restore(routine.id) } }
                                 .buttonStyle(.bordered)
                         }
                         .swipeActions {
                             Button(role: .destructive) {
-                                app.routines.purge(routine.id)
+                                withAnimation(Motion.smooth) { app.routines.purge(routine.id) }
                             } label: {
                                 Label("Delete Forever", systemImage: "trash")
                             }
@@ -341,7 +352,7 @@ struct ArchivedExercisesView: View {
                 HStack {
                     ExerciseRowLabel(exercise: exercise)
                     Spacer()
-                    Button("Restore") { app.library.unarchive(exercise.id) }
+                    Button("Restore") { withAnimation(Motion.smooth) { app.library.unarchive(exercise.id) } }
                         .buttonStyle(.bordered)
                 }
                 .swipeActions {
@@ -361,7 +372,7 @@ struct ArchivedExercisesView: View {
             titleVisibility: .visible
         ) {
             Button("Delete Permanently", role: .destructive) {
-                if let exercise = deleting { app.library.deletePermanently(exercise.id) }
+                if let exercise = deleting { withAnimation(Motion.smooth) { app.library.deletePermanently(exercise.id) } }
                 deleting = nil
             }
         } message: {

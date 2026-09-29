@@ -113,6 +113,7 @@ struct ExerciseDetailView: View {
     @State private var confirmArchive = false
     @State private var note = ""
     @State private var loaded = false
+    @State private var noteSaveTask: Task<Void, Never>?
 
     enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -226,6 +227,12 @@ struct ExerciseDetailView: View {
         }
     }
 
+    private func saveNote(for id: String) {
+        noteSaveTask?.cancel()
+        guard loaded, note != app.library.note(for: id) else { return }
+        app.library.setNote(note, for: id)
+    }
+
     private func load(_ exercise: Exercise) {
         loaded = true
         sessions = app.history.sessions(for: exercise.id)
@@ -269,10 +276,17 @@ struct ExerciseDetailView: View {
         Section {
             TextField("Personal notes, cues, seat height…", text: $note, axis: .vertical)
                 .lineLimit(1...6)
-                .onSubmit { app.library.setNote(note, for: exercise.id) }
-                .onChange(of: note) { _, newValue in
-                    app.library.setNote(newValue, for: exercise.id)
+                .onSubmit { saveNote(for: exercise.id) }
+                .onChange(of: note) { _, _ in
+                    // Saved after a pause in typing, not on every keystroke.
+                    noteSaveTask?.cancel()
+                    noteSaveTask = Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        guard !Task.isCancelled else { return }
+                        saveNote(for: exercise.id)
+                    }
                 }
+                .onDisappear { saveNote(for: exercise.id) }
             Picker("Default Rest", selection: Binding(
                 get: { app.library.restSeconds(for: exercise.id) ?? -1 },
                 set: { app.library.setRestSeconds($0 < 0 ? nil : $0, for: exercise.id) }

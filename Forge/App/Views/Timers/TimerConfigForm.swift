@@ -64,6 +64,8 @@ struct TimerConfigForm: View {
                 Toggle("Skip Final Rest", isOn: $config.skipLastRest)
             } footer: {
                 Text("Total \(totalText)")
+                    .contentTransition(.numericText())
+                    .animation(Motion.numeric, value: totalText)
             }
         case .custom:
             CustomSegmentsSection(config: $config)
@@ -75,6 +77,8 @@ struct TimerConfigForm: View {
                 Toggle("Skip Final Rest", isOn: $config.skipLastRest)
             } footer: {
                 Text("Total \(totalText)")
+                    .contentTransition(.numericText())
+                    .animation(Motion.numeric, value: totalText)
             }
         case .deathBy:
             Section {

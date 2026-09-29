@@ -449,19 +449,20 @@ struct SetsProgressBar: View {
     let fraction: Double
 
     var body: some View {
-        let clamped = max(0, min(1, fraction))
+        let clamped = CGFloat(max(0, min(1, fraction)))
+        let minimum: CGFloat = clamped > 0 ? 6 : 0
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.fill)
                 Capsule()
                     .fill(clamped >= 1 ? Theme.success : Color.accentColor)
-                    .frame(width: max(clamped > 0 ? 6 : 0, proxy.size.width * clamped))
+                    .frame(width: max(minimum, proxy.size.width * clamped))
             }
         }
         .frame(height: 4)
         .animation(Motion.smooth, value: clamped)
         .accessibilityElement()
-        .accessibilityLabel("\(Int((clamped * 100).rounded())) percent of sets done")
+        .accessibilityLabel("\(Int((fraction * 100).rounded())) percent of sets done")
     }
 }
 
@@ -782,6 +783,12 @@ private struct RestTimerCard: View {
                             .foregroundStyle(done ? Theme.success : Color.primary)
                             .contentTransition(.numericText(countsDown: true))
                             .animation(Motion.numeric, value: clock)
+                            // "Go!" gives one small pulse when the rest ends.
+                            .phaseAnimator([1.0, 1.12, 1.0], trigger: done) { content, scale in
+                                content.scaleEffect(scale, anchor: .leading)
+                            } animation: { _ in
+                                .snappy(duration: 0.22)
+                            }
                     }
                     Spacer()
                     HStack(spacing: 8) {
@@ -822,12 +829,13 @@ private struct RestProgressBar: View {
     let done: Bool
 
     var body: some View {
+        let fraction = CGFloat(max(0, min(1, progress)))
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.1))
                 Capsule()
                     .fill(done ? Theme.success : Color.accentColor)
-                    .frame(width: max(6, proxy.size.width * max(0, min(1, progress))))
+                    .frame(width: max(6, proxy.size.width * fraction))
             }
         }
         .frame(height: 5)

@@ -1,18 +1,24 @@
 import SwiftUI
 
 /// One vocabulary of motion for the whole app: quick, soft springs that
-/// settle without wobble, so things feel calm and responsive at once.
+/// settle without wobble, so things feel calm and responsive at once. With
+/// Reduce Motion on, everything becomes a short, bounce-free ease.
+@MainActor
 enum Motion {
     /// Taps and toggles: checkmarks, buttons, small state flips.
-    static let snappy = Animation.snappy(duration: 0.28)
+    static var snappy: Animation { reduced ?? .snappy(duration: 0.28) }
     /// Content appearing, moving or resizing: rows, bars, cards.
-    static let smooth = Animation.smooth(duration: 0.38)
+    static var smooth: Animation { reduced ?? .smooth(duration: 0.38) }
     /// Slower, softer changes: color shifts, backgrounds, things leaving.
-    static let gentle = Animation.smooth(duration: 0.55)
+    static var gentle: Animation { reduced ?? .smooth(duration: 0.55) }
     /// Emphasis and celebration, with a little bounce.
-    static let lively = Animation.spring(response: 0.45, dampingFraction: 0.7)
+    static var lively: Animation { reduced ?? .spring(response: 0.45, dampingFraction: 0.7) }
     /// Digits rolling over.
-    static let numeric = Animation.snappy(duration: 0.3)
+    static var numeric: Animation { reduced ?? .snappy(duration: 0.3) }
+
+    private static var reduced: Animation? {
+        UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.2) : nil
+    }
 }
 
 /// Launch arguments the UI tests pass in.

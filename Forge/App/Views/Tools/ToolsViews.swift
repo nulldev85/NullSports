@@ -89,6 +89,7 @@ struct BarbellDiagram: View {
                                 .rotationEffect(.degrees(-90))
                                 .fixedSize()
                         )
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
                 Rectangle()
                     .fill(Color.secondary.opacity(0.6))
@@ -96,6 +97,8 @@ struct BarbellDiagram: View {
                     .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            // Plates slide on and off as the target changes.
+            .animation(Motion.smooth, value: plates)
         }
     }
 

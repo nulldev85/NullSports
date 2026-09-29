@@ -328,7 +328,7 @@ struct MonthCalendar: View {
         // Set the direction first and change the month on the next turn, so
         // the outgoing month already knows which way to leave.
         direction = months > 0 ? 1 : -1
-        DispatchQueue.main.async {
+        Task { @MainActor in
             withAnimation(Motion.smooth) { month = next }
         }
     }

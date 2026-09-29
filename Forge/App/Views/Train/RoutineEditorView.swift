@@ -51,6 +51,8 @@ struct RoutineEditorView: View {
                         blockCount: draft.blocks.count,
                         actions: blockActions(block.id)
                     )
+                    // Typing in one block redraws only that block.
+                    .equatable()
                 }
                 addSection
             }
@@ -341,7 +343,7 @@ struct ColorTagPicker: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 Button {
-                    selection = nil
+                    withAnimation(Motion.snappy) { selection = nil }
                 } label: {
                     Circle()
                         .strokeBorder(Color.secondary, lineWidth: 1.5)
@@ -352,7 +354,7 @@ struct ColorTagPicker: View {
                 .accessibilityLabel("No color")
                 ForEach(Theme.tagColors, id: \.id) { tag in
                     Button {
-                        selection = tag.id
+                        withAnimation(Motion.snappy) { selection = tag.id }
                     } label: {
                         Circle()
                             .fill(tag.color)
@@ -365,12 +367,13 @@ struct ColorTagPicker: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle(scale: 0.9))
+        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
 /// One block in the editor: straight sets, a superset/circuit, or a timed block.
-struct EditorBlockSection: View {
+struct EditorBlockSection: View, Equatable {
     struct Actions {
         var moveUp: () -> Void
         var moveDown: () -> Void
@@ -388,6 +391,12 @@ struct EditorBlockSection: View {
     let blockCount: Int
     let actions: Actions
     @Environment(AppModel.self) private var app
+
+    /// The binding and actions look the block up by ID, so they stay valid
+    /// when an unchanged block skips a redraw.
+    nonisolated static func == (lhs: EditorBlockSection, rhs: EditorBlockSection) -> Bool {
+        lhs._block.wrappedValue == rhs._block.wrappedValue && lhs.index == rhs.index && lhs.blockCount == rhs.blockCount
+    }
 
     var body: some View {
         Section {

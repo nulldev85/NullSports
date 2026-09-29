@@ -167,8 +167,10 @@ struct RestCountdownText: View {
     let rest: RestTimerState
 
     var body: some View {
-        // Ticks aligned to the end time, so each tick is a new second.
-        TimelineView(.periodic(from: rest.endsAt.addingTimeInterval(-86_400), by: 1)) { context in
+        // Ticks aligned to the end time (starting just before the rest
+        // began), so each tick lands exactly as the displayed second changes.
+        let start = rest.endsAt.addingTimeInterval(-(max(0, rest.duration).rounded(.up) + 1))
+        TimelineView(.periodic(from: start, by: 1)) { context in
             let remaining = rest.remaining(at: context.date)
             if remaining > 0 {
                 Text("· Rest \(DurationFormat.countdownClock(remaining))")

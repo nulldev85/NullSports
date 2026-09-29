@@ -370,6 +370,8 @@ struct TimerRunView: View {
             }
             Text("\(value.wrappedValue)")
                 .font(.num(.title2, .regular))
+                .contentTransition(.numericText(value: Double(value.wrappedValue)))
+                .animation(Motion.numeric, value: value.wrappedValue)
                 .frame(minWidth: 50)
             if editable {
                 Button { value.wrappedValue += 1 } label: {
@@ -381,6 +383,8 @@ struct TimerRunView: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.06)))
+        .buttonStyle(PressableStyle(scale: 0.9))
+        .sensoryFeedback(.selection, trigger: value.wrappedValue)
     }
 
     // MARK: Text

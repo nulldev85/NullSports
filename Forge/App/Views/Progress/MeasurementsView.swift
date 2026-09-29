@@ -142,7 +142,7 @@ struct MeasurementDetailView: View {
                     }
                     .swipeActions {
                         Button(role: .destructive) {
-                            app.measurements.delete(entry.id)
+                            withAnimation(Motion.smooth) { app.measurements.delete(entry.id) }
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
