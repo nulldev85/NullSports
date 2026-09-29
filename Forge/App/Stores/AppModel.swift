@@ -84,6 +84,10 @@ final class AppModel {
                 : "Forge found \(recovered) unfinished workouts from earlier sessions and saved them to History, with every set you'd entered."
             launchNotice = [launchNotice, text].compactMap { $0 }.joined(separator: "\n\n")
         }
+        // One-time text formatting setup, off the main thread.
+        Task.detached(priority: .utility) {
+            FormatWarmUp.run()
+        }
         // Timer and rest sounds are set up in the background once the first
         // screen is up, so the first beep plays without a delay.
         Task { [cues] in

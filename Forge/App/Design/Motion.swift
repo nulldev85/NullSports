@@ -15,6 +15,9 @@ enum Motion {
     static var lively: Animation { reduced ?? .spring(response: 0.45, dampingFraction: 0.7) }
     /// Digits rolling over.
     static var numeric: Animation { reduced ?? .snappy(duration: 0.3) }
+    /// How long a navigation push takes (about a third of a second), in
+    /// nanoseconds: work that would stutter the slide waits this long.
+    static let pushNanoseconds: UInt64 = 350_000_000
 
     private static var reduced: Animation? {
         UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.2) : nil
@@ -88,5 +91,32 @@ extension View {
         opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 14)
             .animation(Motion.smooth.delay(delay), value: visible)
+    }
+}
+
+/// Content that's slow to draw the first time (charts): a space of the same
+/// height first, then the content fades in once the screen has finished
+/// sliding in, so the push itself never waits for it.
+struct AfterTransition<Content: View>: View {
+    var height: CGFloat
+    @ViewBuilder var content: () -> Content
+    @State private var ready = false
+
+    var body: some View {
+        Group {
+            if ready {
+                content()
+                    .transition(.opacity)
+            } else {
+                Color.clear
+                    .frame(height: height)
+            }
+        }
+        .task {
+            guard !ready else { return }
+            try? await Task.sleep(nanoseconds: Motion.pushNanoseconds)
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.gentle) { ready = true }
+        }
     }
 }

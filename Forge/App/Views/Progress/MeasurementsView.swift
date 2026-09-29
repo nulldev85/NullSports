@@ -103,17 +103,19 @@ struct MeasurementDetailView: View {
         List {
             if entries.count > 1 {
                 Section {
-                    Chart(entries) { entry in
-                        LineMark(x: .value("Date", entry.measuredAt), y: .value(kind.displayName, units.displayMeasurement(entry.value, kind: kind)))
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(Color.accentColor)
-                        PointMark(x: .value("Date", entry.measuredAt), y: .value(kind.displayName, units.displayMeasurement(entry.value, kind: kind)))
-                            .foregroundStyle(Color.accentColor)
-                            .symbolSize(24)
+                    AfterTransition(height: 216) {
+                        Chart(entries) { entry in
+                            LineMark(x: .value("Date", entry.measuredAt), y: .value(kind.displayName, units.displayMeasurement(entry.value, kind: kind)))
+                                .interpolationMethod(.monotone)
+                                .foregroundStyle(Color.accentColor)
+                            PointMark(x: .value("Date", entry.measuredAt), y: .value(kind.displayName, units.displayMeasurement(entry.value, kind: kind)))
+                                .foregroundStyle(Color.accentColor)
+                                .symbolSize(24)
+                        }
+                        .chartYScale(domain: .automatic(includesZero: false))
+                        .frame(height: 200)
+                        .padding(.vertical, 8)
                     }
-                    .chartYScale(domain: .automatic(includesZero: false))
-                    .frame(height: 200)
-                    .padding(.vertical, 8)
                 }
             }
             Section("Entries") {

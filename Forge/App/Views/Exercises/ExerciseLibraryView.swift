@@ -223,8 +223,16 @@ struct ExerciseDetailView: View {
             if !loaded { load(exercise) }
         }
         .task(id: app.history.revision) {
+            let firstLoad = !sessionsLoaded
+            let started = DispatchTime.now().uptimeNanoseconds
             let loadedSessions = await app.history.loadSessions(for: exercise.id)
-            guard loadedSessions != sessions || !sessionsLoaded else { return }
+            // The first time, the charts and history fade in once the push
+            // has finished: drawing a chart mid-slide would stutter it.
+            let elapsed = DispatchTime.now().uptimeNanoseconds - started
+            if firstLoad, elapsed < Motion.pushNanoseconds {
+                try? await Task.sleep(nanoseconds: Motion.pushNanoseconds - elapsed)
+            }
+            guard !Task.isCancelled, loadedSessions != sessions || !sessionsLoaded else { return }
             withAnimation(sessionsLoaded ? Motion.smooth : Motion.gentle) {
                 sessions = loadedSessions
                 sessionsLoaded = true

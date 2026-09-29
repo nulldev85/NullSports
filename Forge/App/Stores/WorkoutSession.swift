@@ -663,12 +663,19 @@ final class WorkoutSession {
             finishedSummary = FinishedWorkout(workout: finished, records: records)
             isFinishing = false
         }
-        history.reload()
-        history.markChanged()
-        library.refreshUsageInBackground()
         // A fresh snapshot, so the newest backup always includes this workout.
         BackgroundWork.run("Forge workout backup") {
             database.snapshotAfterWorkout()
+        }
+        // History, records and exercise order are only seen once the
+        // summary closes, so they refresh after its transition instead of
+        // competing with it.
+        let history = history
+        let library = library
+        afterDelay(0.6) {
+            history.reload()
+            history.markChanged()
+            library.refreshUsageInBackground()
         }
         return true
     }

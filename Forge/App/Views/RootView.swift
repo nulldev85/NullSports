@@ -4,12 +4,29 @@ struct RootView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
 
+    // Each piece of state is read by the smallest view that needs it: a
+    // toast, the workout or timer opening and closing, or a notice never
+    // rebuilds the tabs underneath.
+    var body: some View {
+        MainTabs()
+            .themed(app.settings)
+            .modifier(WorkoutCover())
+            .modifier(TimerCover())
+            .toastOverlay(app.feedback)
+            .onChange(of: scenePhase) { _, phase in
+                app.handle(phase)
+            }
+            .modifier(LaunchNoticeAlert())
+    }
+}
+
+/// The five tabs. The workout-in-progress bar wraps each tab's whole
+/// navigation stack, so it stays visible on every screen pushed inside it.
+private struct MainTabs: View {
+    @Environment(AppModel.self) private var app
+
     var body: some View {
         @Bindable var app = app
-        @Bindable var session = app.session
-        @Bindable var timers = app.timers
-        // The workout-in-progress bar wraps each tab's whole navigation
-        // stack, so it stays visible on every screen pushed inside it.
         TabView(selection: $app.selectedTab) {
             TrainView()
                 .activeWorkoutInset()
@@ -32,33 +49,57 @@ struct RootView: View {
                 .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
                 .tag(AppTab.progress)
         }
-        .themed(app.settings)
-        .fullScreenCover(isPresented: $session.isPresented, onDismiss: { app.session.coverDismissed() }) {
-            WorkoutScreen()
-                .environment(app)
-                .themed(app.settings)
-                .toastOverlay(app.feedback)
-        }
-        .fullScreenCover(isPresented: $timers.isPresented) {
-            if let controller = app.timers.active {
-                StandaloneTimerScreen(controller: controller)
+    }
+}
+
+/// The workout in progress, full screen.
+private struct WorkoutCover: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        @Bindable var session = app.session
+        content
+            .fullScreenCover(isPresented: $session.isPresented, onDismiss: { app.session.coverDismissed() }) {
+                WorkoutScreen()
                     .environment(app)
-                    .themed(app.settings, scheme: .dark)
+                    .themed(app.settings)
                     .toastOverlay(app.feedback)
             }
-        }
-        .toastOverlay(app.feedback)
-        .onChange(of: scenePhase) { _, phase in
-            app.handle(phase)
-        }
-        .alert("About your data", isPresented: Binding(
-            get: { app.launchNotice != nil },
-            set: { if !$0 { app.launchNotice = nil } }
-        )) {
-            Button("OK", role: .cancel) { app.launchNotice = nil }
-        } message: {
-            Text(app.launchNotice ?? "")
-        }
+    }
+}
+
+/// A standalone timer, full screen.
+private struct TimerCover: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        @Bindable var timers = app.timers
+        content
+            .fullScreenCover(isPresented: $timers.isPresented) {
+                if let controller = app.timers.active {
+                    StandaloneTimerScreen(controller: controller)
+                        .environment(app)
+                        .themed(app.settings, scheme: .dark)
+                        .toastOverlay(app.feedback)
+                }
+            }
+    }
+}
+
+/// Anything the launch needs to tell the athlete about their data.
+private struct LaunchNoticeAlert: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        content
+            .alert("About your data", isPresented: Binding(
+                get: { app.launchNotice != nil },
+                set: { if !$0 { app.launchNotice = nil } }
+            )) {
+                Button("OK", role: .cancel) { app.launchNotice = nil }
+            } message: {
+                Text(app.launchNotice ?? "")
+            }
     }
 }
 
@@ -76,13 +117,7 @@ extension View {
 
     func toastOverlay(_ feedback: Feedback) -> some View {
         overlay(alignment: .top) {
-            if let toast = feedback.toast {
-                ToastBanner(toast: toast) { feedback.dismiss() }
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onTapGesture { feedback.dismiss() }
-                    .zIndex(10)
-            }
+            ToastHost(feedback: feedback)
         }
     }
 
@@ -90,6 +125,22 @@ extension View {
     func activeWorkoutInset() -> some View {
         safeAreaInset(edge: .bottom, spacing: 0) {
             ActiveWorkoutBar()
+        }
+    }
+}
+
+/// The toast itself. Only this view reads it, so a toast coming or going
+/// redraws the banner and nothing else.
+private struct ToastHost: View {
+    let feedback: Feedback
+
+    var body: some View {
+        if let toast = feedback.toast {
+            ToastBanner(toast: toast) { feedback.dismiss() }
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onTapGesture { feedback.dismiss() }
+                .zIndex(10)
         }
     }
 }
