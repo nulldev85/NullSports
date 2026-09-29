@@ -211,20 +211,33 @@ jobs:
                   return names[addr]
               return demangled.get(symbol, symbol) or hex(addr)
 
+          # Frames every main-thread stack has (the app's entry point) or
+          # that only hand SwiftUI the app's view types don't count as app work.
+          SKIP = re.compile(r"\$main|entry_point|^main\b|protocol witness for static View\._make")
+          def app_frames(frames):
+              return [f for f in frames if f[0].startswith("Forge") and not SKIP.search(name(f))]
+          RUNTIME = ("conformsToProtocol", "GenericMetadata", "DynamicPropertyCache", "_checkGenericRequirements",
+                     "TypeByMangledName", "WitnessTable", "metadata accessor", "metadata completion", "MetadataCache")
           def cause(s):
-              images = {f[0] for frames in s[4].values() for f in frames}
-              if not images:
+              samples = [frames for frames in s[4].values() if frames]
+              if not samples:
                   return "no stack"
+              images = {f[0] for frames in samples for f in frames}
+              names_ = [name(f) for frames in samples for f in frames]
               if any(image.startswith(("XCT", "libXCT")) for image in images):
                   return "UI test harness (XCUITest query)"
               if any("sqlite" in image for image in images):
                   return "database"
-              if any(a in image for image in images for a in ("AVFAudio", "AudioToolbox", "TextToSpeech", "AVFoundation", "MediaExperience")):
+              if any(a in image for image in images for a in ("AVFAudio", "AudioToolbox", "TextToSpeech", "MediaExperience")):
                   return "audio"
+              if any("Keyboard" in n for n in names_):
+                  return "keyboard (system)"
               if any(a in image for image in images for a in ("Accessibility", "AXRuntime", "AXCore")):
                   return "accessibility (on only under test)"
-              if any(image.startswith("Forge") for image in images):
-                  return "app code under SwiftUI/UIKit"
+              if any(r in name(f) for f in samples[0][:8] for r in RUNTIME):
+                  return "first use of a screen (Swift type lookups)"
+              if any(app_frames(frames) for frames in samples):
+                  return "app code"
               return "SwiftUI/UIKit only"
 
           causes = defaultdict(lambda: [0, 0])
@@ -243,8 +256,8 @@ jobs:
                   continue
               seen = set()
               for frames in s[4].values():
-                  for f in frames:
-                      if f[0].startswith("Forge"):
+                  for f in app_frames(frames):
+                      if True:
                           n = name(f)
                           n = re.sub(r"\s*\(\S+:\d+\)$", "", n)
                           if n not in seen:
@@ -263,7 +276,7 @@ jobs:
                   for f in frames[:6]:
                       print(f"       {f[0][:22]:<22} {name(f)[:150]}")
                       shown += 1
-                  app = [f for f in frames[6:] if f[0].startswith("Forge")][:8]
+                  app = app_frames(frames[6:])[:8]
                   if app:
                       print("       ...")
                   for f in app:
