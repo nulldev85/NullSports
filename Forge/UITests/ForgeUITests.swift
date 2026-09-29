@@ -239,7 +239,7 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(reveal(findMissing), "Find Missing Data should be in Backups")
         findMissing.tap()
         XCTAssertTrue(app.navigationBars["Find Missing Data"].waitForExistence(timeout: 10))
-        let finished = NSPredicate(format: "label BEGINSWITH 'Nothing is missing' OR label BEGINSWITH 'Found '")
+        let finished = NSPredicate(format: "label BEGINSWITH 'Nothing is missing' OR label BEGINSWITH 'Found ' OR label BEGINSWITH 'No backups'")
         XCTAssertTrue(app.descendants(matching: .any).matching(finished).firstMatch.waitForExistence(timeout: 60), "the scan should finish")
         sleep(1)
         snapshot("20b-FindMissingData")

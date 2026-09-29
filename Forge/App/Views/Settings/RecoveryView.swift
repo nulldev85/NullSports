@@ -251,7 +251,13 @@ struct RecoveryView: View {
 
     private func summaryCard(_ report: RecoveryService.Report) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if report.isEmpty {
+            if report.sourcesScanned == 0 {
+                Label("No backups to check yet", systemImage: "clock.arrow.circlepath")
+                    .font(.app(.headline))
+                Text("Forge makes snapshots and backup files as you use it. If you have a backup file saved somewhere else, scan it below.")
+                    .font(.app(.subheadline))
+                    .foregroundStyle(.secondary)
+            } else if report.isEmpty {
                 Label("Nothing is missing", systemImage: "checkmark.shield.fill")
                     .font(.app(.headline))
                     .foregroundStyle(Theme.success)
