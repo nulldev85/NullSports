@@ -8,9 +8,13 @@ import SwiftUI
 @Observable
 final class DataSafetyStore {
     private(set) var snapshots: [BackupManager.Snapshot] = []
+    /// Counts inside each snapshot, read in the background.
+    private(set) var snapshotSummaries: [URL: BackupManager.SnapshotSummary] = [:]
     private(set) var exportFolderName: String?
     private(set) var lastExportDate: Date?
     private(set) var isExporting = false
+    /// A snapshot restore or an import is replacing the data.
+    private(set) var isReplacingData = false
     private(set) var folderSuggestionSnoozedUntil: Date?
     /// The last full integrity check of the data file.
     private(set) var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
@@ -40,13 +44,47 @@ final class DataSafetyStore {
     private let settings: SettingsStore
     @ObservationIgnored private var exportDebounce: Task<Void, Never>?
     @ObservationIgnored private var warnedAboutIntegrity = false
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var summariesTask: Task<Void, Never>?
 
-    init(database: AppDatabase, feedback: Feedback, settings: SettingsStore) {
+    /// Everything the Backups screen shows, gathered off the main thread
+    /// (listing files and resolving the backup folder can take a moment).
+    struct Loaded: Sendable {
+        var snapshots: [BackupManager.Snapshot] = []
+        var lastExportDate: Date?
+        var exportFolderName: String?
+        var folderSuggestionSnoozedUntil: Date?
+        var localBackupFileCount = 0
+        var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
+    }
+
+    nonisolated static func load(from database: AppDatabase) -> Loaded {
+        var loaded = Loaded()
+        loaded.snapshots = database.backups.snapshots()
+        let exportedText: String? = try? database.meta.get(MetaRepository.Key.lastAutoExport)
+        loaded.lastExportDate = exportedText.flatMap(ISO8601.date(from:))
+        loaded.exportFolderName = resolveExportFolder(database)?.lastPathComponent
+        let snoozedText: String? = try? database.meta.get(MetaRepository.Key.folderSuggestionSnoozedUntil)
+        loaded.folderSuggestionSnoozedUntil = snoozedText.flatMap(ISO8601.date(from:))
+        loaded.localBackupFileCount = datedBackups(in: documentsBackupFolder).count
+        loaded.integrity = database.integrityStatus
+        return loaded
+    }
+
+    init(database: AppDatabase, feedback: Feedback, settings: SettingsStore, loaded: Loaded) {
         self.database = database
         self.feedback = feedback
         self.settings = settings
-        refresh()
-        refreshIntegrity()
+        apply(loaded)
+    }
+
+    private func apply(_ loaded: Loaded) {
+        if snapshots != loaded.snapshots { snapshots = loaded.snapshots }
+        if lastExportDate != loaded.lastExportDate { lastExportDate = loaded.lastExportDate }
+        if exportFolderName != loaded.exportFolderName { exportFolderName = loaded.exportFolderName }
+        if folderSuggestionSnoozedUntil != loaded.folderSuggestionSnoozedUntil { folderSuggestionSnoozedUntil = loaded.folderSuggestionSnoozedUntil }
+        if localBackupFileCount != loaded.localBackupFileCount { localBackupFileCount = loaded.localBackupFileCount }
+        applyIntegrity(loaded.integrity)
     }
 
     static var appVersion: String {
@@ -56,21 +94,47 @@ final class DataSafetyStore {
         return "\(version) (\(build))"
     }
 
-    var documentsBackupFolder: URL {
+    nonisolated static var documentsBackupFolder: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documents.appendingPathComponent("Backups", isDirectory: true)
     }
 
+    var documentsBackupFolder: URL { Self.documentsBackupFolder }
+
+    /// Re-reads everything the Backups screen shows, in the background.
     func refresh() {
-        snapshots = database.backups.snapshots()
-        if let text = try? database.meta.get(MetaRepository.Key.lastAutoExport) {
-            lastExportDate = ISO8601.date(from: text)
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let database = database
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) { Self.load(from: database) }.value
+            guard generation == refreshGeneration else { return }
+            withAnimation(Motion.smooth) { apply(loaded) }
+            loadSnapshotSummaries()
         }
-        exportFolderName = resolveExportFolder()?.lastPathComponent
-        if let text = try? database.meta.get(MetaRepository.Key.folderSuggestionSnoozedUntil) {
-            folderSuggestionSnoozedUntil = ISO8601.date(from: text)
+    }
+
+    /// Reads the counts inside each snapshot that doesn't have them yet,
+    /// off the main thread; rows fill in as they arrive.
+    func loadSnapshotSummaries() {
+        let missing = snapshots.filter { snapshotSummaries[$0.url] == nil }
+        guard !missing.isEmpty else { return }
+        let backups = database.backups
+        summariesTask?.cancel()
+        summariesTask = Task {
+            let found = await Task.detached(priority: .utility) { () -> [URL: BackupManager.SnapshotSummary] in
+                var result: [URL: BackupManager.SnapshotSummary] = [:]
+                for snapshot in missing {
+                    if Task.isCancelled { break }
+                    if let summary = backups.summary(of: snapshot) { result[snapshot.url] = summary }
+                }
+                return result
+            }.value
+            guard !Task.isCancelled, !found.isEmpty else { return }
+            withAnimation(Motion.smooth) {
+                snapshotSummaries.merge(found) { _, new in new }
+            }
         }
-        localBackupFileCount = Self.datedBackups(in: documentsBackupFolder).count
     }
 
     /// Backup files in the app's own folder are removed if the app is
@@ -84,7 +148,7 @@ final class DataSafetyStore {
     func snoozeFolderSuggestion(days: Double = 7) {
         let until = Date().addingTimeInterval(days * 86_400)
         folderSuggestionSnoozedUntil = until
-        try? database.meta.set(MetaRepository.Key.folderSuggestionSnoozedUntil, value: ISO8601.string(from: until))
+        database.writeInBackground({ try $0.meta.set(MetaRepository.Key.folderSuggestionSnoozedUntil, value: ISO8601.string(from: until)) })
     }
 
     // MARK: Integrity
@@ -95,88 +159,131 @@ final class DataSafetyStore {
         let database = database
         Task {
             let status = await Task.detached(priority: .utility) { database.integrityStatus }.value
-            if integrity != status { integrity = status }
-            if !status.problems.isEmpty, !warnedAboutIntegrity {
-                warnedAboutIntegrity = true
-                feedback.show("Forge found damage in its data file. Open Settings › Backups to export a copy or restore a snapshot.", style: .warning, duration: 6)
-            }
+            applyIntegrity(status)
+        }
+    }
+
+    private func applyIntegrity(_ status: AppDatabase.IntegrityStatus) {
+        if integrity != status { integrity = status }
+        if !status.problems.isEmpty, !warnedAboutIntegrity {
+            warnedAboutIntegrity = true
+            feedback.show("Forge found damage in its data file. Open Settings › Backups to export a copy or restore a snapshot.", style: .warning, duration: 6)
         }
     }
 
     // MARK: Snapshots
 
     func createSnapshot() {
-        do {
-            try database.backups.createSnapshot(from: database.queue, reason: .manual)
-            refresh()
-            feedback.show("Snapshot saved", style: .success)
-        } catch {
-            feedback.report(error, while: "create a snapshot")
+        let database = database
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try database.backups.createSnapshot(from: database.queue, reason: .manual) }
+            }.value
+            switch result {
+            case .success:
+                refresh()
+                feedback.show("Snapshot saved", style: .success)
+            case .failure(let error):
+                feedback.report(error, while: "create a snapshot")
+            }
         }
     }
 
     func summary(of snapshot: BackupManager.Snapshot) -> BackupManager.SnapshotSummary? {
-        database.backups.summary(of: snapshot)
+        snapshotSummaries[snapshot.url]
     }
 
+    /// Replaces all data with the snapshot (after snapshotting the current
+    /// data), off the main thread.
     func restore(_ snapshot: BackupManager.Snapshot) {
-        do {
-            try database.restore(from: snapshot)
-            refresh()
-            onDataReplaced?()
-            noteDataChanged()
-            feedback.show("Restored the snapshot from \(snapshot.date.formatted(date: .abbreviated, time: .shortened)). Your previous data was saved as a snapshot too.", style: .success, duration: 5)
-        } catch {
-            feedback.report(error, while: "restore that snapshot")
+        guard !isReplacingData else { return }
+        isReplacingData = true
+        let database = database
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try database.restore(from: snapshot) }
+            }.value
+            isReplacingData = false
+            switch result {
+            case .success:
+                refresh()
+                onDataReplaced?()
+                noteDataChanged()
+                feedback.show("Restored the snapshot from \(snapshot.date.formatted(date: .abbreviated, time: .shortened)). Your previous data was saved as a snapshot too.", style: .success, duration: 5)
+            case .failure(let error):
+                feedback.report(error, while: "restore that snapshot")
+            }
         }
     }
 
     func delete(_ snapshot: BackupManager.Snapshot) {
-        do {
-            try database.backups.delete(snapshot)
-            refresh()
-        } catch {
-            feedback.report(error, while: "delete that snapshot")
+        snapshots.removeAll { $0.url == snapshot.url }
+        let backups = database.backups
+        Task {
+            let result = await Task.detached(priority: .utility) { Result { try backups.delete(snapshot) } }.value
+            if case .failure(let error) = result {
+                feedback.report(error, while: "delete that snapshot")
+                refresh()
+            }
         }
     }
 
     // MARK: Export
 
     /// A complete JSON export in a temporary file, ready to share or save.
-    func makeExportFile() throws -> URL {
-        let data = try ArchiveService.exportData(from: database, appVersion: Self.appVersion)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(ArchiveService.suggestedFileName())
-        try data.write(to: url, options: .atomic)
-        return url
+    func makeExportFile() async throws -> URL {
+        let version = Self.appVersion
+        return try await database.readInBackground { database in
+            let data = try ArchiveService.exportData(from: database, appVersion: version)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(ArchiveService.suggestedFileName())
+            try data.write(to: url, options: .atomic)
+            return url
+        }
     }
 
-    func makeCSVFile() throws -> URL {
-        let workouts = try database.workouts.completedWorkouts()
-        let csv = CSVExporter.sets(workouts, units: settings.units)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Forge-Sets-\(formatter.string(from: Date())).csv")
-        try Data(csv.utf8).write(to: url, options: .atomic)
-        return url
+    func makeCSVFile() async throws -> URL {
+        let units = settings.units
+        return try await database.readInBackground { database in
+            let workouts = try database.workouts.completedWorkouts()
+            let csv = CSVExporter.sets(workouts, units: units)
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Forge-Sets-\(formatter.string(from: Date())).csv")
+            try Data(csv.utf8).write(to: url, options: .atomic)
+            return url
+        }
     }
 
     // MARK: Import
 
-    func readArchive(at url: URL) throws -> BackupArchive {
-        try ArchiveService.decode(try Self.readFile(at: url, scopedBy: url))
+    /// Reads and checks a backup file off the main thread.
+    func readArchive(at url: URL) async throws -> BackupArchive {
+        try await Task.detached(priority: .userInitiated) {
+            try ArchiveService.decode(try Self.readFile(at: url, scopedBy: url))
+        }.value
     }
 
+    /// Replaces all data with the archive (after snapshotting the current
+    /// data), off the main thread.
     func applyImport(_ archive: BackupArchive) {
-        do {
-            try ArchiveService.restore(archive, into: database)
-            settings.reload()
-            refresh()
-            onDataReplaced?()
-            noteDataChanged()
-            feedback.show("Imported \(archive.completedWorkoutCount) workouts and \(archive.activeRoutineCount) routines. Your previous data was saved as a snapshot.", style: .success, duration: 5)
-        } catch {
-            feedback.report(error, while: "import that backup")
+        guard !isReplacingData else { return }
+        isReplacingData = true
+        let database = database
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try ArchiveService.restore(archive, into: database) }
+            }.value
+            isReplacingData = false
+            switch result {
+            case .success:
+                refresh()
+                onDataReplaced?()
+                noteDataChanged()
+                feedback.show("Imported \(archive.completedWorkoutCount) workouts and \(archive.activeRoutineCount) routines. Your previous data was saved as a snapshot.", style: .success, duration: 5)
+            case .failure(let error):
+                feedback.report(error, while: "import that backup")
+            }
         }
     }
 
@@ -187,20 +294,30 @@ final class DataSafetyStore {
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-            try database.meta.set(MetaRepository.Key.autoExportBookmark, value: bookmark.base64EncodedString())
-            refresh()
-            exportNow()
+            exportFolderName = url.lastPathComponent
+            database.writeInBackground({ try $0.meta.set(MetaRepository.Key.autoExportBookmark, value: bookmark.base64EncodedString()) }) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.exportNow()
+                case .failure(let error):
+                    self.feedback.report(error, while: "use that folder")
+                    self.refresh()
+                }
+            }
         } catch {
             feedback.report(error, while: "use that folder")
         }
     }
 
     func clearExportFolder() {
-        try? database.meta.set(MetaRepository.Key.autoExportBookmark, value: nil)
-        refresh()
+        exportFolderName = nil
+        database.writeInBackground({ try $0.meta.set(MetaRepository.Key.autoExportBookmark, value: nil) })
     }
 
-    private func resolveExportFolder() -> URL? {
+    /// The chosen backup folder. Resolving the bookmark can touch iCloud,
+    /// so this only ever runs off the main thread.
+    nonisolated static func resolveExportFolder(_ database: AppDatabase) -> URL? {
         guard let text = try? database.meta.get(MetaRepository.Key.autoExportBookmark),
               let data = Data(base64Encoded: text) else { return nil }
         var stale = false
@@ -228,25 +345,23 @@ final class DataSafetyStore {
     /// Daily (and after any change) export to Files › Forge › Backups and
     /// to the chosen folder.
     func exportIfDue() {
-        guard settings.value.autoExportEnabled, database.hasUserData() else { return }
+        guard settings.value.autoExportEnabled else { return }
         let due = lastExportDate.map { Date().timeIntervalSince($0) > 20 * 3600 } ?? true
         guard due || needsExport else { return }
-        exportNow(quiet: true)
+        exportNow(quiet: true, onlyWithData: true)
     }
 
     /// Writes a backup file now. Automatic (`quiet`) exports skip writing
     /// when nothing changed since the last file; asking for one always
     /// writes it.
-    func exportNow(quiet: Bool = false) {
+    func exportNow(quiet: Bool = false, onlyWithData: Bool = false) {
         guard !isExporting else { return }
         isExporting = true
         needsExport = false
         exportDebounce?.cancel()
         let database = database
         let local = documentsBackupFolder
-        let external = resolveExportFolder()
         let version = Self.appVersion
-        let lastFingerprint: String? = quiet ? (try? database.meta.get(MetaRepository.Key.lastExportFingerprint)) : nil
         // Ask iOS for time to finish if this starts as the app goes to the
         // background.
         let backgroundTask = BackgroundTaskToken(name: "Forge backup export")
@@ -254,6 +369,9 @@ final class DataSafetyStore {
             defer { backgroundTask.end() }
             let outcome = await Task.detached(priority: .utility) { () -> Result<String?, Error> in
                 do {
+                    if onlyWithData, !database.hasUserData() { return .failure(NothingToExport()) }
+                    let external = Self.resolveExportFolder(database)
+                    let lastFingerprint: String? = quiet ? (try? database.meta.get(MetaRepository.Key.lastExportFingerprint)) : nil
                     let archive = try ArchiveService.makeArchive(from: database, appVersion: version)
                     let fingerprint = try archive.contentFingerprint()
                     if let lastFingerprint, lastFingerprint == fingerprint,
@@ -285,13 +403,16 @@ final class DataSafetyStore {
             case .success(let warning):
                 let now = Date()
                 lastExportDate = now
-                try? database.meta.set(MetaRepository.Key.lastAutoExport, value: ISO8601.string(from: now))
-                localBackupFileCount = Self.datedBackups(in: local).count
+                database.writeInBackground({ try $0.meta.set(MetaRepository.Key.lastAutoExport, value: ISO8601.string(from: now)) })
+                let count = await Task.detached(priority: .utility) { Self.datedBackups(in: local).count }.value
+                if localBackupFileCount != count { localBackupFileCount = count }
                 if let warning {
                     feedback.show("Backed up on this iPhone, but the backup folder couldn't be written: \(warning)", style: .warning, duration: 5)
                 } else if !quiet {
                     feedback.show("Backup file saved", style: .success)
                 }
+            case .failure(let error) where error is NothingToExport:
+                break
             case .failure(let error):
                 needsExport = true
                 if !quiet { feedback.report(error, while: "export a backup") }
@@ -398,10 +519,10 @@ final class DataSafetyStore {
         recoveryReport = nil
         let database = database
         let local = documentsBackupFolder
-        let external = resolveExportFolder()
         let externalName = exportFolderName ?? "Backup folder"
         Task {
             let result = await Task.detached(priority: .userInitiated) { () -> Result<RecoveryService.Report, Error> in
+                let external = Self.resolveExportFolder(database)
                 let seen = SeenFiles()
                 var sources: [RecoveryService.Source] = []
                 if let file {
@@ -498,6 +619,9 @@ final class DataSafetyStore {
         }
     }
 }
+
+/// An automatic export found no data worth backing up yet.
+private struct NothingToExport: Error {}
 
 /// Remembers which file contents a scan has already read, so the same
 /// backup saved in two places is only decoded once.

@@ -1,33 +1,47 @@
 import SwiftUI
 
+/// Body weight and other measurements. Changes show immediately and are
+/// saved in the background.
 @MainActor
 @Observable
 final class MeasurementStore {
     private(set) var all: [BodyMeasurement] = []
-    /// Entries per kind, oldest first; rebuilt on each load rather than
+    /// Entries per kind, oldest first; rebuilt on each change rather than
     /// filtered and sorted on every redraw.
     private var byKind: [MeasurementKind: [BodyMeasurement]] = [:]
 
     private let database: AppDatabase
     private let feedback: Feedback
-    /// Called after measurements change on disk.
+    /// Called after measurements change.
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored private var reloadGeneration = 0
 
-    init(database: AppDatabase, feedback: Feedback) {
-        self.database = database
-        self.feedback = feedback
-        reload()
+    nonisolated static func load(from database: AppDatabase) -> [BodyMeasurement] {
+        (try? database.measurements.all()) ?? []
     }
 
+    init(database: AppDatabase, feedback: Feedback, loaded: [BodyMeasurement]) {
+        self.database = database
+        self.feedback = feedback
+        set(loaded)
+    }
+
+    private func set(_ entries: [BodyMeasurement]) {
+        byKind = Self.group(entries)
+        all = entries.sorted { $0.measuredAt < $1.measuredAt }
+    }
+
+    /// After a restore or import replaced the data, or a save failed.
     func reload() {
-        do {
-            let loaded = try database.measurements.all()
-            byKind = Self.group(loaded)
-            all = loaded
-        } catch {
-            feedback.report(error, while: "load your measurements")
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        let database = database
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) { Self.load(from: database) }.value
+            guard generation == reloadGeneration else { return }
+            withAnimation(Motion.smooth) { set(loaded) }
+            onChange?()
         }
-        onChange?()
     }
 
     private static func group(_ entries: [BodyMeasurement]) -> [MeasurementKind: [BodyMeasurement]] {
@@ -56,26 +70,30 @@ final class MeasurementStore {
     }
 
     func save(_ measurement: BodyMeasurement) {
-        do {
-            try database.measurements.save(measurement)
-            reload()
-        } catch {
-            feedback.report(error, while: "save the measurement")
+        var entries = all.filter { $0.id != measurement.id }
+        entries.append(measurement)
+        set(entries)
+        onChange?()
+        database.writeInBackground({ try $0.measurements.save(measurement) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "save the measurement")
+                self?.reload()
+            }
         }
     }
 
     func delete(_ id: UUID) {
-        let removed = all.first { $0.id == id }
-        do {
-            try database.measurements.delete(id: id)
-            reload()
-            if let removed {
-                feedback.show("Entry deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
-                    withAnimation(Motion.smooth) { self?.save(removed) }
-                })
+        guard let removed = all.first(where: { $0.id == id }) else { return }
+        set(all.filter { $0.id != id })
+        onChange?()
+        feedback.show("Entry deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+            withAnimation(Motion.smooth) { self?.save(removed) }
+        })
+        database.writeInBackground({ try $0.measurements.delete(id: id) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "delete the measurement")
+                self?.reload()
             }
-        } catch {
-            feedback.report(error, while: "delete the measurement")
         }
     }
 }

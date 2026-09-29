@@ -15,10 +15,27 @@ struct BackupsView: View {
     @State private var restoring: BackupManager.Snapshot?
     @State private var errorMessage: String?
     @State private var restoreBlocked: String?
+    /// Which export is being prepared (a spinner shows in its row).
+    @State private var preparing: Preparing?
+
+    enum Preparing {
+        case backup, csv, reading
+    }
 
     var body: some View {
         let data = app.dataSafety
         List {
+            if data.isReplacingData {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Restoring your data…")
+                            .font(.app(.subheadline, .medium))
+                    }
+                    .padding(.vertical, 4)
+                }
+                .transition(.opacity)
+            }
             if !data.integrity.problems.isEmpty {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
@@ -92,23 +109,15 @@ struct BackupsView: View {
 
             Section {
                 Button {
-                    do {
-                        exportURL = try data.makeExportFile()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
+                    prepare(.backup) { exportURL = try await data.makeExportFile() }
                 } label: {
-                    Label("Export Backup File", systemImage: "square.and.arrow.up")
+                    progressLabel("Export Backup File", systemImage: "square.and.arrow.up", busy: preparing == .backup)
                 }
                 .accessibilityIdentifier("exportBackup")
                 Button {
-                    do {
-                        csvURL = try data.makeCSVFile()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
+                    prepare(.csv) { csvURL = try await data.makeCSVFile() }
                 } label: {
-                    Label("Export Sets as CSV", systemImage: "tablecells")
+                    progressLabel("Export Sets as CSV", systemImage: "tablecells", busy: preparing == .csv)
                 }
                 Button {
                     if let reason = restoreBlockedReason {
@@ -118,8 +127,9 @@ struct BackupsView: View {
                     importerMode = .backupFile
                     showingImporter = true
                 } label: {
-                    Label("Restore from Backup File", systemImage: "square.and.arrow.down")
+                    progressLabel("Restore from Backup File", systemImage: "square.and.arrow.down", busy: preparing == .reading || data.isReplacingData)
                 }
+                .disabled(data.isReplacingData)
             } header: {
                 Text("Backup File")
             } footer: {
@@ -192,9 +202,11 @@ struct BackupsView: View {
         .canvasBackground()
         .navigationTitle("Backups & Export")
         .stallContext("Backups")
+        .animation(Motion.smooth, value: data.isReplacingData)
         .onAppear {
             data.refresh()
             data.refreshIntegrity()
+            data.loadSnapshotSummaries()
         }
         .sheet(item: Binding(get: { exportURL.map(ShareableFile.init) }, set: { exportURL = $0?.url })) { file in
             ShareSheet(items: [file.url])
@@ -209,11 +221,7 @@ struct BackupsView: View {
             case (.folder, .success(let url)):
                 data.setExportFolder(url)
             case (.backupFile, .success(let url)):
-                do {
-                    pendingImport = try data.readArchive(at: url)
-                } catch {
-                    errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                }
+                prepare(.reading) { pendingImport = try await data.readArchive(at: url) }
             case (_, .failure(let error)):
                 errorMessage = error.localizedDescription
             }
@@ -257,6 +265,31 @@ struct BackupsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    /// Runs slow work off the main thread with a spinner in its row.
+    private func prepare(_ kind: Preparing, _ work: @escaping @MainActor () async throws -> Void) {
+        guard preparing == nil else { return }
+        withAnimation(Motion.snappy) { preparing = kind }
+        Task {
+            do {
+                try await work()
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+            withAnimation(Motion.snappy) { preparing = nil }
+        }
+    }
+
+    private func progressLabel(_ title: String, systemImage: String, busy: Bool) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            if busy {
+                Spacer()
+                ProgressView()
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -320,6 +353,7 @@ struct BackupsView: View {
 
 struct SnapshotRow: View {
     let snapshot: BackupManager.Snapshot
+    /// Read in the background; the counts fade in when ready.
     let summary: BackupManager.SnapshotSummary?
 
     var body: some View {
@@ -331,6 +365,7 @@ struct SnapshotRow: View {
                     Text(snapshot.reason.displayName)
                     if let summary {
                         Text("· \(summary.workouts) workouts · \(summary.routines) routines")
+                            .transition(.opacity)
                     }
                 }
                 .font(.app(.caption))

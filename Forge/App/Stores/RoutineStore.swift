@@ -1,33 +1,86 @@
 import SwiftUI
 
 /// Folders and routines (the workout builder's data).
+///
+/// Changes show immediately (so lists animate on the same frame as the tap)
+/// and are saved in the background, in order. If a save fails, the error is
+/// reported and the lists are reloaded from what's actually stored.
 @MainActor
 @Observable
 final class RoutineStore {
     private(set) var folders: [Folder] = []
     private(set) var routines: [Routine] = []
     private(set) var deletedRoutines: [Routine] = []
+    /// The routine editor's autosaved draft, if one is waiting.
+    private(set) var draft: Routine?
 
     private let database: AppDatabase
     private let feedback: Feedback
-    /// Called after routines or folders change on disk.
+    /// Called after routines or folders change.
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored private var reloadGeneration = 0
 
-    init(database: AppDatabase, feedback: Feedback) {
-        self.database = database
-        self.feedback = feedback
-        reload()
+    /// What the store starts with, loaded off the main thread.
+    struct Loaded: Sendable {
+        var folders: [Folder] = []
+        var routines: [Routine] = []
+        var deleted: [Routine] = []
+        var draft: Routine?
+        var error: String?
     }
 
-    func reload() {
+    nonisolated static func load(from database: AppDatabase) -> Loaded {
+        var loaded = Loaded()
         do {
-            folders = try database.routines.folders()
-            routines = try database.routines.routines()
-            deletedRoutines = try database.routines.deletedRoutines()
+            loaded.folders = try database.routines.folders()
+            loaded.routines = try database.routines.routines()
+            loaded.deleted = try database.routines.deletedRoutines()
         } catch {
-            feedback.report(error, while: "load your routines")
+            loaded.error = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
+        loaded.draft = try? database.meta.getJSON(MetaRepository.Key.routineDraft, as: Routine.self)
+        return loaded
+    }
+
+    init(database: AppDatabase, feedback: Feedback, loaded: Loaded) {
+        self.database = database
+        self.feedback = feedback
+        folders = loaded.folders
+        routines = loaded.routines
+        deletedRoutines = loaded.deleted
+        draft = loaded.draft
+    }
+
+    /// Reloads from the database in the background (after a restore or
+    /// import, or when a save failed).
+    func reload() {
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        let database = database
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) { Self.load(from: database) }.value
+            guard generation == reloadGeneration else { return }
+            if let error = loaded.error {
+                feedback.show("Couldn't load your routines. \(error)", style: .error, duration: 5)
+                return
+            }
+            withAnimation(Motion.smooth) {
+                if folders != loaded.folders { folders = loaded.folders }
+                if routines != loaded.routines { routines = loaded.routines }
+                if deletedRoutines != loaded.deleted { deletedRoutines = loaded.deleted }
+            }
+            onChange?()
+        }
+    }
+
+    /// Saves in the background; on failure, says so and shows what's stored.
+    private func persist(_ action: String, _ work: @escaping @Sendable (AppDatabase) throws -> Void) {
         onChange?()
+        database.writeInBackground(work) { [weak self] result in
+            guard let self, case .failure(let error) = result else { return }
+            self.feedback.report(error, while: action)
+            self.reload()
+        }
     }
 
     // MARK: Queries
@@ -54,6 +107,12 @@ final class RoutineStore {
 
     /// Routines in the folder and all of its subfolders.
     func routineCount(inTree folderID: UUID) -> Int {
+        let ids = subtree(of: folderID)
+        return routines.filter { $0.folderID.map(ids.contains) ?? false }.count
+    }
+
+    /// The folder and every folder inside it.
+    private func subtree(of folderID: UUID) -> Set<UUID> {
         var ids: Set<UUID> = [folderID]
         var frontier = [folderID]
         while let next = frontier.popLast() {
@@ -62,7 +121,7 @@ final class RoutineStore {
                 frontier.append(child.id)
             }
         }
-        return routines.filter { $0.folderID.map(ids.contains) ?? false }.count
+        return ids
     }
 
     /// Breadcrumb from the top level down to (and including) the folder.
@@ -80,14 +139,7 @@ final class RoutineStore {
 
     /// Folders that `folderID` may be moved into (not itself or its descendants).
     func validDestinations(forFolder folderID: UUID) -> [Folder] {
-        var excluded: Set<UUID> = [folderID]
-        var frontier = [folderID]
-        while let next = frontier.popLast() {
-            for child in folders where child.parentID == next {
-                excluded.insert(child.id)
-                frontier.append(child.id)
-            }
-        }
+        let excluded = subtree(of: folderID)
         return folders.filter { !excluded.contains($0.id) }
     }
 
@@ -111,17 +163,17 @@ final class RoutineStore {
         copy.name = copy.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if copy.name.isEmpty { copy.name = "Untitled Routine" }
         copy.updatedAt = Date()
-        if self.routine(copy.id) == nil, copy.sortOrder == 0 {
-            copy.sortOrder = nextSortOrder(in: copy.folderID)
+        if let index = routines.firstIndex(where: { $0.id == copy.id }) {
+            routines[index] = copy
+        } else {
+            if copy.sortOrder == 0 {
+                copy.sortOrder = nextSortOrder(in: copy.folderID)
+            }
+            routines.append(copy)
         }
-        do {
-            try database.routines.save(copy)
-            reload()
-            return true
-        } catch {
-            feedback.report(error, while: "save the routine")
-            return false
-        }
+        let saved = copy
+        persist("save the routine") { try $0.routines.save(saved) }
+        return true
     }
 
     @discardableResult
@@ -134,31 +186,35 @@ final class RoutineStore {
     }
 
     func delete(_ routine: Routine) {
-        do {
-            try database.routines.softDelete(routineID: routine.id)
-            reload()
-            feedback.show("Moved “\(routine.name)” to Recently Deleted", style: .info)
-        } catch {
-            feedback.report(error, while: "delete the routine")
-        }
+        let now = Date()
+        guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
+        var removed = routines.remove(at: index)
+        removed.deletedAt = now
+        removed.updatedAt = now
+        deletedRoutines.insert(removed, at: 0)
+        feedback.show("Moved “\(routine.name)” to Recently Deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+            withAnimation(Motion.smooth) { self?.restore(routine.id) }
+        })
+        let id = routine.id
+        persist("delete the routine") { try $0.routines.softDelete(routineID: id, at: now) }
     }
 
     func restore(_ routineID: UUID) {
-        do {
-            try database.routines.restore(routineID: routineID)
-            reload()
-        } catch {
-            feedback.report(error, while: "restore the routine")
+        guard let index = deletedRoutines.firstIndex(where: { $0.id == routineID }) else { return }
+        var restored = deletedRoutines.remove(at: index)
+        restored.deletedAt = nil
+        restored.updatedAt = Date()
+        // A routine whose folder is gone returns to the top level.
+        if let folderID = restored.folderID, folder(folderID) == nil {
+            restored.folderID = nil
         }
+        routines.append(restored)
+        persist("restore the routine") { try $0.routines.restore(routineID: routineID) }
     }
 
     func purge(_ routineID: UUID) {
-        do {
-            try database.routines.purge(routineID: routineID)
-            reload()
-        } catch {
-            feedback.report(error, while: "delete the routine")
-        }
+        deletedRoutines.removeAll { $0.id == routineID }
+        persist("delete the routine") { try $0.routines.purge(routineID: routineID) }
     }
 
     func move(_ routineID: UUID, to folderID: UUID?) {
@@ -169,8 +225,11 @@ final class RoutineStore {
     }
 
     func markPerformed(_ routineID: UUID, at date: Date) {
-        try? database.routines.markPerformed(routineID: routineID, at: date)
-        reload()
+        if let index = routines.firstIndex(where: { $0.id == routineID }) {
+            let current = routines[index].lastPerformedAt ?? .distantPast
+            if date > current { routines[index].lastPerformedAt = date }
+        }
+        persist("update the routine") { try $0.routines.markPerformed(routineID: routineID, at: date) }
     }
 
     /// Persists a new manual order for the items shown in one folder.
@@ -179,12 +238,14 @@ final class RoutineStore {
         for (index, id) in ids.enumerated() {
             orders[id] = Double(index + 1)
         }
-        do {
-            try database.routines.setSortOrders(orders)
-            reload()
-        } catch {
-            feedback.report(error, while: "save the new order")
+        for index in routines.indices {
+            if let order = orders[routines[index].id] { routines[index].sortOrder = order }
         }
+        for index in folders.indices {
+            if let order = orders[folders[index].id] { folders[index].sortOrder = order }
+        }
+        let saved = orders
+        persist("save the new order") { try $0.routines.setSortOrders(saved) }
     }
 
     // MARK: Folders
@@ -193,14 +254,9 @@ final class RoutineStore {
     func createFolder(name: String, parent: UUID?, colorTag: String? = nil) -> Folder? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let folder = Folder(parentID: parent, name: trimmed.isEmpty ? "New Folder" : trimmed, colorTag: colorTag, sortOrder: nextSortOrder(in: parent))
-        do {
-            try database.routines.saveFolder(folder)
-            reload()
-            return folder
-        } catch {
-            feedback.report(error, while: "create the folder")
-            return nil
-        }
+        folders.append(folder)
+        persist("create the folder") { try $0.routines.saveFolder(folder) }
+        return folder
     }
 
     func updateFolder(_ folder: Folder) {
@@ -208,12 +264,18 @@ final class RoutineStore {
         copy.name = copy.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if copy.name.isEmpty { copy.name = "Folder" }
         copy.updatedAt = Date()
-        do {
-            try database.routines.saveFolder(copy)
-            reload()
-        } catch {
-            feedback.report(error, while: "update the folder")
+        // A folder can't go inside its own subtree.
+        if let parent = copy.parentID, subtree(of: copy.id).contains(parent) {
+            feedback.show("A folder can't be moved inside itself.", style: .warning)
+            return
         }
+        if let index = folders.firstIndex(where: { $0.id == copy.id }) {
+            folders[index] = copy
+        } else {
+            folders.append(copy)
+        }
+        let saved = copy
+        persist("update the folder") { try $0.routines.saveFolder(saved) }
     }
 
     func moveFolder(_ folderID: UUID, to parent: UUID?) {
@@ -224,12 +286,30 @@ final class RoutineStore {
     }
 
     func deleteFolder(_ folderID: UUID, keepContents: Bool) {
-        do {
-            try database.routines.deleteFolder(id: folderID, mode: keepContents ? .keepContents : .deleteContents)
-            reload()
-        } catch {
-            feedback.report(error, while: "delete the folder")
+        guard let folder = folder(folderID) else { return }
+        let now = Date()
+        if keepContents {
+            // Everything inside moves up one level.
+            for index in folders.indices where folders[index].parentID == folderID {
+                folders[index].parentID = folder.parentID
+            }
+            for index in routines.indices where routines[index].folderID == folderID {
+                routines[index].folderID = folder.parentID
+            }
+            folders.removeAll { $0.id == folderID }
+        } else {
+            // Routines inside go to Recently Deleted; the folders go.
+            let ids = subtree(of: folderID)
+            let removed = routines.filter { $0.folderID.map(ids.contains) ?? false }
+            routines.removeAll { $0.folderID.map(ids.contains) ?? false }
+            for var routine in removed {
+                routine.deletedAt = now
+                deletedRoutines.insert(routine, at: 0)
+            }
+            folders.removeAll { ids.contains($0.id) }
         }
+        let mode: RoutineRepository.FolderDeletion = keepContents ? .keepContents : .deleteContents
+        persist("delete the folder") { try $0.routines.deleteFolder(id: folderID, mode: mode, now: now) }
     }
 
     // MARK: Editor drafts
@@ -237,10 +317,11 @@ final class RoutineStore {
     /// The routine editor autosaves its draft here so a crash or force-quit
     /// mid-edit never loses a half-built routine.
     func saveDraft(_ routine: Routine?) {
-        try? database.meta.setJSON(MetaRepository.Key.routineDraft, routine)
+        draft = routine
+        database.writeInBackground({ try $0.meta.setJSON(MetaRepository.Key.routineDraft, routine) })
     }
 
     func loadDraft() -> Routine? {
-        try? database.meta.getJSON(MetaRepository.Key.routineDraft, as: Routine.self)
+        draft
     }
 }

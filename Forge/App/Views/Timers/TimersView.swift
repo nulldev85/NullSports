@@ -4,6 +4,13 @@ struct TimersView: View {
     @Environment(AppModel.self) private var app
     @State private var setup: TimerSetupRequest?
     @State private var tool: ToolRoute?
+    /// A timer to start once the setup sheet has fully closed.
+    @State private var pendingStart: PendingTimer?
+
+    struct PendingTimer {
+        var config: TimerConfig
+        var title: String
+    }
 
     enum ToolRoute: Hashable {
         case plates, oneRepMax, warmup
@@ -82,9 +89,18 @@ struct TimersView: View {
                 case .warmup: WarmupCalculatorView()
                 }
             }
-            .sheet(item: $setup) { request in
-                TimerSetupView(request: request)
-                    .environment(app)
+            // The full-screen timer opens as soon as the setup sheet is
+            // gone, not on a guessed delay.
+            .sheet(item: $setup, onDismiss: {
+                if let pending = pendingStart {
+                    pendingStart = nil
+                    app.timers.start(pending.config, title: pending.title)
+                }
+            }) { request in
+                TimerSetupView(request: request) { config, title in
+                    pendingStart = PendingTimer(config: config, title: title)
+                }
+                .environment(app)
             }
         }
     }
@@ -218,14 +234,18 @@ struct ToolRow: View {
 /// Configure a format, then start it or save it as a preset.
 struct TimerSetupView: View {
     let request: TimerSetupRequest
+    /// Called with the timer to start; the timer opens once this sheet has
+    /// closed.
+    let onStart: (TimerConfig, String) -> Void
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var config: TimerConfig
     @State private var name: String
     @State private var savingPreset = false
 
-    init(request: TimerSetupRequest) {
+    init(request: TimerSetupRequest, onStart: @escaping (TimerConfig, String) -> Void) {
         self.request = request
+        self.onStart = onStart
         _config = State(initialValue: request.config)
         _name = State(initialValue: request.name)
     }
@@ -237,12 +257,8 @@ struct TimerSetupView: View {
                 Section {
                     Button {
                         let final = config.sanitized()
+                        onStart(final, name.isEmpty ? final.kind.displayName : name)
                         dismiss()
-                        let timers = app.timers
-                        let title = name.isEmpty ? final.kind.displayName : name
-                        afterDelay(0.4) {
-                            timers.start(final, title: title)
-                        }
                     } label: {
                         Label("Start \(config.kind.displayName)", systemImage: "play.fill")
                     }

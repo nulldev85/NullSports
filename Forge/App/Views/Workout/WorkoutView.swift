@@ -1,5 +1,29 @@
 import SwiftUI
 
+/// The full-screen workout: the logger while it runs, then, once it's
+/// saved, its summary in the same place (the Finish sheet slides away to
+/// reveal it), until Done closes the screen.
+struct WorkoutScreen: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        @Bindable var session = app.session
+        ZStack {
+            if let summary = session.finishedSummary {
+                WorkoutSummaryView(summary: summary)
+                    .transition(.opacity)
+            } else {
+                WorkoutView()
+                    .transition(.opacity)
+            }
+        }
+        .sheet(isPresented: $session.isFinishing) {
+            FinishWorkoutView()
+                .environment(app)
+        }
+    }
+}
+
 /// The live workout logger.
 ///
 /// Built so typing stays instant: only `WorkoutContent` observes the whole
@@ -8,8 +32,10 @@ import SwiftUI
 struct WorkoutView: View {
     @Environment(AppModel.self) private var app
     @State private var picker: WorkoutPicker?
-    @State private var showingFinish = false
     @State private var confirmDiscard = false
+    /// A new timed block's format, waiting for the setup sheet to close
+    /// before its movements are picked.
+    @State private var pendingTimedConfig: TimerConfig?
     @State private var renaming = false
     @State private var nameText = ""
     @State private var addingTimedBlock: RoutineEditorView.TimedBlockSetup?
@@ -44,7 +70,7 @@ struct WorkoutView: View {
         @Bindable var session = app.session
         NavigationStack {
             Group {
-                if app.session.isActive {
+                if app.session.workout != nil || app.session.closingWorkout != nil {
                     WorkoutContent(actions: actions, focus: $focusedField, focusScrollTarget: focusScrollTarget)
                 } else {
                     Theme.canvas
@@ -72,7 +98,7 @@ struct WorkoutView: View {
                     Button("Finish") {
                         dismissKeyboard()
                         app.session.saveNow()
-                        showingFinish = true
+                        app.session.isFinishing = true
                     }
                     .fontWeight(.semibold)
                     .buttonStyle(.borderedProminent)
@@ -107,15 +133,16 @@ struct WorkoutView: View {
             .sheet(item: $picker) { purpose in
                 pickerSheet(purpose)
             }
-            .sheet(isPresented: $showingFinish) {
-                FinishWorkoutView()
-                    .environment(app)
-            }
-            .sheet(item: $addingTimedBlock) { setup in
+            // Picking the movements follows once the setup sheet is fully
+            // gone, so one sheet never tries to open over another.
+            .sheet(item: $addingTimedBlock, onDismiss: {
+                if let config = pendingTimedConfig {
+                    pendingTimedConfig = nil
+                    picker = .timedMovements(config)
+                }
+            }) { setup in
                 TimedBlockSetupView(setup: setup) { config in
-                    afterDelay(0.45) {
-                        picker = .timedMovements(config)
-                    }
+                    pendingTimedConfig = config
                 }
                 .environment(app)
             }
@@ -226,17 +253,13 @@ struct WorkoutView: View {
         switch purpose {
         case .add:
             ExercisePickerView(title: "Add Exercises", allowsMultiple: true, offersSuperset: true) { exercises, superset in
-                withAnimation(Motion.smooth) {
-                    app.session.addExercises(exercises, asSuperset: superset)
-                }
+                app.session.addExercises(exercises, asSuperset: superset)
             }
             .environment(app)
         case .replace(let entryID):
             ExercisePickerView(title: "Replace Exercise", allowsMultiple: false) { exercises, _ in
                 if let exercise = exercises.first {
-                    withAnimation(Motion.smooth) {
-                        app.session.replaceExercise(entryID, with: exercise)
-                    }
+                    app.session.replaceExercise(entryID, with: exercise)
                 }
             }
             .environment(app)
@@ -274,7 +297,7 @@ private struct WorkoutTitle: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        if let header = app.session.header {
+        if let header = app.session.displayHeader {
             VStack(spacing: 0) {
                 Text(header.name)
                     .font(.app(.subheadline, .semibold))
@@ -297,7 +320,9 @@ private struct WorkoutContent: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        if let workout = app.session.workout {
+        // While the screen goes away after finishing or discarding, the
+        // workout stays as it was instead of going blank.
+        if let workout = app.session.workout ?? app.session.closingWorkout {
             ScrollViewReader { proxy in
                 rows(workout)
                     .onChange(of: focusScrollTarget) { _, target in
@@ -762,15 +787,19 @@ struct RestTimerBar: View {
     }
 }
 
-/// The rest countdown itself. The bar sweeps smoothly and the digits roll
-/// over each second; nothing outside this card redraws while it counts.
+/// The rest countdown itself. The digits change once a second and the bar
+/// is the only thing redrawn every frame, so it sweeps at the display's full
+/// rate without the rest of the card doing any work.
 private struct RestTimerCard: View {
     let rest: RestTimerState
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let session = app.session
-        TimelineView(.animation(minimumInterval: AppEnvironment.isUITest ? 0.5 : 1.0 / 30.0)) { context in
+        // Ticks aligned to the end time, so each lands exactly as the
+        // displayed second changes.
+        let start = rest.endsAt.addingTimeInterval(-(max(0, rest.duration).rounded(.up) + 1))
+        TimelineView(.periodic(from: start, by: 1)) { context in
             let remaining = rest.remaining(at: context.date)
             let done = remaining <= 0
             let clock = done ? "Go!" : DurationFormat.countdownClock(remaining)
@@ -811,7 +840,7 @@ private struct RestTimerCard: View {
                     .font(.app(.subheadline, .semibold))
                     .sensoryFeedback(.selection, trigger: rest.duration)
                 }
-                RestProgressBar(progress: rest.progress(at: context.date), done: done)
+                RestProgressTrack(rest: rest, done: done)
                 if !rest.exerciseName.isEmpty, !done {
                     Text("Next: \(rest.exerciseName)")
                         .font(.app(.caption))
@@ -825,6 +854,19 @@ private struct RestTimerCard: View {
         .floatingSurface(cornerRadius: 22)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+    }
+}
+
+/// The rest bar, redrawn every frame (and nothing else is).
+private struct RestProgressTrack: View {
+    let rest: RestTimerState
+    let done: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: AppEnvironment.isUITest ? 0.5 : nil, paused: done)) { context in
+            RestProgressBar(progress: done ? 1 : rest.progress(at: context.date), done: done)
+        }
+        .frame(height: 5)
     }
 }
 

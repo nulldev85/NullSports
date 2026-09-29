@@ -69,8 +69,12 @@ final class HistoryStore {
     }
 
     private func apply(_ snapshot: HistorySnapshot) {
-        if summaries != snapshot.summaries { summaries = snapshot.summaries }
-        if deleted != snapshot.deleted { deleted = snapshot.deleted }
+        // After the first load, rows that come or go animate in and out.
+        let animation: Animation? = isLoaded ? Motion.smooth : nil
+        withAnimation(animation) {
+            if summaries != snapshot.summaries { summaries = snapshot.summaries }
+            if deleted != snapshot.deleted { deleted = snapshot.deleted }
+        }
         setRecords = snapshot.setRecords
         records = snapshot.records
         recentRecords = snapshot.recentRecords
@@ -95,60 +99,74 @@ final class HistoryStore {
         summaries.first { $0.id == id }
     }
 
+    /// Saves an edited workout. The copy on screen is already the edited
+    /// one; this reads it back from disk to be sure, then refreshes.
     func save(_ workout: Workout) {
         var copy = workout
         copy.updatedAt = Date()
-        do {
-            try database.workouts.saveVerified(copy)
-            reload()
-            markChanged()
-        } catch {
-            feedback.report(error, while: "save the workout")
+        let saved = copy
+        database.writeInBackground({ try $0.workouts.saveVerified(saved) }) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.reload()
+                self.markChanged()
+            case .failure(let error):
+                self.feedback.report(error, while: "save the workout")
+                self.reload()
+            }
         }
     }
 
     func delete(_ id: UUID) {
-        do {
-            try database.workouts.softDelete(workoutID: id)
-            if let index = summaries.firstIndex(where: { $0.id == id }) {
-                var removed = summaries.remove(at: index)
-                removed.deletedAt = Date()
-                deleted.insert(removed, at: 0)
-            }
-            reload()
-            markChanged()
-            feedback.show("Workout moved to Recently Deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
-                withAnimation(Motion.smooth) { self?.restore(id) }
-            })
-        } catch {
-            feedback.report(error, while: "delete the workout")
+        if let index = summaries.firstIndex(where: { $0.id == id }) {
+            var removed = summaries.remove(at: index)
+            removed.deletedAt = Date()
+            deleted.insert(removed, at: 0)
         }
+        feedback.show("Workout moved to Recently Deleted", style: .info, action: ToastAction(title: "Undo") { [weak self] in
+            withAnimation(Motion.smooth) { self?.restore(id) }
+        })
+        write("delete the workout") { try $0.workouts.softDelete(workoutID: id) }
     }
 
     func restore(_ id: UUID) {
-        do {
-            try database.workouts.restore(workoutID: id)
-            if let index = deleted.firstIndex(where: { $0.id == id }) {
-                var restored = deleted.remove(at: index)
-                restored.deletedAt = nil
-                let position = summaries.firstIndex { $0.startedAt < restored.startedAt } ?? summaries.count
-                summaries.insert(restored, at: position)
-            }
-            reload()
-            markChanged()
-        } catch {
-            feedback.report(error, while: "restore the workout")
+        if let index = deleted.firstIndex(where: { $0.id == id }) {
+            var restored = deleted.remove(at: index)
+            restored.deletedAt = nil
+            let position = summaries.firstIndex { $0.startedAt < restored.startedAt } ?? summaries.count
+            summaries.insert(restored, at: position)
         }
+        write("restore the workout") { try $0.workouts.restore(workoutID: id) }
     }
 
     func purge(_ id: UUID) {
-        do {
-            try database.workouts.purge(workoutID: id)
-            deleted.removeAll { $0.id == id }
-            reload()
-        } catch {
-            feedback.report(error, while: "delete the workout")
+        deleted.removeAll { $0.id == id }
+        write("delete the workout", notifies: false) { try $0.workouts.purge(workoutID: id) }
+    }
+
+    /// Saves in the background, then refreshes the numbers that depend on
+    /// history (the lists on screen changed already).
+    private func write(_ action: String, notifies: Bool = true, _ work: @escaping @Sendable (AppDatabase) throws -> Void) {
+        database.writeInBackground(work) { [weak self] result in
+            guard let self else { return }
+            if case .failure(let error) = result {
+                self.feedback.report(error, while: action)
+            }
+            self.reload()
+            if notifies { self.markChanged() }
         }
+    }
+
+    /// Every past session of an exercise, read off the main thread.
+    func loadSessions(for exerciseID: String) async -> [ExerciseSession] {
+        (try? await database.readInBackground { try $0.workouts.sessions(exerciseID: exerciseID) }) ?? []
+    }
+
+    /// Last time's sets for each exercise, read off the main thread.
+    func loadLastPerformances(_ exerciseIDs: [String], excluding workoutID: UUID?) async -> [String: [WorkoutSet]] {
+        guard !exerciseIDs.isEmpty else { return [:] }
+        return (try? await database.readInBackground { try $0.workouts.lastPerformances(exerciseIDs: exerciseIDs, excluding: workoutID) }) ?? [:]
     }
 
     func sessions(for exerciseID: String) -> [ExerciseSession] {

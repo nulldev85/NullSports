@@ -1,6 +1,9 @@
 import SwiftUI
 
 /// Built-in and custom exercises plus per-exercise preferences.
+///
+/// Everything is loaded off the main thread; changes show immediately and
+/// are saved in the background.
 @MainActor
 @Observable
 final class LibraryStore {
@@ -10,41 +13,80 @@ final class LibraryStore {
     private(set) var usageCounts: [String: Int] = [:]
     private(set) var lastUsed: [String: Date] = [:]
     private(set) var index: ExerciseSearchIndex
+    /// Bumped whenever search results could change (exercises, favorites,
+    /// usage), so screens can keep results between redraws.
+    private(set) var revision = 0
     private var byID: [String: Exercise] = [:]
-    private var usageTask: Task<Void, Never>?
+    @ObservationIgnored private var usageTask: Task<Void, Never>?
+    @ObservationIgnored private var indexTask: Task<Void, Never>?
+    @ObservationIgnored private var indexGeneration = 0
     /// Called after custom exercises change (their muscles feed the
     /// history numbers).
     @ObservationIgnored var onChange: (() -> Void)?
+    /// Called after a preference (favorite, note, rest time) is saved.
+    @ObservationIgnored var onPreferencesSaved: (() -> Void)?
 
     private let database: AppDatabase
     private let feedback: Feedback
 
-    init(database: AppDatabase, catalog: ExerciseCatalog, feedback: Feedback) {
+    /// What the store starts with, loaded off the main thread.
+    struct Loaded: Sendable {
+        var customs: [Exercise]
+        var preferences: [String: ExercisePreference]
+        var usageCounts: [String: Int]
+        var lastUsed: [String: Date]
+        var index: ExerciseSearchIndex
+    }
+
+    nonisolated static func load(from database: AppDatabase, builtins: [Exercise]) -> Loaded {
+        let customs = (try? database.exercises.customExercises()) ?? []
+        return Loaded(
+            customs: customs,
+            preferences: (try? database.exercises.preferences()) ?? [:],
+            usageCounts: (try? database.workouts.exerciseUsageCounts()) ?? [:],
+            lastUsed: (try? database.workouts.lastUsedDates()) ?? [:],
+            index: makeIndex(builtins: builtins, customs: customs)
+        )
+    }
+
+    /// Active exercises sorted by name, ready to search.
+    nonisolated static func makeIndex(builtins: [Exercise], customs: [Exercise]) -> ExerciseSearchIndex {
+        let active = (builtins + customs.filter { !$0.isArchived })
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return ExerciseSearchIndex(exercises: active)
+    }
+
+    init(database: AppDatabase, catalog: ExerciseCatalog, feedback: Feedback, loaded: Loaded) {
         self.database = database
         self.feedback = feedback
         self.builtins = catalog.exercises
-        self.index = ExerciseSearchIndex(exercises: catalog.exercises)
-        reload()
+        self.index = loaded.index
+        apply(loaded)
     }
 
+    private func apply(_ loaded: Loaded) {
+        customs = loaded.customs
+        preferences = loaded.preferences
+        usageCounts = loaded.usageCounts
+        lastUsed = loaded.lastUsed
+        index = loaded.index
+        rebuildMap()
+        revision += 1
+    }
+
+    /// After a restore or import replaced the data.
     func reload() {
-        do {
-            customs = try database.exercises.customExercises()
-            preferences = try database.exercises.preferences()
-        } catch {
-            feedback.report(error, while: "load your exercises")
+        let database = database
+        let builtins = builtins
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) { Self.load(from: database, builtins: builtins) }.value
+            apply(loaded)
+            onChange?()
         }
-        rebuild()
-        refreshUsage()
     }
 
-    func refreshUsage() {
-        usageCounts = (try? database.workouts.exerciseUsageCounts()) ?? [:]
-        lastUsed = (try? database.workouts.lastUsedDates()) ?? [:]
-    }
-
-    /// Same as `refreshUsage`, with the queries off the main thread (after a
-    /// workout is saved, when nothing is waiting on the numbers).
+    /// Usage numbers, with the queries off the main thread (after a workout
+    /// is saved, when nothing is waiting on them).
     func refreshUsageInBackground() {
         let workouts = database.workouts
         usageTask?.cancel()
@@ -53,19 +95,36 @@ final class LibraryStore {
                 ((try? workouts.exerciseUsageCounts()) ?? [:], (try? workouts.lastUsedDates()) ?? [:])
             }.value
             guard let self, !Task.isCancelled else { return }
-            if self.usageCounts != loaded.0 { self.usageCounts = loaded.0 }
-            if self.lastUsed != loaded.1 { self.lastUsed = loaded.1 }
+            guard self.usageCounts != loaded.0 || self.lastUsed != loaded.1 else { return }
+            self.usageCounts = loaded.0
+            self.lastUsed = loaded.1
+            self.revision += 1
         }
     }
 
-    private func rebuild() {
+    private func rebuildMap() {
         var map: [String: Exercise] = [:]
         for exercise in builtins { map[exercise.id] = exercise }
         for exercise in customs { map[exercise.id] = exercise }
         byID = map
-        let active = (builtins + customs.filter { !$0.isArchived })
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        index = ExerciseSearchIndex(exercises: active)
+    }
+
+    /// Custom exercises changed: lookups update now, the search index
+    /// (a sort of the whole library) is rebuilt in the background.
+    private func customsChanged() {
+        customs.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        rebuildMap()
+        indexGeneration += 1
+        let generation = indexGeneration
+        let builtins = builtins
+        let customs = customs
+        indexTask = Task { [weak self] in
+            let index = await Task.detached(priority: .userInitiated) { Self.makeIndex(builtins: builtins, customs: customs) }.value
+            guard let self, generation == self.indexGeneration else { return }
+            self.index = index
+            self.revision += 1
+        }
+        revision += 1
         onChange?()
     }
 
@@ -138,55 +197,76 @@ final class LibraryStore {
     }
 
     private func savePreference(_ preference: ExercisePreference) {
-        do {
-            try database.exercises.savePreference(preference)
-            if preference.isEmpty {
-                preferences[preference.exerciseID] = nil
-            } else {
-                preferences[preference.exerciseID] = preference
+        let id = preference.exerciseID
+        preferences[id] = preference.isEmpty ? nil : preference
+        revision += 1
+        database.writeInBackground({ try $0.exercises.savePreference(preference) }) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.onPreferencesSaved?()
+            case .failure(let error):
+                self.feedback.report(error, while: "save that change")
+                self.reload()
             }
-        } catch {
-            feedback.report(error, while: "save that change")
         }
     }
 
     // MARK: Custom exercises
 
+    /// Saves a custom exercise and returns it as saved (it's usable right
+    /// away; the write follows in the background).
     @discardableResult
     func saveCustom(_ exercise: Exercise) -> Exercise? {
         var copy = exercise
         copy.isCustom = true
         copy.name = copy.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !copy.name.isEmpty else { return nil }
-        do {
-            try database.exercises.saveCustom(copy)
-            customs = try database.exercises.customExercises()
-            rebuild()
-            return byID[copy.id]
-        } catch {
-            feedback.report(error, while: "save the exercise")
-            return nil
+        let now = Date()
+        copy.updatedAt = now
+        if copy.createdAt == nil { copy.createdAt = now }
+        if let index = customs.firstIndex(where: { $0.id == copy.id }) {
+            customs[index] = copy
+        } else {
+            customs.append(copy)
         }
+        customsChanged()
+        let saved = copy
+        database.writeInBackground({ try $0.exercises.saveCustom(saved, now: now) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "save the exercise")
+                self?.reload()
+            }
+        }
+        return copy
     }
 
     func archive(_ id: String) {
-        do {
-            try database.exercises.archiveCustom(id: id)
-            customs = try database.exercises.customExercises()
-            rebuild()
-            feedback.show("Exercise archived. Its history is kept, and you can restore it from Settings.", style: .info, duration: 4)
-        } catch {
-            feedback.report(error, while: "archive the exercise")
+        guard let index = customs.firstIndex(where: { $0.id == id }) else { return }
+        let now = Date()
+        customs[index].archivedAt = now
+        customs[index].updatedAt = now
+        customsChanged()
+        feedback.show("Exercise archived. Its history is kept, and you can restore it from Settings.", style: .info, duration: 4)
+        database.writeInBackground({ try $0.exercises.archiveCustom(id: id, at: now) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "archive the exercise")
+                self?.reload()
+            }
         }
     }
 
     func unarchive(_ id: String) {
-        do {
-            try database.exercises.unarchiveCustom(id: id)
-            customs = try database.exercises.customExercises()
-            rebuild()
-        } catch {
-            feedback.report(error, while: "restore the exercise")
+        guard let index = customs.firstIndex(where: { $0.id == id }) else { return }
+        let now = Date()
+        customs[index].archivedAt = nil
+        customs[index].updatedAt = now
+        customsChanged()
+        database.writeInBackground({ try $0.exercises.unarchiveCustom(id: id, now: now) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "restore the exercise")
+                self?.reload()
+            }
         }
     }
 
@@ -194,21 +274,27 @@ final class LibraryStore {
         (try? database.exercises.usageCount(exerciseID: id)) ?? 1
     }
 
+    /// Only possible for an exercise nothing refers to; removed from the
+    /// list once the database agrees.
     func deletePermanently(_ id: String) {
-        do {
-            try database.exercises.deleteCustomPermanently(id: id)
-            customs = try database.exercises.customExercises()
-            preferences[id] = nil
-            rebuild()
-        } catch {
-            feedback.report(error, while: "delete the exercise")
+        database.writeInBackground({ try $0.exercises.deleteCustomPermanently(id: id) }) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                withAnimation(Motion.smooth) {
+                    self.customs.removeAll { $0.id == id }
+                    self.preferences[id] = nil
+                    self.customsChanged()
+                }
+            case .failure(let error):
+                self.feedback.report(error, while: "delete the exercise")
+            }
         }
     }
 
+    /// Whether another active exercise already has this name (a lookup in
+    /// the search index, so it's cheap enough to check on every keystroke).
     func isNameTaken(_ name: String, excluding id: String?) -> Bool {
-        let normalized = ExerciseSearchIndex.normalize(name)
-        return (builtins + customs.filter { !$0.isArchived }).contains {
-            $0.id != id && ExerciseSearchIndex.normalize($0.name) == normalized
-        }
+        index.exerciseIDs(named: name).contains { $0 != id }
     }
 }

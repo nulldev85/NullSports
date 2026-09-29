@@ -7,16 +7,24 @@ final class SettingsStore {
     private let database: AppDatabase
     private let feedback: Feedback
 
-    init(database: AppDatabase, feedback: Feedback) {
+    /// `value` is loaded at launch, off the main thread (`load(from:)`).
+    init(database: AppDatabase, feedback: Feedback, value: AppSettings) {
         self.database = database
         self.feedback = feedback
-        let usesMetric = Locale.current.measurementSystem != .us
-        value = (try? database.meta.loadSettings(default: .defaults(usesMetric: usesMetric))) ?? .defaults(usesMetric: usesMetric)
+        self.value = value
     }
 
+    nonisolated static func load(from database: AppDatabase) -> AppSettings {
+        let defaults = AppSettings.defaults(usesMetric: Locale.current.measurementSystem != .us)
+        return (try? database.meta.loadSettings(default: defaults)) ?? defaults
+    }
+
+    /// After a restore or import replaced the data.
     func reload() {
-        if let loaded = try? database.meta.loadSettings(default: value) {
-            value = loaded
+        let database = database
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) { Self.load(from: database) }.value
+            if loaded != value { value = loaded }
         }
     }
 
@@ -30,10 +38,12 @@ final class SettingsStore {
         let previous = value
         value = copy
         onChange?(previous, copy)
-        do {
-            try database.meta.saveSettings(copy)
-        } catch {
-            feedback.report(error, while: "save your settings")
+        // Toggles and pickers animate right away; the save follows.
+        let saved = copy
+        database.writeInBackground({ try $0.meta.saveSettings(saved) }) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.feedback.report(error, while: "save your settings")
+            }
         }
     }
 

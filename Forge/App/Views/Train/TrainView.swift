@@ -210,10 +210,14 @@ struct FolderContentsView: View {
             case (.backupFolder, .success(let url)):
                 app.dataSafety.setExportFolder(url)
             case (.backupFile, .success(let url)):
-                do {
-                    pendingImport = try app.dataSafety.readArchive(at: url)
-                } catch {
-                    app.feedback.report(error, while: "read that backup")
+                let dataSafety = app.dataSafety
+                let feedback = app.feedback
+                Task {
+                    do {
+                        pendingImport = try await dataSafety.readArchive(at: url)
+                    } catch {
+                        feedback.report(error, while: "read that backup")
+                    }
                 }
             case (.backupFolder, .failure(let error)):
                 app.feedback.report(error, while: "use that folder")

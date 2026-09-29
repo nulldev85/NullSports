@@ -7,10 +7,15 @@ struct RoutineDetailView: View {
     @State private var editor: RoutineEditorRequest?
     @State private var moving = false
     @State private var confirmDelete = false
+    /// The routine as last shown, so a delete never flashes an empty screen
+    /// while this one slides away.
+    @State private var lastShown: Routine?
 
     var body: some View {
-        if let routine = app.routines.routine(routineID) {
+        if let routine = app.routines.routine(routineID) ?? lastShown {
             content(routine)
+                .onAppear { lastShown = routine }
+                .onChange(of: routine) { _, newValue in lastShown = newValue }
         } else {
             ContentUnavailableView("Routine not found", systemImage: "questionmark.folder", description: Text("It may have been deleted or moved to Recently Deleted."))
         }
@@ -130,8 +135,8 @@ struct RoutineDetailView: View {
         }
         .confirmationDialog("Delete “\(routine.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete Routine", role: .destructive) {
-                app.routines.delete(routine)
                 dismiss()
+                app.routines.delete(routine)
             }
         } message: {
             Text("It moves to Recently Deleted for 30 days. Past workouts aren't affected.")

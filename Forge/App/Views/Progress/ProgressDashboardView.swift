@@ -5,6 +5,9 @@ struct ProgressDashboardView: View {
     @Environment(AppModel.self) private var app
     @State private var period: Period = .twelveWeeks
     @State private var chartMetric: ChartMetric = .workouts
+    /// Charts are laid out a moment after the tab first appears (in the
+    /// space kept for them), so switching to it is instant.
+    @State private var chartsReady = false
 
     enum Period: String, CaseIterable, Identifiable {
         case fourWeeks = "4W"
@@ -65,6 +68,11 @@ struct ProgressDashboardView: View {
                 .animation(Motion.smooth, value: chartMetric)
             }
             .background(Theme.canvas)
+            .task {
+                guard !chartsReady else { return }
+                await Task.yield()
+                withAnimation(Motion.gentle) { chartsReady = true }
+            }
             .navigationTitle("Progress")
             .stallContext("Progress")
             .toolbar {
@@ -116,45 +124,54 @@ struct ProgressDashboardView: View {
                 }
                 .pickerStyle(.menu)
             }
-            Chart {
-                ForEach(buckets) { bucket in
-                    BarMark(
-                        x: .value("Week", bucket.start, unit: .weekOfYear),
-                        y: .value(chartMetric.rawValue, value(of: bucket, units: units))
-                    )
-                    .foregroundStyle(Color.accentColor.opacity(0.85))
-                    .cornerRadius(6)
-                }
-                if chartMetric == .workouts, goal > 0 {
-                    RuleMark(y: .value("Goal", goal))
-                        .foregroundStyle(.secondary)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                        .annotation(position: .top, alignment: .leading) {
-                            Text("Goal \(goal)")
-                                .font(.num(.caption2))
-                                .foregroundStyle(.secondary)
-                        }
-                }
+            if chartsReady {
+                weeklyBars(buckets: buckets, weeks: weeks, goal: goal, units: units)
+                    .transition(.opacity)
+            } else {
+                Color.clear.frame(height: 190)
             }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .weekOfYear, count: weeks > 12 ? 4 : 2)) { _ in
-                    AxisGridLine().foregroundStyle(Theme.line)
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                        .font(.num(.caption2, .regular))
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine().foregroundStyle(Theme.line)
-                    AxisValueLabel().font(.num(.caption2, .regular))
-                }
-            }
-            .frame(height: 190)
             Text(chartCaption(units: units))
                 .font(.app(.caption))
                 .foregroundStyle(.secondary)
         }
         .cardStyle()
+    }
+
+    private func weeklyBars(buckets: [WeekBucket], weeks: Int, goal: Int, units: UnitPreferences) -> some View {
+        Chart {
+            ForEach(buckets) { bucket in
+                BarMark(
+                    x: .value("Week", bucket.start, unit: .weekOfYear),
+                    y: .value(chartMetric.rawValue, value(of: bucket, units: units))
+                )
+                .foregroundStyle(Color.accentColor.opacity(0.85))
+                .cornerRadius(6)
+            }
+            if chartMetric == .workouts, goal > 0 {
+                RuleMark(y: .value("Goal", goal))
+                    .foregroundStyle(.secondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("Goal \(goal)")
+                            .font(.num(.caption2))
+                            .foregroundStyle(.secondary)
+                    }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .weekOfYear, count: weeks > 12 ? 4 : 2)) { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    .font(.num(.caption2, .regular))
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel().font(.num(.caption2, .regular))
+            }
+        }
+        .frame(height: 190)
     }
 
     private func value(of bucket: WeekBucket, units: UnitPreferences) -> Double {
@@ -186,6 +203,8 @@ struct ProgressDashboardView: View {
                 Text("Log workouts to see which muscles you're training.")
                     .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
+            } else if !chartsReady {
+                Color.clear.frame(height: CGFloat(shares.count) * 28 + 10)
             } else {
                 Chart(Array(shares)) { share in
                     BarMark(
@@ -207,6 +226,9 @@ struct ProgressDashboardView: View {
                     }
                 }
                 .frame(height: CGFloat(shares.count) * 28 + 10)
+                .transition(.opacity)
+            }
+            if !shares.isEmpty {
                 Text("Working sets. Secondary muscles count as half a set.")
                     .font(.app(.caption))
                     .foregroundStyle(.secondary)
@@ -273,7 +295,9 @@ struct ProgressDashboardView: View {
                             .font(.app(.caption))
                             .foregroundStyle(.secondary)
                     }
-                    if weights.count > 1 {
+                    if weights.count > 1, !chartsReady {
+                        Color.clear.frame(height: 70)
+                    } else if weights.count > 1 {
                         Chart(weights.suffix(30)) { entry in
                             LineMark(x: .value("Date", entry.measuredAt), y: .value("Weight", app.settings.units.weight.fromKilograms(entry.value)))
                                 .interpolationMethod(.monotone)

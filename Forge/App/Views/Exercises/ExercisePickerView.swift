@@ -15,10 +15,11 @@ struct ExercisePickerView: View {
     @State private var scope: LibraryScope = .all
     @State private var selection: [String] = []
     @State private var creating: ExerciseEditorRequest?
+    /// Kept between redraws (ticking exercises doesn't search again).
+    @State private var results: [Exercise] = []
 
     var body: some View {
         NavigationStack {
-            let results = exerciseResults
             List {
                 if results.isEmpty {
                     Section {
@@ -84,6 +85,10 @@ struct ExercisePickerView: View {
                 .animation(Motion.smooth, value: selection.isEmpty)
             }
             .sensoryFeedback(.selection, trigger: selection)
+            .onAppear { results = exerciseResults }
+            .onChange(of: LibrarySearchKey(query: query, filter: filter, scope: scope, revision: app.library.revision)) { _, _ in
+                results = exerciseResults
+            }
             .navigationTitle(title)
             .stallContext("Exercise picker")
             .navigationBarTitleDisplayMode(.inline)

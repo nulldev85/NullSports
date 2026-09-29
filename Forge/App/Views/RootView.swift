@@ -33,8 +33,8 @@ struct RootView: View {
                 .tag(AppTab.progress)
         }
         .themed(app.settings)
-        .fullScreenCover(isPresented: $session.isPresented) {
-            WorkoutView()
+        .fullScreenCover(isPresented: $session.isPresented, onDismiss: { app.session.coverDismissed() }) {
+            WorkoutScreen()
                 .environment(app)
                 .themed(app.settings)
                 .toastOverlay(app.feedback)
@@ -46,11 +46,6 @@ struct RootView: View {
                     .themed(app.settings, scheme: .dark)
                     .toastOverlay(app.feedback)
             }
-        }
-        .sheet(item: $session.finishedSummary) { summary in
-            WorkoutSummaryView(summary: summary)
-                .environment(app)
-                .themed(app.settings)
         }
         .toastOverlay(app.feedback)
         .onChange(of: scenePhase) { _, phase in

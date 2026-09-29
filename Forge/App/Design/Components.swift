@@ -299,11 +299,22 @@ struct ProgressRing: View {
             ZStack {
                 Circle()
                     .stroke(color.opacity(0.16), lineWidth: lineWidth)
+                if glows {
+                    // A soft halo from two wide, faint strokes: the look of a
+                    // glow without re-blurring the arc every frame.
+                    Circle()
+                        .trim(from: 0, to: clamped)
+                        .stroke(color.opacity(0.10), style: StrokeStyle(lineWidth: lineWidth * 3.4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Circle()
+                        .trim(from: 0, to: clamped)
+                        .stroke(color.opacity(0.20), style: StrokeStyle(lineWidth: lineWidth * 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
                 Circle()
                     .trim(from: 0, to: clamped)
                     .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .shadow(color: glows ? color.opacity(0.5) : .clear, radius: lineWidth * 1.1)
                 if glows {
                     Circle()
                         .fill(Color.white.opacity(0.9))

@@ -12,6 +12,9 @@ struct RoutineEditorView: View {
     @State private var timedSetup: TimedBlockSetup?
     @State private var confirmDiscard = false
     @State private var draftSaveTask: Task<Void, Never>?
+    /// A new timed block whose movements are picked once its setup sheet
+    /// has closed.
+    @State private var pendingMovementsBlock: UUID?
     @FocusState private var nameFocused: Bool
 
     init(request: RoutineEditorRequest) {
@@ -100,7 +103,12 @@ struct RoutineEditorView: View {
                 }
                 .environment(app)
             }
-            .sheet(item: $timedSetup) { setup in
+            .sheet(item: $timedSetup, onDismiss: {
+                if let blockID = pendingMovementsBlock {
+                    pendingMovementsBlock = nil
+                    picker = .addMovements(blockID)
+                }
+            }) { setup in
                 TimedBlockSetupView(setup: setup) { config in
                     applyTimedSetup(setup, config: config)
                 }
@@ -249,8 +257,8 @@ struct RoutineEditorView: View {
         }
     }
 
-    private func defaultSets(for exercise: Exercise) -> [RoutineSet] {
-        let last = app.history.lastPerformances([exercise.id], excluding: nil)[exercise.id] ?? []
+    /// Last time's sets as targets, or a sensible start.
+    private func defaultSets(for exercise: Exercise, last: [WorkoutSet]) -> [RoutineSet] {
         if !last.isEmpty {
             return last.map { set in
                 RoutineSet(kind: set.kind, target: SetTarget(reps: set.reps, weight: set.weight, duration: set.duration, distance: set.distance))
@@ -270,12 +278,19 @@ struct RoutineEditorView: View {
         guard !exercises.isEmpty else { return }
         switch purpose {
         case .addExercises:
-            let entries = exercises.map { RoutineExercise(exerciseID: $0.id, sets: defaultSets(for: $0), restSeconds: app.library.restSeconds(for: $0.id)) }
-            withAnimation(Motion.smooth) {
-                if superset, entries.count > 1 {
-                    draft.blocks.append(RoutineBlock(exercises: entries))
-                } else {
-                    draft.blocks.append(contentsOf: entries.map { RoutineBlock(exercises: [$0]) })
+            // Last time's numbers are read off the main thread; the new
+            // blocks animate in as the picker slides away.
+            let history = app.history
+            let library = app.library
+            Task {
+                let last = await history.loadLastPerformances(exercises.map(\.id), excluding: nil)
+                let entries = exercises.map { RoutineExercise(exerciseID: $0.id, sets: defaultSets(for: $0, last: last[$0.id] ?? []), restSeconds: library.restSeconds(for: $0.id)) }
+                withAnimation(Motion.smooth) {
+                    if superset, entries.count > 1 {
+                        draft.blocks.append(RoutineBlock(exercises: entries))
+                    } else {
+                        draft.blocks.append(contentsOf: entries.map { RoutineBlock(exercises: [$0]) })
+                    }
                 }
             }
         case .addMovements(let blockID):
@@ -289,7 +304,9 @@ struct RoutineEditorView: View {
                 }
                 return RoutineExercise(exerciseID: exercise.id, sets: [RoutineSet(target: target)])
             }
-            draft.blocks[index].exercises.append(contentsOf: entries)
+            withAnimation(Motion.smooth) {
+                draft.blocks[index].exercises.append(contentsOf: entries)
+            }
         case .replace(let blockID, let entryID):
             guard let exercise = exercises.first,
                   let blockIndex = draft.blocks.firstIndex(where: { $0.id == blockID }),
@@ -303,11 +320,12 @@ struct RoutineEditorView: View {
             draft.blocks[index].timer = config
         } else {
             let block = RoutineBlock(exercises: [], timer: config)
-            draft.blocks.append(block)
-            // Straight on to choosing the movements.
-            afterDelay(0.45) {
-                picker = .addMovements(block.id)
+            withAnimation(Motion.smooth) {
+                draft.blocks.append(block)
             }
+            // Straight on to choosing the movements, once the setup sheet
+            // has closed.
+            pendingMovementsBlock = block.id
         }
     }
 

@@ -8,6 +8,8 @@ struct TimerRunView: View {
     let onMinimize: () -> Void
     let onDiscard: () -> Void
     var notes: Binding<String>?
+    /// The result is being saved (the button shows progress).
+    var isSaving = false
 
     @State private var confirmStop = false
     @State private var confirmDiscard = false
@@ -345,9 +347,18 @@ struct TimerRunView: View {
                 }
 
                 Button(action: onSave) {
-                    Text(saveTitle)
+                    ZStack {
+                        Text(saveTitle)
+                            .opacity(isSaving ? 0 : 1)
+                        if isSaving {
+                            ProgressView()
+                                .tint(Theme.onAccent)
+                        }
+                    }
+                    .animation(Motion.snappy, value: isSaving)
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .disabled(isSaving)
                 .accessibilityIdentifier("saveTimerResult")
                 Button("Discard", role: .destructive) { confirmDiscard = true }
                     .font(.app(.subheadline, .semibold))
@@ -460,7 +471,8 @@ struct StandaloneTimerScreen: View {
             onSave: { app.timers.saveResult(notes: notes, extraReps: controller.extraReps) },
             onMinimize: { app.timers.isPresented = false },
             onDiscard: { app.timers.close() },
-            notes: $notes
+            notes: $notes,
+            isSaving: app.timers.isSaving
         )
     }
 }

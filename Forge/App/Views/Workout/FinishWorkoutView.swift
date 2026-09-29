@@ -3,6 +3,10 @@ import SwiftUI
 struct FinishWorkoutView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    /// The workout as it was when the sheet opened, so the sheet's content
+    /// stays put while it slides away after saving.
+    @State private var workout: Workout?
+    @State private var routineToUpdate: Routine?
     @State private var name = ""
     @State private var notes = ""
     @State private var rating: Int?
@@ -11,12 +15,12 @@ struct FinishWorkoutView: View {
     @State private var keepEnteredSets = true
     @State private var completeRemaining = false
     @State private var updateRoutine = false
-    @State private var loaded = false
+    @State private var saving = false
 
     var body: some View {
         NavigationStack {
             Form {
-                if let workout = app.session.workout {
+                if let workout {
                     // The numbers show exactly what will be saved.
                     summarySection(WorkoutFactory.finalize(workout, completeRemaining: completeRemaining, keepEnteredSets: logsEnteredSets, now: endedAt))
                     Section("Details") {
@@ -37,7 +41,7 @@ struct FinishWorkoutView: View {
                         }
                     }
                     uncheckedSetsSection(workout)
-                    if let routineID = workout.routineID, let routine = app.routines.routine(routineID), app.session.routineDiffers() {
+                    if let routine = routineToUpdate {
                         Section {
                             Toggle("Update “\(routine.name)”", isOn: $updateRoutine)
                         } footer: {
@@ -47,19 +51,31 @@ struct FinishWorkoutView: View {
                 }
             }
             .canvasBackground()
+            .disabled(saving)
             .navigationTitle("Finish Workout")
             .stallContext("Finish")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Back") { dismiss() }
+                        .disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .fontWeight(.bold)
-                        .accessibilityIdentifier("saveFinishedWorkout")
+                    Button {
+                        save()
+                    } label: {
+                        if saving {
+                            ProgressView()
+                        } else {
+                            Text("Save")
+                        }
+                    }
+                    .fontWeight(.bold)
+                    .disabled(saving)
+                    .accessibilityIdentifier("saveFinishedWorkout")
                 }
             }
+            .interactiveDismissDisabled(saving)
             .onAppear(perform: load)
         }
     }
@@ -75,7 +91,7 @@ struct FinishWorkoutView: View {
         if entered > 0 || empty > 0 {
             Section {
                 if entered > 0 {
-                    Toggle(isOn: Binding(get: { logsEnteredSets }, set: { keepEnteredSets = $0 })) {
+                    Toggle(isOn: Binding(get: { logsEnteredSets }, set: { keepEnteredSets = $0 }).animation(Motion.snappy)) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Log sets with numbers entered")
                             Text("\(entered) \(entered == 1 ? "set has" : "sets have") numbers but \(entered == 1 ? "wasn't" : "weren't") checked off")
@@ -129,16 +145,24 @@ struct FinishWorkoutView: View {
     }
 
     private func load() {
-        guard !loaded, let workout = app.session.workout else { return }
-        loaded = true
-        name = workout.name
-        notes = workout.notes
-        rating = workout.rating
-        startedAt = workout.startedAt
+        guard workout == nil, let current = app.session.workout else { return }
+        workout = current
+        name = current.name
+        notes = current.notes
+        rating = current.rating
+        startedAt = current.startedAt
         endedAt = Date()
+        if let routineID = current.routineID, let routine = app.routines.routine(routineID), app.session.routineDiffers() {
+            routineToUpdate = routine
+        }
     }
 
+    /// Saves in the background; once it's safely on disk this sheet slides
+    /// away and the summary is already underneath. If it fails, the sheet
+    /// stays with everything as entered.
     private func save() {
+        guard !saving else { return }
+        dismissKeyboard()
         let options = WorkoutSession.FinishOptions(
             name: name,
             notes: notes,
@@ -147,12 +171,15 @@ struct FinishWorkoutView: View {
             endedAt: max(endedAt, startedAt),
             keepEnteredSets: logsEnteredSets,
             completeRemaining: completeRemaining,
-            updateRoutine: updateRoutine
+            updateRoutine: updateRoutine && routineToUpdate != nil
         )
-        dismiss()
+        withAnimation(Motion.snappy) { saving = true }
         let session = app.session
-        afterDelay(0.35) {
-            session.finish(options)
+        Task {
+            let saved = await session.finish(options)
+            if !saved {
+                withAnimation(Motion.snappy) { saving = false }
+            }
         }
     }
 }
@@ -188,7 +215,6 @@ struct RatingPicker: View {
 struct WorkoutSummaryView: View {
     let summary: WorkoutSession.FinishedWorkout
     @Environment(AppModel.self) private var app
-    @Environment(\.dismiss) private var dismiss
     @State private var appeared = false
 
     var body: some View {
@@ -277,7 +303,7 @@ struct WorkoutSummaryView: View {
             .stallContext("Summary")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { app.session.closeSummary() }
                         .fontWeight(.semibold)
                         .accessibilityIdentifier("summaryDone")
                 }

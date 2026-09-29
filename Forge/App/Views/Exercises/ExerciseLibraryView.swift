@@ -11,10 +11,11 @@ struct ExerciseLibraryView: View {
     @State private var filter = ExerciseSearchIndex.Filter()
     @State private var scope: LibraryScope = .all
     @State private var creating: ExerciseEditorRequest?
+    /// Kept between redraws; recomputed only when the search could change.
+    @State private var results: [Exercise] = []
 
     var body: some View {
         NavigationStack {
-            let results = exerciseResults
             List {
                 if results.isEmpty {
                     ContentUnavailableView {
@@ -76,11 +77,17 @@ struct ExerciseLibraryView: View {
             .navigationDestination(for: ExerciseRoute.self) { route in
                 ExerciseDetailView(exerciseID: route.id)
             }
+            .onAppear { results = exerciseResults }
+            .onChange(of: searchKey) { _, _ in results = exerciseResults }
             .sheet(item: $creating) { request in
                 ExerciseEditorView(request: request)
                     .environment(app)
             }
         }
+    }
+
+    private var searchKey: LibrarySearchKey {
+        LibrarySearchKey(query: query, filter: filter, scope: scope, revision: app.library.revision)
     }
 
     private var exerciseResults: [Exercise] {
@@ -111,6 +118,7 @@ struct ExerciseDetailView: View {
     @State private var tab: DetailTab = .summary
     @State private var metric: ExerciseMetric?
     @State private var sessions: [ExerciseSession] = []
+    @State private var sessionsLoaded = false
     @State private var editing: ExerciseEditorRequest?
     @State private var confirmArchive = false
     @State private var note = ""
@@ -158,11 +166,12 @@ struct ExerciseDetailView: View {
                     }
                 }
                 .padding(.vertical, 4)
-                Picker("View", selection: $tab) {
+                Picker("View", selection: $tab.animation(Motion.smooth)) {
                     ForEach(DetailTab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .listRowSeparator(.hidden)
+                .sensoryFeedback(.selection, trigger: tab)
             }
 
             switch tab {
@@ -208,13 +217,18 @@ struct ExerciseDetailView: View {
                 .accessibilityLabel("Favorite")
             }
         }
-        // Loaded before the first frame, so pushing this screen never shows
-        // an empty state that then fills in.
+        // Past sessions are read off the main thread (so the push never
+        // stutters) and fade in, usually before the slide has finished.
         .onAppear {
             if !loaded { load(exercise) }
         }
-        .onChange(of: app.history.revision) { _, _ in
-            sessions = app.history.sessions(for: exercise.id)
+        .task(id: app.history.revision) {
+            let loadedSessions = await app.history.loadSessions(for: exercise.id)
+            guard loadedSessions != sessions || !sessionsLoaded else { return }
+            withAnimation(sessionsLoaded ? Motion.smooth : Motion.gentle) {
+                sessions = loadedSessions
+                sessionsLoaded = true
+            }
         }
         .sheet(item: $editing) { request in
             ExerciseEditorView(request: request)
@@ -238,7 +252,6 @@ struct ExerciseDetailView: View {
 
     private func load(_ exercise: Exercise) {
         loaded = true
-        sessions = app.history.sessions(for: exercise.id)
         if metric == nil { metric = ExerciseMetric.metrics(for: exercise.tracking).first }
         note = app.library.note(for: exercise.id)
     }
@@ -249,7 +262,12 @@ struct ExerciseDetailView: View {
         let selected = metric ?? metrics.first ?? .maxReps
         let points = Stats.series(sessions, metric: selected)
         Section {
-            if sessions.isEmpty {
+            if !sessionsLoaded {
+                // Filled in a moment later, read off the main thread.
+                Color.clear
+                    .frame(height: 12)
+                    .listRowBackground(Color.clear)
+            } else if sessions.isEmpty {
                 Text("Log this exercise in a workout to see progress charts and records here.")
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -316,7 +334,9 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private func historySection(_ exercise: Exercise) -> some View {
-        if sessions.isEmpty {
+        if !sessionsLoaded {
+            EmptyView()
+        } else if sessions.isEmpty {
             Section {
                 Text("No history yet.")
                     .foregroundStyle(.secondary)
@@ -507,4 +527,12 @@ struct ProgressChart: View {
         case .maxReps, .totalReps: return value
         }
     }
+}
+
+/// Everything a library search depends on.
+struct LibrarySearchKey: Equatable {
+    var query: String
+    var filter: ExerciseSearchIndex.Filter
+    var scope: LibraryScope
+    var revision: Int
 }
