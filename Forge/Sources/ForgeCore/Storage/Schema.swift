@@ -30,7 +30,7 @@ public enum Schema {
 
     @discardableResult
     public static func migrate(_ queue: DatabaseQueue) throws -> (from: Int, to: Int) {
-        try queue.read { db in
+        try queue.exclusive { db in
             let start = try db.userVersion()
             var version = start
             for migration in migrations where migration.version > version {

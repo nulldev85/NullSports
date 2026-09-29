@@ -114,7 +114,7 @@ public final class AppDatabase: @unchecked Sendable {
             report.createdNewDatabase = true
         }
 
-        let current = try queue.read { try $0.userVersion() }
+        let current = try queue.exclusive { try $0.userVersion() }
         if current > Schema.latestVersion {
             report.newerSchemaVersion = current
         } else if current < Schema.latestVersion {
@@ -159,12 +159,12 @@ public final class AppDatabase: @unchecked Sendable {
     private static func openVerified(path: String) throws -> DatabaseQueue {
         let queue = try DatabaseQueue(path: path)
         do {
-            let problems = try queue.read { try $0.integrityProblems() }
+            let problems = try queue.exclusive { try $0.integrityProblems() }
             if !problems.isEmpty {
                 throw DatabaseError(code: SQLITE_CORRUPT, message: problems.prefix(5).joined(separator: "; "))
             }
             // Touch the schema so a non-database file surfaces as NOTADB here.
-            _ = try queue.read { try $0.userVersion() }
+            _ = try queue.exclusive { try $0.userVersion() }
             return queue
         } catch {
             queue.close()
@@ -219,7 +219,7 @@ public final class AppDatabase: @unchecked Sendable {
         try backups.createSnapshot(from: queue, reason: .preRestore, now: now)
         let source = try Connection(path: snapshot.url.path, readOnly: true)
         defer { source.close() }
-        try queue.read { db in
+        try queue.exclusive { db in
             try db.replaceContents(from: source)
             _ = try? db.scalar("PRAGMA journal_mode = WAL")
         }
@@ -228,6 +228,18 @@ public final class AppDatabase: @unchecked Sendable {
 
     public func checkpoint() {
         queue.checkpoint()
+    }
+
+    /// Runs `work` in the background after every write already queued (so
+    /// changes land in the order they were made) and hands its result to
+    /// `completion` on the writer's queue. Nothing waits for the disk.
+    public func perform<T>(
+        _ work: @escaping @Sendable (AppDatabase) throws -> T,
+        completion: @escaping @Sendable (Result<T, Error>) -> Void = { _ in }
+    ) {
+        queue.async { [self] in
+            completion(Result { try work(self) })
+        }
     }
 
     /// Takes a "Before app update" snapshot the first time a different

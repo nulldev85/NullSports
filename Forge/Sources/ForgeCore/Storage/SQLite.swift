@@ -452,21 +452,34 @@ public final class Connection {
     }
 }
 
-/// Serializes all access to one connection on a private queue. Reads and
-/// writes are synchronous: the data sizes in this app are small, and
-/// synchronous writes mean that when a save call returns, the data is on disk.
+/// One writing connection plus two reading connections on the same file.
+///
+/// - Writes run one at a time on the writer's queue, in the order they're
+///   submitted (`write`, or `async` without waiting).
+/// - Reads never wait for writes: in WAL mode each reading connection sees
+///   the latest committed data, and a read's statements all see the same
+///   moment. The interface (main thread) reads on its own connection, so
+///   long background reads (exports, history, snapshots) never hold it up.
+/// - Inside a write, reads run on the writing connection and see that
+///   write's own changes.
 public final class DatabaseQueue: @unchecked Sendable {
     public let path: String
     private let connection: Connection
     private let queue: DispatchQueue
     private let queueKey = DispatchSpecificKey<UInt8>()
+    /// Readers need WAL; without it every read goes through the writer.
+    private let usesReaders: Bool
+    private let readerLock = NSLock()
+    private var interfaceReader: Reader?
+    private var backgroundReader: Reader?
+    private var isClosed = false
 
     public init(path: String) throws {
         self.path = path
         self.connection = try Connection(path: path)
         self.queue = DispatchQueue(label: "forge.database", qos: .userInitiated)
         queue.setSpecific(key: queueKey, value: 1)
-        try configure()
+        usesReaders = try Self.configure(connection)
     }
 
     /// Opens a database file for reading only what's there: no journal
@@ -477,38 +490,90 @@ public final class DatabaseQueue: @unchecked Sendable {
         self.connection = try Connection(path: path)
         self.queue = DispatchQueue(label: "forge.database.inspect", qos: .userInitiated)
         queue.setSpecific(key: queueKey, value: 1)
+        usesReaders = false
     }
 
-    private func configure() throws {
+    /// Returns whether the file is in WAL mode.
+    private static func configure(_ connection: Connection) throws -> Bool {
         try connection.execute("PRAGMA foreign_keys = ON")
         let mode = try connection.scalar("PRAGMA journal_mode = WAL")
+        var isWAL = true
         if case .text(let value) = mode, value.lowercased() != "wal" {
             // Some file systems can't do WAL; the rollback journal is still
             // fully durable, just slower.
             try connection.execute("PRAGMA journal_mode = DELETE")
+            isWAL = false
         }
         // FULL syncs the WAL on every commit: a saved set survives even a
         // power loss or OS crash, not just an app crash.
         try connection.execute("PRAGMA synchronous = FULL")
         // On Apple platforms a plain fsync can leave data in the drive's
         // cache; F_FULLFSYNC makes commits and checkpoints truly durable.
-        // (Ignored elsewhere.) Workout saves run in the background, so the
+        // (Ignored elsewhere.) Writes never run on the main thread, so the
         // extra time never shows.
         try connection.execute("PRAGMA fullfsync = ON")
         try connection.execute("PRAGMA checkpoint_fullfsync = ON")
+        return isWAL
     }
 
     private var isOnQueue: Bool {
         DispatchQueue.getSpecific(key: queueKey) != nil
     }
 
-    /// Runs `block` with exclusive access to the connection, outside of any
-    /// transaction. Use for reads and for statements such as VACUUM that
-    /// can't run in a transaction.
+    // MARK: Reading
+
+    /// Runs `block` against the latest committed data. Every statement in
+    /// the block sees the same moment, even if a write commits meanwhile.
     public func read<T>(_ block: (Connection) throws -> T) throws -> T {
         if isOnQueue { return try block(connection) }
-        return try queue.sync { try block(connection) }
+        if let current = currentReader() { return try current.run(block) }
+        guard let reader = reader(forInterface: Thread.isMainThread) else {
+            return try queue.sync { try block(connection) }
+        }
+        return try reader.run(block)
     }
+
+    /// The reader whose queue this code is running on, if any.
+    private func currentReader() -> Reader? {
+        readerLock.lock()
+        defer { readerLock.unlock() }
+        if let interfaceReader, interfaceReader.isCurrent { return interfaceReader }
+        if let backgroundReader, backgroundReader.isCurrent { return backgroundReader }
+        return nil
+    }
+
+    /// Opens a reading connection the first time it's needed.
+    private func reader(forInterface: Bool) -> Reader? {
+        guard usesReaders else { return nil }
+        readerLock.lock()
+        defer { readerLock.unlock() }
+        guard !isClosed else { return nil }
+        if forInterface {
+            if interfaceReader == nil { interfaceReader = try? Reader(path: path, label: "forge.database.read.interface", qos: .userInteractive) }
+            return interfaceReader
+        }
+        if backgroundReader == nil { backgroundReader = try? Reader(path: path, label: "forge.database.read.background", qos: .utility) }
+        return backgroundReader
+    }
+
+    /// Writes a consistent copy of the whole database to `destination`
+    /// (VACUUM INTO) without holding up writes or the interface's reads.
+    public func vacuum(into destination: String) throws {
+        let escaped = destination.replacingOccurrences(of: "'", with: "''")
+        let sql = "VACUUM INTO '\(escaped)'"
+        if !isOnQueue, currentReader() == nil, let reader = reader(forInterface: false) {
+            try reader.run(inTransaction: false) { db in
+                // Readers are query-only; VACUUM INTO only writes the new file.
+                try db.execute("PRAGMA query_only = 0")
+                defer { try? db.execute("PRAGMA query_only = 1") }
+                try db.execute(sql)
+            }
+        } else {
+            try exclusive { try $0.execute(sql) }
+        }
+    }
+
+    // MARK: Writing
 
     /// Runs `block` in a transaction; everything commits or nothing does.
     public func write<T>(_ block: (Connection) throws -> T) throws -> T {
@@ -520,7 +585,28 @@ public final class DatabaseQueue: @unchecked Sendable {
         }
     }
 
+    /// Runs `block` on the writing connection outside a transaction, after
+    /// every write already queued and with the next ones held off. For
+    /// migrations, restores, checkpoints and checks of the writer itself.
+    public func exclusive<T>(_ block: (Connection) throws -> T) throws -> T {
+        if isOnQueue { return try block(connection) }
+        return try queue.sync { try block(connection) }
+    }
+
+    /// Runs `work` on the writer's queue after everything already queued,
+    /// without waiting for it. Repository calls inside it run right there.
+    public func async(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
+    }
+
     public func close() {
+        readerLock.lock()
+        isClosed = true
+        let readers = [interfaceReader, backgroundReader].compactMap { $0 }
+        interfaceReader = nil
+        backgroundReader = nil
+        readerLock.unlock()
+        for reader in readers { reader.close() }
         if isOnQueue {
             connection.close()
         } else {
@@ -529,8 +615,46 @@ public final class DatabaseQueue: @unchecked Sendable {
     }
 
     public func checkpoint() {
-        _ = try? read { db in
+        _ = try? exclusive { db in
             try db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        }
+    }
+
+    /// A query-only connection with its own queue.
+    private final class Reader {
+        let connection: Connection
+        let queue: DispatchQueue
+        private let key = DispatchSpecificKey<UInt8>()
+        private var depth = 0
+
+        init(path: String, label: String, qos: DispatchQoS) throws {
+            connection = try Connection(path: path)
+            try connection.execute("PRAGMA query_only = 1")
+            queue = DispatchQueue(label: label, qos: qos)
+            queue.setSpecific(key: key, value: 1)
+        }
+
+        var isCurrent: Bool { DispatchQueue.getSpecific(key: key) != nil }
+
+        /// Runs `block` in one read transaction (nested calls join it).
+        func run<T>(inTransaction: Bool = true, _ block: (Connection) throws -> T) throws -> T {
+            if isCurrent { return try runHere(inTransaction: inTransaction, block) }
+            return try queue.sync { try runHere(inTransaction: inTransaction, block) }
+        }
+
+        private func runHere<T>(inTransaction: Bool, _ block: (Connection) throws -> T) throws -> T {
+            guard inTransaction, depth == 0 else { return try block(connection) }
+            try connection.execute("BEGIN DEFERRED")
+            depth += 1
+            defer {
+                depth -= 1
+                try? connection.execute("COMMIT")
+            }
+            return try block(connection)
+        }
+
+        func close() {
+            queue.sync { connection.close() }
         }
     }
 }

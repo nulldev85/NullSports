@@ -102,11 +102,8 @@ public final class BackupManager: @unchecked Sendable {
         }
         let partialURL = finalURL.appendingPathExtension("partial")
         try? fileManager.removeItem(at: partialURL)
-        let escaped = partialURL.path.replacingOccurrences(of: "'", with: "''")
         do {
-            try queue.read { db in
-                try db.execute("VACUUM INTO '\(escaped)'")
-            }
+            try queue.vacuum(into: partialURL.path)
             try fileManager.moveItem(at: partialURL, to: finalURL)
         } catch {
             try? fileManager.removeItem(at: partialURL)

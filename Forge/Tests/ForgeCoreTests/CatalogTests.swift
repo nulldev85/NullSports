@@ -53,6 +53,12 @@ final class CatalogTests: XCTestCase {
         }
     }
 
+    func testNamesAreFoundIgnoringCaseAccentsAndPunctuation() {
+        XCTAssertEqual(index.exerciseIDs(named: "bench press (barbell)"), ["bench-press-barbell"])
+        XCTAssertEqual(index.exerciseIDs(named: "  BENCH   press  barbell "), ["bench-press-barbell"])
+        XCTAssertTrue(index.exerciseIDs(named: "Zercher Sandbag Carry").isEmpty)
+    }
+
     func testSearchRanksNamePrefixFirst() {
         let results = index.search("bench")
         XCTAssertTrue(results.prefix(6).allSatisfy { $0.name.hasPrefix("Bench") })

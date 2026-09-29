@@ -82,12 +82,101 @@ final class SQLiteTests: XCTestCase {
     func testUsesWriteAheadLogAndFullSync() throws {
         let dir = TemporaryDirectory()
         let queue = try DatabaseQueue(path: dir.url.appendingPathComponent("t.sqlite").path)
-        let mode = try queue.read { try $0.scalar("PRAGMA journal_mode") }
+        let mode = try queue.exclusive { try $0.scalar("PRAGMA journal_mode") }
         XCTAssertEqual(mode, .text("wal"))
-        let sync = try queue.read { try $0.scalarInt("PRAGMA synchronous") }
+        let sync = try queue.exclusive { try $0.scalarInt("PRAGMA synchronous") }
         XCTAssertEqual(sync, 2, "synchronous should be FULL")
-        let fk = try queue.read { try $0.scalarInt("PRAGMA foreign_keys") }
+        let fk = try queue.exclusive { try $0.scalarInt("PRAGMA foreign_keys") }
         XCTAssertEqual(fk, 1)
+    }
+
+    func testReadsDontWaitForAWriteInProgress() throws {
+        let dir = TemporaryDirectory()
+        let queue = try DatabaseQueue(path: dir.url.appendingPathComponent("t.sqlite").path)
+        try queue.write { db in
+            try db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            try db.run("INSERT INTO t VALUES (1)")
+        }
+        let writing = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let committed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            try? queue.write { db in
+                try db.run("INSERT INTO t VALUES (2)")
+                writing.signal()
+                // Holds the write open, like a slow sync to disk.
+                release.wait()
+            }
+            committed.signal()
+        }
+        writing.wait()
+        let start = Date()
+        XCTAssertEqual(try queue.read { try $0.scalarInt("SELECT COUNT(*) FROM t") }, 1, "reads see the last committed data")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.5, "and don't wait for the write")
+        release.signal()
+        committed.wait()
+        XCTAssertEqual(try queue.read { try $0.scalarInt("SELECT COUNT(*) FROM t") }, 2)
+    }
+
+    func testEveryStatementInAReadSeesTheSameMoment() throws {
+        let dir = TemporaryDirectory()
+        let queue = try DatabaseQueue(path: dir.url.appendingPathComponent("t.sqlite").path)
+        try queue.write { db in
+            try db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            try db.run("INSERT INTO t VALUES (1)")
+        }
+        try queue.read { db in
+            let before = try db.scalarInt("SELECT COUNT(*) FROM t")
+            let done = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                try? queue.write { try $0.run("INSERT INTO t VALUES (2)") }
+                done.signal()
+            }
+            done.wait()
+            XCTAssertEqual(try db.scalarInt("SELECT COUNT(*) FROM t"), before, "a write committed mid-read doesn't show up halfway")
+            // Nested reads join the same moment.
+            XCTAssertEqual(try queue.read { try $0.scalarInt("SELECT COUNT(*) FROM t") }, before)
+        }
+        XCTAssertEqual(try queue.read { try $0.scalarInt("SELECT COUNT(*) FROM t") }, 2)
+    }
+
+    func testReadingConnectionsAreQueryOnly() throws {
+        let dir = TemporaryDirectory()
+        let queue = try DatabaseQueue(path: dir.url.appendingPathComponent("t.sqlite").path)
+        try queue.write { db in try db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)") }
+        XCTAssertThrowsError(try queue.read { try $0.run("INSERT INTO t VALUES (1)") }, "writes belong on the writer")
+        XCTAssertEqual(try queue.read { try $0.scalarInt("SELECT COUNT(*) FROM t") }, 0)
+    }
+
+    func testCopyingTheDatabaseDoesntHoldUpWrites() throws {
+        let dir = TemporaryDirectory()
+        let queue = try DatabaseQueue(path: dir.url.appendingPathComponent("t.sqlite").path)
+        try queue.write { db in
+            try db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+            for index in 0..<2000 {
+                try db.run("INSERT INTO t (v) VALUES (?)", [String(repeating: "x", count: 200) + "\(index)"])
+            }
+        }
+        let copy = dir.url.appendingPathComponent("copy.sqlite").path
+        let group = DispatchGroup()
+        group.enter()
+        final class Outcome: @unchecked Sendable { var error: Error? }
+        let outcome = Outcome()
+        DispatchQueue.global().async {
+            do {
+                try queue.vacuum(into: copy)
+            } catch {
+                outcome.error = error
+            }
+            group.leave()
+        }
+        try queue.write { try $0.run("INSERT INTO t (v) VALUES ('meanwhile')") }
+        group.wait()
+        XCTAssertNil(outcome.error)
+        let copied = try Connection(path: copy, readOnly: true)
+        defer { copied.close() }
+        XCTAssertGreaterThanOrEqual(try copied.scalarInt("SELECT COUNT(*) FROM t"), 2000)
+        XCTAssertThrowsError(try queue.read { try $0.run("INSERT INTO t (v) VALUES ('no')") }, "still query-only afterwards")
     }
 
     func testConcurrentWritesAreSerialized() throws {
@@ -178,7 +267,7 @@ final class AppDatabaseTests: XCTestCase {
         let dir = TemporaryDirectory()
         do {
             let db = try AppDatabase.open(at: dir.location)
-            try db.queue.read { try $0.setUserVersion(Schema.latestVersion + 5) }
+            try db.queue.exclusive { try $0.setUserVersion(Schema.latestVersion + 5) }
             db.queue.close()
         }
         let db = try AppDatabase.open(at: dir.location)

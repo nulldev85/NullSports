@@ -180,4 +180,19 @@ final class DataSafetyTests: XCTestCase {
         changed.workouts[0].notes = "Different"
         XCTAssertNotEqual(try archive.contentFingerprint(), try changed.contentFingerprint())
     }
+
+    func testBackgroundWritesLandInOrder() throws {
+        let directory = TemporaryDirectory()
+        let database = try AppDatabase.open(at: directory.location)
+        let done = XCTestExpectation(description: "last write")
+        for index in 0..<50 {
+            database.perform { try $0.meta.set("order", value: "\(index)") }
+        }
+        database.perform({ try $0.meta.get("order") }) { result in
+            XCTAssertEqual(try? result.get(), "49")
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(try database.meta.get("order"), "49", "and reads after them see the result")
+    }
 }

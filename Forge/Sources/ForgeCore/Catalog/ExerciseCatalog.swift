@@ -67,9 +67,12 @@ public struct ExerciseSearchIndex: Sendable {
     }
 
     private let items: [Item]
+    /// Normalized name → IDs, so checking whether a name is taken doesn't
+    /// normalize every exercise again.
+    private let idsByName: [String: [String]]
 
     public init(exercises: [Exercise]) {
-        items = exercises.map { exercise in
+        let items = exercises.map { exercise in
             let nameKey = Self.normalize(exercise.name)
             let aliasKeys = exercise.aliases.map(Self.normalize)
             let extras = ([exercise.primaryMuscle.displayName, exercise.equipment.displayName, exercise.category.displayName]
@@ -84,9 +87,21 @@ public struct ExerciseSearchIndex: Sendable {
                 extraKeys: extras
             )
         }
+        var byName: [String: [String]] = [:]
+        for item in items {
+            byName[item.nameKey, default: []].append(item.exercise.id)
+        }
+        self.items = items
+        self.idsByName = byName
     }
 
     public var exercises: [Exercise] { items.map(\.exercise) }
+
+    /// IDs of the exercises called `name` (ignoring case, accents and
+    /// punctuation).
+    public func exerciseIDs(named name: String) -> [String] {
+        idsByName[Self.normalize(name)] ?? []
+    }
 
     public static func normalize(_ text: String) -> String {
         let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
