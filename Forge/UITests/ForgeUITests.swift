@@ -343,11 +343,15 @@ final class ForgeUITests: XCTestCase {
         let item = try XCTUnwrap(trackByTime, "the exercise menu offers tracking by time")
         snapshot("42-TrackByTimeMenu")
         item.tap()
-        let cancel = app.buttons["Cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "switching away from time asks first")
-        snapshot("43-TrackByTimeConfirm")
-        cancel.tap()
-        XCTAssertTrue(app.buttons["Mark set incomplete"].firstMatch.waitForExistence(timeout: 5), "cancelling keeps the logged set")
+
+        // Switching back to distance clears the logged time, with an undo.
+        let undo = app.buttons["Undo"].firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "switching away from time offers an undo")
+        XCTAssertFalse(app.buttons.matching(identifier: "setTimer").firstMatch.exists, "tracked by distance again")
+        snapshot("43-TrackByTimeUndo")
+        undo.tap()
+        XCTAssertTrue(app.buttons.matching(identifier: "setTimer").firstMatch.waitForExistence(timeout: 5), "undo brings the timed sets back")
+        XCTAssertTrue(app.buttons["Mark set incomplete"].firstMatch.exists, "the logged set is kept")
     }
 
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {

@@ -185,6 +185,20 @@ public struct WorkoutExercise: Identifiable, Hashable, Codable, Sendable {
             if !newTracking.usesDistance { sets[index].distance = nil }
         }
     }
+
+    /// Undoes `retrack`: tracked the way `original` was, with the numbers
+    /// it had. Anything entered since that still fits is kept.
+    public mutating func undoRetrack(to original: WorkoutExercise) {
+        retrack(original.tracking)
+        let before = Dictionary(original.sets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in sets.indices {
+            guard let old = before[sets[index].id] else { continue }
+            if tracking.usesWeight, sets[index].weight == nil { sets[index].weight = old.weight }
+            if tracking.usesReps, sets[index].reps == nil { sets[index].reps = old.reps }
+            if tracking.usesDuration, sets[index].duration == nil { sets[index].duration = old.duration }
+            if tracking.usesDistance, sets[index].distance == nil { sets[index].distance = old.distance }
+        }
+    }
 }
 
 /// Outcome of a timed block or standalone timer.

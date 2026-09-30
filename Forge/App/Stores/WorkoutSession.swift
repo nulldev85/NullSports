@@ -501,15 +501,36 @@ final class WorkoutSession {
     }
 
     /// Switches an exercise between its usual tracking and tracking by
-    /// time. Numbers the new way doesn't use are cleared (the screen asks
-    /// first when any were entered).
+    /// time. Numbers the new way doesn't use are cleared, and a toast
+    /// offers to put them back.
     func setTrackedByTime(_ byTime: Bool, for entryID: UUID) {
         guard let entry = workout?.exercise(entryID), let usual = usualTracking(of: entry) else { return }
         let tracking = byTime ? usual.timedVariant : usual
         guard tracking != entry.tracking else { return }
+        let affected = entry.setsLosingValues(switchingTo: tracking)
         clearSetTimer(ifIn: entry)
         withAnimation(Motion.smooth) {
             mutate(immediate: true) { $0.updateExercise(entryID) { $0.retrack(tracking) } }
+        }
+        guard affected > 0 else { return }
+        let cleared = entry.tracking.fields.filter { !tracking.fields.contains($0) }.map(\.spokenName)
+        let way = byTime ? "time" : usual.fields.filter { !usual.timedVariant.fields.contains($0) }.map(\.spokenName).joined(separator: " & ")
+        let what = cleared.isEmpty ? "numbers" : cleared.joined(separator: " and ")
+        feedback.show(
+            "\(entry.name) is tracked by \(way.isEmpty ? "its usual way" : way) now; the \(what) in \(affected == 1 ? "1 set was" : "\(affected) sets were") cleared.",
+            style: .info,
+            duration: 6,
+            action: ToastAction(title: "Undo") { [weak self] in
+                self?.undoTrackedByTime(entryID, to: entry)
+            }
+        )
+    }
+
+    private func undoTrackedByTime(_ entryID: UUID, to original: WorkoutExercise) {
+        guard let entry = workout?.exercise(entryID) else { return }
+        clearSetTimer(ifIn: entry)
+        withAnimation(Motion.smooth) {
+            mutate(immediate: true) { $0.updateExercise(entryID) { $0.undoRetrack(to: original) } }
         }
     }
 

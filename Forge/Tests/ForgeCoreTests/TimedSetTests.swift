@@ -142,6 +142,28 @@ final class TimedSetTests: XCTestCase {
         XCTAssertEqual(entry.setsLosingValues(switchingTo: .weightDistance), 0)
     }
 
+    func testUndoingASwitchPutsTheNumbersBack() {
+        let original = WorkoutExercise(exerciseID: farmersWalk.id, name: farmersWalk.name, tracking: .weightDuration, sets: [
+            WorkoutSet(weight: 32, duration: 120, isCompleted: true),
+            WorkoutSet(weight: 32),
+        ])
+        var entry = original
+        entry.retrack(.weightDistance)
+        XCTAssertEqual(entry.sets.map(\.duration), [nil, nil])
+        XCTAssertEqual(entry.undoRetrackedCopy(to: original), original, "nothing changed since: exactly as it was")
+
+        // A distance typed after switching goes with the switch back; a
+        // weight changed since is kept.
+        entry.sets[1].distance = 40
+        entry.sets[1].weight = 36
+        entry.undoRetrack(to: original)
+        XCTAssertEqual(entry.tracking, .weightDuration)
+        XCTAssertEqual(entry.sets.map(\.duration), [120, nil])
+        XCTAssertEqual(entry.sets.map(\.distance), [nil, nil])
+        XCTAssertEqual(entry.sets.map(\.weight), [32, 36])
+        XCTAssertTrue(entry.sets[0].isCompleted)
+    }
+
     func testNewEntriesRememberAnExerciseDoneByTime() throws {
         let byTime = LastPerformance(tracking: .weightDuration, sets: [WorkoutSet(weight: 32, duration: 120, isCompleted: true)])
         let byDistance = LastPerformance(tracking: .weightDistance, sets: [WorkoutSet(weight: 32, distance: 40, isCompleted: true)])
@@ -223,5 +245,13 @@ final class TimedSetTests: XCTestCase {
     func testTimedTargetsReadNaturally() {
         XCTAssertEqual(WorkoutFactory.targetFrom(WorkoutSet(weight: 32, duration: 120, distance: 40), tracking: .weightDuration).distance, nil)
         XCTAssertEqual(WorkoutFactory.targetFrom(WorkoutSet(weight: 32, duration: 120), tracking: .weightDuration).duration, 120)
+    }
+}
+
+private extension WorkoutExercise {
+    func undoRetrackedCopy(to original: WorkoutExercise) -> WorkoutExercise {
+        var copy = self
+        copy.undoRetrack(to: original)
+        return copy
     }
 }

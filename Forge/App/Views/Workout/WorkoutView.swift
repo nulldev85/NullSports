@@ -517,9 +517,6 @@ struct LiveExerciseSection: View, Equatable {
     let showDetails: () -> Void
     @Environment(AppModel.self) private var app
     @State private var editingNotes = false
-    /// Switching to (or back from) time, waiting on the athlete's OK
-    /// because numbers they entered would be cleared.
-    @State private var pendingByTime: Bool?
 
     /// Closures and the focus binding don't count: they only ever refer to
     /// the same entry and the same screen.
@@ -540,21 +537,6 @@ struct LiveExerciseSection: View, Equatable {
         let session = app.session
         Section {
             header
-                .confirmationDialog(
-                    pendingByTime == true ? "Track \(entry.name) by time?" : "Track \(entry.name) by \(usualWay)?",
-                    isPresented: Binding(get: { pendingByTime != nil }, set: { if !$0 { pendingByTime = nil } }),
-                    titleVisibility: .visible
-                ) {
-                    Button(pendingByTime == true ? "Track by Time" : "Track by \(usualWay.capitalized)") {
-                        if let byTime = pendingByTime {
-                            app.session.setTrackedByTime(byTime, for: entry.id)
-                        }
-                        pendingByTime = nil
-                    }
-                    Button("Cancel", role: .cancel) { pendingByTime = nil }
-                } message: {
-                    Text(switchMessage)
-                }
             if editingNotes || !entry.notes.isEmpty {
                 TextField("Notes", text: Binding(
                     get: { entry.notes },
@@ -602,34 +584,6 @@ struct LiveExerciseSection: View, Equatable {
         }
     }
 
-    /// Switches to (or back from) time, asking first if that clears numbers
-    /// already entered.
-    private func trackByTime(_ byTime: Bool) {
-        guard let usual = app.session.usualTracking(of: entry) else { return }
-        let tracking = byTime ? usual.timedVariant : usual
-        if entry.setsLosingValues(switchingTo: tracking) > 0 {
-            pendingByTime = byTime
-        } else {
-            app.session.setTrackedByTime(byTime, for: entry.id)
-        }
-    }
-
-    /// "distance", "reps"…: what the exercise usually counts instead of time.
-    private var usualWay: String {
-        guard let usual = app.session.usualTracking(of: entry) else { return "reps" }
-        let own = usual.fields.filter { !usual.timedVariant.fields.contains($0) }
-        return own.isEmpty ? usual.displayName.lowercased() : own.map(\.spokenName).joined(separator: " & ")
-    }
-
-    private var switchMessage: String {
-        guard let byTime = pendingByTime, let usual = app.session.usualTracking(of: entry) else { return "" }
-        let tracking = byTime ? usual.timedVariant : usual
-        let cleared = entry.tracking.fields.filter { !tracking.fields.contains($0) }.map(\.spokenName)
-        let count = entry.setsLosingValues(switchingTo: tracking)
-        let what = cleared.isEmpty ? "numbers" : cleared.joined(separator: " and ")
-        return "The \(what) entered in \(count == 1 ? "1 set" : "\(count) sets") will be cleared."
-    }
-
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Button(action: showDetails) {
@@ -669,7 +623,7 @@ struct LiveExerciseSection: View, Equatable {
             }
         }
         if let usual = session.usualTracking(of: entry), !usual.isTimed {
-            Toggle(isOn: Binding(get: { entry.tracking.isTimed }, set: { trackByTime($0) })) {
+            Toggle(isOn: Binding(get: { entry.tracking.isTimed }, set: { session.setTrackedByTime($0, for: entry.id) })) {
                 Label("Track by Time", systemImage: "hourglass")
             }
         }
@@ -754,6 +708,9 @@ struct LiveSetRow: View, Equatable {
                     completed: set.isCompleted,
                     logged: set.duration,
                     toggle: {
+                        // Clear the screen's focus too, so it's never
+                        // handed back to a field later.
+                        focus.wrappedValue = nil
                         dismissKeyboard()
                         session.toggleSetTimer(set.id)
                     },
