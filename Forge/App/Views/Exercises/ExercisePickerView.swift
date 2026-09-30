@@ -287,7 +287,7 @@ struct ExerciseEditorView: View {
                 }
                 Section {
                     TextField("Other names (comma separated)", text: $aliasText)
-                    TextField("Instructions or cues", text: $exercise.instructions, axis: .vertical)
+                    TextField("Description or cues", text: $exercise.instructions, axis: .vertical)
                         .lineLimit(2...8)
                 } header: {
                     Text("Details")

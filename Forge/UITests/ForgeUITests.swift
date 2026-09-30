@@ -213,6 +213,16 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(tapIfExists(app.buttons["openSettings"]))
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         snapshot("34-DarkSettings")
+
+        // Equipment pictures next to bodyweight movement pictures.
+        tab("Exercises")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("push\n")
+        XCTAssertTrue(app.buttons["exercise-Push-Up"].waitForExistence(timeout: 10))
+        sleep(1)
+        snapshot("35-DarkExercises")
     }
 
     func testTimersProgressAndSettings() throws {

@@ -32,7 +32,7 @@ struct ExerciseLibraryView: View {
                 }
                 ForEach(results) { exercise in
                     NavigationLink(value: ExerciseRoute(id: exercise.id)) {
-                        ExerciseRowLabel(exercise: exercise, isFavorite: app.library.isFavorite(exercise.id), detail: detail(for: exercise))
+                        ExerciseRowLabel(exercise: exercise, isFavorite: app.library.isFavorite(exercise.id), detail: detail(for: exercise), showsDescription: true)
                     }
                     .buttonStyle(.navigationRow)
                     .accessibilityIdentifier("exercise-\(exercise.name)")
@@ -143,30 +143,8 @@ struct ExerciseDetailView: View {
     private func content(_ exercise: Exercise) -> some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Pill(text: exercise.primaryMuscle.displayName, color: Theme.color(for: exercise.primaryMuscle), filled: true)
-                        ForEach(exercise.secondaryMuscles.prefix(3)) { muscle in
-                            Pill(text: muscle.displayName, color: Theme.color(for: muscle))
-                        }
-                    }
-                    HStack(spacing: 14) {
-                        Label(exercise.equipment.displayName, systemImage: "wrench.and.screwdriver")
-                        Label(exercise.category.displayName, systemImage: Theme.symbol(for: exercise.category))
-                    }
-                    .font(.app(.subheadline))
-                    .foregroundStyle(.secondary)
-                    Text("Tracked as \(exercise.tracking.displayName.lowercased())")
-                        .font(.app(.caption))
-                        .foregroundStyle(.tertiary)
-                    if !exercise.aliases.isEmpty {
-                        Text("Also called: \(exercise.aliases.joined(separator: ", "))")
-                            .font(.app(.caption))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.vertical, 4)
-                .cardRow(.top)
+                ExerciseOverview(exercise: exercise)
+                    .cardRow(.top)
                 Picker("View", selection: $tab.animation(Motion.smooth)) {
                     ForEach(DetailTab.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -353,13 +331,7 @@ struct ExerciseDetailView: View {
                 Text("Off").tag(0)
                 ForEach(RestOptions.values, id: \.self) { Text(DurationFormat.compact(Double($0))).tag($0) }
             }
-            .cardRow(exercise.instructions.isEmpty ? .bottom : [])
-            if !exercise.instructions.isEmpty {
-                Text(exercise.instructions)
-                    .font(.app(.subheadline))
-                    .foregroundStyle(.secondary)
-                    .cardRow(.bottom)
-            }
+            .cardRow(.bottom)
         } header: {
             Text("Notes")
         }
@@ -436,6 +408,49 @@ struct ExerciseDetailView: View {
         } footer: {
             Text("Warm-up sets never count toward records.")
         }
+    }
+}
+
+/// The top of an exercise's page: its picture, what it works and how to
+/// do it.
+struct ExerciseOverview: View {
+    let exercise: Exercise
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                ExerciseIconBadge(exercise: exercise, size: 64)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(exercise.equipment.displayName)
+                        .font(.app(.headline))
+                    Label(exercise.category.displayName, systemImage: Theme.symbol(for: exercise.category))
+                        .font(.app(.subheadline))
+                        .foregroundStyle(.secondary)
+                    Text("Tracked as \(exercise.tracking.displayName.lowercased())")
+                        .font(.app(.caption))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            HStack(spacing: 6) {
+                Pill(text: exercise.primaryMuscle.displayName, color: Theme.color(for: exercise.primaryMuscle), filled: true)
+                ForEach(exercise.secondaryMuscles.prefix(3)) { muscle in
+                    Pill(text: muscle.displayName, color: Theme.color(for: muscle))
+                }
+            }
+            if !exercise.instructions.isEmpty {
+                Text(exercise.instructions)
+                    .font(.app(.subheadline))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !exercise.aliases.isEmpty {
+                Text("Also called: \(exercise.aliases.joined(separator: ", "))")
+                    .font(.app(.caption))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 

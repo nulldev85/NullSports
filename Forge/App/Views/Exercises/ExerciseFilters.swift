@@ -119,10 +119,12 @@ struct ExerciseRowLabel: View {
     let exercise: Exercise
     var isFavorite = false
     var detail: String?
+    /// Adds the start of the exercise's description under its name.
+    var showsDescription = false
 
     var body: some View {
         HStack(spacing: 12) {
-            IconBadge(symbol: Theme.symbol(for: exercise.category), color: Theme.color(for: exercise.primaryMuscle), size: 38)
+            ExerciseIconBadge(exercise: exercise, size: showsDescription ? 46 : 40)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(exercise.name)
@@ -142,8 +144,16 @@ struct ExerciseRowLabel: View {
                     .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if showsDescription, !exercise.instructions.isEmpty {
+                    Text(exercise.instructions)
+                        .font(.app(.caption))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        // Read in full on the exercise's page.
+                        .accessibilityHidden(true)
+                }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, showsDescription ? 4 : 2)
     }
 }
