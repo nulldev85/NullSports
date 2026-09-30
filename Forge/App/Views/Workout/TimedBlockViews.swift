@@ -42,7 +42,11 @@ struct TimedBlockSection: View, Equatable {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.app(.title3))
+                            .frame(width: 36, height: 32)
+                            .contentShape(Rectangle())
                     }
+                    .menuStyle(.button)
+                    .buttonStyle(.pressableIcon)
                 }
             }
             .padding(.vertical, 6)

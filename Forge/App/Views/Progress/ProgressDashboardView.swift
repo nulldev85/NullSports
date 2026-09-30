@@ -249,6 +249,7 @@ struct ProgressDashboardView: View {
                 NavigationLink("See All") {
                     AllRecordsView()
                 }
+                .buttonStyle(.pressableText)
                 .font(.app(.subheadline, .semibold))
             }
             if recent.isEmpty {
@@ -315,7 +316,7 @@ struct ProgressDashboardView: View {
             }
             .cardStyle()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityIdentifier("measurementsLink")
     }
 }

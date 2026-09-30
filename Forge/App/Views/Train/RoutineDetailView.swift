@@ -102,6 +102,7 @@ struct RoutineDetailView: View {
                                 }
                             }
                         }
+                        .buttonStyle(.navigationRow)
                         .cardRow(.of(position, in: recent.count))
                     }
                 }

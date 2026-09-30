@@ -46,6 +46,7 @@ struct PlateCalculatorView: View {
                 NavigationLink("Edit Bar & Plates") {
                     PlateInventoryView()
                 }
+                .buttonStyle(.navigationRow)
             }
         }
         .canvasBackground()

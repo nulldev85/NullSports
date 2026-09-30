@@ -45,7 +45,7 @@ struct ExercisePickerView: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.navigationRow)
                         .accessibilityIdentifier("pick-\(exercise.name)")
                     }
                 }
@@ -56,6 +56,7 @@ struct ExercisePickerView: View {
                         Label(query.isEmpty ? "Create Custom Exercise" : "Create “\(query)”", systemImage: "plus.circle.fill")
                             .font(.app(.body, .semibold))
                     }
+                    .buttonStyle(.row)
                     .accessibilityIdentifier("createCustomExercise")
                 }
             }
@@ -282,6 +283,7 @@ struct ExerciseEditorView: View {
                                 .lineLimit(1)
                         }
                     }
+                    .buttonStyle(.navigationRow)
                 }
                 Section {
                     TextField("Other names (comma separated)", text: $aliasText)
@@ -346,6 +348,7 @@ struct SecondaryMusclePicker: View {
                         }
                     }
                 }
+                .buttonStyle(.navigationRow)
             }
         }
         .canvasBackground()

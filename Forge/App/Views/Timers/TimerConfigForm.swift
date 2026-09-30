@@ -144,6 +144,7 @@ struct CustomSegmentsSection: View {
             } label: {
                 Label("Add Interval", systemImage: "plus")
             }
+            .buttonStyle(.row)
         } header: {
             Text("Sequence")
         } footer: {

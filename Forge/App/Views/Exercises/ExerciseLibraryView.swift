@@ -26,8 +26,7 @@ struct ExerciseLibraryView: View {
                         Button("Create Exercise") {
                             creating = ExerciseEditorRequest(exercise: nil, prefillName: query)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .foregroundStyle(Theme.onAccent)
+                        .buttonStyle(.prominentPill)
                     }
                     .listRowBackground(Color.clear)
                 }
@@ -35,6 +34,7 @@ struct ExerciseLibraryView: View {
                     NavigationLink(value: ExerciseRoute(id: exercise.id)) {
                         ExerciseRowLabel(exercise: exercise, isFavorite: app.library.isFavorite(exercise.id), detail: detail(for: exercise))
                     }
+                    .buttonStyle(.navigationRow)
                     .accessibilityIdentifier("exercise-\(exercise.name)")
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -191,6 +191,7 @@ struct ExerciseDetailView: View {
                     Button("Edit Exercise", systemImage: "pencil") {
                         editing = ExerciseEditorRequest(exercise: exercise)
                     }
+                    .buttonStyle(.row)
                     .cardRow(.top)
                     Button(exercise.isArchived ? "Restore Exercise" : "Archive Exercise", systemImage: exercise.isArchived ? "tray.and.arrow.up" : "archivebox", role: exercise.isArchived ? nil : .destructive) {
                         if exercise.isArchived {
@@ -199,6 +200,7 @@ struct ExerciseDetailView: View {
                             confirmArchive = true
                         }
                     }
+                    .buttonStyle(.row)
                     .cardRow(.bottom)
                 } footer: {
                     Text("Archiving hides a custom exercise from your library but keeps every workout that used it.")
@@ -409,6 +411,7 @@ struct ExerciseDetailView: View {
                         }
                         .font(.app(.caption, .semibold))
                     }
+                    .buttonStyle(.pressableText)
                     .textCase(nil)
                 }
             }

@@ -393,15 +393,18 @@ private struct WorkoutContent: View {
                     Label("Add Exercises", systemImage: "plus.circle.fill")
                         .font(.app(.body, .semibold))
                 }
+                .buttonStyle(.row)
                 .accessibilityIdentifier("workoutAddExercises")
                 .cardRow(.top)
                 Button(action: actions.addTimedBlock) {
                     Label("Add Timed Block", systemImage: "timer")
                 }
+                .buttonStyle(.row)
                 .cardRow()
                 Button(action: actions.showPlates) {
                     Label("Plate Calculator", systemImage: "circle.grid.2x1")
                 }
+                .buttonStyle(.row)
                 .cardRow(.bottom)
             }
 
@@ -418,7 +421,7 @@ private struct WorkoutContent: View {
 
             Section {
                 Button("Discard Workout", role: .destructive, action: actions.discard)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(RowPressStyle(alignment: .center))
                     .cardRow(.all)
             }
         }
@@ -608,6 +611,7 @@ struct LiveExerciseSection: View, Equatable {
                     .font(.app(.subheadline, .semibold))
                     .frame(maxWidth: .infinity)
             }
+            .buttonStyle(RowPressStyle(alignment: .center))
             .accessibilityIdentifier("addSet-\(entry.name)")
             .sensoryFeedback(.impact(weight: .light), trigger: entry.sets.count)
             .listRowInsets(.exerciseCard(top: 4, bottom: 12))
@@ -641,7 +645,7 @@ struct LiveExerciseSection: View, Equatable {
                         .foregroundStyle(.secondary)
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             Spacer()
             Menu {
                 exerciseMenu
@@ -651,6 +655,8 @@ struct LiveExerciseSection: View, Equatable {
                     .frame(width: 36, height: 32)
                     .contentShape(Rectangle())
             }
+            .menuStyle(.button)
+            .buttonStyle(.pressableIcon)
             .accessibilityLabel("Exercise options")
         }
     }
@@ -772,7 +778,7 @@ struct LiveSetRow: View, Equatable {
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle(scale: 0.95))
                 .disabled(previous == nil)
             }
             TrackingFields(
@@ -802,7 +808,7 @@ struct LiveSetRow: View, Equatable {
                     .frame(width: SetColumn.check, height: 36)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle(scale: 0.84))
             .accessibilityLabel(set.isCompleted ? "Mark set incomplete" : "Complete set")
             .accessibilityIdentifier("completeSet")
             .sensoryFeedback(.success, trigger: set.isCompleted) { old, new in !old && new }
@@ -919,14 +925,13 @@ private struct RestTimerCard: View {
                     Spacer()
                     HStack(spacing: 8) {
                         Button("−15") { session.adjustRest(by: -15) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.pill)
                         Button("+15") { session.adjustRest(by: 15) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.pill)
                         Button(done ? "Done" : "Skip") {
                             withAnimation(Motion.smooth) { session.skipRest() }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .foregroundStyle(Theme.onAccent)
+                        .buttonStyle(.prominentPill)
                         .accessibilityIdentifier("skipRest")
                     }
                     .font(.app(.subheadline, .semibold))

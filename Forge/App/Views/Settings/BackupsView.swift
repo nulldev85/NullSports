@@ -72,7 +72,7 @@ struct BackupsView: View {
                                     .font(.app(.subheadline, .semibold))
                             }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.pill)
                         .disabled(data.isPreparingCopy)
                         .padding(.top, 2)
                     }
@@ -86,6 +86,7 @@ struct BackupsView: View {
                 } label: {
                     Label("Find Missing Data", systemImage: "sparkle.magnifyingglass")
                 }
+                .buttonStyle(.navigationRow)
                 .accessibilityIdentifier("findMissingData")
                 NavigationLink {
                     RecentlyDeletedView()
@@ -100,6 +101,7 @@ struct BackupsView: View {
                         }
                     }
                 }
+                .buttonStyle(.navigationRow)
             } header: {
                 Text("Recovery")
             } footer: {
@@ -112,12 +114,14 @@ struct BackupsView: View {
                 } label: {
                     progressLabel("Export Backup File", systemImage: "square.and.arrow.up", busy: preparing == .backup)
                 }
+                .buttonStyle(.row)
                 .accessibilityIdentifier("exportBackup")
                 Button {
                     prepare(.csv) { csvURL = try await data.makeCSVFile() }
                 } label: {
                     progressLabel("Export Sets as CSV", systemImage: "tablecells", busy: preparing == .csv)
                 }
+                .buttonStyle(.row)
                 Button {
                     if let reason = restoreBlockedReason {
                         restoreBlocked = reason
@@ -127,6 +131,7 @@ struct BackupsView: View {
                 } label: {
                     progressLabel("Restore from Backup File", systemImage: "square.and.arrow.down", busy: preparing == .reading || data.isReplacingData)
                 }
+                .buttonStyle(.row)
                 .disabled(data.isReplacingData)
             } header: {
                 Text("Backup File")
@@ -140,6 +145,7 @@ struct BackupsView: View {
                     Button("Stop Saving to \(data.exportFolderName ?? "Folder")", role: .destructive) {
                         data.clearExportFolder()
                     }
+                    .buttonStyle(.row)
                 }
                 Button {
                     data.exportNow()
@@ -152,6 +158,7 @@ struct BackupsView: View {
                         }
                     }
                 }
+                .buttonStyle(.row)
                 .disabled(data.isExporting)
             } header: {
                 Text("Automatic Backup Files")
@@ -166,6 +173,7 @@ struct BackupsView: View {
                 } label: {
                     Label("Create Snapshot Now", systemImage: "camera.metering.center.weighted")
                 }
+                .buttonStyle(.row)
                 ForEach(data.snapshots) { snapshot in
                     Button {
                         if let reason = restoreBlockedReason {
@@ -176,7 +184,7 @@ struct BackupsView: View {
                     } label: {
                         SnapshotRow(snapshot: snapshot, summary: data.summary(of: snapshot))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.navigationRow)
                     .swipeActions(allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             data.delete(snapshot)

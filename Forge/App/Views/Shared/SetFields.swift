@@ -275,6 +275,8 @@ struct SetKindMenu: View {
         } label: {
             SetKindBadge(kind: kind, number: number, completed: completed, rpe: rpe)
         }
+        .menuStyle(.button)
+        .buttonStyle(PressableStyle(scale: 0.86))
         .frame(width: SetColumn.badge)
     }
 

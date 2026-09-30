@@ -42,6 +42,7 @@ struct HistoryView: View {
                                 } label: {
                                     WorkoutSummaryRow(summary: summary, prCount: app.history.records.prCount(in: summary.id))
                                 }
+                                .buttonStyle(.navigationRow)
                                 .accessibilityIdentifier("historyWorkout")
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) {
@@ -73,6 +74,7 @@ struct HistoryView: View {
                                     .contentTransition(.numericText())
                             }
                         }
+                        .buttonStyle(.navigationRow)
                         .accessibilityIdentifier("historyRecentlyDeleted")
                         .cardRow(.all)
                     } footer: {
@@ -265,9 +267,10 @@ struct MonthCalendar: View {
                 } label: {
                     Image(systemName: "chevron.right")
                         .frame(width: 36, height: 30)
+                        .contentShape(Rectangle())
                 }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.pressableIcon)
 
             let symbols = weekdaySymbols
             HStack(spacing: 0) {
@@ -325,7 +328,7 @@ struct MonthCalendar: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle(scale: 0.88))
         .accessibilityLabel(day.formatted(date: .complete, time: .omitted) + (hasWorkout ? ", workout logged" : ""))
     }
 

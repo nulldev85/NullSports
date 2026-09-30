@@ -162,7 +162,7 @@ struct NumberStepper: View {
                 Image(systemName: "minus")
                     .frame(width: 34, height: 30)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.pill)
             .disabled(value <= range.lowerBound)
             .accessibilityLabel("Decrease \(title)")
             Text(suffix.map { "\(value) \($0)" } ?? "\(value)")
@@ -177,7 +177,7 @@ struct NumberStepper: View {
                 Image(systemName: "plus")
                     .frame(width: 34, height: 30)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.pill)
             .disabled(value >= range.upperBound)
             .accessibilityLabel("Increase \(title)")
         }
@@ -264,7 +264,7 @@ struct DurationRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.navigationRow)
             if expanded {
                 DurationPicker(title: title, seconds: $seconds, maxMinutes: maxMinutes, secondStep: secondStep, allowsZero: allowsZero, showsHeader: false)
                     .padding(.top, 4)

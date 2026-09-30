@@ -20,6 +20,7 @@ struct SectionHeader: View {
             Spacer()
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
+                    .buttonStyle(.pressableText)
                     .font(.app(.subheadline, .semibold))
             }
         }
@@ -199,10 +200,10 @@ private struct PrimaryButtonBody: View {
                     )
                     .shadow(color: isEnabled ? shadow : .clear, radius: pressed ? 3 : 10, y: pressed ? 1 : 5)
             }
-            .brightness(pressed ? -0.06 : 0)
-            .scaleEffect(pressed ? 0.975 : 1)
+            .brightness(pressed ? -0.05 : 0)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .pressEffect(pressed, scale: 0.96, dim: 0)
             .opacity(isEnabled ? 1 : 0.5)
-            .animation(Motion.snappy, value: pressed)
     }
 }
 
@@ -226,8 +227,8 @@ struct SecondaryButtonStyle: ButtonStyle {
                         )
                     )
             }
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .animation(Motion.snappy, value: configuration.isPressed)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .pressEffect(configuration.isPressed, scale: 0.96, dim: 0)
     }
 }
 

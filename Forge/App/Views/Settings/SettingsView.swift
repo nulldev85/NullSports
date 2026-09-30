@@ -23,6 +23,7 @@ struct SettingsView: View {
                         Image(systemName: "clock.arrow.circlepath")
                     }
                 }
+                .buttonStyle(.navigationRow)
                 .accessibilityIdentifier("backupsLink")
                 NavigationLink {
                     RecentlyDeletedView()
@@ -37,6 +38,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .buttonStyle(.navigationRow)
                 NavigationLink {
                     ArchivedExercisesView()
                 } label: {
@@ -49,6 +51,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .buttonStyle(.navigationRow)
             } header: {
                 Text("Your Data")
             } footer: {
@@ -116,6 +119,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(.navigationRow)
             }
 
             Section("Appearance") {
@@ -258,6 +262,7 @@ struct PlateInventoryView: View {
                         }
                     }
                 }
+                .buttonStyle(.row)
             }
         }
         .canvasBackground()
@@ -291,7 +296,7 @@ struct RecentlyDeletedView: View {
                             }
                             Spacer()
                             Button("Restore") { withAnimation(Motion.smooth) { app.history.restore(summary.id) } }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.pill)
                         }
                         .swipeActions(allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -321,7 +326,7 @@ struct RecentlyDeletedView: View {
                             }
                             Spacer()
                             Button("Restore") { withAnimation(Motion.smooth) { app.routines.restore(routine.id) } }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.pill)
                         }
                         .swipeActions(allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -359,7 +364,7 @@ struct ArchivedExercisesView: View {
                     ExerciseRowLabel(exercise: exercise)
                     Spacer()
                     Button("Restore") { withAnimation(Motion.smooth) { app.library.unarchive(exercise.id) } }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.pill)
                 }
                 .swipeActions {
                     Button(role: .destructive) {

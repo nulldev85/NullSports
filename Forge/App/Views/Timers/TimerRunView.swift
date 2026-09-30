@@ -363,6 +363,7 @@ struct TimerRunView: View {
                 Button("Discard", role: .destructive) { confirmDiscard = true }
                     .font(.app(.subheadline, .semibold))
                     .foregroundStyle(.secondary)
+                    .buttonStyle(PressableStyle(scale: 0.94))
             }
             .padding(.bottom, 20)
         }

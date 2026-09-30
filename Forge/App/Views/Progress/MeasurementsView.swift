@@ -17,6 +17,7 @@ struct MeasurementsView: View {
                         } label: {
                             MeasurementRow(kind: kind)
                         }
+                        .buttonStyle(.navigationRow)
                     }
                 }
             }
@@ -33,6 +34,7 @@ struct MeasurementsView: View {
                                 .foregroundStyle(Color.accentColor)
                         }
                     }
+                    .buttonStyle(.navigationRow)
                 }
             }
         }
@@ -143,6 +145,7 @@ struct MeasurementDetailView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
+                    .buttonStyle(.navigationRow)
                     .swipeActions(allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             withAnimation(Motion.smooth) { app.measurements.delete(entry.id) }

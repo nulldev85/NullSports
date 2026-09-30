@@ -261,7 +261,7 @@ struct SetTimerCard: View {
                         } label: {
                             Image(systemName: "arrow.counterclockwise")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.pill)
                         .accessibilityLabel("Reset timer")
                         Button {
                             session.toggleSetTimer(timer.setID)
@@ -269,14 +269,13 @@ struct SetTimerCard: View {
                             Image(systemName: timer.isPaused ? "play.fill" : "pause.fill")
                                 .contentTransition(.symbolEffect(.replace))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.pill)
                         .accessibilityLabel(timer.isPaused ? "Resume timer" : "Pause timer")
                         .accessibilityIdentifier("pauseSetTimer")
                         Button("Done") {
                             withAnimation(Motion.snappy) { session.toggleCompletion(of: timer.setID) }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .foregroundStyle(Theme.onAccent)
+                        .buttonStyle(.prominentPill)
                         .accessibilityIdentifier("finishSetTimer")
                     }
                     .font(.app(.subheadline, .semibold))

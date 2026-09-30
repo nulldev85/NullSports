@@ -176,6 +176,8 @@ struct FolderContentsView: View {
                                 .labelStyle(.iconOnly)
                                 .font(.app(.title3))
                         }
+                        .menuStyle(.button)
+                        .buttonStyle(.pressableIcon)
                         .accessibilityIdentifier("addRoutineMenu")
                     }
                     .textCase(nil)
@@ -353,6 +355,7 @@ struct FolderContentsView: View {
             }
             .padding(.vertical, 2)
         }
+        .buttonStyle(.navigationRow)
         .accessibilityIdentifier("folder-\(item.name)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deletingFolder = item } label: { Label("Delete", systemImage: "trash") }
@@ -386,6 +389,7 @@ struct FolderContentsView: View {
         NavigationLink(value: TrainRoute.routine(routine.id)) {
             RoutineRow(routine: routine, folderName: showFolder ? app.routines.folder(routine.folderID)?.name : nil)
         }
+        .buttonStyle(.navigationRow)
         .accessibilityIdentifier("routine-\(routine.name)")
         .swipeActions(edge: .leading) {
             Button {
@@ -595,10 +599,9 @@ struct DraftBanner: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Keep Editing", action: restore)
-                    .buttonStyle(.borderedProminent)
-                    .foregroundStyle(Theme.onAccent)
+                    .buttonStyle(.prominentPill)
                 Button("Discard", role: .destructive, action: discard)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.pill)
             }
         }
         .padding(.vertical, 4)
@@ -632,12 +635,11 @@ struct OffDeviceCopyCard: View {
                         Text("Save to iCloud Drive")
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .foregroundStyle(Theme.onAccent)
+                .buttonStyle(.prominentPill)
                 .disabled(isPreparing)
                 .accessibilityIdentifier("saveBackupCopy")
                 Button("Not Now", action: snooze)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.pill)
             }
         }
         .padding(.vertical, 4)
@@ -666,11 +668,10 @@ struct RestoreBackupCard: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Restore Backup", action: restore)
-                    .buttonStyle(.borderedProminent)
-                    .foregroundStyle(Theme.onAccent)
+                    .buttonStyle(.prominentPill)
                     .accessibilityIdentifier("restoreBackupFile")
                 Button("Start Fresh", action: startFresh)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.pill)
             }
         }
         .padding(.vertical, 4)
@@ -695,6 +696,7 @@ struct FolderPickerView: View {
                 } label: {
                     row(name: "Top Level", depth: 0, isCurrent: current == nil, symbol: "tray.full")
                 }
+                .buttonStyle(.navigationRow)
                 ForEach(flattened(parent: nil, depth: 1), id: \.folder.id) { entry in
                     Button {
                         onPick(entry.folder.id)
@@ -702,6 +704,7 @@ struct FolderPickerView: View {
                     } label: {
                         row(name: entry.folder.name, depth: entry.depth, isCurrent: current == entry.folder.id, symbol: "folder.fill")
                     }
+                    .buttonStyle(.navigationRow)
                 }
             }
             .canvasBackground()

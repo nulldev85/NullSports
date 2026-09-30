@@ -269,6 +269,7 @@ struct WorkoutEditorView: View {
                                 } label: {
                                     Image(systemName: "trash")
                                 }
+                                .buttonStyle(.pressableIcon)
                             }
                         }
                     }
@@ -279,6 +280,7 @@ struct WorkoutEditorView: View {
                     } label: {
                         Label("Add Exercise", systemImage: "plus.circle.fill")
                     }
+                    .buttonStyle(.row)
                 }
             }
             .canvasBackground()
@@ -365,6 +367,7 @@ struct EditableSetsList: View {
             Label("Add Set", systemImage: "plus")
                 .font(.app(.subheadline, .semibold))
         }
+        .buttonStyle(.row)
     }
 
     private func setBinding<T>(_ index: Int, _ keyPath: WritableKeyPath<WorkoutSet, T?>) -> Binding<T?> {

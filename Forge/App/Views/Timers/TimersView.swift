@@ -172,19 +172,29 @@ struct PresetRow: View {
     let start: () -> Void
     let edit: () -> Void
     let delete: () -> Void
+    /// The card sinks as one while its main area is pressed; the play
+    /// button presses on its own.
+    @State private var pressed = false
 
     var body: some View {
         HStack(spacing: 12) {
-            IconBadge(symbol: preset.config.kind.symbolName)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(preset.name)
-                    .font(.app(.body, .semibold))
-                Text(preset.config.summary)
-                    .font(.app(.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            Button(action: edit) {
+                HStack(spacing: 12) {
+                    IconBadge(symbol: preset.config.kind.symbolName)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(preset.name)
+                            .font(.app(.body, .semibold))
+                        Text(preset.config.summary)
+                            .font(.app(.caption))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .buttonStyle(PressReportingStyle(isPressed: $pressed))
+            .accessibilityHint("Edit")
             Button(action: start) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 15, weight: .semibold))
@@ -192,12 +202,11 @@ struct PresetRow: View {
                     .frame(width: 40, height: 40)
                     .background(Circle().fill(Color.accentColor))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle(scale: 0.86))
             .accessibilityLabel("Start \(preset.name)")
         }
         .cardStyle(padding: 12)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: edit)
+        .pressEffect(pressed)
         .contextMenu {
             Button("Start", systemImage: "play.fill", action: start)
             Button("Edit", systemImage: "slider.horizontal.3", action: edit)

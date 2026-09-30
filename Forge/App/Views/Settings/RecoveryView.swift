@@ -84,8 +84,7 @@ struct RecoveryView: View {
                     .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
                 Button("Start Scan") { scan() }
-                    .buttonStyle(.borderedProminent)
-                    .foregroundStyle(Theme.onAccent)
+                    .buttonStyle(.prominentPill)
             }
             .padding(.vertical, 6)
         }
@@ -121,7 +120,7 @@ struct RecoveryView: View {
                     .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
                 Button("Scan Again") { scan() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.pill)
             }
             .padding(.vertical, 6)
         }
@@ -144,6 +143,7 @@ struct RecoveryView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(.navigationRow)
             } footer: {
                 Text("Workouts deleted in the last 30 days are there, not here.")
             }
@@ -237,6 +237,7 @@ struct RecoveryView: View {
             } label: {
                 Label("Scan a Backup File…", systemImage: "doc.badge.plus")
             }
+            .buttonStyle(.row)
             .accessibilityIdentifier("scanBackupFile")
         } footer: {
             Text("Have a backup saved somewhere else, like another folder in Files or an email attachment? Forge can check it too.")
@@ -297,8 +298,7 @@ struct RecoveryView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
-        .foregroundStyle(Theme.onAccent)
+        .buttonStyle(.prominentPill)
         .disabled(count == 0 || app.dataSafety.isRestoringFound)
         .accessibilityIdentifier("restoreFoundItems")
         .padding(.horizontal, 16)
@@ -320,7 +320,7 @@ struct RecoveryView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.navigationRow)
         .sensoryFeedback(.selection, trigger: isOn)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }

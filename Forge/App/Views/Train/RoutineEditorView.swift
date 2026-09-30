@@ -174,6 +174,7 @@ struct RoutineEditorView: View {
                 Label("Add Exercises", systemImage: "plus.circle.fill")
                     .font(.app(.body, .semibold))
             }
+            .buttonStyle(.row)
             .accessibilityIdentifier("addExercisesButton")
             .cardRow(.top)
             Button {
@@ -181,6 +182,7 @@ struct RoutineEditorView: View {
             } label: {
                 Label("Add Timed Block (AMRAP, EMOM, Tabata…)", systemImage: "timer")
             }
+            .buttonStyle(.row)
             .cardRow(.bottom)
         } footer: {
             Text("Tip: use a block's menu to link exercises into supersets, set rest times, or reorder.")
@@ -394,6 +396,7 @@ struct ColorTagPicker: View {
                         .overlay(Image(systemName: "slash.circle").foregroundStyle(.secondary))
                         .overlay(Circle().strokeBorder(Color.primary, lineWidth: selection == nil ? 2 : 0).padding(-4))
                 }
+                .buttonStyle(PressableStyle(scale: 0.86))
                 .accessibilityLabel("No color")
                 ForEach(Theme.tagColors, id: \.id) { tag in
                     Button {
@@ -404,6 +407,7 @@ struct ColorTagPicker: View {
                             .frame(width: 28, height: 28)
                             .overlay(Circle().strokeBorder(Color.primary, lineWidth: selection.map(Theme.canonicalID) == tag.id ? 2 : 0).padding(-4))
                     }
+                    .buttonStyle(PressableStyle(scale: 0.86))
                     .accessibilityLabel(tag.name)
                 }
             }
@@ -476,6 +480,7 @@ struct EditorBlockSection: View, Equatable {
                 } label: {
                     Label(block.exercises.isEmpty ? "Choose Movements" : "Add Movement", systemImage: "plus")
                 }
+                .buttonStyle(.row)
                 .cardRow(.bottom)
             }
         } header: {
@@ -511,7 +516,11 @@ struct EditorBlockSection: View, Equatable {
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.app(.body))
+                .frame(width: 32, height: 28)
+                .contentShape(Rectangle())
         }
+        .menuStyle(.button)
+        .buttonStyle(.pressableIcon)
         .textCase(nil)
     }
 }
@@ -540,7 +549,7 @@ struct TimedBlockEditorHeader: View {
                         .font(.app(.subheadline))
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             if movementCount > 1, [.emom, .tabata, .intervals, .custom].contains(timer.kind) {
                 Toggle("Alternate movements each interval", isOn: $alternate)
                     .font(.app(.subheadline))
@@ -610,6 +619,8 @@ struct EditorExerciseRows: View {
                         .frame(width: 32, height: 28)
                         .contentShape(Rectangle())
                 }
+                .menuStyle(.button)
+                .buttonStyle(.pressableIcon)
                 .accessibilityLabel("Exercise options")
             }
             if showingNotes || !entry.notes.isEmpty {
@@ -635,7 +646,7 @@ struct EditorExerciseRows: View {
                         .padding(.vertical, 6)
                         .background(Theme.fill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle(scale: 0.96))
             }
         }
         .padding(.vertical, 6)

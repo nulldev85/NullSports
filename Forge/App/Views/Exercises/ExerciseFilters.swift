@@ -59,7 +59,7 @@ struct ExerciseFilterBar: View {
                         Label("Clear", systemImage: "xmark.circle.fill")
                             .font(.app(.subheadline, .medium))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.pressableText)
                 }
             }
             .padding(.horizontal, 16)
@@ -107,7 +107,10 @@ struct ExerciseFilterBar: View {
             .padding(.vertical, 7)
             .foregroundStyle(active ? Theme.onAccent : Color.primary)
             .background(Capsule().fill(active ? Color.accentColor : Theme.fill))
+            .contentShape(Capsule())
         }
+        .menuStyle(.button)
+        .buttonStyle(PressableStyle(scale: 0.94))
         .menuActionDismissBehavior(.disabled)
     }
 }

@@ -29,24 +29,6 @@ enum AppEnvironment {
     static let isUITest = ProcessInfo.processInfo.arguments.contains("-ForgeUITest")
 }
 
-/// For tappable cards and tiles: sinks slightly under the finger and springs
-/// back, like a physical button.
-struct PressableStyle: ButtonStyle {
-    var scale: CGFloat = 0.97
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .opacity(configuration.isPressed ? 0.88 : 1)
-            .animation(Motion.snappy, value: configuration.isPressed)
-    }
-}
-
-extension ButtonStyle where Self == PressableStyle {
-    static var pressable: PressableStyle { PressableStyle() }
-}
-
 extension View {
     /// A floating control surface (rest timer, workout bar, toasts): Liquid
     /// Glass on iOS 26, a blurred material with a soft shadow before that.

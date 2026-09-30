@@ -75,6 +75,8 @@ enum Theme {
     static let cardShadowFar = Color(light: 0x16392F, lightOpacity: 0.09, dark: 0x000000, darkOpacity: 0.5)
     /// Input wells, chips and other recessed fills.
     static let fill = Color(light: 0xE9ECE7, dark: 0x252B2F)
+    /// The soft well a list row sinks into while it's pressed.
+    static let pressWell = Color(light: 0x0F2A22, lightOpacity: 0.06, dark: 0xFFFFFF, darkOpacity: 0.07)
     /// Hairlines and chart grid lines.
     static let line = Color(light: 0xDDE1DB, dark: 0x2C3337)
     /// Primary text; secondary text derives from it.

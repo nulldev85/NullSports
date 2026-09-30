@@ -203,7 +203,7 @@ struct RatingPicker: View {
                         .contentTransition(.symbolEffect(.replace))
                         .symbolEffect(.bounce, value: rating == value)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle(scale: 0.8))
                 .accessibilityLabel("\(value) stars")
             }
         }
