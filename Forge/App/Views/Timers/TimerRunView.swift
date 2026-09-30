@@ -237,7 +237,7 @@ struct TimerRunView: View {
                     .foregroundStyle(color)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(color.opacity(0.18)))
+                    .nightPanel(cornerRadius: 18, fill: color.opacity(0.18))
             }
             .buttonStyle(PressableStyle(scale: 0.96))
             .disabled(display.phase.kind == .prepare)
@@ -336,13 +336,13 @@ struct TimerRunView: View {
                             }
                         }
                         .padding(14)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.06)))
+                        .nightPanel(cornerRadius: 16)
                     }
                     if let notes {
                         TextField("Notes", text: notes, axis: .vertical)
                             .lineLimit(1...4)
                             .padding(12)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white.opacity(0.06)))
+                            .nightPanel(cornerRadius: 14)
                     }
                 }
 
@@ -394,7 +394,7 @@ struct TimerRunView: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.06)))
+        .nightPanel(cornerRadius: 16)
         .buttonStyle(PressableStyle(scale: 0.9))
         .sensoryFeedback(.selection, trigger: value.wrappedValue)
     }

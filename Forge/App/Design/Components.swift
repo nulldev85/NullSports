@@ -32,6 +32,8 @@ struct StatTile: View {
     var detail: String?
     var symbol: String?
     var tint: Color = .accentColor
+    /// `.resting` inside list rows, where a long shadow would be cut off.
+    var elevation: CardElevation = .raised
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -59,7 +61,7 @@ struct StatTile: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle(padding: 14)
+        .cardStyle(padding: 14, elevation: elevation)
     }
 }
 
@@ -91,7 +93,18 @@ struct IconBadge: View {
             .font(.system(size: size * 0.42, weight: .medium))
             .foregroundStyle(color)
             .frame(width: size, height: size)
-            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.32, style: .continuous))
+            .background {
+                // A small glossy tile: lighter at the top, with a rim.
+                let shape = RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
+                shape
+                    .fill(LinearGradient(colors: [color.opacity(0.20), color.opacity(0.10)], startPoint: .top, endPoint: .bottom))
+                    .overlay(
+                        shape.strokeBorder(
+                            LinearGradient(colors: [Theme.cardRim.opacity(0.9), Theme.cardRim.opacity(0)], startPoint: .top, endPoint: .bottom),
+                            lineWidth: 0.75
+                        )
+                    )
+            }
     }
 }
 
@@ -166,12 +179,23 @@ private struct PrimaryButtonBody: View {
             .padding(.vertical, 15)
             .foregroundStyle(Theme.onAccent)
             .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+                shape
                     .fill(color)
+                    // A glossy top: light pooling on the upper half…
                     .overlay(
-                        // A faint top sheen keeps the flat color from looking dead.
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(LinearGradient(colors: [.white.opacity(0.14), .clear], startPoint: .top, endPoint: .center))
+                        shape.fill(LinearGradient(
+                            colors: [.white.opacity(pressed ? 0.10 : 0.22), .white.opacity(0.04), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                    )
+                    // …and a bright rim along the top edge.
+                    .overlay(
+                        shape.strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.42), .white.opacity(0.06)], startPoint: .top, endPoint: .bottom),
+                            lineWidth: 1
+                        )
                     )
                     .shadow(color: isEnabled ? shadow : .clear, radius: pressed ? 3 : 10, y: pressed ? 1 : 5)
             }
@@ -191,7 +215,17 @@ struct SecondaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .foregroundStyle(color)
-            .background(color.opacity(configuration.isPressed ? 0.22 : 0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+                shape
+                    .fill(color.opacity(configuration.isPressed ? 0.22 : 0.12))
+                    .overlay(
+                        shape.strokeBorder(
+                            LinearGradient(colors: [Theme.cardRim.opacity(0.8), Theme.cardRim.opacity(0)], startPoint: .top, endPoint: .bottom),
+                            lineWidth: 1
+                        )
+                    )
+            }
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .animation(Motion.snappy, value: configuration.isPressed)
     }
@@ -348,7 +382,7 @@ struct EmptyCard: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 16)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .cardSurface()
     }
 }
 

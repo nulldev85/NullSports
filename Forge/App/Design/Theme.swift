@@ -24,6 +24,15 @@ extension Color {
     init(light: UInt32, dark: UInt32) {
         self.init(uiColor: .dynamic(light: light, dark: dark))
     }
+
+    /// Light- and dark-mode values that are partly transparent.
+    init(light: UInt32, lightOpacity: CGFloat, dark: UInt32, darkOpacity: CGFloat) {
+        self.init(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(hex: dark, alpha: darkOpacity)
+                : UIColor(hex: light, alpha: lightOpacity)
+        })
+    }
 }
 
 struct AccentOption: Identifiable, Hashable {
@@ -38,10 +47,32 @@ struct AccentOption: Identifiable, Hashable {
 enum Theme {
     // MARK: Neutrals
 
-    /// Screen background behind cards and lists.
-    static let canvas = Color(light: 0xF2F3EF, dark: 0x0D1012)
+    /// Screen background behind cards and lists (flat; screens use
+    /// `CanvasBackdrop`, which falls off from `canvasTop` to `canvasBottom`).
+    static let canvas = Color(light: 0xF0F2ED, dark: 0x0C0F12)
+    static let canvasTop = Color(light: 0xF6F7F3, dark: 0x11171B)
+    static let canvasBottom = Color(light: 0xEBEEE8, dark: 0x07090B)
+
+    // MARK: Cards
+
+    /// Cards are lit from above: a touch brighter at the top.
+    static let cardTop = Color(light: 0xFFFFFF, dark: 0x222A2F)
+    static let cardBottom = Color(light: 0xF4F7F2, dark: 0x171C20)
+    /// List rows and other flat card fills: the card's middle tone.
+    static let cardFill = Color(light: 0xFDFEFC, dark: 0x1B2125)
     /// Cards. Matches list rows so custom cards and lists read as one surface.
-    static let surface = Color(.secondarySystemGroupedBackground)
+    static let surface = cardFill
+    /// The bright rim where light catches a card's top edge.
+    static let cardRim = Color(light: 0xFFFFFF, lightOpacity: 1, dark: 0xFFFFFF, darkOpacity: 0.17)
+    /// Light pooling on a card's upper part.
+    static let cardGloss = Color(light: 0xFFFFFF, lightOpacity: 0.7, dark: 0xFFFFFF, darkOpacity: 0.045)
+    /// The faint shade a card settles into at its bottom edge.
+    static let cardShade = Color(light: 0x0F2A22, lightOpacity: 0.05, dark: 0x000000, darkOpacity: 0.22)
+    /// The hairline that holds a card's shape against the canvas.
+    static let cardEdge = Color(light: 0x0F2A22, lightOpacity: 0.08, dark: 0xFFFFFF, darkOpacity: 0.05)
+    /// A tight contact shadow and a soft, wide one below.
+    static let cardShadowNear = Color(light: 0x0F2A22, lightOpacity: 0.06, dark: 0x000000, darkOpacity: 0.5)
+    static let cardShadowFar = Color(light: 0x16392F, lightOpacity: 0.09, dark: 0x000000, darkOpacity: 0.5)
     /// Input wells, chips and other recessed fills.
     static let fill = Color(light: 0xE9ECE7, dark: 0x252B2F)
     /// Hairlines and chart grid lines.
@@ -171,17 +202,4 @@ enum Theme {
     }
 }
 
-extension View {
-    /// Card surface used across the app.
-    func cardStyle(padding: CGFloat = 16) -> some View {
-        self
-            .padding(padding)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
 
-    /// The calm canvas behind lists and forms, instead of the system gray.
-    func canvasBackground() -> some View {
-        scrollContentBackground(.hidden)
-            .background(Theme.canvas)
-    }
-}

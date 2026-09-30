@@ -130,14 +130,14 @@ struct FinishWorkoutView: View {
         let units = app.settings.units
         return Section {
             HStack(spacing: 10) {
-                StatTile(title: "Duration", value: DurationFormat.compact(max(0, endedAt.timeIntervalSince(startedAt))), symbol: "clock")
-                StatTile(title: "Sets", value: "\(workout.completedWorkingSets.count)", symbol: "checkmark.circle")
+                StatTile(title: "Duration", value: DurationFormat.compact(max(0, endedAt.timeIntervalSince(startedAt))), symbol: "clock", elevation: .resting)
+                StatTile(title: "Sets", value: "\(workout.completedWorkingSets.count)", symbol: "checkmark.circle", elevation: .resting)
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             HStack(spacing: 10) {
-                StatTile(title: "Volume", value: units.volume(workout.volume), symbol: "scalemass")
-                StatTile(title: "Exercises", value: "\(workout.allExercises.count)", symbol: "dumbbell")
+                StatTile(title: "Volume", value: units.volume(workout.volume), symbol: "scalemass", elevation: .resting)
+                StatTile(title: "Exercises", value: "\(workout.allExercises.count)", symbol: "dumbbell", elevation: .resting)
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -299,7 +299,7 @@ struct WorkoutSummaryView: View {
                 }
                 .padding(20)
             }
-            .background(Theme.canvas)
+            .background { CanvasBackdrop() }
             .stallContext("Summary")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

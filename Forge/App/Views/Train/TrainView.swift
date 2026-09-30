@@ -92,7 +92,8 @@ struct FolderContentsView: View {
             if isRoot, searchText.isEmpty {
                 Section {
                     QuickStartCard()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        // Room below for the card's shadow.
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 18, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
                 if let draft = draftToRestore {
@@ -104,6 +105,7 @@ struct FolderContentsView: View {
                             app.routines.saveDraft(nil)
                             withAnimation(Motion.smooth) { draftToRestore = nil }
                         }
+                        .cardRow(.all)
                     }
                 }
                 if offersRestore {
@@ -113,6 +115,7 @@ struct FolderContentsView: View {
                         } startFresh: {
                             withAnimation(Motion.smooth) { restoreCardDismissed = true }
                         }
+                        .cardRow(.all)
                     }
                 } else if hasData, app.dataSafety.shouldSuggestOffDeviceCopy(newestWorkout: app.history.summaries.first?.startedAt) {
                     Section {
@@ -123,6 +126,7 @@ struct FolderContentsView: View {
                                 app.dataSafety.snoozeFolderSuggestion()
                             }
                         }
+                        .cardRow(.all)
                     }
                 }
             }
@@ -133,23 +137,28 @@ struct FolderContentsView: View {
                     if matches.isEmpty {
                         Text("No routines match “\(searchText)”.")
                             .foregroundStyle(.secondary)
+                            .cardRow(.all)
                     }
-                    ForEach(matches) { routine in
+                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, routine in
                         routineRow(routine, showFolder: true)
+                            .cardRow(.of(index, in: matches.count))
                     }
                 }
             } else {
                 Section {
-                    ForEach(subfolders) { item in
+                    let rowCount = subfolders.count + routines.count
+                    ForEach(Array(subfolders.enumerated()), id: \.element.id) { index, item in
                         folderRow(item)
+                            .cardRow(.of(index, in: rowCount))
                     }
                     .onMove { source, destination in
                         var ids = subfolders.map(\.id)
                         ids.move(fromOffsets: source, toOffset: destination)
                         app.routines.reorder(ids)
                     }
-                    ForEach(routines) { routine in
+                    ForEach(Array(routines.enumerated()), id: \.element.id) { index, routine in
                         routineRow(routine, showFolder: false)
+                            .cardRow(.of(subfolders.count + index, in: rowCount))
                     }
                     .onMove { source, destination in
                         var ids = routines.map(\.id)
@@ -511,18 +520,7 @@ struct QuickStartCard: View {
         }
         .padding(18)
         .animation(Motion.smooth, value: app.session.isActive)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Theme.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(LinearGradient(
-                            colors: [Color.accentColor.opacity(0.16), Color.accentColor.opacity(0.02)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
-                )
-        )
+        .cardSurface(cornerRadius: 22, tint: .accentColor)
     }
 
     private var greeting: String {

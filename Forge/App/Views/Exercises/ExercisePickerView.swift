@@ -73,7 +73,7 @@ struct ExercisePickerView: View {
                 }
                 .padding(.vertical, 8)
                 // Stays below the navigation bar so it never covers the title.
-                .background(Theme.canvas, ignoresSafeAreaEdges: [])
+                .background(Theme.canvasTop, ignoresSafeAreaEdges: [])
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ZStack {

@@ -79,7 +79,7 @@ struct TimersView: View {
                 .padding(16)
                 .animation(Motion.smooth, value: app.timers.active?.id)
             }
-            .background(Theme.canvas)
+            .background { CanvasBackdrop() }
             .navigationTitle("Timers")
             .stallContext("Timers")
             .navigationDestination(for: ToolRoute.self) { route in

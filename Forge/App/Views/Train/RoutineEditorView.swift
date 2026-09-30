@@ -51,6 +51,7 @@ struct RoutineEditorView: View {
                 ForEach(draft.blocks) { block in
                     EditorBlockSection(
                         block: blockBinding(block.id),
+                        shown: block,
                         index: draft.blocks.firstIndex(where: { $0.id == block.id }) ?? 0,
                         blockCount: draft.blocks.count,
                         actions: blockActions(block.id)
@@ -146,8 +147,10 @@ struct RoutineEditorView: View {
                 .font(.app(.title3, .semibold))
                 .focused($nameFocused)
                 .accessibilityIdentifier("routineNameField")
+                .cardRow(.top)
             TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
                 .lineLimit(1...5)
+                .cardRow()
             Picker(selection: $draft.folderID) {
                 Text("Top Level").tag(UUID?.none)
                 ForEach(folderOptions, id: \.folder.id) { option in
@@ -157,7 +160,9 @@ struct RoutineEditorView: View {
             } label: {
                 Label("Folder", systemImage: "folder")
             }
+            .cardRow()
             ColorTagPicker(selection: $draft.colorTag)
+                .cardRow(.bottom)
         }
     }
 
@@ -170,11 +175,13 @@ struct RoutineEditorView: View {
                     .font(.app(.body, .semibold))
             }
             .accessibilityIdentifier("addExercisesButton")
+            .cardRow(.top)
             Button {
                 timedSetup = TimedBlockSetup(blockID: nil, config: .standard(.amrap))
             } label: {
                 Label("Add Timed Block (AMRAP, EMOM, Tabata…)", systemImage: "timer")
             }
+            .cardRow(.bottom)
         } footer: {
             Text("Tip: use a block's menu to link exercises into supersets, set rest times, or reorder.")
         }
@@ -423,6 +430,11 @@ struct EditorBlockSection: View, Equatable {
     }
 
     @Binding var block: RoutineBlock
+    /// The block as it was when this section was drawn. Redraws are decided
+    /// on this copy: the binding always reads the latest value, so comparing
+    /// through it would find every block unchanged and a block would never
+    /// redraw after its own edits (switching to time, adding a set…).
+    let shown: RoutineBlock
     let index: Int
     let blockCount: Int
     let actions: Actions
@@ -431,25 +443,32 @@ struct EditorBlockSection: View, Equatable {
     /// The binding and actions look the block up by ID, so they stay valid
     /// when an unchanged block skips a redraw.
     nonisolated static func == (lhs: EditorBlockSection, rhs: EditorBlockSection) -> Bool {
-        lhs._block.wrappedValue == rhs._block.wrappedValue && lhs.index == rhs.index && lhs.blockCount == rhs.blockCount
+        lhs.shown == rhs.shown && lhs.index == rhs.index && lhs.blockCount == rhs.blockCount
     }
 
     var body: some View {
+        // Rows: the timer (timed blocks), each exercise, then "Add Movement"
+        // (timed blocks), lit as one card.
+        let rowCount = block.exercises.count + (block.isTimed ? 2 : 0)
+        let firstExercise = block.isTimed ? 1 : 0
         Section {
             if let timer = block.timer {
                 TimedBlockEditorHeader(timer: timer, movementCount: block.exercises.count, edit: actions.editTimer, alternate: Binding(
                     get: { block.timer?.alternateMovements ?? false },
                     set: { block.timer?.alternateMovements = $0 }
                 ))
+                .cardRow(.top)
             }
-            ForEach($block.exercises) { $entry in
+            ForEach(Array($block.exercises.enumerated()), id: \.element.id) { position, entry in
+                let entryID = entry.wrappedValue.id
                 EditorExerciseRows(
-                    entry: $entry,
+                    entry: entry,
                     isTimed: block.isTimed,
                     isInSuperset: block.exercises.count > 1 && !block.isTimed,
-                    replace: { actions.replace(entry.id) },
-                    remove: { actions.removeExercise(entry.id) }
+                    replace: { actions.replace(entryID) },
+                    remove: { actions.removeExercise(entryID) }
                 )
+                .cardRow(.of(firstExercise + position, in: rowCount))
             }
             if block.isTimed {
                 Button {
@@ -457,6 +476,7 @@ struct EditorBlockSection: View, Equatable {
                 } label: {
                     Label(block.exercises.isEmpty ? "Choose Movements" : "Add Movement", systemImage: "plus")
                 }
+                .cardRow(.bottom)
             }
         } header: {
             HStack {
@@ -590,6 +610,7 @@ struct EditorExerciseRows: View {
                         .frame(width: 32, height: 28)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Exercise options")
             }
             if showingNotes || !entry.notes.isEmpty {
                 TextField("Notes for this exercise", text: $entry.notes, axis: .vertical)

@@ -15,7 +15,7 @@ struct WorkoutDetailView: View {
             if let workout {
                 content(workout)
             } else {
-                Theme.canvas
+                CanvasBackdrop()
             }
         }
         // Loaded before the first frame (onAppear runs before it draws), so
@@ -39,10 +39,10 @@ struct WorkoutDetailView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                        StatTile(title: "Duration", value: DurationFormat.compact(workout.elapsed()), symbol: "clock")
-                        StatTile(title: "Volume", value: units.volume(workout.volume), symbol: "scalemass")
-                        StatTile(title: "Sets", value: "\(workout.completedWorkingSets.count)", symbol: "checkmark.circle")
-                        StatTile(title: "Records", value: "\(records.count)", symbol: "trophy", tint: Theme.record)
+                        StatTile(title: "Duration", value: DurationFormat.compact(workout.elapsed()), symbol: "clock", elevation: .resting)
+                        StatTile(title: "Volume", value: units.volume(workout.volume), symbol: "scalemass", elevation: .resting)
+                        StatTile(title: "Sets", value: "\(workout.completedWorkingSets.count)", symbol: "checkmark.circle", elevation: .resting)
+                        StatTile(title: "Records", value: "\(records.count)", symbol: "trophy", tint: Theme.record, elevation: .resting)
                     }
                     if let rating = workout.rating {
                         HStack(spacing: 2) {
@@ -58,13 +58,14 @@ struct WorkoutDetailView: View {
                     }
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
             }
 
             if !records.isEmpty {
                 Section("Personal Records") {
-                    ForEach(records) { record in
+                    ForEach(Array(records.enumerated()), id: \.element.id) { position, record in
                         RecordRow(record: record, tracking: workout.allExercises.first { $0.exerciseID == record.exerciseID }?.tracking ?? .weightReps)
+                            .cardRow(.of(position, in: records.count))
                     }
                 }
             }
@@ -81,16 +82,19 @@ struct WorkoutDetailView: View {
                                     .font(.num(.body, .semibold))
                             }
                         }
-                        ForEach(block.exercises) { exercise in
+                        .cardRow(block.exercises.isEmpty ? .all : .top)
+                        ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, exercise in
                             ExerciseSetsSummary(exercise: exercise)
+                                .cardRow(position == block.exercises.count - 1 ? .bottom : [])
                         }
                     } header: {
                         BlockHeaderLabel(block: block, index: index)
                     }
                 } else {
                     Section {
-                        ForEach(block.exercises) { exercise in
+                        ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, exercise in
                             ExerciseSetsSummary(exercise: exercise)
+                                .cardRow(.of(position, in: block.exercises.count))
                         }
                     } header: {
                         if block.exercises.count > 1 {

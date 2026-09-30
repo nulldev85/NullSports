@@ -58,7 +58,7 @@ struct LaunchPlaceholder: View {
         }
         .opacity(showsProgress ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+        .background { CanvasBackdrop() }
         .task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             withAnimation(Motion.gentle) { showsProgress = true }
@@ -95,6 +95,6 @@ struct LaunchFailureView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+        .background { CanvasBackdrop() }
     }
 }

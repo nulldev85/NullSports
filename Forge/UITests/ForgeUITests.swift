@@ -354,6 +354,41 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Mark set incomplete"].firstMatch.exists, "the logged set is kept")
     }
 
+    func testTrackByTimeInRoutineEditor() throws {
+        XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))
+        XCTAssertTrue(tapIfExists(app.buttons["folder-Upper / Lower"]))
+        XCTAssertTrue(tapIfExists(app.buttons["routine-Upper A"]))
+        XCTAssertTrue(tapIfExists(app.buttons["editRoutine"], timeout: 10))
+        XCTAssertTrue(app.buttons["saveRoutine"].waitForExistence(timeout: 10))
+
+        // The first exercise's menu: switch it to time.
+        XCTAssertTrue(tapIfExists(app.buttons["Exercise options"].firstMatch))
+        let options = [app.buttons["Track by Time"], app.switches["Track by Time"], app.descendants(matching: .any)["Track by Time"]]
+        var trackByTime: XCUIElement?
+        for _ in 0..<10 where trackByTime == nil {
+            trackByTime = options.map(\.firstMatch).first { $0.exists }
+            if trackByTime == nil { usleep(500_000) }
+        }
+        try XCTUnwrap(trackByTime, "the editor's exercise menu offers tracking by time").tap()
+
+        // The exercise's card redraws right away with a time column.
+        XCTAssertTrue(app.staticTexts["TIME"].firstMatch.waitForExistence(timeout: 5), "the card switches to time straight away")
+        sleep(1)
+        snapshot("44-EditorTrackByTime")
+        let time = app.textFields.matching(identifier: "Time").firstMatch
+        XCTAssertTrue(time.waitForExistence(timeout: 5))
+        time.tap()
+        time.typeText("45")
+        app.buttons["saveRoutine"].tap()
+
+        // Back on the routine, the exercise reads as timed sets.
+        let timed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "for 45s")).firstMatch
+        XCTAssertTrue(timed.waitForExistence(timeout: 10), "the routine shows the exercise by time")
+        sleep(1)
+        snapshot("45-RoutineTrackByTime")
+    }
+
     func testFinishKeepsTypedSetsAndDeleteCanBeUndone() throws {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         XCTAssertTrue(tapIfExists(app.buttons["folder-Strength"]))

@@ -73,7 +73,7 @@ struct WorkoutView: View {
                 if app.session.workout != nil || app.session.closingWorkout != nil {
                     WorkoutContent(actions: actions, focus: $focusedField, focusScrollTarget: focusScrollTarget)
                 } else {
-                    Theme.canvas
+                    CanvasBackdrop()
                 }
             }
             .toolbar {
@@ -390,12 +390,15 @@ private struct WorkoutContent: View {
                         .font(.app(.body, .semibold))
                 }
                 .accessibilityIdentifier("workoutAddExercises")
+                .cardRow(.top)
                 Button(action: actions.addTimedBlock) {
                     Label("Add Timed Block", systemImage: "timer")
                 }
+                .cardRow()
                 Button(action: actions.showPlates) {
                     Label("Plate Calculator", systemImage: "circle.grid.2x1")
                 }
+                .cardRow(.bottom)
             }
 
             Section {
@@ -404,6 +407,7 @@ private struct WorkoutContent: View {
                     set: { value in session.mutate { $0.notes = value } }
                 ), axis: .vertical)
                 .lineLimit(1...5)
+                .cardRow(.all)
             } header: {
                 Text("Notes")
             }
@@ -411,6 +415,7 @@ private struct WorkoutContent: View {
             Section {
                 Button("Discard Workout", role: .destructive, action: actions.discard)
                     .frame(maxWidth: .infinity)
+                    .cardRow(.all)
             }
         }
         .canvasBackground()
@@ -471,7 +476,7 @@ struct WorkoutStatsHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardSurface(cornerRadius: 14, elevation: .resting)
     }
 }
 
@@ -537,6 +542,7 @@ struct LiveExerciseSection: View, Equatable {
         let session = app.session
         Section {
             header
+                .cardRow(.top)
             if editingNotes || !entry.notes.isEmpty {
                 TextField("Notes", text: Binding(
                     get: { entry.notes },
@@ -544,9 +550,11 @@ struct LiveExerciseSection: View, Equatable {
                 ), axis: .vertical)
                 .font(.app(.subheadline))
                 .lineLimit(1...4)
+                .cardRow()
             }
             if !entry.sets.isEmpty {
                 SetColumnsHeader(tracking: entry.tracking, showsPrevious: true, showsCheck: true)
+                    .cardRow()
             }
             let plans = entry.tracking.isTimed ? entry.plannedDurations(previous: previous) : []
             ForEach(Array(entry.sets.enumerated()), id: \.element.id) { index, set in
@@ -572,6 +580,7 @@ struct LiveExerciseSection: View, Equatable {
             }
             .accessibilityIdentifier("addSet-\(entry.name)")
             .sensoryFeedback(.impact(weight: .light), trigger: entry.sets.count)
+            .cardRow(.bottom)
         } header: {
             if isSuperset {
                 HStack(spacing: 6) {
@@ -763,7 +772,7 @@ struct LiveSetRow: View, Equatable {
             .accessibilityIdentifier("completeSet")
             .sensoryFeedback(.success, trigger: set.isCompleted) { old, new in !old && new }
         }
-        .listRowBackground(set.isCompleted ? Theme.success.opacity(0.10) : Theme.surface)
+        .cardRow(tint: set.isCompleted ? Theme.success.opacity(0.10) : nil)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 withAnimation(Motion.smooth) { session.removeSet(set.id) }

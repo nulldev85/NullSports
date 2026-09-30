@@ -67,7 +67,7 @@ struct ProgressDashboardView: View {
                 .animation(Motion.smooth, value: period)
                 .animation(Motion.smooth, value: chartMetric)
             }
-            .background(Theme.canvas)
+            .background { CanvasBackdrop() }
             .task {
                 guard !chartsReady else { return }
                 await Task.yield()

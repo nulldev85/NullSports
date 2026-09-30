@@ -46,6 +46,7 @@ struct TimedBlockSection: View, Equatable {
                 }
             }
             .padding(.vertical, 6)
+            .cardRow(.top)
 
             // Its own row, so the menu above can never trigger it.
             if let result = block.result {
@@ -60,16 +61,19 @@ struct TimedBlockSection: View, Equatable {
                 }
                 .padding(12)
                 .background(Theme.success.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .cardRow(block.exercises.isEmpty ? .bottom : [])
             } else {
                 Button(action: run) {
                     Label(isRunning ? "Return to Timer" : "Start \(config.kind.displayName)", systemImage: isRunning ? "arrow.up.forward.app" : "play.fill")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("startTimedBlock")
+                .cardRow(block.exercises.isEmpty ? .bottom : [])
             }
 
-            ForEach(block.exercises) { entry in
+            ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, entry in
                 TimedMovementRow(entry: entry, hasResult: block.result != nil)
+                    .cardRow(position == block.exercises.count - 1 ? .bottom : [])
             }
         } header: {
             BlockHeaderLabel(block: block, index: index)

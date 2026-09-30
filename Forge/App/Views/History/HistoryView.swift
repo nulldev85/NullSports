@@ -16,6 +16,7 @@ struct HistoryView: View {
                     Section {
                         MonthCalendar(month: $month, selectedDay: $selectedDay, workoutDays: app.history.digest.workoutDays, calendar: calendar)
                             .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
+                            .cardRow(.all)
                     } footer: {
                         HistoryMonthFooter(month: month, calendar: calendar)
                     }
@@ -24,16 +25,18 @@ struct HistoryView: View {
                 if app.history.summaries.isEmpty {
                     Section {
                         ContentUnavailableView("No workouts yet", systemImage: "calendar.badge.plus", description: Text("Finished workouts and timer sessions show up here with every set, rep and minute."))
+                            .cardRow(.all)
                     }
                 } else if filtered.isEmpty {
                     Section {
                         Text(selectedDay != nil ? "No workouts on this day." : "No workouts match “\(query)”.")
                             .foregroundStyle(.secondary)
+                            .cardRow(.all)
                     }
                 } else {
                     ForEach(groupByMonth(filtered, calendar: calendar), id: \.start) { group in
                         Section {
-                            ForEach(group.items) { summary in
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { position, summary in
                                 NavigationLink {
                                     WorkoutDetailView(workoutID: summary.id)
                                 } label: {
@@ -49,6 +52,7 @@ struct HistoryView: View {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
+                                .cardRow(.of(position, in: group.items.count))
                             }
                         } header: {
                             Text(group.title)
@@ -70,6 +74,7 @@ struct HistoryView: View {
                             }
                         }
                         .accessibilityIdentifier("historyRecentlyDeleted")
+                        .cardRow(.all)
                     } footer: {
                         Text("Deleted workouts stay here for 30 days.")
                     }

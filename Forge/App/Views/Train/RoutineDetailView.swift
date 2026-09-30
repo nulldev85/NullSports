@@ -53,19 +53,22 @@ struct RoutineDetailView: View {
                     .accessibilityIdentifier("startRoutineWorkout")
                 }
                 .padding(.vertical, 6)
+                .cardRow(.all)
             }
 
             if routine.blocks.isEmpty {
                 Section {
                     Text("This routine has no exercises yet. Tap Edit to add some.")
                         .foregroundStyle(.secondary)
+                        .cardRow(.all)
                 }
             }
 
             ForEach(Array(routine.blocks.enumerated()), id: \.element.id) { index, block in
                 Section {
-                    ForEach(block.exercises) { entry in
+                    ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, entry in
                         RoutineExerciseSummaryRow(entry: entry, isTimed: block.isTimed)
+                            .cardRow(.of(position, in: block.exercises.count))
                     }
                 } header: {
                     BlockHeaderLabel(block: block, index: index)
@@ -79,7 +82,7 @@ struct RoutineDetailView: View {
             let recent = app.history.summaries.filter { $0.routineID == routine.id }.prefix(5)
             if !recent.isEmpty {
                 Section("Recent Sessions") {
-                    ForEach(Array(recent)) { summary in
+                    ForEach(Array(recent.enumerated()), id: \.element.id) { position, summary in
                         NavigationLink {
                             WorkoutDetailView(workoutID: summary.id)
                         } label: {
@@ -99,6 +102,7 @@ struct RoutineDetailView: View {
                                 }
                             }
                         }
+                        .cardRow(.of(position, in: recent.count))
                     }
                 }
             }

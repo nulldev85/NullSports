@@ -62,7 +62,7 @@ struct ExerciseLibraryView: View {
                 }
                 .padding(.vertical, 8)
                 // Stays below the navigation bar so it never covers the title.
-                .background(Theme.canvas, ignoresSafeAreaEdges: [])
+                .background(Theme.canvasTop, ignoresSafeAreaEdges: [])
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -166,12 +166,14 @@ struct ExerciseDetailView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .cardRow(.top)
                 Picker("View", selection: $tab.animation(Motion.smooth)) {
                     ForEach(DetailTab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .listRowSeparator(.hidden)
                 .sensoryFeedback(.selection, trigger: tab)
+                .cardRow(.bottom)
             }
 
             switch tab {
@@ -189,6 +191,7 @@ struct ExerciseDetailView: View {
                     Button("Edit Exercise", systemImage: "pencil") {
                         editing = ExerciseEditorRequest(exercise: exercise)
                     }
+                    .cardRow(.top)
                     Button(exercise.isArchived ? "Restore Exercise" : "Archive Exercise", systemImage: exercise.isArchived ? "tray.and.arrow.up" : "archivebox", role: exercise.isArchived ? nil : .destructive) {
                         if exercise.isArchived {
                             app.library.unarchive(exercise.id)
@@ -196,6 +199,7 @@ struct ExerciseDetailView: View {
                             confirmArchive = true
                         }
                     }
+                    .cardRow(.bottom)
                 } footer: {
                     Text("Archiving hides a custom exercise from your library but keeps every workout that used it.")
                 }
@@ -292,6 +296,7 @@ struct ExerciseDetailView: View {
                 Text("Log this exercise in a workout to see progress charts and records here.")
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
+                    .cardRow(.all)
             } else {
                 Picker("Metric", selection: Binding(get: { selected }, set: { value in
                     withAnimation(Motion.smooth) { metric = value }
@@ -300,14 +305,16 @@ struct ExerciseDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .sensoryFeedback(.selection, trigger: selected)
+                .cardRow(points.isEmpty ? .all : .top)
                 if points.count >= 1 {
                     ProgressChart(points: points, metric: selected, tracking: exercise.tracking)
                         .frame(height: 200)
                         .padding(.vertical, 6)
+                        .cardRow(.bottom)
                 }
                 HStack(spacing: 12) {
-                    StatTile(title: "Sessions", value: "\(sessions.count)")
-                    StatTile(title: "Last", value: sessions.first.map { $0.date.relativeDayText } ?? "—")
+                    StatTile(title: "Sessions", value: "\(sessions.count)", elevation: .resting)
+                    StatTile(title: "Last", value: sessions.first.map { $0.date.relativeDayText } ?? "—", elevation: .resting)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -335,6 +342,7 @@ struct ExerciseDetailView: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase != .active { saveNote(for: exercise.id) }
                 }
+                .cardRow(.top)
             Picker("Default Rest", selection: Binding(
                 get: { app.library.restSeconds(for: exercise.id) ?? -1 },
                 set: { app.library.setRestSeconds($0 < 0 ? nil : $0, for: exercise.id) }
@@ -343,10 +351,12 @@ struct ExerciseDetailView: View {
                 Text("Off").tag(0)
                 ForEach(RestOptions.values, id: \.self) { Text(DurationFormat.compact(Double($0))).tag($0) }
             }
+            .cardRow(exercise.instructions.isEmpty ? .bottom : [])
             if !exercise.instructions.isEmpty {
                 Text(exercise.instructions)
                     .font(.app(.subheadline))
                     .foregroundStyle(.secondary)
+                    .cardRow(.bottom)
             }
         } header: {
             Text("Notes")
@@ -361,6 +371,7 @@ struct ExerciseDetailView: View {
             Section {
                 Text("No history yet.")
                     .foregroundStyle(.secondary)
+                    .cardRow(.all)
             }
         } else {
             ForEach(sessions) { session in
@@ -377,11 +388,13 @@ struct ExerciseDetailView: View {
                                     .foregroundStyle(.tertiary)
                             }
                         }
+                        .cardRow(.of(index, in: session.sets.count + (session.notes.isEmpty ? 0 : 1)))
                     }
                     if !session.notes.isEmpty {
                         Text(session.notes)
                             .font(.app(.caption))
                             .foregroundStyle(.secondary)
+                            .cardRow(.bottom)
                     }
                 } header: {
                     NavigationLink {
@@ -409,9 +422,11 @@ struct ExerciseDetailView: View {
             if records.isEmpty {
                 Text("Records appear once you've logged this exercise.")
                     .foregroundStyle(.secondary)
+                    .cardRow(.all)
             }
-            ForEach(records) { record in
+            ForEach(Array(records.enumerated()), id: \.element.id) { position, record in
                 RecordRow(record: record, tracking: exercise.tracking, showsExercise: false)
+                    .cardRow(.of(position, in: records.count))
             }
         } header: {
             Text("Personal Records")
