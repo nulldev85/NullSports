@@ -39,6 +39,19 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(categories, Set(ExerciseCategory.allCases))
     }
 
+    func testEveryExerciseHasItsOwnDescription() {
+        for exercise in catalog.exercises {
+            let text = exercise.instructions
+            XCTAssertGreaterThanOrEqual(text.count, 40, "\(exercise.name) needs a description")
+            XCTAssertTrue(text.hasSuffix("."), exercise.name)
+            XCTAssertEqual(text, text.trimmingCharacters(in: .whitespacesAndNewlines), exercise.name)
+            XCTAssertFalse(text.contains("  "), exercise.name)
+        }
+        // Versions of one movement each say what's different about theirs.
+        let descriptions = catalog.exercises.map(\.instructions)
+        XCTAssertEqual(Set(descriptions).count, descriptions.count, "two exercises share a description")
+    }
+
     /// Stable identifiers are a promise to users' history. If this test
     /// fails, an existing exercise was renamed or removed — restore its id.
     func testWellKnownIdentifiersNeverChange() {
