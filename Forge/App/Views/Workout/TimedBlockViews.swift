@@ -46,6 +46,7 @@ struct TimedBlockSection: View, Equatable {
                 }
             }
             .padding(.vertical, 6)
+            .listRowSeparator(.hidden)
             .cardRow(.top)
 
             // Its own row, so the menu above can never trigger it.
@@ -61,6 +62,7 @@ struct TimedBlockSection: View, Equatable {
                 }
                 .padding(12)
                 .background(Theme.success.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .listRowSeparator(.hidden)
                 .cardRow(block.exercises.isEmpty ? .bottom : [])
             } else {
                 Button(action: run) {
@@ -68,6 +70,7 @@ struct TimedBlockSection: View, Equatable {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .accessibilityIdentifier("startTimedBlock")
+                .listRowSeparator(.hidden)
                 .cardRow(block.exercises.isEmpty ? .bottom : [])
             }
 

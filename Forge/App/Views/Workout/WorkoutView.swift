@@ -342,11 +342,17 @@ private struct WorkoutContent: View {
                 .listRowBackground(Color.clear)
 
             if session.saveFailed {
-                Label("Changes aren't saved yet. Forge keeps retrying — don't close the workout.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.app(.footnote))
-                    .foregroundStyle(Theme.warning)
+                Section {
+                    Label("Changes aren't saved yet. Forge keeps retrying — don't close the workout.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.app(.footnote))
+                        .foregroundStyle(Theme.warning)
+                        .cardRow(.all)
+                }
             }
 
+            // The sections below aren't wrapped in .equatable(): that folds a
+            // whole section into one plain row, losing its card, its header
+            // and its rows' swipe actions. Each set row skips redraws itself.
             ForEach(Array(workout.blocks.enumerated()), id: \.element.id) { index, block in
                 if block.isTimed {
                     TimedBlockSection(
@@ -363,7 +369,6 @@ private struct WorkoutContent: View {
                         },
                         clearResult: { session.clearResult(for: block.id) }
                     )
-                    .equatable()
                 } else {
                     ForEach(Array(block.exercises.enumerated()), id: \.element.id) { position, entry in
                         LiveExerciseSection(
@@ -379,7 +384,6 @@ private struct WorkoutContent: View {
                             replace: { actions.replaceExercise(entry.id) },
                             showDetails: { actions.showExercise(entry.exerciseID) }
                         )
-                        .equatable()
                     }
                 }
             }
@@ -420,6 +424,9 @@ private struct WorkoutContent: View {
         }
         .canvasBackground()
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        // Set rows are as tall as their fields and no taller.
+        .environment(\.defaultMinListRowHeight, 44)
         .scrollDismissesKeyboard(.interactively)
     }
 }
@@ -503,6 +510,14 @@ struct SetsProgressBar: View {
     }
 }
 
+private extension EdgeInsets {
+    /// A row of an exercise's card: set rows sit close together, and the
+    /// sides are fixed so every row of the card lines up on any iPhone.
+    static func exerciseCard(top: CGFloat, bottom: CGFloat) -> EdgeInsets {
+        EdgeInsets(top: top, leading: 16, bottom: bottom, trailing: 16)
+    }
+}
+
 /// One exercise in the live workout: header, sets, add-set button.
 struct LiveExerciseSection: View, Equatable {
     let entry: WorkoutExercise
@@ -540,23 +555,26 @@ struct LiveExerciseSection: View, Equatable {
 
     var body: some View {
         let session = app.session
+        let plans = entry.tracking.isTimed ? entry.plannedDurations(previous: previous) : []
         Section {
-            header
-                .cardRow(.top)
-            if editingNotes || !entry.notes.isEmpty {
-                TextField("Notes", text: Binding(
-                    get: { entry.notes },
-                    set: { value in session.mutate { $0.updateExercise(entry.id) { $0.notes = value } } }
-                ), axis: .vertical)
-                .font(.app(.subheadline))
-                .lineLimit(1...4)
-                .cardRow()
+            // The card's first row: name, note and the column labels.
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                if editingNotes || !entry.notes.isEmpty {
+                    TextField("Notes", text: Binding(
+                        get: { entry.notes },
+                        set: { value in session.mutate { $0.updateExercise(entry.id) { $0.notes = value } } }
+                    ), axis: .vertical)
+                    .font(.app(.subheadline))
+                    .lineLimit(1...4)
+                }
+                if !entry.sets.isEmpty {
+                    SetColumnsHeader(tracking: entry.tracking, showsPrevious: true, showsCheck: true)
+                }
             }
-            if !entry.sets.isEmpty {
-                SetColumnsHeader(tracking: entry.tracking, showsPrevious: true, showsCheck: true)
-                    .cardRow()
-            }
-            let plans = entry.tracking.isTimed ? entry.plannedDurations(previous: previous) : []
+            .listRowInsets(.exerciseCard(top: 14, bottom: 4))
+            .listRowSeparator(.hidden)
+            .cardRow(.top)
             ForEach(Array(entry.sets.enumerated()), id: \.element.id) { index, set in
                 LiveSetRow(
                     set: set,
@@ -568,6 +586,18 @@ struct LiveExerciseSection: View, Equatable {
                     focus: focus
                 )
                 .equatable()
+                // Row settings go out here: the list can't see any set
+                // inside an .equatable() view.
+                .listRowInsets(.exerciseCard(top: 4, bottom: 4))
+                .listRowSeparator(.hidden)
+                .cardRow(tint: set.isCompleted ? Theme.success.opacity(0.10) : nil)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        withAnimation(Motion.smooth) { session.removeSet(set.id) }
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
             }
             Button {
                 withAnimation(Motion.smooth) {
@@ -580,14 +610,19 @@ struct LiveExerciseSection: View, Equatable {
             }
             .accessibilityIdentifier("addSet-\(entry.name)")
             .sensoryFeedback(.impact(weight: .light), trigger: entry.sets.count)
+            .listRowInsets(.exerciseCard(top: 4, bottom: 12))
+            .listRowSeparator(.hidden)
             .cardRow(.bottom)
         } header: {
             if isSuperset {
+                // Styled like the routine's block labels above its cards.
                 HStack(spacing: 6) {
                     Image(systemName: "link")
                     Text(groupSize > 2 ? "Circuit · \(position + 1) of \(groupSize)" : "Superset · \(position + 1) of \(groupSize)")
                 }
-                .font(.app(.caption, .semibold))
+                .font(.num(.caption2, .medium))
+                .tracking(0.9)
+                .textCase(.uppercase)
                 .foregroundStyle(Color.accentColor)
             }
         }
@@ -771,14 +806,6 @@ struct LiveSetRow: View, Equatable {
             .accessibilityLabel(set.isCompleted ? "Mark set incomplete" : "Complete set")
             .accessibilityIdentifier("completeSet")
             .sensoryFeedback(.success, trigger: set.isCompleted) { old, new in !old && new }
-        }
-        .cardRow(tint: set.isCompleted ? Theme.success.opacity(0.10) : nil)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                withAnimation(Motion.smooth) { session.removeSet(set.id) }
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
         }
     }
 

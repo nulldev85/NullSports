@@ -56,8 +56,8 @@ struct RoutineEditorView: View {
                         blockCount: draft.blocks.count,
                         actions: blockActions(block.id)
                     )
-                    // Typing in one block redraws only that block.
-                    .equatable()
+                    // Not wrapped in .equatable(): that folds the section
+                    // into one plain row, with its header inside the card.
                 }
                 addSection
             }

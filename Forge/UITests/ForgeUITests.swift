@@ -67,6 +67,16 @@ final class ForgeUITests: XCTestCase {
         snapshot("05-RestTimer")
         app.buttons["skipRest"].tap()
 
+        // Each set is its own row: swiping one offers Delete, which removes
+        // just that set (the first working set, so 15 working sets become 14).
+        let setRows = app.cells.containing(.button, identifier: "completeSet")
+        let firstWorkingSet = setRows.element(boundBy: 2)
+        XCTAssertTrue(firstWorkingSet.waitForExistence(timeout: 5), "each set is a row of its own")
+        XCTAssertTrue(app.staticTexts["0/15"].exists, "the warm-up doesn't count as a working set")
+        firstWorkingSet.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.buttons["Delete"]), "swiping a set offers Delete")
+        XCTAssertTrue(app.staticTexts["0/14"].waitForExistence(timeout: 5), "the swiped set is deleted")
+
         app.buttons["finishWorkout"].tap()
         XCTAssertTrue(app.buttons["saveFinishedWorkout"].waitForExistence(timeout: 10))
         snapshot("06-Finish")
