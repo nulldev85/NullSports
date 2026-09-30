@@ -24,8 +24,6 @@ final class DataSafetyStore {
     private(set) var isPreparingCopy = false
     /// The last full integrity check of the data file.
     private(set) var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
-    /// Dated backup files in Files › On My iPhone › Forge › Backups.
-    private(set) var localBackupFileCount = 0
     /// Set when saved data changes, so the next export writes a new file.
     var needsExport = false
     /// Called after a restore/import replaced or added data.
@@ -62,7 +60,6 @@ final class DataSafetyStore {
         var folderSuggestionSnoozedUntil: Date?
         var lastOffDeviceSave: Date?
         var offDeviceFolderName: String?
-        var localBackupFileCount = 0
         var integrity = AppDatabase.IntegrityStatus(checkedAt: nil, problems: [])
     }
 
@@ -77,7 +74,6 @@ final class DataSafetyStore {
         let savedText: String? = try? database.meta.get(MetaRepository.Key.offDeviceSavedAt)
         loaded.lastOffDeviceSave = savedText.flatMap(ISO8601.date(from:))
         loaded.offDeviceFolderName = try? database.meta.get(MetaRepository.Key.offDeviceFolder)
-        loaded.localBackupFileCount = datedBackups(in: documentsBackupFolder).count
         loaded.integrity = database.integrityStatus
         return loaded
     }
@@ -96,7 +92,6 @@ final class DataSafetyStore {
         if folderSuggestionSnoozedUntil != loaded.folderSuggestionSnoozedUntil { folderSuggestionSnoozedUntil = loaded.folderSuggestionSnoozedUntil }
         if lastOffDeviceSave != loaded.lastOffDeviceSave { lastOffDeviceSave = loaded.lastOffDeviceSave }
         if offDeviceFolderName != loaded.offDeviceFolderName { offDeviceFolderName = loaded.offDeviceFolderName }
-        if localBackupFileCount != loaded.localBackupFileCount { localBackupFileCount = loaded.localBackupFileCount }
         applyIntegrity(loaded.integrity)
     }
 
@@ -247,7 +242,11 @@ final class DataSafetyStore {
         let database = database
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                Result { try database.backups.createSnapshot(from: database.queue, reason: .manual) }
+                Result {
+                    try database.backups.createSnapshot(from: database.queue, reason: .manual)
+                    // Only the newest is kept.
+                    database.backups.prune()
+                }
             }.value
             switch result {
             case .success:
@@ -424,17 +423,17 @@ final class DataSafetyStore {
                     let archive = try ArchiveService.makeArchive(from: database, appVersion: version)
                     let fingerprint = try archive.contentFingerprint()
                     if let lastFingerprint, lastFingerprint == fingerprint,
-                       Self.latestExists(in: local, accessScoped: false),
-                       external.map({ Self.latestExists(in: $0, accessScoped: true) }) ?? true {
+                       Self.hasBackupFile(in: local, accessScoped: false),
+                       external.map({ Self.hasBackupFile(in: $0, accessScoped: true) }) ?? true {
                         // The newest files already hold exactly this.
                         return .success(nil)
                     }
                     let data = try ArchiveService.encode(archive)
-                    try Self.writeRotating(data, into: local, accessScoped: false)
+                    try Self.writeBackupFile(data, into: local, accessScoped: false)
                     var warning: String?
                     if let external {
                         do {
-                            try Self.writeRotating(data, into: external, accessScoped: true)
+                            try Self.writeBackupFile(data, into: external, accessScoped: true)
                         } catch {
                             warning = error.localizedDescription
                         }
@@ -453,8 +452,6 @@ final class DataSafetyStore {
                 let now = Date()
                 lastExportDate = now
                 database.writeInBackground({ try $0.meta.set(MetaRepository.Key.lastAutoExport, value: ISO8601.string(from: now)) })
-                let count = await Task.detached(priority: .utility) { Self.datedBackups(in: local).count }.value
-                if localBackupFileCount != count { localBackupFileCount = count }
                 if let warning {
                     feedback.show("Backed up on this iPhone, but the backup folder couldn't be written: \(warning)", style: .warning, duration: 5)
                 } else if !quiet {
@@ -471,40 +468,53 @@ final class DataSafetyStore {
         }
     }
 
-    /// Writes `Forge-Backup-latest.json` plus a dated copy, then thins out
-    /// older dated copies: the newest few are kept, then one a day for a
-    /// month and one a week for half a year. Files with other names are
-    /// never touched.
-    nonisolated static func writeRotating(_ data: Data, into folder: URL, accessScoped: Bool, now: Date = Date()) throws {
+    /// Writes the backup as a new dated file, reads it back to make sure
+    /// it's intact, and only then deletes every older backup file in the
+    /// folder, so there's always exactly one, and never a moment with no
+    /// good copy. Files with other names are never touched.
+    nonisolated static func writeBackupFile(_ data: Data, into folder: URL, accessScoped: Bool, now: Date = Date()) throws {
         let accessing = accessScoped ? folder.startAccessingSecurityScopedResource() : false
         defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-        let dated = folder.appendingPathComponent(ArchiveService.suggestedFileName(now: now))
-        let latest = folder.appendingPathComponent(latestName)
-        for target in [dated, latest] {
-            var coordinatorError: NSError?
-            var writeError: Error?
-            NSFileCoordinator().coordinate(writingItemAt: target, options: .forReplacing, error: &coordinatorError) { url in
-                do {
-                    try data.write(to: url, options: .atomic)
-                } catch {
-                    writeError = error
-                }
+        let name = ArchiveService.suggestedFileName(now: now)
+        let target = folder.appendingPathComponent(name)
+        var coordinatorError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: target, options: .forReplacing, error: &coordinatorError) { url in
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+                writeError = error
             }
-            if let coordinatorError { throw coordinatorError }
-            if let writeError { throw writeError }
         }
-        let files = datedBackups(in: folder).map { BackupRetention.File(name: $0.name, date: $0.date) }
-        for name in BackupRetention.filesToRemove(files, now: now) {
-            var coordinatorError: NSError?
-            NSFileCoordinator().coordinate(writingItemAt: folder.appendingPathComponent(name), options: .forDeleting, error: &coordinatorError) { url in
+        if let coordinatorError { throw coordinatorError }
+        if let writeError { throw writeError }
+
+        // The older copies go only once this one reads back exactly as
+        // written.
+        let names = datedBackups(in: folder).map(\.name) + (hasFile(named: BackupRetention.legacyLatestName, in: folder) ? [BackupRetention.legacyLatestName] : [])
+        guard (try? readFile(at: target, scopedBy: nil)) == data else {
+            // A bad copy doesn't stay next to the good one it would replace.
+            if !BackupRetention.filesToRemove(names, keeping: name).isEmpty {
+                try? fileManager.removeItem(at: target)
+            }
+            throw BackupError.invalidArchive("The new backup file didn't read back correctly, so the previous one was kept.")
+        }
+        for old in BackupRetention.filesToRemove(names, keeping: name) {
+            var deleteError: NSError?
+            NSFileCoordinator().coordinate(writingItemAt: folder.appendingPathComponent(old), options: .forDeleting, error: &deleteError) { url in
                 try? fileManager.removeItem(at: url)
             }
         }
     }
 
-    nonisolated static let latestName = "Forge-Backup-latest.json"
+    /// Whether a file is in the folder (an iCloud file not downloaded yet
+    /// counts).
+    nonisolated static func hasFile(named name: String, in folder: URL) -> Bool {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.contains { realName($0) == name }
+    }
 
     /// Dated backup files in a folder, newest first. iCloud files that
     /// aren't downloaded yet are listed under their real names.
@@ -527,11 +537,11 @@ final class DataSafetyStore {
         return String(name.dropFirst().dropLast(".icloud".count))
     }
 
-    nonisolated static func latestExists(in folder: URL, accessScoped: Bool) -> Bool {
+    /// Whether the folder holds a dated backup file.
+    nonisolated static func hasBackupFile(in folder: URL, accessScoped: Bool) -> Bool {
         let accessing = accessScoped ? folder.startAccessingSecurityScopedResource() : false
         defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        return names.contains { realName($0) == latestName }
+        return !datedBackups(in: folder).isEmpty
     }
 
     /// Reads a file through the file coordinator (which also downloads it

@@ -17,7 +17,8 @@ public enum BackupError: Error, CustomStringConvertible {
 /// Point-in-time copies of the whole database, kept next to it. They are
 /// made automatically — daily, after every finished workout, before every
 /// app update, data upgrade, restore and import — and can be restored or
-/// searched for missing data from Settings.
+/// searched for missing data from Settings. Once a new one checks out, the
+/// older ones are deleted, so only the newest is kept.
 public final class BackupManager: @unchecked Sendable {
     public enum Reason: String, CaseIterable, Sendable {
         case automatic = "auto"
@@ -147,50 +148,26 @@ public final class BackupManager: @unchecked Sendable {
         snapshots().first { reason == nil || $0.reason == reason }?.date
     }
 
+    /// Any snapshot counts (they're all full copies), so a daily one isn't
+    /// made right after a workout's.
     public func isAutomaticBackupDue(now: Date = Date(), interval: TimeInterval = 20 * 3600) -> Bool {
-        guard let last = latestSnapshotDate(reason: .automatic) else { return true }
+        guard let last = latestSnapshotDate() else { return true }
         return now.timeIntervalSince(last) >= interval || last > now
     }
 
-    /// Keeps the newest `keepAutomatic` daily snapshots plus one per week for
-    /// older weeks (up to `keepWeekly`), the newest `keepAfterWorkout` and
-    /// `keepBeforeUpdate`, and the newest `keepOther` of each other kind.
-    /// Manual snapshots are never removed automatically.
-    public func prune(
-        keepAutomatic: Int = 14,
-        keepWeekly: Int = 12,
-        keepAfterWorkout: Int = 10,
-        keepBeforeUpdate: Int = 10,
-        keepOther: Int = 5,
-        calendar: Calendar = Calendar(identifier: .gregorian)
-    ) {
+    /// Keeps only the newest snapshot, and only once it checks out: every
+    /// older one is deleted. If the newest fails the check it's deleted
+    /// instead and the next newest is checked, so a bad copy never takes a
+    /// good one's place. Nothing is deleted while no snapshot checks out.
+    ///
+    /// Only called after taking a routine snapshot, never during a restore
+    /// or import (whose "before" snapshot must outlive the operation).
+    public func prune() {
         let all = snapshots()
-        var remove: [Snapshot] = []
-
-        let automatic = all.filter { $0.reason == .automatic }
-        var weeklyKept = Set<String>()
-        for (index, snapshot) in automatic.enumerated() {
-            if index < keepAutomatic { continue }
-            let week = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: snapshot.date)
-            let key = "\(week.yearForWeekOfYear ?? 0)-\(week.weekOfYear ?? 0)"
-            if weeklyKept.count < keepWeekly, !weeklyKept.contains(key) {
-                weeklyKept.insert(key)
-            } else {
-                remove.append(snapshot)
+        if let keep = all.first(where: validate) {
+            for snapshot in all where snapshot.url != keep.url {
+                try? fileManager.removeItem(at: snapshot.url)
             }
-        }
-        let limits: [(Reason, Int)] = [
-            (.afterWorkout, keepAfterWorkout),
-            (.preUpdate, keepBeforeUpdate),
-            (.preMigration, keepOther),
-            (.preRestore, keepOther),
-            (.preImport, keepOther),
-        ]
-        for (reason, keep) in limits {
-            remove.append(contentsOf: all.filter { $0.reason == reason }.dropFirst(keep))
-        }
-        for snapshot in remove {
-            try? fileManager.removeItem(at: snapshot.url)
         }
         // Clean up any interrupted backups.
         let leftovers = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []

@@ -1,46 +1,25 @@
 import Foundation
 
-/// Which dated backup files to keep. The newest are all kept; older ones
-/// thin out to one per day for a month, then one per week for half a year.
-/// So if something goes missing and nobody notices for weeks, a backup from
-/// before it happened is still there.
+/// Which backup files to keep: only the newest. Each automatic backup is
+/// written as a new dated file, read back and checked, and only then are
+/// the older ones deleted, so the folder always holds exactly one good copy.
 public enum BackupRetention {
-    public struct File: Sendable, Hashable {
-        public var name: String
-        public var date: Date
+    /// The file older versions of Forge kept next to the dated copies.
+    public static let legacyLatestName = "Forge-Backup-latest.json"
 
-        public init(name: String, date: Date) {
-            self.name = name
-            self.date = date
-        }
+    /// A file Forge wrote as a backup: a dated copy, or the old "latest".
+    public static func isBackupFileName(_ name: String) -> Bool {
+        name == legacyLatestName || date(fromBackupName: name) != nil
     }
 
-    /// The names to delete.
-    public static func filesToRemove(
-        _ files: [File],
-        now: Date = Date(),
-        keepRecent: Int = 10,
-        dailyForDays: Int = 30,
-        weeklyForWeeks: Int = 26,
-        calendar: Calendar = Calendar(identifier: .gregorian)
-    ) -> [String] {
-        let newestFirst = files.sorted { $0.date > $1.date }
-        var keep = Set(newestFirst.prefix(keepRecent).map(\.name))
-        var days = Set<String>()
-        var weeks = Set<String>()
-        for file in newestFirst {
-            let age = now.timeIntervalSince(file.date)
-            if age <= Double(dailyForDays) * 86_400 {
-                let day = calendar.dateComponents([.year, .month, .day], from: file.date)
-                let key = "\(day.year ?? 0)-\(day.month ?? 0)-\(day.day ?? 0)"
-                if days.insert(key).inserted { keep.insert(file.name) }
-            } else if age <= Double(weeklyForWeeks) * 7 * 86_400 {
-                let week = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: file.date)
-                let key = "\(week.yearForWeekOfYear ?? 0)-\(week.weekOfYear ?? 0)"
-                if weeks.insert(key).inserted { keep.insert(file.name) }
-            }
+    /// The backup files to delete once `newest` has been written and
+    /// checked: every other Forge backup in the folder. Files with other
+    /// names are never touched.
+    public static func filesToRemove(_ names: [String], keeping newest: String) -> [String] {
+        var seen = Set<String>()
+        return names.filter { name in
+            name != newest && isBackupFileName(name) && seen.insert(name).inserted
         }
-        return newestFirst.map(\.name).filter { !keep.contains($0) }
     }
 
     /// The date in a dated backup name ("Forge-Backup-2026-09-29-1802.json").

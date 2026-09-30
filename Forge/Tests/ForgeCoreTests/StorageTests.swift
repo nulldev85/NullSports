@@ -324,7 +324,7 @@ final class BackupManagerTests: XCTestCase {
         XCTAssertEqual(try db.routines.routines().map(\.name), ["Keep"])
     }
 
-    func testPruneKeepsRecentAndWeeklyAutomaticBackups() throws {
+    func testPruneKeepsOnlyTheNewestSnapshot() throws {
         let dir = TemporaryDirectory()
         let db = try AppDatabase.open(at: dir.location)
         try db.routines.save(Routine(name: "A"))
@@ -333,11 +333,11 @@ final class BackupManagerTests: XCTestCase {
             try db.backups.createSnapshot(from: db.queue, reason: .automatic, now: start.addingTimeInterval(Double(day) * 86400))
         }
         try db.backups.createSnapshot(from: db.queue, reason: .manual, now: start)
-        db.backups.prune(keepAutomatic: 10, keepWeekly: 4)
+        db.backups.prune()
         let remaining = db.backups.snapshots()
-        XCTAssertEqual(remaining.filter { $0.reason == .automatic }.count, 14)
-        XCTAssertEqual(remaining.filter { $0.reason == .manual }.count, 1, "manual backups are never pruned")
+        XCTAssertEqual(remaining.count, 1)
         XCTAssertEqual(remaining.first?.date, start.addingTimeInterval(39 * 86400))
+        XCTAssertFalse(db.backups.isAutomaticBackupDue(now: start.addingTimeInterval(39 * 86400 + 3600)))
     }
 
     func testSnapshotsSortNewestFirstAndIgnoreStrayFiles() throws {
@@ -352,5 +352,7 @@ final class BackupManagerTests: XCTestCase {
         XCTAssertEqual(dates, [Fixtures.date(3), Fixtures.date(2), Fixtures.date(1)])
         db.backups.prune()
         XCTAssertFalse(FileManager.default.fileExists(atPath: db.location.backupsDirectory.appendingPathComponent("forge-1-auto.sqlite.partial").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: db.location.backupsDirectory.appendingPathComponent("notes.txt").path), "other files are left alone")
+        XCTAssertEqual(db.backups.snapshots().map(\.date), [Fixtures.date(3)])
     }
 }

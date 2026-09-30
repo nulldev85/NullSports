@@ -156,7 +156,7 @@ struct BackupsView: View {
             } header: {
                 Text("Automatic Backup Files")
             } footer: {
-                Text("After every change, Forge writes a backup file to Files › On My iPhone › Forge › Backups. The newest are all kept, then one a day for a month and one a week for six months. Those stay on this iPhone, so also save a copy to iCloud Drive now and then: Forge reminds you when yours is a week old.")
+                Text("After every change, Forge writes a fresh backup file to Files › On My iPhone › Forge › Backups, checks it, then deletes the older one, so there's always exactly one. It stays on this iPhone, so also save a copy to iCloud Drive now and then: Forge reminds you when yours is a week old.")
             }
 
             Section {
@@ -188,7 +188,7 @@ struct BackupsView: View {
             } header: {
                 Text("Snapshots on This iPhone")
             } footer: {
-                Text("Snapshots are full copies of your data, made daily, after every workout, and before any app update or restore. Tap one to restore it — your current data is snapshotted first, so a restore can always be undone.")
+                Text("A snapshot is a full copy of your data, made daily, after every workout and before any app update or restore. Once a new one checks out, the older ones are deleted. Tap one to restore it: your current data is snapshotted first, so you can undo the restore until the next snapshot replaces it.")
             }
         }
         .canvasBackground()
@@ -296,7 +296,7 @@ struct BackupsView: View {
         guard let newest = snapshots.map(\.date).max() else {
             return app.settings.value.autoBackupEnabled ? "When you leave the app" : "Off"
         }
-        return "\(snapshots.count) · newest \(newest.formatted(.relative(presentation: .named)))"
+        return "Newest \(newest.formatted(.relative(presentation: .named)))"
     }
 
     /// Where the latest copy off this iPhone is, and how old.
@@ -335,8 +335,7 @@ struct BackupsView: View {
         guard let last = data.lastExportDate else {
             return app.settings.value.autoExportEnabled ? "When you leave the app" : "Off"
         }
-        let count = data.localBackupFileCount
-        return "\(count) · updated \(last.formatted(.relative(presentation: .named)))"
+        return "Updated \(last.formatted(.relative(presentation: .named)))"
     }
 
     private var integrityStatus: String {
