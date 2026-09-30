@@ -115,11 +115,11 @@ final class DataSafetyTests: XCTestCase {
         try database.backups.createSnapshot(from: database.queue, reason: .preUpdate, now: now.addingTimeInterval(-7200))
         let newest = try database.backups.createSnapshot(from: database.queue, reason: .automatic, now: now.addingTimeInterval(10 * 3600))
         database.backups.prune()
-        XCTAssertEqual(database.backups.snapshots().map(\.url), [newest.url], "every older snapshot goes, whatever its kind")
+        XCTAssertEqual(database.backups.snapshots().map(\.id), [newest.id], "every older snapshot goes, whatever its kind")
 
         // Snapshots made after that are kept alone in turn.
         let afterWorkout = try XCTUnwrap(database.snapshotAfterWorkout(now: now.addingTimeInterval(11 * 3600)))
-        XCTAssertEqual(database.backups.snapshots().map(\.url), [afterWorkout.url])
+        XCTAssertEqual(database.backups.snapshots().map(\.id), [afterWorkout.id])
         XCTAssertTrue(database.backups.validate(afterWorkout))
     }
 
@@ -131,7 +131,7 @@ final class DataSafetyTests: XCTestCase {
         let damaged = try database.backups.createSnapshot(from: database.queue, reason: .afterWorkout, now: now.addingTimeInterval(3600))
         try Data((0..<4096).map { _ in UInt8.random(in: 0...255) }).write(to: damaged.url)
         database.backups.prune()
-        XCTAssertEqual(database.backups.snapshots().map(\.url), [good.url], "the damaged copy goes; the good one stays")
+        XCTAssertEqual(database.backups.snapshots().map(\.id), [good.id], "the damaged copy goes; the good one stays")
     }
 
     func testRestoringLeavesTheBeforeSnapshotInPlace() throws {
