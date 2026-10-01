@@ -39,6 +39,9 @@ struct CanvasBackdrop: View {
 enum CardElevation {
     /// Free-standing cards: a soft shadow below as well as a contact shadow.
     case raised
+    /// A free-standing card filling a list row: the soft shadow gathers in
+    /// under the card, since a list clips anything drawn past its sides.
+    case raisedInRow
     /// Cards inside list rows or tight grids, where a long shadow would be
     /// cut off: only the contact shadow.
     case resting
@@ -91,6 +94,15 @@ struct CardSurface: View {
                 radius: elevation == .raised ? 14 : 0,
                 y: elevation == .raised ? 7 : 0
             )
+            .background {
+                if elevation == .raisedInRow {
+                    shape
+                        .fill(Theme.cardShadowFar)
+                        .padding(.horizontal, 16)
+                        .blur(radius: 9)
+                        .offset(y: 8)
+                }
+            }
     }
 }
 
@@ -153,6 +165,9 @@ extension View {
     /// A card: padded content on a lit, rimmed surface.
     func cardStyle(padding: CGFloat = 16, cornerRadius: CGFloat = 20, elevation: CardElevation = .raised) -> some View {
         self
+            // Cards span their column, so one with little in it still lines
+            // up with the cards around it.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
             .background(CardSurface(cornerRadius: cornerRadius, elevation: elevation))
     }

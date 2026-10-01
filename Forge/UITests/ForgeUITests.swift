@@ -274,6 +274,12 @@ final class ForgeUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Train"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["restoreBackupFile"].waitForExistence(timeout: 10), "a fresh install offers to restore a backup")
         snapshot("36-FreshInstall")
+
+        // Progress with nothing logged yet: every card still lines up.
+        tab("Progress")
+        XCTAssertTrue(app.navigationBars["Progress"].waitForExistence(timeout: 10))
+        sleep(1)
+        snapshot("36b-FreshProgress")
     }
 
     func testSavingABackupCopy() throws {

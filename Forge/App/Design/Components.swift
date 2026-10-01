@@ -35,35 +35,55 @@ struct StatTile: View {
     var tint: Color = .accentColor
     /// `.resting` inside list rows, where a long shadow would be cut off.
     var elevation: CardElevation = .raised
+    /// Keeps the detail line's room when there's no detail, so the tile is
+    /// the same size as neighbors that have one.
+    var reservesDetail = false
 
     var body: some View {
+        // Each line is the same height in every tile, whatever it holds, so
+        // tiles side by side always match.
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(tint)
-                }
-                Text(title)
-                    .eyebrow()
-                    .lineLimit(1)
-            }
-            Text(value)
-                .font(.num(size: 24, .medium))
-                .monospacedDigit()
+            // The symbol rides beside the title without adding height (some
+            // symbols are taller than others).
+            Text(title)
+                .eyebrow()
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
-            if let detail {
-                Text(detail)
+                .padding(.leading, symbol == nil ? 0 : 18)
+                .overlay(alignment: .leading) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(tint)
+                            .frame(width: 12)
+                            .accessibilityHidden(true)
+                    }
+                }
+            // A full line is kept even when a long value shrinks to fit.
+            Text(verbatim: "0")
+                .font(Self.valueFont)
+                .hidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .leading) {
+                    Text(value)
+                        .font(Self.valueFont)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                }
+            if detail != nil || reservesDetail {
+                Text(detail ?? " ")
                     .font(.app(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .accessibilityHidden(detail == nil)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle(padding: 14, elevation: elevation)
     }
+
+    private static let valueFont = Font.num(size: 24, .medium)
 }
 
 struct Pill: View {

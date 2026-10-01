@@ -52,10 +52,10 @@ struct ProgressDashboardView: View {
                     .sensoryFeedback(.selection, trigger: period)
 
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        StatTile(title: "Workouts", value: "\(totals.workouts)", detail: averagePerWeek(totals, start: start), symbol: "figure.strengthtraining.traditional")
-                        StatTile(title: "Time", value: DurationFormat.compact(totals.duration), detail: totals.workouts > 0 ? "\(DurationFormat.compact(totals.duration / Double(totals.workouts))) avg" : nil, symbol: "clock")
-                        StatTile(title: "Volume", value: app.settings.units.volume(totals.volume), symbol: "scalemass")
-                        StatTile(title: "Streak", value: "\(digest.weekStreak()) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: Theme.sand)
+                        StatTile(title: "Workouts", value: "\(totals.workouts)", detail: averagePerWeek(totals, start: start), symbol: "figure.strengthtraining.traditional", reservesDetail: true)
+                        StatTile(title: "Time", value: DurationFormat.compact(totals.duration), detail: totals.workouts > 0 ? "\(DurationFormat.compact(totals.duration / Double(totals.workouts))) avg" : nil, symbol: "clock", reservesDetail: true)
+                        StatTile(title: "Volume", value: app.settings.units.volume(totals.volume), detail: totals.workouts > 0 ? "\(app.settings.units.volume(totals.volume / Double(totals.workouts))) avg" : nil, symbol: "scalemass", reservesDetail: true)
+                        StatTile(title: "Streak", value: "\(digest.weekStreak()) wk", detail: "Weeks in a row", symbol: "flame.fill", tint: Theme.sand, reservesDetail: true)
                     }
 
                     weeklyChart(digest: digest)

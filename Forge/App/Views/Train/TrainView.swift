@@ -92,8 +92,9 @@ struct FolderContentsView: View {
             if isRoot, searchText.isEmpty {
                 Section {
                     QuickStartCard()
-                        // Room below for the card's shadow.
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 18, trailing: 16))
+                        // As wide as the sections below, with room under it
+                        // for its shadow.
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 22, trailing: 0))
                         .listRowBackground(Color.clear)
                 }
                 if let draft = draftToRestore {
@@ -524,7 +525,7 @@ struct QuickStartCard: View {
         }
         .padding(18)
         .animation(Motion.smooth, value: app.session.isActive)
-        .cardSurface(cornerRadius: 22, tint: .accentColor)
+        .cardSurface(cornerRadius: 22, elevation: .raisedInRow, tint: .accentColor)
     }
 
     private var greeting: String {
