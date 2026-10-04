@@ -1798,19 +1798,26 @@ private struct LiveMatchupCard: View {
             LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
             Text(game.league.shortName).font(.inter(15, .bold)).tracking(1.6)
                 .foregroundStyle(LivePalette.secondary)
-            Spacer(minLength: 8)
-            if game.isLive {
+            Spacer(minLength: 0)
+        }
+        .frame(height: 26)
+    }
+
+    /// The game clock, or the start, in the bottom corner where a scoreboard
+    /// keeps it.
+    @ViewBuilder private var clock: some View {
+        if game.isLive {
+            HStack(spacing: 8) {
                 PulsingLiveDot(size: 7)
                 Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
                     .font(.inter(15, .bold)).tracking(1.2)
                     .foregroundStyle(LineupStyle.liveStatus)
                     .lineLimit(1).minimumScaleFactor(0.7)
-            } else {
-                Text(game.startLabel).font(.interDigits(17, .semibold))
-                    .foregroundStyle(LivePalette.text).lineLimit(1)
             }
+        } else {
+            Text(game.startLabel).font(.interDigits(17, .semibold)).tracking(0)
+                .foregroundStyle(LivePalette.text).lineLimit(1)
         }
-        .frame(height: 26)
     }
 
     private func team(_ name: String, _ abbreviation: String, _ logo: String, _ record: String?,
@@ -1835,8 +1842,11 @@ private struct LiveMatchupCard: View {
         }
     }
 
+    /// Where to watch and what Select will do on the left, the clock on the
+    /// right. When room runs short the network gives way first; the clock
+    /// never does.
     private func footer(isPrimary: Bool) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 14) {
             if isPrimary {
                 LiveTag(symbol: "rectangle.split.2x1.fill", title: "FIRST GAME")
             } else if isOnScreen {
@@ -1845,13 +1855,18 @@ private struct LiveMatchupCard: View {
                 Text(nonempty(game.broadcast)?.uppercased() ?? "NO LISTED NETWORK")
                     .foregroundStyle(LivePalette.secondary).lineLimit(1)
             }
-            Spacer(minLength: 6)
             if focused {
-                Text(multiviewPrimaryID != nil ? "SIDE BY SIDE" : (isOnScreen ? "FULL SCREEN" : "PREVIEW"))
-                Image(systemName: multiviewPrimaryID != nil ? "rectangle.split.2x1.fill"
-                      : (isOnScreen ? "arrow.up.left.and.arrow.down.right" : "play.fill"))
-                    .font(.system(size: 12, weight: .bold))
+                HStack(spacing: 7) {
+                    Image(systemName: multiviewPrimaryID != nil ? "rectangle.split.2x1.fill"
+                          : (isOnScreen ? "arrow.up.left.and.arrow.down.right" : "play.fill"))
+                        .font(.system(size: 12, weight: .bold))
+                    Text(multiviewPrimaryID != nil ? "SIDE BY SIDE" : (isOnScreen ? "FULL SCREEN" : "PREVIEW"))
+                        .lineLimit(1)
+                }
+                .layoutPriority(1)
             }
+            Spacer(minLength: 8)
+            clock.layoutPriority(2)
         }
         .font(.inter(13, .bold)).tracking(1.4)
         .foregroundStyle(LivePalette.text)
