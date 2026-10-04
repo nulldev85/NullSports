@@ -1978,23 +1978,36 @@ private struct LiveSelectedPreview: View {
 private struct PulsingLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGFloat
-    @State private var breathing = false
 
     /// Three quarters of what each caller asked for: every live dot in the
     /// app gets smaller at once, without reworking the rows that hold them.
     private var diameter: CGFloat { (size * 0.72).rounded() }
 
     var body: some View {
+        Group {
+            if reduceMotion {
+                dot(opacity: 1)
+            } else {
+                // Driven by the clock rather than by a repeating animation. A
+                // repeating animation also takes hold of any move the dot makes
+                // while it runs, which left it drifting across the screen after
+                // the panel holding it slid in.
+                TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+                    let cycle = 2.2
+                    let phase = context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: cycle) / cycle
+                    dot(opacity: 1 - 0.55 * (1 - cos(phase * 2 * .pi)) / 2)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func dot(opacity: Double) -> some View {
         Circle()
             .fill(LineupStyle.liveDot)
             .frame(width: diameter, height: diameter)
-            .opacity(breathing ? 0.45 : 1)
-            .animation(reduceMotion ? nil
-                : .easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: breathing)
-            .onAppear { breathing = !reduceMotion }
-            .onDisappear { breathing = false }
-            .onChange(of: reduceMotion) { _, reduced in breathing = !reduced }
-            .accessibilityHidden(true)
+            .opacity(opacity)
     }
 }
 
@@ -3375,21 +3388,26 @@ private struct GuideChannelArtwork: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(stream.num.map { "\($0)" } ?? "")
+            // Verbatim: a number read as localised text gains a thousands
+            // separator, and 2001 wrapped as "2,00" over "1".
+            Text(verbatim: stream.num.map(String.init) ?? "")
                 .font(.interDigits(15, .semibold))
                 .foregroundStyle(GuidePalette.secondary)
-                .frame(width: 42, alignment: .leading)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(width: 50, alignment: .leading)
             GeometryReader { proxy in
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: max(1, proxy.size.width)) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit()
                     } else {
                         Text(stream.name)
-                            .font(.inter(15, .semibold))
-                            .lineLimit(2).minimumScaleFactor(0.6)
+                            .font(.inter(16, .semibold))
+                            .lineLimit(2).minimumScaleFactor(0.85)
                             .allowsTightening(true)
+                            .truncationMode(.tail)
                             .multilineTextAlignment(.leading)
                             .foregroundStyle(GuidePalette.text)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -3746,10 +3764,10 @@ private struct GuideNowLine: View {
             + CGFloat(now.timeIntervalSince(guideTimelineAnchor(now)) / 1800) * layout.slotWidth
         ZStack(alignment: .topLeading) {
             Rectangle().fill(GuidePalette.now)
-                .frame(width: 2)
+                .frame(width: 1.5)
                 .frame(maxHeight: .infinity)
                 .padding(.top, guideHeaderHeight)
-                .offset(x: x - 1)
+                .offset(x: x - 0.75)
             Circle().fill(GuidePalette.now)
                 .frame(width: 10, height: 10)
                 .offset(x: x - 5, y: guideHeaderHeight - 5)
@@ -3941,11 +3959,14 @@ struct AccountView: View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("LIBRARY")
             HStack(alignment: .top, spacing: gutter) {
-                AccountTile(
+                AccountLinkCard(
+                    symbol: "sparkles.rectangle.stack",
+                    kind: "LIBRARY",
                     title: "Library Hero",
                     detail: media.heroCatalog.map { "Top 10 from \($0.title)" }
                         ?? "Choose the catalog shown across the top of Library",
-                    symbol: "sparkles.rectangle.stack"
+                    action: "Choose Catalog",
+                    actionSymbol: "slider.horizontal.3"
                 ) {
                     LibraryHeroSettingsView().environmentObject(media)
                 }
@@ -4017,6 +4038,7 @@ struct AccountView: View {
                 AccountRow(label: "Version",
                            value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -4287,26 +4309,102 @@ private struct AccountButton: View {
     let action: () -> Void
 
     var body: some View {
-        let shape = Capsule()
         Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.inter(18, .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(quiet && !isFocused ? LineupStyle.secondary : LineupStyle.text)
-                .padding(.horizontal, 24).frame(height: 56)
-                .frame(maxWidth: .infinity)
-                .background(quiet ? Color.clear : LineupStyle.raised, in: shape)
-                .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
-                                            lineWidth: prominent ? 1.5 : 1))
-                .lineupFocusLayer(isFocused, in: shape)
-                .scaleEffect(isFocused ? LineupStyle.controlLift : 1)
-                .opacity(enabled ? 1 : 0.45)
+            AccountButtonFace(title: title, symbol: symbol, prominent: prominent, quiet: quiet,
+                              focused: isFocused, enabled: enabled)
         }
         .lineupFlatButton()
         .focused($isFocused)
         .animation(.easeOut(duration: 0.18), value: isFocused)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The same button, opening a screen rather than running an action.
+private struct AccountLinkButton<Destination: View>: View {
+    @Environment(\.isEnabled) private var enabled
+    @FocusState private var isFocused: Bool
+    let title: String
+    let symbol: String
+    @ViewBuilder var destination: Destination
+
+    var body: some View {
+        NavigationLink { destination } label: {
+            AccountButtonFace(title: title, symbol: symbol, prominent: false, quiet: false,
+                              focused: isFocused, enabled: enabled)
+        }
+        .lineupFlatButton()
+        .focused($isFocused)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// What every account button looks like. The symbol and the words are laid
+/// side by side on their centres: a label lines text up with the symbol's
+/// baseline, which lifted some words a point or two above their neighbours'.
+private struct AccountButtonFace: View {
+    let title: String
+    let symbol: String
+    let prominent: Bool
+    let quiet: Bool
+    let focused: Bool
+    let enabled: Bool
+
+    var body: some View {
+        let shape = Capsule()
+        HStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+            Text(title).font(.inter(18, .semibold))
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .foregroundStyle(quiet && !focused ? LineupStyle.secondary : LineupStyle.text)
+        .padding(.horizontal, 24).frame(height: 56)
+        .frame(maxWidth: .infinity)
+        .background(quiet ? Color.clear : LineupStyle.raised, in: shape)
+        .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
+                                    lineWidth: prominent ? 1.5 : 1))
+        .lineupFocusLayer(focused, in: shape)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        .opacity(enabled ? 1 : 0.45)
+    }
+}
+
+/// A card that leads somewhere: what it sets, and a button that opens it. The
+/// same shape as a source card, so a row of the two lines up.
+private struct AccountLinkCard<Destination: View>: View {
+    let symbol: String
+    let kind: String
+    let title: String
+    let detail: String
+    let action: String
+    let actionSymbol: String
+    @ViewBuilder var destination: Destination
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack(alignment: .top, spacing: 18) {
+                AccountGlyph(symbol: symbol)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(kind)
+                        .font(.inter(12, .bold)).tracking(2)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(title)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(detail)
+                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+            AccountLinkButton(title: action, symbol: actionSymbol) { destination }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 1))
     }
 }
 
@@ -4419,7 +4517,7 @@ private struct AccountRow: View {
                 .multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.horizontal, 28).padding(.vertical, 22)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
