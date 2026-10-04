@@ -4,6 +4,21 @@ import XCTest
 import ObjectiveC
 
 final class LiveHarnessUITests: XCTestCase {
+    private struct Step {
+        let name: String?
+        let button: XCUIRemote.Button
+        var hold: TimeInterval = 0
+        var wait: TimeInterval = 2.5
+    }
+
+    private static func shot(_ name: String, _ button: XCUIRemote.Button, wait: TimeInterval = 2.5) -> Step {
+        Step(name: name, button: button, wait: wait)
+    }
+
+    private static func quiet(_ button: XCUIRemote.Button) -> Step {
+        Step(name: nil, button: button, wait: 1.2)
+    }
+
     override class func setUp() {
         super.setUp()
         LiveHarnessQuiescence.disable()
@@ -13,43 +28,68 @@ final class LiveHarnessUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    /// The default theme gets the long walk: launch, into the rails and the
-    /// grid, a preview, and focus moving away from the previewing game.
+    /// The default theme gets the long walk: into My Teams, down to the board,
+    /// a preview with focus moving on, the filter, the next row, a hold-Select
+    /// menu, and Menu stopping the preview.
     func test1Signal() {
         capture(theme: "signal", steps: [
-            ("down", .down), ("down2", .down), ("right", .right), ("select", .select),
-            ("down-after-preview", .down), ("left", .left), ("up", .up), ("up2", .up)
+            Self.shot("rail1", .down), Self.shot("rail2", .down), Self.quiet(.down),
+            Self.shot("board1", .down), Self.shot("board2", .right),
+            Self.shot("preview", .select, wait: 9), Self.shot("preview-focus-moves", .right),
+            Self.quiet(.right), Self.shot("filter", .up), Self.quiet(.down),
+            Self.shot("row2", .down), Self.shot("stop-preview", .menu, wait: 3),
+            Step(name: "context-menu", button: .select, hold: 1.6, wait: 2.5)
         ])
     }
 
     func test2Velvet() {
-        capture(theme: "velvet", steps: [("down", .down), ("down2", .down), ("select", .select)])
+        capture(theme: "velvet", steps: [
+            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
+            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
+        ])
     }
 
     func test3OLED() {
-        capture(theme: "seaGlass", steps: [("down", .down), ("down2", .down), ("select", .select)])
+        capture(theme: "seaGlass", steps: [
+            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
+            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
+        ])
     }
 
     func test4GraphiteIce() {
-        capture(theme: "graphiteIce", steps: [("down", .down), ("down2", .down), ("select", .select)])
+        capture(theme: "graphiteIce", steps: [
+            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
+            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
+        ])
     }
 
     func test5NoFollows() {
-        capture(theme: "signal", steps: [("down", .down)], extra: ["-LiveHarnessNoFollows"], prefix: "nofollow")
+        capture(theme: "signal", steps: [Self.shot("down", .down), Self.shot("right", .right)],
+                extra: ["-LiveHarnessNoFollows"], prefix: "nofollow")
     }
 
-    private func capture(theme: String, steps: [(String, XCUIRemote.Button)],
-                         extra: [String] = [], prefix: String? = nil) {
+    private func capture(theme: String, steps: [Step], extra: [String] = [], prefix: String? = nil) {
         let name = prefix ?? theme
         let app = XCUIApplication()
         app.launchArguments = ["-LiveHarness", "-LiveHarnessTheme", theme] + extra
+        // A US evening, so the slate reads the way it will for the person it
+        // is for, and today's games are today's.
+        app.launchEnvironment = ["TZ": "America/New_York"]
         app.launch()
         pause(14)
-        shot("\(name)-00-launch")
-        for (index, step) in steps.enumerated() {
-            XCUIRemote.shared.press(step.1)
-            pause(step.1 == .select ? 6 : 2.5)
-            shot(String(format: "%@-%02d-%@", name, index + 1, step.0))
+        save("\(name)-00-launch")
+        var count = 0
+        for step in steps {
+            if step.hold > 0 {
+                XCUIRemote.shared.press(step.button, forDuration: step.hold)
+            } else {
+                XCUIRemote.shared.press(step.button)
+            }
+            pause(step.wait)
+            if let label = step.name {
+                count += 1
+                save(String(format: "%@-%02d-%@", name, count, label))
+            }
         }
         app.terminate()
         pause(2)
@@ -59,7 +99,7 @@ final class LiveHarnessUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
-    private func shot(_ name: String) {
+    private func save(_ name: String) {
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name

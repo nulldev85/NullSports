@@ -19,7 +19,7 @@ enum LiveHarnessSeeder {
         URLProtocol.registerClass(LiveHarnessProtocol.self)
         let defaults = UserDefaults.standard
         let profile = XtreamProfile(id: profileID, name: "Harness Provider",
-                                    serverURL: "http://harness.lineup.test", username: "harness")
+                                    serverURL: "http://127.0.0.1:8765", username: "harness")
         if let data = try? JSONEncoder().encode([profile]) {
             defaults.set(data, forKey: "NullSports.profiles")
         }
@@ -42,7 +42,10 @@ enum LiveHarnessSeeder {
 }
 
 final class LiveHarnessProtocol: URLProtocol {
-    private static let hosts: Set<String> = ["sports.mateomedia.link", "site.api.espn.com", "harness.lineup.test"]
+    // The provider host is the runner's own feed server: API calls are answered
+    // here, and only VLC -- which does not use URLSession -- reaches the server,
+    // which redirects every channel to a public test stream.
+    private static let hosts: Set<String> = ["sports.mateomedia.link", "site.api.espn.com", "127.0.0.1"]
 
     override class func canInit(with request: URLRequest) -> Bool {
         guard let host = request.url?.host else { return false }
@@ -225,8 +228,12 @@ enum LiveHarnessData {
         ISO8601DateFormatter().string(from: date)
     }
 
+    /// Live games are kept inside today, whatever hour the runner wakes at, so
+    /// the score crawl -- which shows today's games only -- has them.
     private static func start(_ fixture: Fixture) -> Date {
-        anchor.addingTimeInterval(fixture.hours * 3600)
+        let raw = anchor.addingTimeInterval(fixture.hours * 3600)
+        guard fixture.state == "in" else { return raw }
+        return max(raw, Calendar.current.startOfDay(for: anchor).addingTimeInterval(60))
     }
 
     private static func schedule(day: String) -> [String: Any] {
@@ -270,7 +277,7 @@ enum LiveHarnessData {
 
     private static let authentication: [String: Any] = [
         "user_info": ["auth": 1, "status": "Active", "exp_date": "1893456000", "max_connections": "2"],
-        "server_info": ["url": "harness.lineup.test", "port": "80"]
+        "server_info": ["url": "127.0.0.1", "port": "8765"]
     ]
 
     private static let categories: [[String: Any]] = [
