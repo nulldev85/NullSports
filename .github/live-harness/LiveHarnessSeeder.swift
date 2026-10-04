@@ -28,6 +28,8 @@ enum LiveHarnessSeeder {
         if let index = arguments.firstIndex(of: "-LiveHarnessTheme"), arguments.indices.contains(index + 1) {
             defaults.set(arguments[index + 1], forKey: LineupTheme.storageKey)
         }
+        defaults.set([2001, 1001, 2002, 1002, 2003, 1003, 2004, 1004, 2005, 1005, 2006, 1006],
+                     forKey: "NullSports.favoriteStreams." + profileID.uuidString)
         let follows = arguments.contains("-LiveHarnessNoFollows") ? FollowedTeams() : FollowedTeams(LiveHarnessData.followed)
         if let data = try? JSONEncoder().encode(follows) {
             defaults.set(data, forKey: "NullSports.followedTeams." + profileID.uuidString)
@@ -344,12 +346,25 @@ enum LiveHarnessData {
             lines.append(programme(id, kickoff.addingTimeInterval(-1800), kickoff.addingTimeInterval(4 * 3600),
                                    title, "Live from \(fixture.venue)."))
         }
-        for (_, name, epg) in networks {
-            var slot = anchor.addingTimeInterval(-3 * 3600)
+        let shows: [(String, Double, String)] = [
+            ("SportsCenter", 3600, "The day's biggest stories, highlights and analysis."),
+            ("College GameDay", 5400, "Previewing the weekend's top matchups from campus."),
+            ("The Pat McAfee Show", 7200, "Interviews and opinion from around the league."),
+            ("NFL Live", 1800, "News, injury reports and the week ahead."),
+            ("Inside the NBA", 3600, "Studio coverage and highlights from tonight's games."),
+            ("Baseball Tonight", 2700, "Every run from around the majors."),
+            ("NHL on the Fly", 1800, "Live look-ins and goals as they happen.")
+        ]
+        for (index, (_, _, epg)) in networks.enumerated() {
+            let calendar = Calendar.current
+            let hour = calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour], from: anchor)) ?? anchor
+            var slot = hour.addingTimeInterval(-3 * 3600)
+            var show = index
             while slot < anchor.addingTimeInterval(30 * 3600) {
-                lines.append(programme(epg, slot, slot.addingTimeInterval(7200), "\(name.dropFirst(4)) Sports Tonight",
-                                       "Highlights and analysis."))
-                slot = slot.addingTimeInterval(7200)
+                let (title, length, detail) = shows[show % shows.count]
+                lines.append(programme(epg, slot, slot.addingTimeInterval(length), title, detail))
+                slot = slot.addingTimeInterval(length)
+                show += 1
             }
         }
         lines.append("</tv>")

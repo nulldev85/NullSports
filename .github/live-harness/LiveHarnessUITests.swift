@@ -28,11 +28,11 @@ final class LiveHarnessUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    /// The default theme gets the long walk: into My Teams, down to the board,
-    /// a preview with focus moving on, the filter, the next row, a hold-Select
-    /// menu, and Menu stopping the preview.
-    func test1Signal() {
-        capture(theme: "signal", steps: [
+    /// The Live tab: into My Teams, down to the board, a preview with focus
+    /// moving on, the filter, the next row, a hold-Select menu, and Menu
+    /// stopping the preview.
+    func test1Live() {
+        capture(steps: [
             Self.shot("rail1", .down), Self.shot("rail2", .down), Self.quiet(.down),
             Self.shot("board1", .down), Self.shot("board2", .right),
             Self.shot("preview", .select, wait: 9), Self.shot("preview-focus-moves", .right),
@@ -40,20 +40,47 @@ final class LiveHarnessUITests: XCTestCase {
             Self.shot("row2", .down), Self.shot("stop-preview", .menu, wait: 3),
             Self.shot("upcoming-slate", .left),
             Step(name: "context-menu", button: .select, hold: 1.6, wait: 2.5)
-        ])
+        ], prefix: "live")
     }
 
-    /// An off night: the slate with nothing to show, and My Teams naming the
-    /// teams that are not playing.
-    func test7NoGames() {
-        capture(theme: "signal", steps: [Self.shot("down", .down)],
-                extra: ["-LiveHarnessNoGames"], prefix: "nogames")
+    /// The Guide: across to its tab, into the grid, along a row, a preview,
+    /// the sidebar, and Menu hiding the preview.
+    func test2Guide() {
+        capture(steps: [
+            Self.quiet(.up), Self.quiet(.up),
+            Self.shot("tab", .right, wait: 6),
+            Self.shot("enter", .down), Self.shot("down", .down), Self.shot("down2", .down),
+            Self.shot("right", .right), Self.shot("right2", .right),
+            Self.shot("select", .select, wait: 9),
+            Self.quiet(.left), Self.quiet(.left), Self.shot("sidebar", .left),
+            Self.shot("sidebar-down", .down), Self.shot("sidebar-close", .right),
+            Self.shot("menu-stops", .menu, wait: 3), Self.shot("menu-hides", .menu, wait: 3)
+        ], prefix: "guide")
+    }
+
+    /// Account, top to bottom.
+    func test3Account() {
+        capture(steps: [
+            Self.quiet(.up), Self.quiet(.up), Self.quiet(.right), Self.quiet(.right),
+            Self.shot("tab", .right, wait: 5),
+            Self.shot("enter", .down), Self.shot("right", .right), Self.shot("down", .down),
+            Self.shot("down2", .down), Self.shot("down3", .down), Self.shot("down4", .down),
+            Self.shot("down5", .down), Self.shot("down6", .down)
+        ], prefix: "account")
+    }
+
+    /// Library, which has no server here: the theme and its empty state.
+    func test4Library() {
+        capture(steps: [
+            Self.quiet(.up), Self.quiet(.up), Self.quiet(.right),
+            Self.shot("tab", .right, wait: 5), Self.shot("enter", .down)
+        ], prefix: "library")
     }
 
     /// Hold Select on a matched game, choose Start Multiview (the last item),
     /// and look at the board asking for a second game.
-    func test6Multiview() {
-        capture(theme: "signal", steps: [
+    func test5Multiview() {
+        capture(steps: [
             Self.quiet(.down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
             Step(name: "menu", button: .select, hold: 1.6, wait: 2.5),
             Self.quiet(.down), Self.quiet(.down), Self.shot("multiview", .select, wait: 3),
@@ -61,36 +88,16 @@ final class LiveHarnessUITests: XCTestCase {
         ], prefix: "multiview")
     }
 
-    func test2Velvet() {
-        capture(theme: "velvet", steps: [
-            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
-            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
-        ])
+    /// An off night: the slate with nothing to show, and My Teams naming the
+    /// teams that are not playing.
+    func test6NoGames() {
+        capture(steps: [Self.shot("down", .down)], extra: ["-LiveHarnessNoGames"], prefix: "nogames")
     }
 
-    func test3OLED() {
-        capture(theme: "seaGlass", steps: [
-            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
-            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
-        ])
-    }
-
-    func test4GraphiteIce() {
-        capture(theme: "graphiteIce", steps: [
-            Self.shot("rail1", .down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
-            Self.shot("board2", .right), Self.shot("preview", .select, wait: 9)
-        ])
-    }
-
-    func test5NoFollows() {
-        capture(theme: "signal", steps: [Self.shot("down", .down), Self.shot("right", .right)],
-                extra: ["-LiveHarnessNoFollows"], prefix: "nofollow")
-    }
-
-    private func capture(theme: String, steps: [Step], extra: [String] = [], prefix: String? = nil) {
-        let name = prefix ?? theme
+    private func capture(steps: [Step], extra: [String] = [], prefix: String) {
+        let name = prefix
         let app = XCUIApplication()
-        app.launchArguments = ["-LiveHarness", "-LiveHarnessTheme", theme] + extra
+        app.launchArguments = ["-LiveHarness"] + extra
         // A US evening, so the slate reads the way it will for the person it
         // is for, and today's games are today's.
         app.launchEnvironment = ["TZ": "America/New_York"]
