@@ -2350,6 +2350,12 @@ private struct MediaEpisodeCard: View {
                             else { Image(systemName: "film.fill").font(.largeTitle) }
                         }
                     }
+                    .overlay(alignment: .bottom) {
+                        if let playback {
+                            MediaArtworkProgress(fraction: playback.fraction,
+                                                 label: artworkLabel(playback.label))
+                        }
+                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -2364,10 +2370,7 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let playback {
-                MediaPlaybackProgress(fraction: playback.fraction,
-                    label: playback.label, height: 6)
-            } else if let label = episode.episodeCode ?? episode.episodeLabel {
+            if let label = episode.episodeCode ?? episode.episodeLabel {
                 Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
@@ -2399,6 +2402,13 @@ private struct MediaEpisodeCard: View {
 
     private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
         media.cardPlaybackPresentation(for: episode)
+    }
+
+    /// The episode's code is printed under the still already, so on the still
+    /// itself only the time is said.
+    private func artworkLabel(_ label: String) -> String {
+        guard let code = episode.episodeCode, label.hasPrefix(code + " · ") else { return label }
+        return String(label.dropFirst(code.count + 3))
     }
 
     private var footer: String {
@@ -3698,12 +3708,20 @@ private struct MediaItemCard: View {
                             else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
                         }
                     }
+                    // Where the viewer is, on the art rather than under it: a
+                    // row's titles then sit on one line whether or not a card
+                    // has been started.
+                    .overlay(alignment: .bottom) {
+                        if let playback {
+                            MediaArtworkProgress(fraction: playback.fraction, label: playback.label)
+                        }
+                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .lineupFocusLayer(artworkIsFocused, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-                .overlay(alignment: .bottomTrailing) {
+                .overlay(alignment: .topTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .heavy))
@@ -3713,10 +3731,6 @@ private struct MediaItemCard: View {
                             .padding(9)
                     }
                 }
-            if let playback {
-                MediaPlaybackProgress(fraction: playback.fraction, label: playback.label,
-                    height: progressHeight)
-            }
             // Two lines are held whether or not the title needs them, so the line
             // under it lands on the same baseline across a row.
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
@@ -3727,17 +3741,14 @@ private struct MediaItemCard: View {
             #if !os(tvOS)
             // The television shows a poster and its title and nothing more:
             // "MOVIE · 2026" under every card was clutter a viewer reads past.
-            if playback != nil {
-                EmptyView()
-            } else {
-                HStack(spacing: 7) {
-                    Text(item.type.uppercased())
-                    if let year = item.productionYear { Text("· \(String(year))") }
-                    if let count = item.childCount { Text("· \(count)") }
-                }
-                .font(.inter(.caption2, .medium))
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+            // The phone keeps the line on every card, so a row stays even.
+            HStack(spacing: 7) {
+                Text(item.type.uppercased())
+                if let year = item.productionYear { Text("· \(String(year))") }
+                if let count = item.childCount { Text("· \(count)") }
             }
+            .font(.inter(.caption2, .medium))
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -3792,44 +3803,62 @@ private struct MediaItemCard: View {
         .inter(.subheadline, .semibold)
         #endif
     }
-    private var progressHeight: CGFloat {
-        #if os(tvOS)
-        6
-        #else
-        4
-        #endif
-    }
 }
 
-/// Keeps resume information visually attached to the artwork it describes.
-/// The text is outside the poster crop, so it remains readable over light and
-/// dark art while the compact track still communicates position at a glance.
-private struct MediaPlaybackProgress: View {
+/// Where a viewer is in a title, laid across the foot of its artwork: the
+/// words, the track under them, and a shade behind both so they read over
+/// light art and dark alike.
+///
+/// It used to sit between the artwork and the title, which pushed that one
+/// card's title a line below its neighbours'. On the art it takes no height
+/// of the card's own, so every title in a row lines up.
+private struct MediaArtworkProgress: View {
     let fraction: Double
     let label: String
-    let height: CGFloat
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: spacing) {
+            Text(label)
+                .font(.inter(labelSize, .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.2))
-                    Capsule().fill(LineupStyle.lightPurple)
+                    Capsule().fill(.white.opacity(0.3))
+                    Capsule().fill(.white)
                         .frame(width: geometry.size.width * min(max(fraction, 0), 1))
                 }
             }
-            .frame(minWidth: 38, maxWidth: .infinity)
-            .frame(height: height)
-
-            Text(label)
-                .font(.inter(.caption2, .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
-                .layoutPriority(1)
+            .frame(height: trackHeight)
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, inset)
+        .padding(.bottom, inset)
+        .padding(.top, inset * 2.5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.55), location: 0.45),
+                .init(color: .black.opacity(0.82), location: 1)
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
     }
+
+    #if os(tvOS)
+    private var labelSize: CGFloat { 16 }
+    private var trackHeight: CGFloat { 5 }
+    private var spacing: CGFloat { 8 }
+    private var inset: CGFloat { 12 }
+    #else
+    private var labelSize: CGFloat { 11 }
+    private var trackHeight: CGFloat { 3 }
+    private var spacing: CGFloat { 5 }
+    private var inset: CGFloat { 8 }
+    #endif
 }
 
 struct MediaServerSetupView: View {
