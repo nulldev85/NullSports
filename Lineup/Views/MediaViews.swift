@@ -2990,6 +2990,10 @@ private struct MediaSourcePicker: View {
     let item: MediaItem
     /// Play from the beginning rather than from the saved place.
     var startsOver = false
+    /// Set when the picker went straight to the only stream there was, so
+    /// closing the player closes the picker too, rather than leaving a list
+    /// of one to back out of.
+    @State private var playedOnlySource = false
     @State private var sources: [MediaPlaybackSource] = []
     @State private var loading = true
     @State private var error: String?
@@ -3032,7 +3036,9 @@ private struct MediaSourcePicker: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .onExitCommand { dismiss() }
         .task(id: item.id) { await loadSources() }
-        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        .fullScreenCover(item: $selectedSource, onDismiss: { if playedOnlySource { dismiss() } }) { source in
+            playback(for: source)
+        }
         #else
         NavigationStack {
             results
@@ -3120,6 +3126,17 @@ private struct MediaSourcePicker: View {
         do { sources = try await media.playbackSources(for: item); error = nil }
         catch { self.error = error.localizedDescription }
         loading = false
+        #if os(tvOS)
+        // One stream is not a choice: play it. After a moment, so this screen
+        // has finished arriving -- a cover asked for mid-presentation is
+        // dropped rather than shown.
+        if sources.count == 1, error == nil, selectedSource == nil, !playedOnlySource {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            playedOnlySource = true
+            selectedSource = sources.first
+        }
+        #endif
     }
 
     // The synopsis type and the player that shows it are both iPhone-only;
