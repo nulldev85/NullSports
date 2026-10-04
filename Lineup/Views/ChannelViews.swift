@@ -3766,6 +3766,7 @@ struct AccountView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
+    @State private var addingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
@@ -3798,6 +3799,9 @@ struct AccountView: View {
             }
             .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
+            .sheet(isPresented: $addingProvider) {
+                ProfileSetupView().environmentObject(library)
+            }
             .sheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environmentObject(media)
             }
@@ -3834,7 +3838,7 @@ struct AccountView: View {
             } else {
                 AccountEmptyCard(symbol: "antenna.radiowaves.left.and.right",
                                  title: "No provider",
-                                 detail: "Add one on the Live tab to fill the guide.")
+                                 detail: "Add your IPTV login to fill Live and the guide.")
             }
             if let profile = media.activeProfile {
                 MediaServerAccountCard(profile: profile) { selectedTab = 2 }
@@ -3857,6 +3861,11 @@ struct AccountView: View {
                 .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             HStack(spacing: 18) {
+                // The first-run screen is the only other place to sign in, and
+                // it never returns once a media server is saved.
+                if library.activeProfile == nil {
+                    AccountAction(title: "Add IPTV Provider", symbol: "plus") { addingProvider = true }
+                }
                 AccountAction(title: "Add Media Server", symbol: "plus") { addingMediaServer = true }
                 if let profile = media.activeProfile, media.profiles.count == 1 {
                     AccountAction(title: "Remove Server", symbol: "trash", destructive: true) {
