@@ -529,7 +529,6 @@ private struct LiveScreen: View {
                              previewGameID: previewGame?.id, multiviewPrimaryID: multiviewPrimaryID,
                              multiviewTitle: multiviewTitle, isScheduleLoading: isScheduleLoading,
                              isScheduleAvailable: isScheduleAvailable,
-                             scheduleErrorMessage: scheduleErrorMessage,
                              onPlay: onPlay, onStartMultiview: onStartMultiview,
                              onCancelMultiview: onCancelMultiview)
         }
@@ -1034,8 +1033,8 @@ private struct LiveEmptySlate: View {
                     .font(.inter(46, .bold)).foregroundStyle(LivePalette.text)
                     .multilineTextAlignment(.center)
                 Text(isLoading ? "Tonight's games will be here in a moment." :
-                     (isAvailable ? "Try another sport, or come back for the next matchup." :
-                        (errorMessage ?? "We’ll try again shortly. Your channels are still in Guide.")))
+                     (isAvailable ? "Come back for the next matchup." :
+                        (errorMessage ?? "We’ll try again shortly.")))
                     .font(.inter(21)).foregroundStyle(LivePalette.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 680)
@@ -1468,7 +1467,6 @@ private struct LiveMatchupBoard: View {
     let multiviewTitle: String?
     let isScheduleLoading: Bool
     let isScheduleAvailable: Bool
-    let scheduleErrorMessage: String?
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
@@ -1482,15 +1480,27 @@ private struct LiveMatchupBoard: View {
         return events.first { library.stream(for: $0)?.id == multiviewPrimaryID }
     }
 
+    /// The board's word on an empty night. The monitor above carries the
+    /// mood and any error, so this says what to do next.
+    private var emptyLane: LiveEmptyLane {
+        if isScheduleLoading {
+            return LiveEmptyLane(title: "Games are loading…", detail: "The board fills in as each league answers.")
+        }
+        guard isScheduleAvailable else {
+            return LiveEmptyLane(title: "No matchups to show.", detail: "Your channels are still in Guide.")
+        }
+        guard let selectedLeague else {
+            return LiveEmptyLane(title: "No games in this range.", detail: "Your channels are still in Guide.")
+        }
+        return LiveEmptyLane(title: "No \(liveLeagueName(selectedLeague)) games in this range.",
+                             detail: "Switch to All sports to see every league.")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if events.isEmpty {
-                LiveEmptyLane(title: isScheduleLoading ? "Games are loading…" :
-                                (isScheduleAvailable ? "No games in this range." : "Schedule unavailable."),
-                              detail: isScheduleLoading ? "The board fills in as each league answers." :
-                                (isScheduleAvailable ? "Try another sport, or check back for the next matchup." :
-                                    (scheduleErrorMessage ?? "Your channels are still in Guide.")))
+                emptyLane
             } else {
                 LiveMatchupGrid(events: events, spotlight: spotlight, previewGameID: previewGameID,
                                 multiviewPrimaryID: multiviewPrimaryID,
@@ -1604,8 +1614,7 @@ private struct LiveLeagueFilter: View {
     @State private var choosing = false
 
     private var title: String {
-        guard let selectedLeague else { return "All sports" }
-        return selectedLeague == .ncaaf ? "College" : selectedLeague.shortName
+        selectedLeague.map(liveLeagueName) ?? "All sports"
     }
 
     var body: some View {
@@ -1619,7 +1628,7 @@ private struct LiveLeagueFilter: View {
         .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
             Button("All sports") { selectedLeague = nil }
             ForEach(SportsLeague.allCases) { league in
-                Button(league == .ncaaf ? "College" : league.shortName) { selectedLeague = league }
+                Button(liveLeagueName(league)) { selectedLeague = league }
             }
         }
         .accessibilityLabel("Filter by sport")
@@ -1891,6 +1900,11 @@ private func liveStartWord(_ league: SportsLeague) -> String {
     case .mlb: "FIRST PITCH"
     case .ufc: "MAIN CARD"
     }
+}
+
+/// A league as the sport filter names it.
+private func liveLeagueName(_ league: SportsLeague) -> String {
+    league == .ncaaf ? "College" : league.shortName
 }
 
 /// The matchup in a line: "BOS 3 – NYY 5", "BOS @ MIL", or an event's name.
