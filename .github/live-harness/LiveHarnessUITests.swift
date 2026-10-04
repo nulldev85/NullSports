@@ -43,6 +43,13 @@ final class LiveHarnessUITests: XCTestCase {
         ])
     }
 
+    /// An off night: the slate with nothing to show, and My Teams naming the
+    /// teams that are not playing.
+    func test7NoGames() {
+        capture(theme: "signal", steps: [Self.shot("down", .down)],
+                extra: ["-LiveHarnessNoGames"], prefix: "nogames")
+    }
+
     /// Hold Select on a matched game, choose Start Multiview (the last item),
     /// and look at the board asking for a second game.
     func test6Multiview() {

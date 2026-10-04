@@ -236,11 +236,15 @@ enum LiveHarnessData {
         return max(raw, Calendar.current.startOfDay(for: anchor).addingTimeInterval(60))
     }
 
+    /// An off night: every league answers, and none of them has a game.
+    private static var noGames: Bool { ProcessInfo.processInfo.arguments.contains("-LiveHarnessNoGames") }
+
     private static func schedule(day: String) -> [String: Any] {
         let today = dayString(anchor)
         let tomorrow = dayString(anchor.addingTimeInterval(24 * 3600))
         var leagues: [String: [[String: Any]]] = ["nfl": [], "nba": [], "nhl": [], "mlb": [], "ncaaf": []]
-        for fixture in fixtures where (day == today && !fixture.tomorrow) || (day == tomorrow && fixture.tomorrow) {
+        for fixture in fixtures where !noGames
+            && ((day == today && !fixture.tomorrow) || (day == tomorrow && fixture.tomorrow)) {
             leagues[fixture.league, default: []].append([
                 "id": fixture.id, "start": iso(start(fixture)),
                 "awayTeam": fixture.away.name, "homeTeam": fixture.home.name,
@@ -257,7 +261,7 @@ enum LiveHarnessData {
     }
 
     private static func ufc(day: String) -> [String: Any] {
-        guard day == dayString(anchor) else { return ["events": [[String: Any]]()] }
+        guard day == dayString(anchor), !noGames else { return ["events": [[String: Any]]()] }
         let start = iso(anchor.addingTimeInterval(1.25 * 3600))
         let status: [String: Any] = ["type": ["state": "pre", "description": "Scheduled", "shortDetail": "Tonight"]]
         func fighter(_ side: String, _ name: String, _ record: String) -> [String: Any] {
