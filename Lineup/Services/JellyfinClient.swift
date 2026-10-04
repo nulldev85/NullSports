@@ -1,0 +1,381 @@
+import Foundation
+
+struct JellyfinClient: Sendable {
+    let serverURL: URL
+    let accessToken: String?
+    let deviceID: String
+    private let session: URLSession
+
+    init(serverURL: String, accessToken: String? = nil, deviceID: String,
+         session: URLSession = .shared) throws {
+        guard let url = Self.address(from: serverURL) else {
+            throw JellyfinError.invalidServer
+        }
+        self.serverURL = url
+        self.accessToken = accessToken
+        self.deviceID = deviceID
+        self.session = session
+    }
+
+    /// What somebody typed, as an address to call.
+    ///
+    /// The scheme is supplied when it is missing, which is most of the time on
+    /// a television: a Jellyfin server is "192.168.1.50:8096" to the person who
+    /// set it up, and nobody types "http://" on a remote if they can help it.
+    /// Without it `URL` reads the host as the scheme -- "192.168.1.50" -- and
+    /// the address is rejected as unreadable, which is what it did.
+    ///
+    /// Plain http, because that is what a server on a home network answers on
+    /// and this is the address of a box down the hall far more often than it is
+    /// a public host. Anyone who needs TLS types it and is believed.
+    static func address(from typed: String) -> URL? {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return nil }
+        let candidate = URL(string: trimmed)
+        let scheme = candidate?.scheme?.lowercased()
+        if let candidate, let scheme, ["http", "https"].contains(scheme), candidate.host != nil {
+            return candidate
+        }
+        // Anything else is treated as a bare address. A scheme that is neither
+        // http nor https is not honoured -- "192.168.1.50:8096" parses as one,
+        // and it is a host and a port.
+        guard let url = URL(string: "http://" + trimmed), url.host != nil else { return nil }
+        return url
+    }
+
+    func authenticate(username: String, password: String) async throws -> JellyfinAuthenticationResponse {
+        var request = try request(path: "users/authenticatebyname", method: "POST")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["Username": username, "Pw": password])
+        return try await send(request)
+    }
+
+    func views(userID: String) async throws -> [MediaItem] {
+        let response: JellyfinItemsResponse = try await send(try request(path: "users/\(userID)/views"))
+        return response.items
+    }
+
+    // Everything a shelf card, a show page and an episode card between them need.
+    // Asked for once, so no screen has to go back for a second round.
+    static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"
+        + "RunTimeTicks,PremiereDate,PrimaryImageAspectRatio,ProductionYear,ChildCount,"
+        + "People,Studios,ProductionLocations,Tags,RemoteTrailers,SeriesId,ProviderIds"
+
+    func items(userID: String, parentID: String,
+               sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "ParentId", value: parentID),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "SortBy", value: sortBy),
+            URLQueryItem(name: "SortOrder", value: "Ascending")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        return response.items
+    }
+
+    /// Every collection on the server, whether or not it is promoted.
+    ///
+    /// A Nullfin addon catalog is imported as a collection and left unpromoted,
+    /// and the views route filters on exactly that flag -- so an addon catalog
+    /// is a BoxSet that `views` structurally cannot return, however many addons
+    /// are attached. Asking for BoxSets is how a client reaches them. The flag
+    /// itself is server-side only and no query of ours can set it either way.
+    ///
+    /// A stock Jellyfin server answers the same request with its own
+    /// collections, which belong in the same list.
+    /// Every collection, in pages, rather than the first page and a hope.
+    ///
+    /// A server that has imported a lot of catalogs has a lot of BoxSets, and
+    /// they come back sorted by name — so a collection whose name sorts late
+    /// falls off the end of a single capped request and is invisible to
+    /// everything downstream: the shelf picker, the library tab, and the wait
+    /// that watches for a newly imported catalog to appear.
+    func allCollections(userID: String, pageSize: Int = 200, maxPages: Int = 25) async throws -> [MediaItem] {
+        var all: [MediaItem] = []
+        var seen: Set<String> = []
+        for page in 0..<maxPages {
+            let batch = try await collections(userID: userID, limit: pageSize,
+                                              startIndex: page * pageSize)
+            for item in batch where seen.insert(item.id).inserted { all.append(item) }
+            if batch.count < pageSize { break }
+        }
+        return all
+    }
+
+    func collections(userID: String, limit: Int = 200, startIndex: Int = 0) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "IncludeItemTypes", value: "BoxSet"),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "StartIndex", value: String(startIndex)),
+            URLQueryItem(name: "SortBy", value: "SortName"),
+            URLQueryItem(name: "SortOrder", value: "Ascending")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        return response.items
+    }
+
+    /// The complete episode order for a show in one request. This is used by
+    /// local Continue Watching progression and deliberately includes later
+    /// seasons, so finishing a finale can advance into the next season.
+    func episodes(userID: String, seriesID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "ParentId", value: seriesID),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: "Episode"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: "10000"),
+            URLQueryItem(name: "SortBy", value: "ParentIndexNumber,IndexNumber"),
+            URLQueryItem(name: "SortOrder", value: "Ascending")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        return LocalEpisodeProgressionPolicy.ordered(response.items)
+    }
+
+    /// Movies and shows in the server, including provider ids. MDBList shelves
+    /// use this one index to resolve a whole discovery list without issuing a
+    /// separate server search for every title.
+    func allTitles(userID: String, pageSize: Int = 500, maxPages: Int = 50) async throws -> [MediaItem] {
+        var all: [MediaItem] = []
+        var seen: Set<String> = []
+        for page in 0..<maxPages {
+            let query = [
+                URLQueryItem(name: "UserId", value: userID),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series"),
+                URLQueryItem(name: "Fields", value: Self.fields),
+                URLQueryItem(name: "ImageTypeLimit", value: "1"),
+                URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+                URLQueryItem(name: "Limit", value: String(pageSize)),
+                URLQueryItem(name: "StartIndex", value: String(page * pageSize)),
+                URLQueryItem(name: "SortBy", value: "SortName"),
+                URLQueryItem(name: "SortOrder", value: "Ascending")
+            ]
+            let response: JellyfinItemsResponse = try await send(
+                try request(path: "users/\(userID)/items", query: query))
+            for item in response.items where seen.insert(item.id).inserted { all.append(item) }
+            if response.items.count < pageSize { break }
+        }
+        return all
+    }
+
+    // MARK: - Nullfin addons
+    //
+    // These four routes are Nullfin's own and are administrator-only -- the
+    // server asks for nothing more than the account's admin flag, which the
+    // person who set the server up has. A stock Jellyfin server answers 404
+    // and a non-admin account 401, and either way the caller falls back to
+    // offering only what is already imported.
+
+    func addons() async throws -> [NullfinAddon] {
+        try await send(try request(path: "addons"))
+    }
+
+    func addonCatalogs(addonID: String) async throws -> [NullfinCatalog] {
+        try await send(try request(path: "addons/\(addonID)/catalogs"))
+    }
+
+    /// Switch a catalog on or off for import. The route takes a batch; this
+    /// sends the one catalog, and leaves max items and tags alone by omitting
+    /// them, which the server reads as "keep what is there".
+    func setCatalog(addonID: String, catalogID: String, enabled: Bool) async throws {
+        var request = try request(path: "addons/\(addonID)/catalogs", method: "POST")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: [["catalogId": catalogID, "enabled": enabled]])
+        try await sendIgnoringBody(request)
+    }
+
+    /// Ask the server to import every enabled catalog. Switching a catalog on
+    /// only records the choice; nothing exists to browse until this has run.
+    func refreshLibrary() async throws {
+        try await sendIgnoringBody(try request(path: "library/refresh", method: "POST"))
+    }
+
+    func item(userID: String, itemID: String) async throws -> MediaItem {
+        try await send(try request(path: "users/\(userID)/items/\(itemID)"))
+    }
+
+    func similarItems(userID: String, itemID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "Limit", value: "16")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "items/\(itemID)/similar", query: query))
+        return response.items
+    }
+
+    func libraryCounts(userID: String) async throws -> MediaLibraryCounts {
+        async let movies = itemCount(userID: userID, type: "Movie")
+        async let shows = itemCount(userID: userID, type: "Series")
+        async let episodes = itemCount(userID: userID, type: "Episode")
+        let movieCount = try await movies
+        let showCount = try await shows
+        let episodeCount = try await episodes
+        return MediaLibraryCounts(movies: movieCount, shows: showCount,
+            episodes: episodeCount)
+    }
+
+    private func itemCount(userID: String, type: String) async throws -> Int {
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: type),
+            URLQueryItem(name: "EnableTotalRecordCount", value: "true"),
+            URLQueryItem(name: "Limit", value: "1")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query))
+        guard let count = response.totalRecordCount else { throw JellyfinError.invalidResponse }
+        return count
+    }
+
+    // The server already knows where a viewer is up to in a series, and it is a
+    // better answer than any guess made from which episodes are marked played.
+    func nextUp(userID: String, seriesID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "userId", value: userID),
+            URLQueryItem(name: "seriesId", value: seriesID),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "Limit", value: "1")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "shows/nextup", query: query))
+        return response.items
+    }
+
+    // A Nullfin extension. Jellyfin has no such route and answers 404, which is
+    // why the caller treats any failure as "this server has no extra scores".
+    func itemMetrics(itemID: String) async throws -> [MediaMetric] {
+        let response: MediaMetricsResponse = try await send(
+            try request(path: "remux/metrics/\(itemID)"))
+        return response.metrics
+    }
+
+    func setFavorite(userID: String, itemID: String, isFavorite: Bool) async throws {
+        try await sendIgnoringBody(
+            try request(path: "users/\(userID)/favoriteitems/\(itemID)",
+                method: isFavorite ? "POST" : "DELETE"))
+    }
+
+    func setPlayed(userID: String, itemID: String, isPlayed: Bool) async throws {
+        try await sendIgnoringBody(
+            try request(path: "users/\(userID)/playeditems/\(itemID)",
+                method: isPlayed ? "POST" : "DELETE"))
+    }
+
+    func search(userID: String, query: String) async throws -> [MediaItem] {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return [] }
+        let parameters = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "SearchTerm", value: value),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series,Episode,Video"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: "60")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: parameters))
+        return response.items
+    }
+
+    func imageURL(itemID: String, type: String = "primary", maxWidth: Int = 600) -> URL? {
+        authenticatedURL(path: "items/\(itemID)/images/\(type)", query: [
+            URLQueryItem(name: "maxWidth", value: String(maxWidth)),
+            URLQueryItem(name: "quality", value: "88")
+        ])
+    }
+
+    func playbackURL(itemID: String) -> URL? {
+        playbackURL(itemID: itemID, mediaSourceID: nil)
+    }
+
+    func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
+        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST")
+        value.httpBody = Data("{}".utf8)
+        return try await send(value)
+    }
+
+    func playbackURL(itemID: String, mediaSourceID: String?) -> URL? {
+        var query = [URLQueryItem(name: "static", value: "true")]
+        if let mediaSourceID { query.append(URLQueryItem(name: "MediaSourceId", value: mediaSourceID)) }
+        return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
+    }
+
+    private func request(path: String, method: String = "GET", query: [URLQueryItem] = []) throws -> URLRequest {
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+            throw JellyfinError.invalidServer
+        }
+        components.queryItems = query.isEmpty ? nil : query
+        guard let url = components.url else { throw JellyfinError.invalidServer }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var authorization = "MediaBrowser Client=\"Lineup\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""
+        if let accessToken { authorization += ", Token=\"\(accessToken)\"" }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
+        return request
+    }
+
+    private func authenticatedURL(path: String, query: [URLQueryItem]) -> URL? {
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else { return nil }
+        var values = query
+        if let accessToken { values.append(URLQueryItem(name: "api_key", value: accessToken)) }
+        components.queryItems = values
+        return components.url
+    }
+
+    private func sendIgnoringBody(_ request: URLRequest) async throws {
+        let (_, response) = try await session.data(for: request)
+        try Self.check(response)
+    }
+
+    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let (data, response) = try await session.data(for: request)
+        try Self.check(response)
+        do { return try JSONDecoder().decode(T.self, from: data) }
+        catch { throw JellyfinError.invalidResponse }
+    }
+
+    private static func check(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else { throw JellyfinError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw JellyfinError.authenticationFailed }
+            throw JellyfinError.server(http.statusCode)
+        }
+    }
+}
+
+enum JellyfinError: LocalizedError {
+    case invalidServer
+    case authenticationFailed
+    case invalidResponse
+    case server(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidServer: "That does not look like a server address. Try the address and port, like 192.168.1.50:8096, or a full https:// address."
+        case .authenticationFailed: "The media server rejected those credentials."
+        case .invalidResponse: "The server returned an unsupported response."
+        case .server(let status): "The media server returned HTTP \(status)."
+        }
+    }
+}

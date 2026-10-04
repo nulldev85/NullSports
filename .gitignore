@@ -1,6 +1,6 @@
 .DS_Store
 build/
-NullSports/Assets/IconSource/
+Lineup/Assets/IconSource/
 package/
 *.xcodeproj/
 xcuserdata/

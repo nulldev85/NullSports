@@ -13,7 +13,7 @@ struct MobilePagingView: UIViewControllerRepresentable {
         let pager = MobilePageController(transitionStyle: .scroll, navigationOrientation: .horizontal)
         context.coordinator.controllers = pages.map {
             let host = UIHostingController(rootView: $0)
-            host.view.backgroundColor = UIColor(NullSportsStyle.background)
+            host.view.backgroundColor = UIColor(LineupStyle.background)
             return host
         }
         pager.dataSource = context.coordinator
@@ -24,7 +24,10 @@ struct MobilePagingView: UIViewControllerRepresentable {
     func updateUIViewController(_ pager: MobilePageController, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
-        for (index, page) in pages.enumerated() { coordinator.controllers[index].rootView = page }
+        for (index, page) in pages.enumerated() {
+            coordinator.controllers[index].rootView = page
+            coordinator.controllers[index].view.backgroundColor = UIColor(LineupStyle.background)
+        }
         pager.pagingEnabled = allowsPaging
         pager.configureGestures()
         coordinator.showSelection(in: pager)

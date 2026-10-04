@@ -1,4 +1,4 @@
-name: NullSports
+name: Lineup
 options:
   bundleIdPrefix: com.nulldev85
   deploymentTarget:
@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.17.1"
-    CURRENT_PROJECT_VERSION: "60"
+    MARKETING_VERSION: "0.19.0"
+    CURRENT_PROJECT_VERSION: "71"
 packages:
   # VLCKit's official Swift Package is only published on the 4.0 alpha line
   # (still at a22, undocumented in places, and the source of two build
@@ -17,68 +17,88 @@ packages:
     url: https://github.com/tylerjonesio/vlckit-spm
     exactVersion: 3.6.0
 targets:
-  NullSports:
+  # The bundle identifiers below keep the old name on purpose. iOS identifies an
+  # app by that string: change it and the build becomes a separate app with an
+  # empty container, so every provider, media server, favourite and saved
+  # password is gone. There is no migration back -- a new container cannot read
+  # the old one's defaults, and an unsigned build has no Keychain access group
+  # to share. The name a person sees is set by CFBundleDisplayName instead.
+  Lineup:
     type: application
     platform: tvOS
     sources:
-      - NullSports
+      - Lineup
     dependencies:
       - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
-        PRODUCT_NAME: NullSports
+        PRODUCT_NAME: Lineup
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: NullSports
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Lineup
+        # App Transport Security has no INFOPLIST_KEY_ form, so it lives in a
+        # real file that Xcode merges the generated keys into — the same fix
+        # the iPhone target needed, for the same reason.
+        INFOPLIST_FILE: BuildAssets/LineuptvOS-Info.plist
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Lineup/Lineup.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"
     scheme:
       testTargets: []
-  NullSportsiOS:
+  LineupiOS:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - NullSports/Models
-      - NullSports/Services
-      - NullSports/Store
-      - NullSports/Design
-      - NullSports/NullSportsApp.swift
-      - NullSports/Views/RootView.swift
+      - Lineup/Models
+      - Lineup/Services
+      - Lineup/Store
+      - Lineup/Design
+      - Lineup/Resources
+      - Lineup/LineupApp.swift
+      - Lineup/Views/RootView.swift
+      - Lineup/Views/MediaViews.swift
       - iPhone
     dependencies:
       - package: VLCKitSPM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
-        PRODUCT_MODULE_NAME: NullSportsiOS
-        MARKETING_VERSION: "0.17.10"
-        CURRENT_PROJECT_VERSION: "69"
-        PRODUCT_NAME: NullSports
+        PRODUCT_MODULE_NAME: LineupiOS
+        MARKETING_VERSION: "0.19.0"
+        CURRENT_PROJECT_VERSION: "90"
+        PRODUCT_NAME: Lineup
         TARGETED_DEVICE_FAMILY: "1"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: NullSports
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your IPTV provider on your local network.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # An explicit Info.plist, not INFOPLIST_KEY_* settings. UIBackgroundModes
+        # must be an array of strings for iOS to grant background audio and
+        # Picture in Picture; the generated plist did not produce one, so the
+        # capability was silently absent. This file carries every key the
+        # generated one used to, and is checked in CI after the build. It lives
+        # outside `sources` on purpose: an Info.plist inside the source glob is
+        # both processed and copied, which collides on Info.plist in the bundle.
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: BuildAssets/LineupiOS-Info.plist
+        # Reaches libvlc's C API, which MobileVLCKit's module map hides from
+        # Swift. See iPhone/LineupVLCBridge.h. iPhone only: tvOS links TVVLCKit
+        # and has neither Picture in Picture nor a reason to tap frames.
+        SWIFT_OBJC_BRIDGING_HEADER: iPhone/LineupVLCBridge.h
         CODE_SIGN_STYLE: Automatic
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: iPhone/LineupiOS.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon
     scheme:
       testTargets:
-        - NullSportsiOSTests
-  NullSportsiOSTests:
+        - LineupiOSTests
+  LineupiOSTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "17.0"
     sources:
       - Tests/iOS
     dependencies:
-      - target: NullSportsiOS
+      - target: LineupiOS
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NullSports.app/NullSports"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Lineup.app/Lineup"
         BUNDLE_LOADER: "$(TEST_HOST)"

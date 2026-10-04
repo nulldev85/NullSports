@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Lineup collects nothing and tracks nobody. A provider's credentials and a
+  media server's password are entered by the person using the app, kept in the
+  device Keychain, and sent only to the server they named. None of that reaches
+  the developer, so there is nothing to declare as collected.
+
+  The two entries below are Apple's required-reason APIs that the app really
+  calls, and nothing else:
+
+  CA92.1  — UserDefaults, to read and write this app's own settings: which
+            provider is active, which theme, which shelves are shown.
+  35F9.1  — the system's boot time, via ProcessInfo.systemUptime, to measure
+            how long a stream has been stalled. A clock that a viewer can
+            change is no use for timing a reconnect.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>35F9.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

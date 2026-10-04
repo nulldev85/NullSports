@@ -1,4 +1,5 @@
-name: Build NullSports tvOS IPA
+name: Build Lineup tvOS IPA
+run-name: Build Lineup tvOS IPA · ${{ github.ref_name }} · ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -23,51 +24,107 @@ jobs:
       - name: Check college channel matching policy
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/nullsports-matcher-checks
-          /tmp/nullsports-matcher-checks
+          swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/lineup-matcher-checks
+          /tmp/lineup-matcher-checks
 
       - name: Check Guide elapsed progress
         run: |
           set -euo pipefail
-          swiftc NullSports/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/nullsports-guide-checks
-          /tmp/nullsports-guide-checks
+          swiftc Lineup/Views/GuideProgress.swift Tests/GuideProgressChecks.swift -o /tmp/lineup-guide-checks
+          /tmp/lineup-guide-checks
 
       - name: Check daily schedule and match persistence
         run: |
           set -euo pipefail
-          swiftc NullSports/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/nullsports-daily-cache-checks
-          /tmp/nullsports-daily-cache-checks
+          swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
+          /tmp/lineup-daily-cache-checks
 
       - name: Install project generator
         run: brew install xcodegen
 
+      - name: Check live playback recovery and professional matchup evidence
+        run: |
+          set -euo pipefail
+          swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
+          /tmp/lineup-playback-health-checks
+          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
+          /tmp/lineup-professional-match-checks
+          swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
+          /tmp/lineup-provider-refresh-checks
+
+      - name: Check tvOS focus styling
+        run: |
+          set -euo pipefail
+          python3 Tools/check-tv-focus.py
+
+      # The icon layers are committed artwork. They used to be rebuilt here from
+      # a source bitmap on every run, which meant a new icon was overwritten by
+      # the old one before it ever reached a build. BuildAssets/generate-icons.py
+      # draws them when the mark itself changes.
       - name: Generate project
         run: |
           set -euo pipefail
-          bash BuildAssets/generate-icons.sh
+          test -d 'Lineup/Assets.xcassets/Lineup App Icon & Top Shelf Image.brandassets'
+          test ! -e 'Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
+          grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"' project.yml
           xcodegen generate
 
       - name: Build unsigned app
         run: |
           set -euo pipefail
           xcodebuild \
-            -project NullSports.xcodeproj \
-            -scheme NullSports \
+            -project Lineup.xcodeproj \
+            -scheme Lineup \
             -configuration Release \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+
+      - name: Check Inter is bundled
+        run: |
+          set -euo pipefail
+          # The font is registered at launch from the bundle, and a missing
+          # file is silent: Font.custom falls back to the system font and the
+          # app looks the way it did before Inter. So the bundle is the thing
+          # to check, not the code.
+          app="build/Build/Products/Release-appletvos/Lineup.app"
+          test -d "$app"
+          missing=0
+          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
+            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
+              echo "Inter-$face.ttf is not in the app bundle"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Check App Transport Security is in the bundle
+        run: |
+          set -euo pipefail
+          # It reached the built app through a build setting that does not
+          # exist, so it never reached it at all: a nested dictionary has no
+          # INFOPLIST_KEY_ form and Xcode silently ignores one. Nothing in the
+          # source says whether it survived, so read it back out of the bundle.
+          plist="build/Build/Products/Release-appletvos/Lineup.app/Info.plist"
+          test -f "$plist"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$plist" | grep -qx true
+          # The generated keys have to survive the merge with that file.
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
 
       - name: Build for tvOS Simulator
         run: |
           set -euo pipefail
           xcodebuild \
-            -project NullSports.xcodeproj \
-            -scheme NullSports \
+            -project Lineup.xcodeproj \
+            -scheme Lineup \
             -configuration Debug \
             -destination 'platform=tvOS Simulator,name=Apple TV' \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
             build
 
       - name: Smoke test app launch in tvOS Simulator
@@ -75,16 +132,24 @@ jobs:
           set -euo pipefail
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
           xcrun simctl boot "$device"
-          app="build-sim/Build/Products/Debug-appletvsimulator/NullSports.app"
+          # `simctl boot` returns once booting has started, not once FrontBoard
+          # is ready to discover and launch installed apps. Wait for the
+          # television home screen instead of racing it on a busy runner.
+          xcrun simctl bootstatus "$device" -b
+          app="build-sim/Build/Products/Debug-appletvsimulator/Lineup.app"
           test -d "$app"
           xcrun simctl install "$device" "$app"
           xcrun simctl launch "$device" com.nulldev85.NullSports
           # Give the app a few seconds to finish launching, then confirm it's
           # still alive rather than having crashed on a VLCKit link/runtime error.
           sleep 6
-          if ! xcrun simctl spawn "$device" launchctl list | grep -q com.nulldev85.NullSports; then
+          # Capture the complete list before searching it. With pipefail enabled,
+          # grep -q exits as soon as it finds the app and can leave launchctl with
+          # SIGPIPE, incorrectly failing an otherwise successful smoke test.
+          processes=$(xcrun simctl spawn "$device" launchctl list)
+          if ! grep -q com.nulldev85.NullSports <<< "$processes"; then
             echo "App did not stay running after launch — collecting crash logs"
-            xcrun simctl spawn "$device" log show --predicate 'process == "NullSports"' --last 2m || true
+            xcrun simctl spawn "$device" log show --predicate 'process == "Lineup"' --last 2m || true
             exit 1
           fi
           xcrun simctl shutdown "$device"
@@ -92,17 +157,17 @@ jobs:
       - name: Package IPA
         run: |
           set -euo pipefail
-          app="build/Build/Products/Release-appletvos/NullSports.app"
+          app="build/Build/Products/Release-appletvos/Lineup.app"
           test -d "$app"
           mkdir -p package/Payload
           cp -R "$app" package/Payload/
           cd package
-          zip -qry ../NullSports-unsigned.ipa Payload
+          zip -qry ../Lineup-unsigned.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NullSports-tvOS-unsigned-IPA
-          path: NullSports-unsigned.ipa
+          name: Lineup-tvOS-unsigned-IPA
+          path: Lineup-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

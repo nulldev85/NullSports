@@ -1,0 +1,136 @@
+import Foundation
+import Security
+
+enum KeychainStore {
+    // The old name, kept deliberately: a saved password is filed under this
+    // service, and renaming it would leave every stored password unreadable.
+    private static let service = "com.nulldev85.NullSports.xtream"
+
+    static func save(password: String, profileID: UUID) throws {
+        let account = profileID.uuidString
+        let data = Data(password.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError.write(status) }
+    }
+
+    static func password(profileID: UUID) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileID.uuidString,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func delete(profileID: UUID) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileID.uuidString
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    enum KeychainError: LocalizedError {
+        case write(OSStatus)
+        var errorDescription: String? { "The password could not be saved securely." }
+    }
+}
+
+enum MediaKeychainStore {
+    // As above: renaming this locks users out of their saved server tokens.
+    private static let service = "com.nulldev85.NullSports.jellyfin"
+
+    static func save(token: String, profileID: UUID) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileID.uuidString
+        ]
+        SecItemDelete(query as CFDictionary)
+        var item = query
+        item[kSecValueData as String] = Data(token.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainStore.KeychainError.write(status) }
+    }
+
+    static func token(profileID: UUID) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileID.uuidString,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func delete(profileID: UUID) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileID.uuidString
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+enum MDBListKeychainStore {
+    private static let service = "com.nulldev85.Lineup.mdblist"
+    private static let account = "api-key"
+
+    static func save(apiKey: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+        var item = query
+        item[kSecValueData as String] = Data(apiKey.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainStore.KeychainError.write(status) }
+    }
+
+    static func apiKey() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func delete() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}

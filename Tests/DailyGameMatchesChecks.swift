@@ -8,7 +8,7 @@ enum DailyGameMatchesChecks {
         let day = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7))!
         let savedAt = day.addingTimeInterval(10 * 3600)
         let reopen = day.addingTimeInterval(18 * 3600)
-        let leagues = ["nfl", "nba", "nhl", "mlb", "ncaaf"]
+        let leagues = ["nfl", "nba", "nhl", "mlb", "ncaaf", "ufc"]
         let identities = Dictionary(uniqueKeysWithValues: leagues.map { ($0, [$0, "away", "home", "ESPN", "kickoff"]) })
         let channels = Dictionary(uniqueKeysWithValues: leagues.map { ($0, "channel-" + $0) })
         let saved = DailyGameMatches(savedAt: savedAt, identities: identities, channels: channels)
@@ -19,7 +19,12 @@ enum DailyGameMatchesChecks {
             restored.restore(identities: inputs ?? identities, available: available ?? Array(channels.values), now: now ?? reopen, calendar: calendar)
         }
         precondition(matches() == channels, "Every league survives a disk round trip and same-day relaunch")
-        precondition(matches(now: day.addingTimeInterval(24 * 3600)).isEmpty, "Midnight expires all yesterday's matches")
+        precondition(matches(now: day.addingTimeInterval(24 * 3600)) == channels,
+                     "Tomorrow's precomputed matches survive midnight")
+        precondition(matches(now: day.addingTimeInterval(48 * 3600)).isEmpty,
+                     "Matches older than yesterday expire")
+        precondition(matches([:], now: day.addingTimeInterval(24 * 3600)).isEmpty,
+                     "Finished games are not carried into the next day")
         precondition(matches(now: savedAt.addingTimeInterval(-1)).isEmpty, "Clock rollback rejects future cache")
         precondition(matches(available: []).isEmpty, "Another profile's library cannot restore unavailable channels")
         var updated = identities
@@ -44,6 +49,15 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: false), "A previously failed MLB lookup must retry")
         precondition(DailyCachePolicy.canReuseMatch(savedSignature: "mlb-game", currentSignature: "mlb-game", hasMatch: true), "Successful same-game match still opens without rematching")
         precondition(!DailyCachePolicy.canReuseMatch(savedSignature: "old-broadcast", currentSignature: "new-broadcast", hasMatch: true), "Broadcast change requires rematching")
+        precondition(DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "NCAAF SMU vs FSU", freshName: "NCAAF SMU vs FSU",
+            cachedEPG: "event-42", freshEPG: "event-42"), "An unchanged fresh channel can reuse today's guide evidence")
+        precondition(!DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "NCAAF SMU vs FSU", freshName: "NCAAF Alabama vs Georgia",
+            cachedEPG: "event-42", freshEPG: "event-42"), "A recycled event ID cannot inherit the previous matchup")
+        precondition(!DailyCachePolicy.isSameChannelSlot(cachedID: 42, freshID: 42,
+            cachedName: "ESPN", freshName: "ESPN", cachedEPG: "espn-us", freshEPG: "espn-ca"),
+            "A channel moved to another guide slot must wait for fresh guide evidence")
         let genA = UUID()
         let genB = UUID()
         let profileA = UUID()
@@ -52,6 +66,6 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
-        print("23 daily schedule and match persistence checks passed")
+        print("28 daily schedule and match persistence checks passed")
     }
 }

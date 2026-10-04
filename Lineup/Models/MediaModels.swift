@@ -1,0 +1,750 @@
+import Foundation
+
+struct MediaServerProfile: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var serverURL: String
+    var username: String
+    var userID: String
+
+    init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String) {
+        self.id = id
+        self.name = name
+        self.serverURL = serverURL
+        self.username = username
+        self.userID = userID
+    }
+}
+
+/// An addon registered on a Nullfin server, as `GET /addons` returns it.
+///
+/// Only the fields Lineup needs are declared: the route answers with a good
+/// deal more, and an unknown key is simply not decoded, so a server that adds
+/// or drops one elsewhere does not break this.
+struct NullfinAddon: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let enabled: Bool
+}
+
+/// One catalog an addon offers, as `GET /addons/{id}/catalogs` returns it.
+struct NullfinCatalog: Codable, Identifiable, Hashable, Sendable {
+    /// `addon:{addon id}:{the addon's own id for it}`.
+    let catalogId: String
+    let name: String
+    /// Whether the server imports this catalog. Catalogs arrive switched off.
+    let enabled: Bool
+    /// The collection this catalog becomes once imported. Absent until the
+    /// server can resolve one.
+    let collectionId: String?
+
+    var id: String { catalogId }
+}
+
+enum MDBListCatalogSection: String, CaseIterable, Hashable, Sendable {
+    case yourLists
+    case liked
+    case curated
+    case popular
+
+    var title: String {
+        switch self {
+        case .yourLists: "YOUR MDBLIST LISTS"
+        case .liked: "LIKED LISTS"
+        case .curated: "MDBLIST CURATED"
+        case .popular: "POPULAR ON MDBLIST"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .yourLists: "Lists created or saved directly in your account"
+        case .liked: "Public lists you follow on MDBList"
+        case .curated: "Hand-picked catalogs from MDBList"
+        case .popular: "Popular, regularly updated MDBList catalogs"
+        }
+    }
+}
+
+/// A playlist offered by MDBList. The numeric list id is the stable API
+/// identity; the slug is presentation metadata and can change when a list is
+/// renamed.
+struct MDBListCatalog: Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+    let slug: String?
+    let itemCount: Int?
+    let likes: Int?
+    let section: MDBListCatalogSection
+
+    var shelfID: String { "mdblist:\(id)" }
+}
+
+struct MDBListAccount: Equatable, Sendable {
+    let username: String
+    let name: String?
+    let plan: String?
+    let dailyLimit: Int?
+    let requestsUsed: Int?
+
+    var requestsRemaining: Int? {
+        guard let dailyLimit, let requestsUsed else { return nil }
+        return max(0, dailyLimit - requestsUsed)
+    }
+}
+
+/// The metadata needed to match an MDBList entry to the same playable title
+/// on the connected Jellyfin-compatible server.
+struct MDBListCatalogItem: Hashable, Sendable {
+    let title: String
+    let mediaType: String
+    let releaseYear: Int?
+    let imdbID: String?
+    let tmdbID: String?
+    let tvdbID: String?
+    let rank: Int?
+}
+
+struct MediaItem: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let type: String
+    let overview: String?
+    let productionYear: Int?
+    let primaryImageAspectRatio: Double?
+    let childCount: Int?
+    // Everything below is optional so an older server, or an addon that returns
+    // only the basics, still decodes: a missing field simply goes unshown.
+    let genres: [String]?
+    let officialRating: String?
+    let communityRating: Double?
+    let criticRating: Double?
+    let runTimeTicks: Int64?
+    let premiereDate: String?
+    let indexNumber: Int?
+    let parentIndexNumber: Int?
+    let seriesName: String?
+    let seriesID: String?
+    let userData: MediaUserData?
+    let imageTags: [String: String]?
+    let backdropImageTags: [String]?
+    let status: String?
+    let endDate: String?
+    let tags: [String]?
+    let studios: [MediaNamedInfo]?
+    let productionLocations: [String]?
+    let people: [MediaPerson]?
+    let remoteTrailers: [MediaTrailer]?
+    let providerIDs: [String: String]?
+
+    // Artwork a source names outright rather than hosting behind an image
+    // route, which is how a catalog imported from elsewhere arrives.
+    let posterURL: String?
+    let backdropURL: String?
+    let logoArtworkURL: String?
+
+    // An optional `let` gets no implicit default, so the added fields are given
+    // one here and every existing caller keeps the call it already makes.
+    init(id: String, name: String, type: String, overview: String?,
+         productionYear: Int?, primaryImageAspectRatio: Double?, childCount: Int?,
+         genres: [String]? = nil, officialRating: String? = nil,
+         communityRating: Double? = nil, criticRating: Double? = nil,
+         runTimeTicks: Int64? = nil, premiereDate: String? = nil,
+         indexNumber: Int? = nil, parentIndexNumber: Int? = nil,
+         seriesName: String? = nil, seriesID: String? = nil, userData: MediaUserData? = nil,
+         imageTags: [String: String]? = nil, backdropImageTags: [String]? = nil,
+         status: String? = nil, endDate: String? = nil, tags: [String]? = nil,
+         studios: [MediaNamedInfo]? = nil, productionLocations: [String]? = nil,
+         people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
+         providerIDs: [String: String]? = nil,
+         posterURL: String? = nil, backdropURL: String? = nil,
+         logoArtworkURL: String? = nil) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.overview = overview
+        self.productionYear = productionYear
+        self.primaryImageAspectRatio = primaryImageAspectRatio
+        self.childCount = childCount
+        self.genres = genres
+        self.officialRating = officialRating
+        self.communityRating = communityRating
+        self.criticRating = criticRating
+        self.runTimeTicks = runTimeTicks
+        self.premiereDate = premiereDate
+        self.indexNumber = indexNumber
+        self.parentIndexNumber = parentIndexNumber
+        self.seriesName = seriesName
+        self.seriesID = seriesID
+        self.userData = userData
+        self.imageTags = imageTags
+        self.backdropImageTags = backdropImageTags
+        self.status = status
+        self.endDate = endDate
+        self.tags = tags
+        self.studios = studios
+        self.productionLocations = productionLocations
+        self.people = people
+        self.remoteTrailers = remoteTrailers
+        self.providerIDs = providerIDs
+        self.posterURL = posterURL
+        self.backdropURL = backdropURL
+        self.logoArtworkURL = logoArtworkURL
+    }
+
+    var isPlayable: Bool {
+        ["Movie", "Episode", "Video"].contains(type)
+    }
+
+    var isFolder: Bool { !isPlayable }
+
+    var isSeries: Bool { type == "Series" }
+
+    /// Whether this has a page of its own: art, description, facts, and a play
+    /// button. A series has always had one; a film has one too, because the
+    /// decision to watch a film is made from exactly those things.
+    var hasDetailPage: Bool { isSeries || type == "Movie" }
+
+    /// Whether choosing this on a shelf opens a page rather than going
+    /// straight to a list of streams. An episode goes straight there: it was
+    /// chosen from the page its series already gave.
+    var opensPage: Bool { isFolder || hasDetailPage }
+
+    var isPlayed: Bool { userData?.played == true }
+
+    var isFavorite: Bool { userData?.isFavorite == true }
+
+    var hasLogo: Bool { imageTags?["Logo"] != nil || logoArtworkURL != nil }
+
+    var hasBackdrop: Bool { backdropImageTags?.isEmpty == false }
+
+    // Servers count in ticks of 100 nanoseconds, and a runtime is read in minutes.
+    var runtimeMinutes: Int? {
+        guard let runTimeTicks, runTimeTicks > 0 else { return nil }
+        return max(1, Int(runTimeTicks / 600_000_000))
+    }
+
+    var formattedRuntime: String? {
+        guard let minutes = runtimeMinutes else { return nil }
+        guard minutes >= 60 else { return "\(minutes)m" }
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h \(remainder)m"
+    }
+
+    // A premiere arrives as "2026-08-11T00:00:00.0000000Z", whose seven fractional
+    // digits defeat the ISO parser, and only the day is ever shown. Reading the
+    // date part directly avoids both the parser and a cached formatter.
+    var formattedAirDate: String? { Self.formattedDate(premiereDate) }
+    var formattedEndDate: String? { Self.formattedDate(endDate) }
+
+    private static func formattedDate(_ raw: String?) -> String? {
+        guard let raw, raw.count >= 10 else { return nil }
+        let parts = raw.prefix(10).split(separator: "-")
+        guard parts.count == 3, let year = Int(parts[0]),
+              let month = Int(parts[1]), let day = Int(parts[2]) else { return nil }
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        guard let date = Calendar(identifier: .gregorian).date(from: components) else { return nil }
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    var episodeLabel: String? {
+        indexNumber.map { "Episode \($0)" }
+    }
+
+    // "S04E04", the way a viewer names the place they are up to.
+    var episodeCode: String? {
+        guard let indexNumber else { return nil }
+        let season = parentIndexNumber ?? 1
+        return String(format: "S%02dE%02d", season, indexNumber)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case type = "Type"
+        case overview = "Overview"
+        case productionYear = "ProductionYear"
+        case primaryImageAspectRatio = "PrimaryImageAspectRatio"
+        case childCount = "ChildCount"
+        case genres = "Genres"
+        case officialRating = "OfficialRating"
+        case communityRating = "CommunityRating"
+        case criticRating = "CriticRating"
+        case runTimeTicks = "RunTimeTicks"
+        case premiereDate = "PremiereDate"
+        case indexNumber = "IndexNumber"
+        case parentIndexNumber = "ParentIndexNumber"
+        case seriesName = "SeriesName"
+        case seriesID = "SeriesId"
+        case userData = "UserData"
+        case imageTags = "ImageTags"
+        case backdropImageTags = "BackdropImageTags"
+        case status = "Status"
+        case endDate = "EndDate"
+        case tags = "Tags"
+        case studios = "Studios"
+        case productionLocations = "ProductionLocations"
+        case people = "People"
+        case remoteTrailers = "RemoteTrailers"
+        case providerIDs = "ProviderIds"
+        // Lineup's own, never sent by a server: an absent key decodes to nil,
+        // so a server's answer is unaffected by their existence.
+        case posterURL = "LineupPoster"
+        case backdropURL = "LineupBackdrop"
+        case logoArtworkURL = "LineupLogo"
+    }
+}
+
+struct MediaNamedInfo: Codable, Hashable, Sendable {
+    let name: String
+    enum CodingKeys: String, CodingKey { case name = "Name" }
+}
+
+struct MediaPerson: Codable, Hashable, Sendable, Identifiable {
+    let personID: String?
+    let name: String
+    let role: String?
+    let type: String?
+    let primaryImageTag: String?
+    var id: String { personID ?? "\(name)|\(role ?? "")" }
+    enum CodingKeys: String, CodingKey {
+        case personID = "Id", name = "Name", role = "Role", type = "Type"
+        case primaryImageTag = "PrimaryImageTag"
+    }
+}
+
+struct MediaTrailer: Codable, Hashable, Sendable {
+    let name: String?
+    let url: String?
+    enum CodingKeys: String, CodingKey { case name = "Name", url = "Url" }
+
+    var thumbnailURL: URL? {
+        guard let url, let address = URLComponents(string: url),
+              let host = address.host?.lowercased() else { return nil }
+        let videoID: String?
+        if host == "youtu.be" || host == "www.youtu.be" {
+            videoID = address.path.split(separator: "/").first.map(String.init)
+        } else if host == "youtube.com" || host == "www.youtube.com"
+                    || host == "m.youtube.com" {
+            videoID = address.queryItems?.first { $0.name == "v" }?.value
+        } else {
+            videoID = nil
+        }
+        guard let videoID,
+              videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil
+        else { return nil }
+        return URL(string: "https://img.youtube.com/vi/\(videoID)/hqdefault.jpg")
+    }
+}
+
+struct MediaUserData: Codable, Hashable, Sendable {
+    let played: Bool?
+    let isFavorite: Bool?
+    let playedPercentage: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case played = "Played"
+        case isFavorite = "IsFavorite"
+        case playedPercentage = "PlayedPercentage"
+    }
+}
+
+/// Lineup's on-device account of a title's playback. Jellyfin-compatible
+/// servers do not all expose or reliably update resume state, so the Library
+/// keeps this small record itself as well. The server profile is part of the
+/// identity: two people can connect servers whose item ids happen to match
+/// without seeing one another's history.
+struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
+    let profileID: UUID
+    let item: MediaItem
+    var position: TimeInterval
+    var duration: TimeInterval
+    var updatedAt: Date
+    var completed: Bool
+    /// A local "Remove from Watched" must outrank stale server user data.
+    /// Optional keeps records written by the first tracking build decodable.
+    var explicitlyUnwatched: Bool? = nil
+    /// An episode selected by local progression rather than by recorded
+    /// playback. Optional keeps existing on-device records decodable.
+    var isUpNext: Bool? = nil
+
+    var id: String { profileID.uuidString + "|" + item.id }
+
+    var fraction: Double {
+        guard duration > 0 else { return 0 }
+        return min(max(position / duration, 0), 1)
+    }
+}
+
+enum LocalEpisodeProgressionPolicy {
+    static func ordered(_ episodes: [MediaItem]) -> [MediaItem] {
+        episodes.filter { $0.type == "Episode" }.sorted { left, right in
+            let leftKey = (left.parentIndexNumber ?? Int.max, left.indexNumber ?? Int.max)
+            let rightKey = (right.parentIndexNumber ?? Int.max, right.indexNumber ?? Int.max)
+            if leftKey.0 != rightKey.0 { return leftKey.0 < rightKey.0 }
+            if leftKey.1 != rightKey.1 { return leftKey.1 < rightKey.1 }
+            return left.id < right.id
+        }
+    }
+
+    static func nextEpisode(after current: MediaItem, in episodes: [MediaItem],
+                            isWatched: (MediaItem) -> Bool) -> MediaItem? {
+        let values = ordered(episodes)
+        guard let currentIndex = values.firstIndex(where: { $0.id == current.id }),
+              currentIndex + 1 < values.count else { return nil }
+        return values[(currentIndex + 1)...].first { !isWatched($0) }
+    }
+}
+
+struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
+    let profileID: UUID
+    let item: MediaItem
+    let addedAt: Date
+
+    var id: String { profileID.uuidString + "|" + item.id }
+}
+
+enum LocalMediaTrackingPolicy {
+    static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
+        guard duration > 0, position >= 0 else { return false }
+        let safePosition = min(position, duration)
+        let remaining = duration - safePosition
+        return safePosition / duration >= 0.92 || (safePosition >= 60 && remaining <= 120)
+    }
+
+    static func resumePosition(for record: LocalMediaPlayback) -> TimeInterval? {
+        guard !record.completed, record.explicitlyUnwatched != true, record.position >= 10,
+              record.duration - record.position > 30 else { return nil }
+        return record.position
+    }
+}
+
+/// A score from one metrics addon, as `GET /remux/metrics/{id}` returns it.
+/// Only a Nullfin server has that route; a Jellyfin server answers 404 and the
+/// row simply does not appear.
+struct MediaMetric: Decodable, Identifiable, Hashable, Sendable {
+    let source: String
+    let value: Double
+    let date: String
+
+    var id: String { source }
+
+    // Sources are stored lowercase and keyed by addon name.
+    var displayName: String {
+        switch source.lowercased() {
+        case "imdb": return "IMDb"
+        case "tmdb": return "TMDB"
+        case "tvdb": return "TVDB"
+        case "trakt": return "Trakt"
+        case "metacritic": return "Metacritic"
+        case "rottentomatoes", "rotten_tomatoes": return "Rotten Tomatoes"
+        case "popcorn": return "Popcorn"
+        case "letterboxd": return "Letterboxd"
+        default: return source.capitalized
+        }
+    }
+
+    // Every addon normalises to 0-100 before storing, so a score reads whole.
+    var formattedValue: String { "\(Int(value.rounded()))" }
+
+    enum CodingKeys: String, CodingKey {
+        case source = "Source"
+        case value = "Value"
+        case date = "Date"
+    }
+}
+
+struct MediaMetricsResponse: Decodable, Sendable {
+    let metrics: [MediaMetric]
+
+    enum CodingKeys: String, CodingKey { case metrics = "Metrics" }
+}
+
+struct MediaCatalog: Codable, Identifiable, Hashable, Sendable {
+    let root: MediaItem
+    let items: [MediaItem]
+    var id: String { root.id }
+    var title: String { root.name }
+}
+
+enum MediaHeroCatalogSelection {
+    static func resolve(_ catalogs: [MediaCatalog], selectedID: String?) -> MediaCatalog? {
+        if let selectedID,
+           let selected = catalogs.first(where: { $0.id == selectedID && !$0.items.isEmpty }) {
+            return selected
+        }
+        return catalogs.first { !$0.items.isEmpty }
+    }
+
+    static func featuredItems(in catalog: MediaCatalog, limit: Int = 10) -> [MediaItem] {
+        guard limit > 0 else { return [] }
+        let presentable = catalog.items.filter { $0.hasDetailPage || $0.isPlayable }
+        return Array((presentable.isEmpty ? catalog.items : presentable).prefix(limit))
+    }
+}
+
+struct MediaLibraryCounts: Codable, Equatable, Sendable {
+    let movies: Int
+    let shows: Int
+    let episodes: Int
+}
+
+struct JellyfinItemsResponse: Codable, Sendable {
+    let items: [MediaItem]
+    let totalRecordCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case items = "Items", totalRecordCount = "TotalRecordCount"
+    }
+}
+
+struct JellyfinAuthenticationResponse: Codable, Sendable {
+    struct User: Codable, Sendable { let id: String; let name: String
+        enum CodingKeys: String, CodingKey { case id = "Id"; case name = "Name" }
+    }
+    let user: User
+    let accessToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case user = "User"
+        case accessToken = "AccessToken"
+    }
+}
+
+struct MediaPlaybackInfo: Decodable, Sendable {
+    let mediaSources: [MediaPlaybackSource]
+
+    enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources" }
+}
+
+/// One subtitle choice exposed by the active playback engine. The engine keeps
+/// its native track object; the view only needs a stable id, a readable name,
+/// and the integer VLC uses when VLC is rendering the title.
+struct PlaybackSubtitleTrack: Identifiable, Hashable, Sendable {
+    static let off = PlaybackSubtitleTrack(id: "off", title: "Off", engineIndex: nil)
+
+    let id: String
+    let title: String
+    let engineIndex: Int?
+
+    static func vlcTracks(names: [String], indexes: [Int]) -> [PlaybackSubtitleTrack] {
+        var tracks: [PlaybackSubtitleTrack] = [.off]
+        var seen: Set<Int> = []
+        for (name, index) in zip(names, indexes) where index >= 0 && seen.insert(index).inserted {
+            let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = clean.lowercased()
+            guard lowered != "disable" && lowered != "disabled" && lowered != "off" else { continue }
+            tracks.append(PlaybackSubtitleTrack(id: "vlc-\(index)",
+                                                title: clean.isEmpty ? "Subtitle \(tracks.count)" : clean,
+                                                engineIndex: index))
+        }
+        return tracks
+    }
+}
+
+struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String?
+    let path: String?
+    let container: String?
+    let size: Int64?
+    let bitrate: Int64?
+    let remux: RemuxInfo?
+
+    struct RemuxInfo: Decodable, Hashable, Sendable {
+        let providerInfo: ProviderInfo?
+        enum CodingKeys: String, CodingKey { case providerInfo = "ProviderInfo" }
+    }
+
+    struct ProviderInfo: Decodable, Hashable, Sendable {
+        let source: String?
+        let filename: String?
+        let description: String?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case path = "Path"
+        case container = "Container"
+        case size = "Size"
+        case bitrate = "Bitrate"
+        case remux = "Remux"
+    }
+
+    var displayLines: [String] {
+        (name ?? remux?.providerInfo?.description ?? "Stream")
+            .split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+
+    var provider: String {
+        remux?.providerInfo?.source ?? displayLines.first ?? "Media Server"
+    }
+
+    var releaseName: String {
+        if let filename = remux?.providerInfo?.filename {
+            return filename.replacingOccurrences(of: #"^🎯 SCORE [+-]?\d+ 🎯 •\s*"#,
+                with: "", options: .regularExpression)
+        }
+        return displayLines.dropFirst(2).first ?? displayLines.dropFirst().first ?? "Available stream"
+    }
+
+    var score: Int? {
+        let text = [name, remux?.providerInfo?.filename, remux?.providerInfo?.description]
+            .compactMap { $0 }.joined(separator: " ")
+        guard let match = text.range(of: #"(?i)score[: ]+([+-]?\d+)"#, options: .regularExpression) else { return nil }
+        let value = text[match].replacingOccurrences(of: #"(?i)score[: ]+"#, with: "", options: .regularExpression)
+        return Int(value)
+    }
+
+    // A release name and the server's own probe line describe the same stream in
+    // different words: one says "H 265", the other "hevc". Reading both means a
+    // detail shows up whichever of them happens to carry it.
+    private var descriptorText: String {
+        [releaseName, name, remux?.providerInfo?.filename, remux?.providerInfo?.description]
+            .compactMap { $0 }.joined(separator: " ").lowercased()
+    }
+
+    // Separators are the only difference between "H.265", "H 265" and "H265",
+    // so most of these tokens are easier to find with them gone.
+    private var condensedDescriptor: String {
+        descriptorText.replacingOccurrences(of: #"[ ._-]"#, with: "", options: .regularExpression)
+    }
+
+    var quality: String? {
+        let value = descriptorText
+        if value.contains("2160p") || value.contains("4k") || value.contains("uhd") { return "4K" }
+        if value.contains("1440p") { return "1440p" }
+        if value.contains("1080p") { return "1080p" }
+        if value.contains("720p") { return "720p" }
+        if value.contains("480p") { return "480p" }
+        return nil
+    }
+
+    // A hybrid release carries both, and which one a TV can use depends on the TV,
+    // so both are worth naming rather than picking one.
+    var dynamicRangeTags: [String] {
+        var tags: [String] = []
+        let condensed = condensedDescriptor
+        if condensed.contains("dolbyvision") || condensed.contains("dovi")
+            || descriptorText.range(of: #"\bdv\b"#, options: .regularExpression) != nil {
+            tags.append("DV")
+        }
+        if condensed.contains("hdr10plus") || condensed.contains("hdr10+") { tags.append("HDR10+") }
+        else if condensed.contains("hdr10") { tags.append("HDR10") }
+        else if condensed.contains("hdr") { tags.append("HDR") }
+        return tags
+    }
+
+    var videoCodec: String? {
+        let condensed = condensedDescriptor
+        if condensed.contains("av1") { return "AV1" }
+        if condensed.contains("hevc") || condensed.contains("h265") || condensed.contains("x265") { return "H.265" }
+        if condensed.contains("h264") || condensed.contains("x264") || condensed.contains("avc") { return "H.264" }
+        if condensed.contains("mpeg2") { return "MPEG-2" }
+        return nil
+    }
+
+    var bitDepth: String? {
+        let condensed = condensedDescriptor
+        if condensed.contains("10bit") { return "10-bit" }
+        if condensed.contains("8bit") { return "8-bit" }
+        return nil
+    }
+
+    var audioCodec: String? {
+        let condensed = condensedDescriptor
+        if condensed.contains("truehd") { return "TrueHD" }
+        if condensed.contains("dtsx") { return "DTS:X" }
+        if condensed.contains("dtshd") { return "DTS-HD" }
+        if condensed.contains("dts") { return "DTS" }
+        if condensed.contains("eac3") || condensed.contains("ddp") || condensed.contains("dd+") { return "DD+" }
+        if condensed.contains("ac3") { return "DD" }
+        if condensed.contains("flac") { return "FLAC" }
+        if condensed.contains("aac") { return "AAC" }
+        if condensed.contains("opus") { return "Opus" }
+        return nil
+    }
+
+    var hasAtmos: Bool { condensedDescriptor.contains("atmos") }
+
+    // Channel counts are written "5.1" and "DDP5 1" alike. Bounding the digits
+    // keeps a year or a score from reading as a surround layout.
+    var audioChannels: String? {
+        let text = descriptorText
+        guard let range = text.range(of: #"(?<![0-9])[2567][. ][01](?![0-9])"#,
+            options: .regularExpression) else { return nil }
+        return text[range].replacingOccurrences(of: " ", with: ".")
+    }
+
+    var sourceTag: String? {
+        let condensed = condensedDescriptor
+        if condensed.contains("remux") { return "REMUX" }
+        if condensed.contains("bluray") || condensed.contains("bdrip") || condensed.contains("brrip") { return "BluRay" }
+        if condensed.contains("webdl") { return "WEB-DL" }
+        if condensed.contains("webrip") { return "WEBRip" }
+        if condensed.contains("hdtv") { return "HDTV" }
+        if condensed.contains("dvdrip") { return "DVD" }
+        return nil
+    }
+
+    // The server's search line reads "\u{1F50D} StreamNZB Library - altHUB \u{2022} \u{1F3AF} Score: +70494".
+    // Only the tail names the indexer; the rest repeats the addon shown beside it.
+    var indexer: String? {
+        guard let line = displayLines.first(where: { $0.contains("\u{1F50D}") }) else { return nil }
+        let head = line.split(separator: Character("\u{2022}")).first.map(String.init) ?? line
+        let cleaned = head.replacingOccurrences(of: "\u{1F50D}", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        let name = cleaned.components(separatedBy: " - ").last?
+            .trimmingCharacters(in: .whitespaces) ?? cleaned
+        guard !name.isEmpty, name.caseInsensitiveCompare(provider) != .orderedSame else { return nil }
+        return name
+    }
+
+    // Ordered the way a stream is judged: how it looks, then how it sounds, then
+    // where it was mastered from.
+    var badges: [String] {
+        var badges = dynamicRangeTags
+        if let videoCodec { badges.append(videoCodec) }
+        if let bitDepth { badges.append(bitDepth) }
+        if let audioCodec { badges.append(audioCodec) }
+        if hasAtmos { badges.append("Atmos") }
+        if let audioChannels { badges.append(audioChannels) }
+        if let sourceTag { badges.append(sourceTag) }
+        return badges
+    }
+
+    // The measurable facts, in the order someone compares two results by.
+    var facts: [String] {
+        [formattedSize, formattedBitrate, containerLabel, indexer].compactMap { $0 }
+    }
+
+    // Servers name containers in full, and "MATROSKA" costs the width of the
+    // numbers beside it for no more meaning than "MKV".
+    var containerLabel: String? {
+        guard let first = container?.split(separator: ",").first else { return nil }
+        let value = first.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !value.isEmpty else { return nil }
+        switch value {
+        case "matroska": return "MKV"
+        case "quicktime", "mpeg-4": return "MP4"
+        default: return value.uppercased()
+        }
+    }
+
+    var formattedSize: String? {
+        guard let size, size > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+
+    // Servers report bits per second. Mbps is how a release is usually described,
+    // and one decimal separates neighbouring encodes without adding noise.
+    var formattedBitrate: String? {
+        guard let bitrate, bitrate > 0 else { return nil }
+        let mbps = Double(bitrate) / 1_000_000
+        return mbps >= 10 ? "\(Int(mbps.rounded())) Mbps" : String(format: "%.1f Mbps", mbps)
+    }
+}

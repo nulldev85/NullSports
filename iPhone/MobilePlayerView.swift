@@ -1,15 +1,35 @@
 import SwiftUI
 import AVFoundation
-import VLCKitSPM
 
 struct MobilePlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Compact means a short screen, which on an iPhone means landscape. It is
+    /// the one layout where the synopsis and the transport controls compete
+    /// for the same band of the picture.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @StateObject private var controller = MobilePlaybackController()
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     let name: String
     let urls: [URL]
+    /// A channel, which runs at the live edge and cannot be scrubbed, or a
+    /// title from a media server, which has a length and a position. The two
+    /// want different chrome, and showing a LIVE dot over a film was the tell.
+    var isLive: Bool = true
+    /// The bitrate the server reported for this source. The server holds the
+    /// file, so this is the one number nothing on the device can improve on.
+    var sourceBitrate: String? = nil
+    /// The quality the server parsed from the release name. Only a fallback:
+    /// a name can say 4K about a 1080p file, so the decoded picture wins.
+    var sourceQuality: String? = nil
+    /// What is playing, shown beside the controls while they are up.
+    var synopsis: MobilePlayerSynopsis? = nil
+    var initialPosition: TimeInterval? = nil
+    var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    @State private var scrubTarget: Double?
+    @State private var lastReportedPosition: TimeInterval = 0
+    @State private var showingSubtitles = false
 
     var body: some View {
         ZStack {
@@ -28,22 +48,62 @@ struct MobilePlayerView: View {
             if let error = controller.error {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
-                    Button("Retry", systemImage: "arrow.clockwise") { controller.start(urls: urls) }
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+                    }
                         .buttonStyle(.borderedProminent)
                 }.padding(32)
             } else if controller.loading {
                 ProgressView("Opening stream…").padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
+                                     fallback: Material.ultraThinMaterial, border: .clear)
+            }
+            if let notice = controller.failoverNotice {
+                VStack {
+                    Spacer()
+                    Text(notice)
+                        .font(.inter(.subheadline, .semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.62))
+                        .padding(.bottom, 40)
+                }
+                .transition(.opacity)
+                .allowsHitTesting(false)
+                .accessibilityAddTraits(.updatesFrequently)
+            }
+            VStack {
+                Spacer()
+                HStack {
+                    PlaybackDiagnosticsOverlay(controller: controller)
+                    Spacer()
+                }
             }
             if controlsVisible {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
-                        control("xmark", label: "Close player") { dismiss() }
-                        Text(name).font(.headline).lineLimit(1)
+                        control("xmark", label: "Close player") { exit() }
+                        if showsTitleInHeader {
+                            Text(name).font(.inter(.headline)).lineLimit(1)
+                        }
                         Spacer(minLength: 8)
+                        if controller.canOfferPictureInPicture {
+                            control("pip.enter", label: "Picture in Picture") {
+                                showControls()
+                                controller.togglePictureInPicture()
+                            }
+                        }
+                        if !isLive && controller.subtitleTracks.count > 1 {
+                            control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+                                    ? "captions.bubble" : "captions.bubble.fill",
+                                    label: "Subtitles, \(controller.selectedSubtitleTitle)") {
+                                showControls()
+                                showingSubtitles = true
+                            }
+                        }
                         if controller.error == nil && !controller.loading {
-                            statusBadge
-                            if let quality = controller.streamQualityLabel { qualityBadge(quality) }
+                            if isLive { statusBadge }
+                            if let detail = badgeDetail { qualityBadge(detail) }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -57,23 +117,82 @@ struct MobilePlayerView: View {
                 // lands dead-center on screen — the same spot every other player
                 // in the app puts its play/pause control.
                 if !controller.loading && controller.error == nil {
-                    control(controller.isPlaying ? "pause.fill" : "play.fill",
-                            label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
-                        .transition(.opacity)
+                    HStack(spacing: 28) {
+                        if showsTransport {
+                            control("gobackward.15", label: "Back 15 seconds") {
+                                showControls()
+                                controller.skip(by: -15)
+                            }
+                        }
+                        control(controller.isPlaying ? "pause.fill" : "play.fill",
+                                label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
+                        if showsTransport {
+                            control("goforward.15", label: "Forward 15 seconds") {
+                                showControls()
+                                controller.skip(by: 15)
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
+                if showsTransport, let progress = controller.progress {
+                    // The panel's width is measured rather than assumed: in
+                    // landscape it has to stop short of the transport controls
+                    // sitting dead centre, and only the container knows where
+                    // that is.
+                    GeometryReader { frame in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Spacer()
+                            if let synopsis, !synopsis.isEmpty {
+                                synopsisPanel(synopsis, within: frame.size.width)
+                            }
+                            scrubber(progress)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomLeading)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 18)
+                    .transition(.opacity)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
-        .background(.black).foregroundStyle(NullSportsStyle.lightPurple)
-        .modifier(MobileDismissGesture(enabled: true) { dismiss() })
-        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
+        // The picture and its backing fill the screen; the controls do not.
+        // Ignoring the safe area for the whole player put the close button, the
+        // badges and the scrubber underneath the Dynamic Island — which a
+        // screenshot does not capture, so it only showed up on the device.
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.mediaText)
+        .modifier(MobileDismissGesture(enabled: true,
+                                       onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onAppear { controller.start(urls: urls) }
-        .onDisappear { controller.shutdown(); hideControlsTask?.cancel() }
+        .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
+                            titleVisibility: .visible) {
+            ForEach(controller.subtitleTracks) { track in
+                Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+                    controller.selectSubtitle(track)
+                    showControls()
+                }
+            }
+            Button("Cancel", role: .cancel) { showControls() }
+        }
+        .onAppear {
+            controller.isLive = isLive
+            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+        }
+        .onDisappear {
+            reportProgress(force: true)
+            controller.shutdown()
+            hideControlsTask?.cancel()
+        }
+        .onChange(of: controller.progress) { _, _ in reportProgress() }
+        // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
+        // whether this transition touches playback at all.
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { controller.suspend() }
-            else { controller.resume() }
+            controller.handleScenePhase(active: phase == .active)
         }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -94,6 +213,13 @@ struct MobilePlayerView: View {
         scheduleAutoHide()
     }
 
+    private func reportProgress(force: Bool = false) {
+        guard !isLive, let progress = controller.progress, progress.duration > 0 else { return }
+        guard force || abs(progress.position - lastReportedPosition) >= 5 else { return }
+        lastReportedPosition = progress.position
+        onProgress?(progress.position, progress.duration)
+    }
+
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
         guard controller.isPlaying else { return }
@@ -111,21 +237,137 @@ struct MobilePlayerView: View {
         Button { controller.goLive() } label: {
             HStack(spacing: 6) {
                 if controller.isPlaying { MobileLiveDot() }
-                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.caption2.bold())
+                Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
     }
 
+    /// A title that reports a length gets a scrubber; a live channel never
+    /// does, however the engine happens to be feeling about its own duration.
+    private var showsTransport: Bool {
+        !isLive && controller.progress != nil && controller.error == nil && !controller.loading
+    }
+
+    /// Resolution from the picture actually being decoded, bitrate from the
+    /// server that holds the file. The server's parsed quality is the fallback
+    /// only until something has decoded, because a release name is a claim and
+    /// the decoder is the fact.
+    private var badgeDetail: String? {
+        let parts = [controller.streamQualityLabel ?? sourceQuality, sourceBitrate].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The panel above the scrubber already names what is playing, so the top
+    /// bar does not say it twice. Tied to that panel actually being drawn
+    /// rather than merely intended: a live channel has none, and neither does
+    /// a title whose length never resolves, and either way the name has to be
+    /// somewhere.
+    private var showsTitleInHeader: Bool {
+        guard showsTransport, let heading = synopsis?.heading, !heading.isEmpty else { return true }
+        return false
+    }
+
+    private func synopsisPanel(_ synopsis: MobilePlayerSynopsis,
+                               within available: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let heading = synopsis.heading, !heading.isEmpty {
+                Text(heading).font(.inter(.subheadline, .semibold)).lineLimit(1)
+            }
+            if let detail = synopsis.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.inter(.caption2, .semibold))
+                    .foregroundStyle(LineupStyle.mediaSecondary.opacity(0.82))
+                    .lineLimit(1)
+            }
+            if let overview = synopsis.overview, !overview.isEmpty {
+                Text(overview)
+                    .font(.inter(.caption))
+                    .foregroundStyle(LineupStyle.mediaText.opacity(0.82))
+                    // A narrower column is a taller one, and in landscape the
+                    // height is what runs into the controls. Two lines there.
+                    .lineLimit(verticalSizeClass == .compact ? 2 : 3)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: MobilePlayerLayout.synopsisWidth(
+                    available: available, compactHeight: verticalSizeClass == .compact),
+                    alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// A track drawn to match the app's other floating controls rather than
+    /// the system slider, whose stock thumb and grey rail sat on the video
+    /// looking like nothing else on the screen.
+    private func scrubber(_ progress: MobilePlaybackProgress) -> some View {
+        let shown = scrubTarget ?? progress.position
+        let fraction = progress.duration > 0 ? min(max(shown / progress.duration, 0), 1) : 0
+        return VStack(spacing: 8) {
+            GeometryReader { track in
+                let width = track.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.18))
+                    Capsule().fill(LineupStyle.mediaAccent)
+                        .frame(width: max(0, width * fraction))
+                    Circle()
+                        .fill(.white)
+                        .frame(width: scrubTarget == nil ? 13 : 17)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        .offset(x: max(0, width * fraction - (scrubTarget == nil ? 6.5 : 8.5)))
+                }
+                .frame(height: 5)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if scrubTarget == nil {
+                                hideControlsTask?.cancel()
+                                controller.beginScrubbing()
+                            }
+                            let ratio = min(max(value.location.x / max(width, 1), 0), 1)
+                            scrubTarget = ratio * progress.duration
+                        }
+                        .onEnded { _ in
+                            controller.endScrubbing(at: scrubTarget ?? shown)
+                            scrubTarget = nil
+                            scheduleAutoHide()
+                        }
+                )
+            }
+            .frame(height: 22)
+            HStack {
+                Text(MobilePlaybackProgress.timecode(shown))
+                Spacer()
+                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+            }
+            .font(.inter(.caption2, .semibold).monospacedDigit())
+            .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .animation(.easeOut(duration: 0.12), value: scrubTarget == nil)
+        .accessibilityElement()
+        .accessibilityLabel("Playback position")
+        .accessibilityValue(MobilePlaybackProgress.timecode(shown))
+    }
+
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.semibold))
+        Text(text).font(.inter(.caption2, .semibold))
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.black.opacity(0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .lineupLiquidGlass(Capsule())
+    }
+
+    /// The close button leaves the same way a swipe does: the picture is
+    /// stilled first, so it travels with the frame instead of trailing it.
+    private func exit() {
+        controller.freezePictureForExit()
+        dismiss()
     }
 
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
@@ -133,303 +375,7 @@ struct MobilePlayerView: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.6), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .lineupLiquidGlass(Circle())
         }.buttonStyle(.plain).accessibilityLabel(label)
-    }
-}
-
-@MainActor
-final class MobilePlaybackController: ObservableObject {
-    let player = VLCMediaPlayer()
-    @Published var isPlaying = false
-    @Published var loading = true
-    @Published var error: String?
-    @Published private(set) var videoWidth: Int?
-    @Published private(set) var videoHeight: Int?
-    private var monitor: Task<Void, Never>?
-    private var candidates: [URL] = []
-    private var originalURLs: [URL] = []
-    private var started = Date()
-    private var suspended = false
-    private var shouldResume = false
-    private weak var videoView: MobileVideoHost?
-    private var waitingForVideo = false
-    private var missingVideoSince: Date?
-    private var waitingSince: Date?
-    private var lastPlaybackTimeMs: Int32?
-    private var timeUnchangedSince: Date?
-
-    /// "1080p", "720p", etc., derived from the source video track. Nil until
-    /// VLC reports track info, which only happens once a video is decoding.
-    var qualityLabel: String? {
-        guard let height = videoHeight, height > 0 else { return nil }
-        switch height {
-        case 2160...: return "4K"
-        case 1440...: return "1440p"
-        case 1080...: return "1080p"
-        case 720...: return "720p"
-        case 480...: return "480p"
-        default: return "\(height)p"
-        }
-    }
-
-    // VLCKit's per-track dictionary API (frame rate, codec) varies across
-    // versions and isn't worth pinning to for a badge — videoSize alone
-    // covers what was actually asked for ("quality of channel").
-    var streamQualityLabel: String? { qualityLabel }
-
-    func attachVideo(_ view: MobileVideoHost) {
-        videoView = view
-        if (player.drawable as? UIView) !== view { player.drawable = view }
-        startWhenVideoIsReady()
-    }
-
-    func detachVideo(_ view: MobileVideoHost) {
-        guard videoView === view else { return }
-        stop()
-        player.drawable = nil
-        videoView = nil
-    }
-
-    private func startWhenVideoIsReady() {
-        guard waitingForVideo, !suspended, let view = videoView,
-              view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else { return }
-        // Never call play before VLC has a mounted, nonzero drawable.
-        player.drawable = view
-        waitingForVideo = false
-        waitingSince = nil
-        started = Date()
-        player.play()
-        UIApplication.shared.isIdleTimerDisabled = true
-    }
-
-    func start(urls: [URL]) {
-        stop()
-        error = nil
-        originalURLs = urls
-        candidates = Array(urls.reversed()) // Prefer transport streams, as on Apple TV.
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            self.error = "Audio could not start. Please try again."
-            loading = false
-            return
-        }
-        openNext()
-        monitor = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-                guard let self else { return }
-                guard !self.suspended else { continue }
-                self.startWhenVideoIsReady()
-                if self.waitingForVideo {
-                    // The video surface never got a real window/size to attach to
-                    // (e.g. a layout hiccup). Without this, playback silently
-                    // never starts: no audio, no video, no error, forever.
-                    if let since = self.waitingSince, Date().timeIntervalSince(since) > 8 {
-                        self.waitingForVideo = false
-                        self.loading = false
-                        self.error = "The video couldn't start. Try again."
-                        UIApplication.shared.isIdleTimerDisabled = false
-                    }
-                    continue
-                }
-                self.isPlaying = self.player.isPlaying
-                if self.player.isPlaying && self.player.hasVideoOut {
-                    self.loading = false
-                    self.missingVideoSince = nil
-                    self.refreshStats()
-                    // Some provider drops don't close the connection or raise a VLC
-                    // error — the feed just goes quiet and the last frame freezes
-                    // while isPlaying/hasVideoOut both still read true. Watch the
-                    // actual playback clock: if it hasn't moved in 10s, treat it as
-                    // dead and reconnect, instead of leaving a frozen picture up
-                    // until the viewer notices and force-quits back to reload it.
-                    // VLCKit 4.0.0-a22's `player.time` is a non-optional VLCTime
-                    // (not `VLCTime?` as some older docs describe), so no `?` here.
-                    let currentMs = self.player.time.intValue
-                    if let last = self.lastPlaybackTimeMs, last == currentMs {
-                        if self.timeUnchangedSince == nil { self.timeUnchangedSince = Date() }
-                        if Date().timeIntervalSince(self.timeUnchangedSince!) > 10 {
-                            self.goLive()
-                            continue
-                        }
-                    } else {
-                        self.timeUnchangedSince = nil
-                    }
-                    self.lastPlaybackTimeMs = currentMs
-                } else if self.player.isPlaying {
-                    self.loading = true
-                    if self.missingVideoSince == nil { self.missingVideoSince = Date() }
-                }
-                if let since = self.missingVideoSince, Date().timeIntervalSince(since) > 15 {
-                    self.openNext()
-                    continue
-                }
-                if self.error == nil && (self.player.state == .error || (self.loading && Date().timeIntervalSince(self.started) > 30)) {
-                    self.openNext()
-                }
-            }
-        }
-    }
-
-    private func openNext() {
-        player.stop()
-        waitingForVideo = false
-        missingVideoSince = nil
-        waitingSince = nil
-        lastPlaybackTimeMs = nil
-        timeUnchangedSince = nil
-        isPlaying = false
-        videoWidth = nil
-        videoHeight = nil
-        guard !candidates.isEmpty else {
-            loading = false
-            UIApplication.shared.isIdleTimerDisabled = false
-            error = "This stream is unavailable. Try again or choose another channel."
-            return
-        }
-        // VLCMedia(url:) is a plain, non-failable initializer on VLCKit 3.6.0
-        // (the 4.0 alpha we moved off of made it failable), so no optional
-        // binding here.
-        let media = VLCMedia(url: candidates.removeFirst())
-        // Matches tvOS's buffer size — 3s was too tight for some providers and
-        // read as a stall/drop after several minutes on a slightly slower link.
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
-        media.addOption(":http-reconnect=true")
-        player.media = media
-        started = Date()
-        loading = true
-        waitingForVideo = true
-        waitingSince = Date()
-        startWhenVideoIsReady()
-    }
-
-    func toggle() {
-        if player.isPlaying { player.pause() } else { player.play() }
-        isPlaying = player.isPlaying
-        UIApplication.shared.isIdleTimerDisabled = isPlaying
-    }
-
-    /// Reopens the same channel from scratch. VLC has no reliable "seek to live
-    /// edge" for these streams, so the robust way to snap back to live after a
-    /// pause (or a stall) is a fresh connection rather than trying to seek.
-    func goLive() {
-        guard !originalURLs.isEmpty else { return }
-        start(urls: originalURLs)
-    }
-
-    private func refreshStats() {
-        let size = player.videoSize
-        guard size.width > 0, size.height > 0 else { return }
-        videoWidth = Int(size.width)
-        videoHeight = Int(size.height)
-    }
-
-    func suspend() {
-        guard !suspended else { return }
-        shouldResume = player.isPlaying || loading
-        suspended = true
-        player.pause()
-        UIApplication.shared.isIdleTimerDisabled = false
-    }
-
-    func resume() {
-        guard suspended else { return }
-        suspended = false
-        started = Date()
-        missingVideoSince = nil
-        if waitingForVideo {
-            waitingSince = Date() // Give it a fresh 8s window instead of counting time spent backgrounded.
-            startWhenVideoIsReady()
-        } else if shouldResume { player.play(); UIApplication.shared.isIdleTimerDisabled = true }
-        shouldResume = false
-    }
-
-    func stop() {
-        monitor?.cancel()
-        monitor = nil
-        waitingForVideo = false
-        missingVideoSince = nil
-        waitingSince = nil
-        lastPlaybackTimeMs = nil
-        timeUnchangedSince = nil
-        player.stop()
-        player.media = nil
-        suspended = false
-        shouldResume = false
-        isPlaying = false
-        UIApplication.shared.isIdleTimerDisabled = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    func shutdown() {
-        stop()
-        // Cancel queued layout attachments from the retired view before another
-        // tab/session can start. Old dismantle callbacks only own their old player.
-        videoView?.controller = nil
-        player.drawable = nil
-        videoView = nil
-    }
-}
-
-struct MobileVideoSurface: UIViewRepresentable {
-    let controller: MobilePlaybackController
-    func makeUIView(context: Context) -> MobileVideoHost {
-        let view = MobileVideoHost()
-        view.controller = controller
-        return view
-    }
-    func updateUIView(_ uiView: MobileVideoHost, context: Context) {
-        uiView.controller = controller
-        uiView.scheduleAttachment()
-    }
-    static func dismantleUIView(_ uiView: MobileVideoHost, coordinator: ()) {
-        uiView.controller?.detachVideo(uiView)
-        uiView.controller = nil
-    }
-}
-
-final class MobileVideoHost: UIView {
-    weak var controller: MobilePlaybackController?
-    private var attachmentScheduled = false
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .black
-        clipsToBounds = true
-        autoresizesSubviews = true
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        scheduleAttachment()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // VLC installs its renderer as a child of this host. Keep it fitted when
-        // expanding, collapsing, or rotating without replacing the drawable.
-        for renderer in subviews {
-            renderer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            if renderer.frame != bounds { renderer.frame = bounds }
-        }
-        scheduleAttachment()
-    }
-
-    func scheduleAttachment() {
-        guard !attachmentScheduled else { return }
-        attachmentScheduled = true
-        // Defer until after UIKit/SwiftUI's layout transaction has completed.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.attachmentScheduled = false
-            guard self.window != nil, self.bounds.width > 0, self.bounds.height > 0 else { return }
-            self.controller?.attachVideo(self)
-        }
     }
 }

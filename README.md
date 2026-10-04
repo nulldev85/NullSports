@@ -1,28 +1,66 @@
-# NullSports
+# Lineup
 
-NullSports is a quiet, sports-first IPTV player for Apple TV. It organizes a provider's live channels around the NFL, NBA, NHL, and MLB instead of dropping everything into one enormous grid.
+Lineup is a quiet living-room client for Apple TV and iPhone, covering the two
+things a lineup means: the games on now, and the library you browse.
 
-The first release supports Xtream-compatible profiles, secure password storage in the Apple TV Keychain, league filtering, channel search, and native HLS playback. You supply the provider and streams you are authorized to watch; NullSports does not include or sell content.
+**Live** organizes an Xtream provider's channels around the NFL, NBA, NHL, MLB
+and college football rather than dropping everything into one enormous grid, and
+matches each game to the channel actually carrying it. **Guide** is the full
+channel list with search and favorites. **Media Servers** browses Jellyfin and
+Nullfin libraries, including the catalogs and streams from any addons configured
+on the server.
+
+Xtream-compatible profiles, passwords stored in the device Keychain, and native
+VLC playback throughout. You supply the provider, server and streams you are
+authorized to watch; Lineup does not include or sell content.
+
+## iCloud sync and game reminders
+
+Lineup saves per-game reminders locally and schedules a
+notification 15 minutes before a known upcoming game. The app refreshes the
+today-and-tomorrow schedule while open; after it schedules a reminder, the device
+can deliver it while Lineup is closed. Notification permission is requested when
+the first game reminder is selected. Each device schedules its own alerts.
+
+The iPhone and Apple TV targets share the private CloudKit container
+`iCloud.com.nulldev85.Lineup`. It synchronizes provider and media-server profiles,
+their Keychain credentials or tokens, channel favorites, media shelves, theme,
+and game reminder choices. The payload is stored in a CloudKit
+encrypted field. Schedule, guide, and stream caches stay local and are refetched.
+Sync needs both devices signed into the same Apple Account and a signed build with
+the iCloud/CloudKit entitlement. In the Apple Developer portal, enable iCloud and
+assign this same container to **both** existing bundle identifiers,
+`com.nulldev85.NullSports` and `com.nulldev85.NullSports.iOS`. Regenerate signing
+profiles after enabling the capability. An unsigned IPA or a signing profile
+without that entitlement cannot use CloudKit. Deploy the `LineupSettings` record
+type with encrypted `payload` field from CloudKit development to production
+before distributing release builds. Account shows the current sync status.
+
+> Formerly NullSports. The app's bundle identifier and stored data keep the old
+> name so existing installs keep their providers, servers and saved passwords —
+> see the note in `project.yml`.
 
 ## Build
 
-Run the **Build NullSports tvOS IPA** workflow in GitHub Actions. The downloadable artifact contains an unsigned tvOS IPA ready for your normal signing process.
+Run the **Build Lineup tvOS IPA** workflow in GitHub Actions. The downloadable artifact contains an unsigned tvOS IPA ready for your normal signing process.
 
 ## iPhone
 
-The `NullSportsiOS` target supports iPhones on iOS 17 or later, with a touch-first
+The `LineupiOS` target supports iPhones on iOS 17 or later, with a touch-first
 Live screen, league filters, searchable channel guide, favorites, provider setup,
 and full-screen VLC playback in portrait or landscape. Unmatched games open a
 manual channel picker. Provider credentials, schedules, guide parsing, and channel
 matching share the Apple TV implementation. Profiles and favorites are stored
 locally on each device; they do not sync between iPhone and Apple TV.
 
-Run **Build NullSports iPhone IPA**, or push the `iphone` branch. Download the
-`NullSports-iPhone-unsigned-IPA` artifact, unzip it, and sign/install the enclosed
+Run **Build Lineup iPhone IPA**, or push the `iphone` branch. Download the
+`Lineup-iPhone-unsigned-IPA` artifact, unzip it, and sign/install the enclosed
 IPA using your usual sideloading tool. Its bundle ID is
-`com.nulldev85.NullSports.iOS`. TestFlight distribution is not configured yet.
+`com.nulldev85.NullSports.iOS` — unchanged by the rename, deliberately, so the
+build installs over an existing one instead of arriving as a second empty app.
+TestFlight distribution is not configured yet.
 
-For a local Mac build, run `xcodegen generate` and build the `NullSportsiOS` scheme.
+For a local Mac build, run `xcodegen generate` and build the `LineupiOS` scheme.
 The iPhone target includes the shared models/services/store/design and its own
 `iPhone` views/assets; it excludes the TV views and TV icon catalog.
 
@@ -34,7 +72,7 @@ version plays one stream at a time and pauses when backgrounded.
 
 iPhone 0.17.2 adds team records to Live cards and a timeline EPG with frozen
 channel logos, a fixed time ruler, aligned program blocks, elapsed shading, and
-a current-time marker in the NullSports palette. Swipe horizontally for later
+a current-time marker in the Lineup palette. Swipe horizontally for later
 programs and vertically for more channels. Tap Now to return to the current
 window. Use the toolbar filter menu for categories/favorites, and long-press a
 channel logo to add or remove a favorite. Tapping a channel or program plays that
@@ -82,7 +120,41 @@ the transform animation. The app icon is now a white NS monogram on black.
 Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
 fullscreen in both orientations, player close buttons, and Reduce Motion.
 
-iPhone 0.17.10 corrects the simulator test host path to the actual NullSports.app
+iPhone 0.19.0 adds native Picture in Picture and background playback. HLS
+channels play through AVPlayer, which supplies system PiP and keeps audio
+running when Lineup is backgrounded; transport streams and anything AVPlayer
+cannot open still play through VLC. Both engines live in one controller for the
+whole session, so resizing, expanding, rotating and entering PiP never open a
+second connection.
+
+The same release adds preferred channels by team. Tapping a game uses your saved
+channel when evidence says that channel is carrying the game, asks which feed
+when both teams' saved channels are carrying it and differ, and otherwise opens a
+picker with Lineup's own match listed first and labelled Recommended. A saved
+channel that exists but is not showing a particular game — a regional network on
+a nationally exclusive night — yields to Lineup's verified feed for that game. Choosing a channel offers to remember it
+for the home or away team. A saved channel that the provider drops falls back to
+Lineup's match without the preference being deleted. Preferences, favorites and
+recently watched channels each belong to one provider and never cross between
+them. Account lists and clears saved preferences and recent channels.
+
+Repeat launches restore the cached channel list, guide, game matches, favorites,
+recent channels and team preferences immediately, then refresh behind the screen
+instead of blocking Live. The first sync of a new provider still explains itself
+while it runs. Channel matching accuracy is unchanged: a saved preference is a
+preference among the channels carrying a game, not an override, so it waits for
+the same per-game evidence an automatic match does.
+
+Playback recovery now retries the current channel's alternate URLs first and only
+then moves to another channel verified for the same game, preferring your saved
+channel. It never moves to an unverified feed, retires each channel it tries so
+two broken feeds cannot ping-pong, caps the number of moves, and shows a brief
+notice when it changes feeds. Retry and Choose Another Channel remain available
+throughout. Device checks: background audio with the screen locked, PiP from both
+players, expand/collapse and rotate while playing, an HLS channel that fails over
+to VLC, a game whose channel dies mid-stream, and switching providers.
+
+iPhone 0.17.10 corrects the simulator test host path to the actual Lineup.app
 executable. It also anchors the EPG content at the top, prevents the nested guide
 scrollers from adding duplicate navigation insets, and disables horizontal
 rubber-banding while preserving vertical pull-to-refresh. Account displays the

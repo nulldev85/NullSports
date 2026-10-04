@@ -20,7 +20,9 @@ struct MobileGuideWindowChecks {
             (date(-600), date(1800)),
             (date(1200), date(2400)),
             (date(8000), date(7000)),
-            (date(30000), date(31000))
+            // Anchored to the span so a longer window cannot quietly pull this
+            // entry back on screen and change what the check is testing.
+            (date(MobileGuideWindow.span + 600), date(MobileGuideWindow.span + 1200))
         ])
         check(mixed.compactMap(\.programIndex) == [1, 2, 0], "Sorting preserves source indices and excludes invalid/offscreen entries")
         check(mixed[1].start == date(1800), "Overlaps must not double-book horizontal space")
@@ -29,10 +31,21 @@ struct MobileGuideWindowChecks {
         for pair in zip(mixed, mixed.dropFirst()) {
             check(pair.0.end == pair.1.start, "All segments must meet without overlaps or unfilled gaps")
         }
-        check(window.ticks.count == 16 && window.x(date(1800)) == 110, "Half-hour labels align with the program scale")
-        check(window.width == 1760, "Eight hours use a stable horizontal extent")
+        check(window.ticks.count == 18 && window.x(date(1800)) == 96, "Half-hour labels align with the program scale")
+        check(window.width == 1728, "An hour of history plus eight hours of listings")
         let midnight = MobileGuideWindow(now: Date(timeIntervalSince1970: 0))
-        check(midnight.start < Date(timeIntervalSince1970: 0), "Viewport crosses midnight without losing prior programs")
+        check(midnight.anchor == Date(timeIntervalSince1970: 0), "The window anchors on the current half-hour at midnight")
+        check(midnight.start == Date(timeIntervalSince1970: -3600), "History extends an hour before the anchor")
+        // The elapsed shading is only legible when the program that is on now
+        // has room in front of it, so `now` must sit an hour into the window.
+        check(window.start < now && window.x(now) >= 96 * 2, "Now sits an hour into the window, not at its edge")
+        check(now >= window.anchor && now < window.anchor.addingTimeInterval(1800), "The anchor tracks the current half-hour")
+        check(!window.isStale(at: now), "A freshly built window is current")
+        check(!window.isStale(at: window.anchor.addingTimeInterval(1799)), "The window holds until the half-hour turns")
+        check(window.isStale(at: window.anchor.addingTimeInterval(1800)), "The window rebases once the half-hour turns")
+        let nextWindow = MobileGuideWindow(now: window.anchor.addingTimeInterval(1800))
+        check(nextWindow.anchor == window.anchor.addingTimeInterval(1800), "Following live advances at each half-hour boundary")
+        check(nextWindow.start == origin.addingTimeInterval(1800), "History advances with the window")
         print("Mobile guide timeline checks passed")
     }
 }
