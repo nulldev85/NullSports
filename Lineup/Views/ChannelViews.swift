@@ -3299,7 +3299,7 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
+            GuideChannelArtwork(stream: stream)
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
             .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.vertical, 4)
@@ -3379,47 +3379,36 @@ private struct GuideTimelineGrid: View {
     }
 }
 
-/// A channel's number, its mark, and a star if it is a favourite. The name is
-/// shown only where there is no mark to show; the preview above names the
-/// channel the remote is on in type read from across the room.
+/// A channel as the guide names it: its logo, and its name beside it. Where
+/// there is no logo, a quiet television mark holds the logo's place so every
+/// name starts on the same line.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
-    let isFavorite: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Verbatim: a number read as localised text gains a thousands
-            // separator, and 2001 wrapped as "2,00" over "1".
-            Text(verbatim: stream.num.map(String.init) ?? "")
-                .font(.interDigits(15, .semibold))
-                .foregroundStyle(GuidePalette.secondary)
-                .lineLimit(1).minimumScaleFactor(0.8)
-                .frame(width: 50, alignment: .leading)
-            GeometryReader { proxy in
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: max(1, proxy.size.width)) { loaded in
-                    if let image = loaded {
-                        image.resizable().scaledToFit()
-                    } else {
-                        Text(stream.name)
-                            .font(.inter(16, .semibold))
-                            .lineLimit(2).minimumScaleFactor(0.85)
-                            .allowsTightening(true)
-                            .truncationMode(.tail)
-                            .multilineTextAlignment(.leading)
-                            .foregroundStyle(GuidePalette.text)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    }
+        HStack(spacing: 14) {
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 72) { loaded in
+                if let image = loaded {
+                    image.resizable().scaledToFit()
+                } else {
+                    Image(systemName: "tv")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(GuidePalette.secondary)
                 }
-                .transaction { $0.animation = nil }
-                .frame(width: proxy.size.width, height: proxy.size.height)
             }
-            if isFavorite {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(GuidePalette.secondary)
-            }
+            .transaction { $0.animation = nil }
+            .frame(width: 72, height: 44)
+            Text(stream.name)
+                .font(.inter(16, .semibold))
+                .foregroundStyle(GuidePalette.text)
+                .lineLimit(2).minimumScaleFactor(0.85)
+                .allowsTightening(true)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .accessibilityHidden(true)
     }
 }
