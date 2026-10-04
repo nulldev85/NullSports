@@ -1404,11 +1404,15 @@ private struct LiveCardSurface: View {
 private struct LiveTag: View {
     let symbol: String
     let title: String
+    /// The symbol alone, where the row needs the room.
+    var compact = false
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: symbol).font(.system(size: 11, weight: .bold))
-            Text(title).font(.inter(12, .heavy)).tracking(1.4)
+            if !compact {
+                Text(title).font(.inter(12, .heavy)).tracking(1.4)
+            }
         }
         .foregroundStyle(LineupStyle.background)
         .padding(.horizontal, 9).frame(height: 24)
@@ -1842,26 +1846,38 @@ private struct LiveMatchupCard: View {
         }
     }
 
+    /// What Select will do here, said only while the card has focus. Nothing
+    /// for multiview's first game: choosing it again as the second does not
+    /// start anything.
+    private func actionHint(isPrimary: Bool) -> (symbol: String, title: String)? {
+        guard focused else { return nil }
+        if multiviewPrimaryID != nil {
+            return isPrimary ? nil : ("rectangle.split.2x1.fill", "SIDE BY SIDE")
+        }
+        return isOnScreen ? ("arrow.up.left.and.arrow.down.right", "FULL SCREEN") : ("play.fill", "PREVIEW")
+    }
+
     /// Where to watch and what Select will do on the left, the clock on the
     /// right. When room runs short the network gives way first; the clock
     /// never does.
     private func footer(isPrimary: Bool) -> some View {
-        HStack(spacing: 14) {
+        let hint = actionHint(isPrimary: isPrimary)
+        return HStack(spacing: 14) {
             if isPrimary {
                 LiveTag(symbol: "rectangle.split.2x1.fill", title: "FIRST GAME")
             } else if isOnScreen {
-                LiveTag(symbol: "tv.fill", title: "ON SCREEN")
-            } else {
-                Text(nonempty(game.broadcast)?.uppercased() ?? "NO LISTED NETWORK")
-                    .foregroundStyle(LivePalette.secondary).lineLimit(1)
+                // Focused, the tag keeps its colour and gives its words to the
+                // hint beside it.
+                LiveTag(symbol: "tv.fill", title: "ON SCREEN", compact: hint != nil)
+            } else if let network = nonempty(game.broadcast) {
+                Text(network.uppercased()).foregroundStyle(LivePalette.secondary).lineLimit(1)
+            } else if hint == nil {
+                Text("NO LISTED NETWORK").foregroundStyle(LivePalette.secondary).lineLimit(1)
             }
-            if focused {
+            if let hint {
                 HStack(spacing: 7) {
-                    Image(systemName: multiviewPrimaryID != nil ? "rectangle.split.2x1.fill"
-                          : (isOnScreen ? "arrow.up.left.and.arrow.down.right" : "play.fill"))
-                        .font(.system(size: 12, weight: .bold))
-                    Text(multiviewPrimaryID != nil ? "SIDE BY SIDE" : (isOnScreen ? "FULL SCREEN" : "PREVIEW"))
-                        .lineLimit(1)
+                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold))
+                    Text(hint.title).lineLimit(1)
                 }
                 .layoutPriority(1)
             }
