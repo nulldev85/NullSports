@@ -329,9 +329,8 @@ struct LineupCardAction: View {
                 #else
                 .frame(maxWidth: .infinity, minHeight: 38)
                 #endif
-                .lineupLiquidGlass(Capsule(),
-                                   fallback: focused ? LineupStyle.focused : LineupStyle.raised,
-                                   border: LineupStyle.line)
+                .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised, border: LineupStyle.line)
+                .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
         }
         .lineupFlatButton()
@@ -542,10 +541,10 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
                 .font(.inter(16, .semibold))
                 .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(focused ? LineupStyle.focused : LineupStyle.surface,
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
+                .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
         }
@@ -1273,7 +1272,7 @@ private struct MediaShelfPicker: View {
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items) { item in
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                            TVSelectable(scale: LineupStyle.cardLift,
                                 fillRadius: 14, action: { add(item) }) {
                                 MediaShelfRow(title: item.name, detail: countText(item),
                                     busy: adding.contains(item.id))
@@ -1299,7 +1298,7 @@ private struct MediaShelfPicker: View {
                         ForEach(group.items) { catalog in
                             let busy = adding.contains(catalog.shelfID)
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                            TVSelectable(scale: LineupStyle.cardLift,
                                 fillRadius: 14, action: { addMDBList(catalog) }) {
                                 MediaShelfRow(title: catalog.name,
                                     detail: catalog.itemCount.map { "\($0) list titles" }, busy: busy)
@@ -1334,7 +1333,7 @@ private struct MediaShelfPicker: View {
                         ForEach(group.catalogs) { catalog in
                             let busy = media.importing.contains(catalog.catalogId)
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
+                            TVSelectable(scale: LineupStyle.cardLift, fillRadius: 14,
                                 action: { enable(catalog, in: group.id) }) {
                                 MediaShelfRow(title: catalog.name,
                                     detail: busy ? "Importing… select again to stop waiting" : nil,
@@ -2249,9 +2248,10 @@ private struct TVMediaActionSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(focused ? LineupStyle.background : LineupStyle.lightPurple)
-            .background(focused ? LineupStyle.lightPurple : .black.opacity(0.58), in: Capsule())
-            .shadow(color: focused ? .black.opacity(0.34) : .clear, radius: 10, y: 5)
+            .foregroundStyle(LineupStyle.lightPurple)
+            .background(Color.black.opacity(0.58), in: Capsule())
+            .lineupFocusLayer(focused, in: Capsule())
+            .lineupShadow(.lifted, on: focused)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 }
@@ -2284,11 +2284,8 @@ private struct MediaEpisodeCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(episodeArtworkBorder,
-                            lineWidth: episodeArtworkIsFocused ? 3 : 1))
-                .shadow(color: episodeArtworkIsFocused
-                        ? LineupStyle.lightPurple.opacity(0.24) : .clear,
-                        radius: 10)
+                    .stroke(LineupStyle.line, lineWidth: 1))
+                .lineupFocusLayer(episodeArtworkIsFocused, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
@@ -2329,10 +2326,6 @@ private struct MediaEpisodeCard: View {
         #else
         false
         #endif
-    }
-
-    private var episodeArtworkBorder: Color {
-        episodeArtworkIsFocused ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.line
     }
 
     private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
@@ -3078,7 +3071,7 @@ private struct MediaSourcePicker: View {
                             LazyVStack(alignment: .leading, spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
                                     #if os(tvOS)
-                                    TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                                    TVSelectable(scale: LineupStyle.cardLift,
                                         fillRadius: 14, action: { selectedSource = source }) {
                                         MediaSourceRow(source: source)
                                     }
@@ -3251,9 +3244,8 @@ private struct MediaChromeSurface: ViewModifier {
         } else {
             content
                 .foregroundStyle(LineupStyle.lightPurple)
-                .lineupLiquidGlass(shape,
-                                   fallback: focused ? LineupStyle.focused : LineupStyle.surface,
-                                   border: border)
+                .lineupLiquidGlass(shape, fallback: LineupStyle.surface, border: border)
+                .lineupFocusLayer(focused, in: shape)
                 .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         }
     }
@@ -3306,9 +3298,9 @@ private struct MediaProviderChip: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
-        .background(active ? LineupStyle.lightPurple
-            : (focused ? LineupStyle.focused : LineupStyle.surface), in: Capsule())
+        .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
         .overlay(Capsule().stroke(border, lineWidth: 1))
+        .lineupFocusLayer(focused && !active, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
@@ -3530,10 +3522,8 @@ private struct MediaItemCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-                    .stroke(artworkBorder, lineWidth: artworkIsFocused ? 3 : 1))
-                .shadow(color: artworkIsFocused
-                        ? LineupStyle.lightPurple.opacity(0.24) : .clear,
-                        radius: 10)
+                    .stroke(LineupStyle.line, lineWidth: 1))
+                .lineupFocusLayer(artworkIsFocused, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(alignment: .bottomTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
@@ -3578,9 +3568,6 @@ private struct MediaItemCard: View {
         #endif
     }
 
-    private var artworkBorder: Color {
-        artworkIsFocused ? LineupStyle.lightPurple.opacity(0.92) : LineupStyle.line
-    }
 
     private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
         media.cardPlaybackPresentation(for: item)
