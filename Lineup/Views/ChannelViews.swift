@@ -819,24 +819,22 @@ private struct LiveSlate: View {
     }
 
     /// Where it is played, what Select will do, and the channel it will open.
+    /// The two sides are containers even when empty, so a game with no venue
+    /// or no matched channel still keeps the hint in the middle.
     private var footer: some View {
         HStack(alignment: .center, spacing: 20) {
-            Group {
+            HStack(spacing: 8) {
                 if let place = game.placeLine {
-                    HStack(spacing: 8) {
-                        Image(systemName: "mappin").font(.system(size: 15, weight: .semibold))
-                        Text(place).lineLimit(1)
-                    }
+                    Image(systemName: "mappin").font(.system(size: 15, weight: .semibold))
+                    Text(place).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             LiveActionHint(hint: hint)
-            Group {
+            HStack(spacing: 8) {
                 if let channel {
-                    HStack(spacing: 8) {
-                        Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold))
-                        Text(channel).lineLimit(1)
-                    }
+                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold))
+                    Text(channel).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -1461,6 +1459,7 @@ private struct LiveGameMenu: ViewModifier {
 /// the focus tree rather than being built on demand, because a row that does
 /// not exist yet is a row Up cannot find.
 private struct LiveMatchupBoard: View {
+    @EnvironmentObject private var library: SportsLibrary
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     let spotlight: LiveSpotlight
@@ -1476,16 +1475,22 @@ private struct LiveMatchupBoard: View {
 
     private var rows: Int { (events.count + LiveMetrics.columns - 1) / LiveMetrics.columns }
 
+    /// Multiview's first game, named by its matchup rather than by whatever
+    /// the provider calls the channel carrying it.
+    private var firstGame: SportsGame? {
+        guard let multiviewPrimaryID else { return nil }
+        return events.first { library.stream(for: $0)?.id == multiviewPrimaryID }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if events.isEmpty {
-                Text(isScheduleLoading ? "Games are loading…" :
-                     (isScheduleAvailable ? "No games in this range." :
-                        (scheduleErrorMessage ?? "Schedule unavailable.")))
-                    .font(.inter(22, .medium)).foregroundStyle(LivePalette.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: LiveMetrics.cardHeight + LiveMetrics.liftRoom * 2)
+                LiveEmptyLane(title: isScheduleLoading ? "Games are loading…" :
+                                (isScheduleAvailable ? "No games in this range." : "Schedule unavailable."),
+                              detail: isScheduleLoading ? "The board fills in as each league answers." :
+                                (isScheduleAvailable ? "Try another sport, or check back for the next matchup." :
+                                    (scheduleErrorMessage ?? "Your channels are still in Guide.")))
             } else {
                 LiveMatchupGrid(events: events, spotlight: spotlight, previewGameID: previewGameID,
                                 multiviewPrimaryID: multiviewPrimaryID,
@@ -1499,7 +1504,7 @@ private struct LiveMatchupBoard: View {
             if let multiviewTitle {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Choose a second game").font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
-                    Text("MULTIVIEW  ·  FIRST GAME ON \(multiviewTitle.uppercased())")
+                    Text("MULTIVIEW  ·  FIRST GAME  \((firstGame.map(liveHeadline) ?? multiviewTitle).uppercased())")
                         .font(.inter(13, .bold)).tracking(1.6)
                         .foregroundStyle(LivePalette.secondary).lineLimit(1)
                 }
@@ -1520,6 +1525,31 @@ private struct LiveMatchupBoard: View {
             }
         }
         .frame(height: 56)
+    }
+}
+
+/// The board with nothing on it: a dashed lane where the cards go, so the
+/// screen keeps its shape and says why it is empty.
+private struct LiveEmptyLane: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 18) {
+            Image(systemName: "calendar").font(.system(size: 28, weight: .light))
+                .foregroundStyle(LivePalette.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
+                Text(detail).font(.inter(17)).foregroundStyle(LivePalette.secondary).lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: LiveMetrics.cardHeight)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(LivePalette.rule, style: StrokeStyle(lineWidth: 1.5, dash: [7, 7]))
+        }
+        .padding(.vertical, LiveMetrics.liftRoom)
     }
 }
 
