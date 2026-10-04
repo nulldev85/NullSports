@@ -1273,7 +1273,7 @@ private struct MediaShelfPicker: View {
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items) { item in
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                            TVSelectable(scale: LineupStyle.cardLift,
                                 fillRadius: 14, action: { add(item) }) {
                                 MediaShelfRow(title: item.name, detail: countText(item),
                                     busy: adding.contains(item.id))
@@ -1299,7 +1299,7 @@ private struct MediaShelfPicker: View {
                         ForEach(group.items) { catalog in
                             let busy = adding.contains(catalog.shelfID)
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                            TVSelectable(scale: LineupStyle.cardLift,
                                 fillRadius: 14, action: { addMDBList(catalog) }) {
                                 MediaShelfRow(title: catalog.name,
                                     detail: catalog.itemCount.map { "\($0) list titles" }, busy: busy)
@@ -1334,7 +1334,7 @@ private struct MediaShelfPicker: View {
                         ForEach(group.catalogs) { catalog in
                             let busy = media.importing.contains(catalog.catalogId)
                             #if os(tvOS)
-                            TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
+                            TVSelectable(scale: LineupStyle.cardLift, fillRadius: 14,
                                 action: { enable(catalog, in: group.id) }) {
                                 MediaShelfRow(title: catalog.name,
                                     detail: busy ? "Importing… select again to stop waiting" : nil,
@@ -3078,7 +3078,7 @@ private struct MediaSourcePicker: View {
                             LazyVStack(alignment: .leading, spacing: rowSpacing) {
                                 ForEach(visibleSources) { source in
                                     #if os(tvOS)
-                                    TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused,
+                                    TVSelectable(scale: LineupStyle.cardLift,
                                         fillRadius: 14, action: { selectedSource = source }) {
                                         MediaSourceRow(source: source)
                                     }

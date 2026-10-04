@@ -1,0 +1,131 @@
+# TEMPORARY: renders the tvOS Live tab with mock data and pushes screenshots
+# to the throwaway branch claude/live-design-snapshots. Removed, with
+# .github/live-harness, before this branch is handed over.
+name: Live design snapshots (temporary)
+
+on:
+  push:
+    branches: [claude/happy-mayer-dk0war]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-design-snapshots
+  cancel-in-progress: true
+
+jobs:
+  snapshots:
+    runs-on: macos-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Check tvOS focus styling
+        continue-on-error: true
+        run: python3 Tools/check-tv-focus.py | tee "$RUNNER_TEMP/focus-check.txt"
+
+      - name: Install the harness into this checkout only
+        run: python3 .github/live-harness/patch_checkout.py
+
+      - name: Generate project
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate
+
+      # The mock provider lives at 127.0.0.1:8765. Its API is answered inside
+      # the app; VLC fetches channels itself, so this sends every channel to a
+      # public test stream and the preview shows real moving video.
+      - name: Serve a test feed for previews
+        run: |
+          cat > "$RUNNER_TEMP/feed.py" <<'PY'
+          import http.server
+          TARGET = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+          class Feed(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(302)
+                  self.send_header("Location", TARGET)
+                  self.end_headers()
+              do_HEAD = do_GET
+              def log_message(self, *args):
+                  pass
+          http.server.ThreadingHTTPServer(("127.0.0.1", 8765), Feed).serve_forever()
+          PY
+          nohup python3 "$RUNNER_TEMP/feed.py" > /dev/null 2>&1 &
+          sleep 1
+          curl -sS -o /dev/null -w "feed redirect: %{http_code} -> %{redirect_url}\n" http://127.0.0.1:8765/live/a/b/1.ts
+
+      - name: Capture the Live tab
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/shots"
+          TEST_RUNNER_LIVE_SHOTS_DIR="$RUNNER_TEMP/shots" xcodebuild test \
+            -project Lineup.xcodeproj \
+            -scheme LineupHarness \
+            -destination 'platform=tvOS Simulator,name=Apple TV' \
+            -derivedDataPath build-harness \
+            -resultBundlePath "$RUNNER_TEMP/harness.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG LINEUP_UNSIGNED_BUILD' \
+            > "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          status=$?
+          grep -E "error:|Test Case|\*\* " "$RUNNER_TEMP/xcodebuild.log" | tail -120 || true
+          exit $status
+
+      - name: Collect screenshots and logs
+        if: always()
+        run: |
+          shots="$RUNNER_TEMP/shots"
+          mkdir -p "$shots"
+          if ! ls "$shots"/*.png >/dev/null 2>&1 && [ -d "$RUNNER_TEMP/harness.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/harness.xcresult" \
+              --output-path "$RUNNER_TEMP/attachments" || true
+            python3 - "$RUNNER_TEMP/attachments" "$shots" <<'PY' || true
+          import json, pathlib, shutil, sys
+          source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          manifest = json.loads((source / "manifest.json").read_text())
+          for test in manifest:
+              for item in test.get("attachments", []):
+                  name = item.get("suggestedHumanReadableName") or item["exportedFileName"]
+                  name = name.split("_0_")[0]
+                  if not name.endswith(".png"):
+                      name += ".png"
+                  shutil.copy(source / item["exportedFileName"], target / name)
+          PY
+          fi
+          for file in "$shots"/*.png; do
+            [ -e "$file" ] || continue
+            sips -s format jpeg -s formatOptions 88 "$file" --out "${file%.png}.jpg" >/dev/null && rm "$file"
+          done
+          grep -E "error:|warning:.*(ChannelViews|LiveHarness)|Test Case|\*\* " "$RUNNER_TEMP/xcodebuild.log" \
+            | tail -300 > "$shots/xcodebuild-summary.txt" 2>/dev/null || true
+          tail -300 "$RUNNER_TEMP/xcodebuild.log" > "$shots/xcodebuild-tail.txt" 2>/dev/null || true
+          cp "$RUNNER_TEMP/focus-check.txt" "$shots/" 2>/dev/null || true
+          xcrun simctl spawn booted log show --style compact --last 20m \
+            --predicate 'process == "Lineup"' 2>/dev/null | tail -400 > "$shots/app-log.txt" || true
+          echo "${GITHUB_SHA}" > "$shots/SOURCE.txt"
+          ls -la "$shots"
+
+      - name: Publish to the scratch branch
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/shots"
+          git init -q
+          git checkout -q -b snapshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Live design snapshots for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:refs/heads/claude/live-design-snapshots

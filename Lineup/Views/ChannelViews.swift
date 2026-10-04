@@ -436,10 +436,9 @@ private struct LiveEmptySlateDashboard: View {
 
 /// The Live tab's reading of the theme.
 ///
-/// Every colour here comes from LineupStyle, so Signal's charcoal, Velvet's
-/// plum, Graphite Ice and OLED's black draw the same room in their own light.
+/// Every colour here comes from LineupStyle's charcoal, light grey and white.
 /// The one colour that is not the theme's is broadcast red, and it only ever
-/// means on air.
+/// means on air; the teams bring their own.
 private enum LivePalette {
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
@@ -450,8 +449,7 @@ private enum LivePalette {
     static var rim: Color { LineupStyle.liveSelectionBorder }
     static var onAir: Color { LineupStyle.liveDot }
     /// How strongly a matchup's colours light the wall behind the monitor.
-    /// OLED keeps its pixels off, so it gets a breath of colour, not a wash.
-    static var spill: Double { LineupStyle.theme == .oled ? 0.14 : 0.32 }
+    static let spill = 0.32
 }
 
 /// One grid for the whole tab.
@@ -1984,35 +1982,32 @@ private struct LiveSelectedPreview: View {
 /// blinks or changes size, so it remains a crisp status mark; only the light
 /// it casts breathes. That reads as an illuminated indicator rather than a
 /// generic animated circle.
+/// On air, as a small red dot.
+///
+/// It was a glossy bead -- a gradient, a rim, a glow and a halo -- which at
+/// these sizes read as a smudge of red rather than a mark. Flat and smaller,
+/// its edge stays crisp from across a room, and a slow breath is what says
+/// *now*: a still dot is a bullet point.
 private struct PulsingLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGFloat
-    @State private var haloExpanded = false
+    @State private var breathing = false
+
+    /// Three quarters of what each caller asked for: every live dot in the
+    /// app gets smaller at once, without reworking the rows that hold them.
+    private var diameter: CGFloat { (size * 0.72).rounded() }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(LineupStyle.liveDot.opacity(0.3))
-                .frame(width: size * 2.2, height: size * 2.2)
-                .scaleEffect(reduceMotion ? 0.82 : (haloExpanded ? 1.08 : 0.7))
-                .opacity(reduceMotion ? 0.34 : (haloExpanded ? 0 : 0.5))
-            Circle()
-                .fill(RadialGradient(stops: [
-                    .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
-                    .init(color: LineupStyle.liveDot, location: 0.28),
-                    .init(color: Color(red: 0.58, green: 0.025, blue: 0.09), location: 1)
-                ], center: .topLeading, startRadius: 0, endRadius: size))
-                .frame(width: size, height: size)
-                .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.5))
-                .shadow(color: LineupStyle.liveDot.opacity(0.52), radius: size * 0.55)
-        }
-        .frame(width: size * 1.25, height: size * 1.25)
-        .animation(reduceMotion ? nil
-            : .easeOut(duration: 1.8).repeatForever(autoreverses: false), value: haloExpanded)
-        .onAppear { haloExpanded = !reduceMotion }
-        .onDisappear { haloExpanded = false }
-        .onChange(of: reduceMotion) { _, reduced in haloExpanded = !reduced }
-        .accessibilityHidden(true)
+        Circle()
+            .fill(LineupStyle.liveDot)
+            .frame(width: diameter, height: diameter)
+            .opacity(breathing ? 0.45 : 1)
+            .animation(reduceMotion ? nil
+                : .easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: breathing)
+            .onAppear { breathing = !reduceMotion }
+            .onDisappear { breathing = false }
+            .onChange(of: reduceMotion) { _, reduced in breathing = !reduced }
+            .accessibilityHidden(true)
     }
 }
 
@@ -2464,36 +2459,26 @@ private struct ChannelLogo: View {
     }
 }
 
-// Theme surfaces shared across the Guide.
-/// The guide's own names for the theme's colours. The four that used to be
-/// called purple, pink, green and yellow were all the text tint, because
-/// Velvet has no colour of its own -- so the names described nothing and a
-/// theme that did have one could not reach them. They say what they mark now,
-/// and the marks read from the theme's highlight.
+/// The guide's colours: charcoal, light grey and white, and red for now.
 private enum GuidePalette {
     static var background: Color { LineupStyle.background }
-    static var panel: Color { LineupStyle.surface.opacity(0.74) }
+    /// The channel column and the sidebar, a step darker than the grid so the
+    /// names read as a margin rather than as more programmes.
+    static var rail: Color { LineupStyle.sidebarRow }
     static var surface: Color { LineupStyle.surface }
     static var raised: Color { LineupStyle.raised }
-    static var channelTile: Color { LineupStyle.selected }
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// An eyebrow over a panel, the line down the grid: the theme speaking.
-    static var highlight: Color { LineupStyle.highlight }
-    /// How far a programme has run, kept neutral so schedule progress does not
-    /// compete with focus and live-state accents.
-    static var progressFill: Color { LineupStyle.text }
-    /// A programme's card, and the same card with the remote on it. Both are
-    /// a step up from the row they sit in, so a card reads as a card and the
-    /// blue over it has something to read against.
-    static var card: Color { LineupStyle.raised }
-    static var cardFocused: Color { LineupStyle.focused }
-    /// The edge and glow on whatever the remote is sitting on.
-    static var focusRing: Color { LineupStyle.highlight }
-    /// A badge for something that has not started, which must not be mistaken
-    /// for the on-air one, so it stays the quiet text tint.
-    static var upcomingMark: Color { LineupStyle.secondary }
+    /// A programme still to come, and the one on the air, a step lighter: on
+    /// now and coming up are told apart at a glance without a word of ink.
+    static var card: Color { LineupStyle.surface }
+    static var cardNow: Color { LineupStyle.raised }
+    /// How far the programme on now has run, on its track.
+    static var progress: Color { LineupStyle.text }
+    static var track: Color { LineupStyle.text.opacity(0.14) }
+    /// Now, and on air: broadcast red, the only colour the guide has.
+    static var now: Color { LineupStyle.liveDot }
 }
 
 struct GuideView: View {
@@ -2548,9 +2533,9 @@ struct GuideView: View {
 
     var body: some View {
         GeometryReader { container in
-            let layout = GuideLayout(width: container.size.width - 40)
+            let layout = GuideLayout(width: container.size.width - 2 * GuideLayout.margin)
             NavigationStack {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 18) {
                     GuideControlBar(
                         title: selectedTitle,
                         channelCount: filtered.count,
@@ -2580,8 +2565,10 @@ struct GuideView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             GuideTimelineHeader(now: guideNow)
                             if filtered.isEmpty {
-                                Text(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.").foregroundColor(LineupStyle.lightPurple)
-                                    .font(.inter(.title3)).foregroundStyle(GuidePalette.secondary).padding(.top, 24)
+                                Label(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.",
+                                      systemImage: favoritesOnly ? "star" : "rectangle.stack")
+                                    .font(.inter(22, .medium)).foregroundStyle(GuidePalette.secondary)
+                                    .padding(.top, 28).padding(.leading, 14)
                                     .focusable()
                                     .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
                                     .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
@@ -2625,6 +2612,9 @@ struct GuideView: View {
                                 }
                             }
                         }
+                        .overlay(alignment: .topLeading) {
+                            if !filtered.isEmpty { GuideNowLine(now: guideNow) }
+                        }
                         .disabled(sidebarVisible && !searchActive)
 
                         if sidebarVisible && !searchActive {
@@ -2636,40 +2626,24 @@ struct GuideView: View {
                             )
                             .frame(width: layout.channelWidth)
                             .frame(maxHeight: .infinity)
-                            .background(GuidePalette.panel)
+                            .background(GuidePalette.rail)
                             .overlay(alignment: .trailing) {
-                                Rectangle()
-                                    .fill(LinearGradient(colors: [GuidePalette.text.opacity(0.14), GuidePalette.text.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                                    .frame(width: 1)
+                                Rectangle().fill(GuidePalette.line).frame(width: 1)
                             }
                             .lineupShadow(.overlayFromEdge)
                             .transition(.move(edge: .leading).combined(with: .opacity))
                             .focusSection()
                         }
                     }
-                    .background(GuidePalette.panel.opacity(0.58),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(GuidePalette.line.opacity(0.9), lineWidth: 1))
-                    .lineupShadow(.restingQuiet)
+                    // The grid sits straight on the ground, clipped square so
+                    // rows leave cleanly under the time bar rather than
+                    // drawing past it.
+                    .clipShape(Rectangle())
                 }
-                .padding(.horizontal, 20).padding(.top, 8)
+                .padding(.horizontal, GuideLayout.margin).padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
-                // Two washes across the whole screen, for depth in the corners.
-                // They were written against a theme whose highlight was its text
-                // tint, so what they added was light. Pointed at a real accent
-                // they became six hundred points of blue in each corner, which
-                // is the ground of the busiest screen in the app going navy.
-                // Light is what they were for, so light is what they use.
-                .background(
-                    ZStack {
-                        GuidePalette.background
-                        RadialGradient(colors: [GuidePalette.text.opacity(0.05), .clear], center: .topLeading, startRadius: 0, endRadius: 680)
-                        RadialGradient(colors: [GuidePalette.text.opacity(0.03), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 720)
-                    }.ignoresSafeArea()
-                )
+                .background(GuidePalette.background.ignoresSafeArea())
                 .fullScreenCover(item: $selectedStream, onDismiss: resumePreview) { stream in
                     PlayerView(
                         urls: library.playbackURLs(for: stream),
@@ -2872,52 +2846,41 @@ private struct GuideControlBar: View {
     let onCancelMultiview: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .center, spacing: 20) {
             if let multiviewTitle {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("MULTIVIEW · CHOOSE SECOND CHANNEL")
-                        .font(.inter(.caption2, .bold)).tracking(1.3)
-                        .foregroundStyle(GuidePalette.highlight)
-                    Text(multiviewTitle).font(.inter(.title3, .semibold)).lineLimit(1)
-                }
+                GuideTitleBlock(eyebrow: "MULTIVIEW  ·  CHOOSE A SECOND CHANNEL", title: multiviewTitle)
             } else if searchActive {
-                TextField("Search channels", text: $query)
-                    .textFieldStyle(.plain).focusEffectDisabled()
-                    .font(.inter(22, .medium))
-                    .padding(.horizontal, 16).frame(maxWidth: 560, minHeight: 48)
-                    .background(GuidePalette.raised,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(GuidePalette.line, lineWidth: 1))
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(GuidePalette.secondary)
+                    TextField("Search channels", text: $query)
+                        .textFieldStyle(.plain).focusEffectDisabled()
+                        .font(.inter(22, .medium))
+                }
+                .padding(.horizontal, 18).frame(maxWidth: 620, minHeight: 52)
+                .background(GuidePalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(GuidePalette.line, lineWidth: 1))
             } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("LIVE GUIDE")
-                        .font(.inter(10, .bold)).tracking(2.2)
-                        .foregroundStyle(GuidePalette.highlight)
-                    Text(title).font(.inter(28, .semibold)).lineLimit(1)
-                }
+                GuideTitleBlock(eyebrow: "GUIDE", title: title)
             }
-            Spacer()
+            Spacer(minLength: 12)
             if isLoading {
-                HStack(spacing: 7) {
+                HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("UPDATING").font(.inter(10, .bold)).tracking(1.2)
+                    Text("UPDATING").font(.inter(13, .bold)).tracking(1.6)
                 }
                 .foregroundStyle(GuidePalette.secondary)
             }
-            Label("\(channelCount) CHANNELS", systemImage: "rectangle.stack")
-                .font(.inter(.caption2, .bold)).tracking(1.2)
+            Text("\(channelCount) CHANNELS")
+                .font(.inter(13, .bold)).tracking(1.6)
                 .foregroundStyle(GuidePalette.secondary)
-                .padding(.horizontal, 14).frame(height: 40)
-                .background(GuidePalette.surface.opacity(0.72), in: Capsule())
-                .overlay(Capsule().stroke(GuidePalette.line, lineWidth: 1))
-            Label(now.formatted(date: .omitted, time: .shortened), systemImage: "clock")
-                .font(.interDigits(18, .medium))
+            Rectangle().fill(GuidePalette.line).frame(width: 1, height: 26)
+            Text(now.formatted(date: .omitted, time: .shortened))
+                .font(.interDigits(24, .semibold))
                 .foregroundStyle(GuidePalette.text)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 14).frame(height: 40)
-                .background(GuidePalette.surface.opacity(0.72), in: Capsule())
-                .overlay(Capsule().stroke(GuidePalette.line, lineWidth: 1))
+                .fixedSize()
                 .accessibilityLabel("Current time, \(now.formatted(date: .omitted, time: .shortened))")
             GuideHeaderButton(title: searchActive ? "Close" : "Search", symbol: searchActive ? "xmark" : "magnifyingglass") {
                 searchActive.toggle()
@@ -2926,11 +2889,29 @@ private struct GuideControlBar: View {
             if multiviewTitle != nil { GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview) }
         }
         .foregroundStyle(GuidePalette.text)
-        .frame(height: 58)
+        .frame(height: 64)
     }
-
 }
 
+/// A screen's name with a quiet line over it.
+private struct GuideTitleBlock: View {
+    let eyebrow: String
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(eyebrow)
+                .font(.inter(13, .bold)).tracking(2.2)
+                .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+            Text(title)
+                .font(.inter(32, .bold))
+                .foregroundStyle(GuidePalette.text).lineLimit(1)
+        }
+    }
+}
+
+/// What the remote is on, larger: the picture or the channel's mark, and the
+/// programme under it, in type that reads from the sofa.
 private struct GuidePreviewPanel: View {
     let item: GuideFocusItem
     let categoryName: String
@@ -2944,8 +2925,17 @@ private struct GuidePreviewPanel: View {
         return CGFloat(min(max(now.timeIntervalSince(item.program.start) / duration, 0), 1))
     }
 
+    /// "23 MIN LEFT", while the programme is on.
+    private var remaining: String? {
+        guard item.program.isLive else { return nil }
+        let minutes = Int((item.program.end.timeIntervalSince(now) / 60).rounded(.up))
+        guard minutes > 0 else { return nil }
+        return minutes >= 60 ? "\(minutes / 60) HR \(minutes % 60) MIN LEFT" : "\(minutes) MIN LEFT"
+    }
+
     var body: some View {
-        HStack(spacing: 26) {
+        let frame = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(alignment: .center, spacing: 34) {
             Group {
                 if let previewURLs {
                     GuidePreviewVideo(urls: previewURLs)
@@ -2954,59 +2944,53 @@ private struct GuidePreviewPanel: View {
                     GuidePreviewArtwork(stream: item.stream)
                 }
             }
-                .frame(width: 344, height: 184)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(alignment: .top) {
-                    LinearGradient(colors: [Color.black.opacity(0.24), .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 46)
-                        .allowsHitTesting(false)
-                }
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(GuidePalette.line, lineWidth: 1))
+            .frame(width: 352, height: 198)
+            .clipShape(frame)
+            .overlay(frame.strokeBorder(GuidePalette.line, lineWidth: 1))
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 9) {
-                    Text("\(categoryName.uppercased())  ·  \(item.stream.name.uppercased())")
-                        .font(.inter(.caption2, .bold)).tracking(1.15)
-                        .foregroundStyle(GuidePalette.highlight).lineLimit(1)
-                    if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    if item.program.isLive { GuideLiveTag() }
+                    Text(item.stream.name.uppercased())
+                        .font(.inter(14, .bold)).tracking(1.6)
+                        .foregroundStyle(GuidePalette.text).lineLimit(1)
+                    Text(categoryName.uppercased())
+                        .font(.inter(14, .bold)).tracking(1.6)
+                        .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                    if let quality { GuideTinyBadge(title: quality) }
+                    if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
+                }
+                Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
+                    .font(.inter(38, .bold))
+                    .foregroundStyle(GuidePalette.text)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                HStack(spacing: 16) {
+                    Text(guideTimeRange(item.program))
+                        .font(.interDigits(18, .semibold))
+                        .foregroundStyle(GuidePalette.secondary)
                     if item.program.isLive {
-                        HStack(spacing: 5) {
-                            GuideLiveDot(size: 9)
-                            Text("LIVE").font(.inter(9, .bold)).tracking(1)
+                        GuideProgressBar(progress: progress).frame(width: 220, height: 4)
+                        if let remaining {
+                            Text(remaining)
+                                .font(.inter(13, .bold)).tracking(1.4)
+                                .foregroundStyle(GuidePalette.secondary)
                         }
-                        .foregroundStyle(LineupStyle.liveStatus)
                     }
                 }
-                HStack(spacing: 10) {
-                    Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
-                        .font(.inter(30, .semibold)).lineLimit(1)
-                    if item.program.isNew == true { GuideTinyBadge(title: "NEW", color: GuidePalette.raised) }
-                }
-                HStack(spacing: 12) {
-                    Text(guideTimeRange(item.program))
-                        .font(.interDigits(.callout, .medium)).foregroundStyle(GuidePalette.secondary)
-                    GeometryReader { proxy in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(GuidePalette.raised)
-                            Capsule().fill(GuidePalette.highlight).frame(width: proxy.size.width * progress)
-                        }
-                    }.frame(maxWidth: 220).frame(height: 4)
-                }
-                Text(item.program.detail.isEmpty ? "No program description available." : item.program.detail)
-                    .font(.inter(.callout)).foregroundStyle(GuidePalette.secondary).lineLimit(2)
-                Label("Menu hides preview", systemImage: "chevron.backward.circle")
-                    .font(.inter(.caption2, .medium)).foregroundStyle(GuidePalette.secondary)
+                Text(item.program.detail.isEmpty ? "No description for this program." : item.program.detail)
+                    .font(.inter(19))
+                    .foregroundStyle(GuidePalette.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: 980, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("MENU HIDES THE PREVIEW")
+                .font(.inter(12, .bold)).tracking(1.6)
+                .foregroundStyle(GuidePalette.secondary.opacity(0.8))
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 8)
         }
-        .padding(14)
-        .background(LinearGradient(colors: [GuidePalette.surface, GuidePalette.panel],
-            startPoint: .topLeading, endPoint: .bottomTrailing))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(GuidePalette.line, lineWidth: 1))
-        .lineupShadow(.resting)
     }
 }
 
@@ -3022,18 +3006,20 @@ private struct GuidePreviewVideo: View {
     }
 }
 
+/// The channel's mark on a dark plate, for a channel that is not playing.
 private struct GuidePreviewArtwork: View {
     let stream: XtreamStream
     var body: some View {
         ZStack {
-            GuidePalette.panel
+            GuidePalette.surface
             LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 420) { loaded in
                 if let image = loaded {
-                    image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(24)
+                    image.resizable().scaledToFit().padding(40)
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "tv").font(.system(size: 38, weight: .light))
-                        Text(stream.name).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).lineLimit(2).multilineTextAlignment(.center)
+                        Text(stream.name).font(.inter(18, .semibold))
+                            .lineLimit(2).multilineTextAlignment(.center)
                     }
                     .foregroundStyle(GuidePalette.secondary)
                     .padding(24)
@@ -3044,16 +3030,18 @@ private struct GuidePreviewArtwork: View {
     }
 }
 
+/// HD, NEW and the like: a small outlined tag, never a coloured one.
 private struct GuideTinyBadge: View {
     let title: String
-    let color: Color
 
     var body: some View {
-        Text(title).font(.inter(10, .bold)).tracking(0.8)
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.78))
-            .padding(.horizontal, 8).frame(height: 19)
-            .background(color, in: Capsule())
-            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(0.12), lineWidth: 0.5))
+        Text(title)
+            .font(.inter(12, .bold)).tracking(1.2)
+            .foregroundStyle(GuidePalette.secondary)
+            .padding(.horizontal, 7).frame(height: 22)
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(GuidePalette.secondary.opacity(0.5), lineWidth: 1))
+            .fixedSize()
     }
 }
 
@@ -3085,21 +3073,15 @@ private struct GuideSidebar: View {
     let onCollapse: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text("CHANNELS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
-                Spacer()
-
-            }
-            .padding(.leading, 14).frame(height: 42)
-            GuideSidebarButton(title: "All channels", symbol: "rectangle.stack", selected: selectedCategoryID == nil && !favoritesOnly, focus: focus, focusID: "all") {
+        VStack(alignment: .leading, spacing: 4) {
+            GuideSidebarHeading(title: "BROWSE")
+            GuideSidebarButton(title: "All channels", symbol: "square.grid.2x2", selected: selectedCategoryID == nil && !favoritesOnly, focus: focus, focusID: "all") {
                 selectedCategoryID = nil; favoritesOnly = false
             }
-            GuideSidebarButton(title: "Favorites", symbol: "star.fill", selected: favoritesOnly, focus: focus, focusID: "favorites") {
+            GuideSidebarButton(title: "Favorites", symbol: "star", selected: favoritesOnly, focus: focus, focusID: "favorites") {
                 selectedCategoryID = nil; favoritesOnly = true
             }
-            Text("CATEGORIES").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).tracking(1.5).foregroundStyle(GuidePalette.highlight)
-                .lineLimit(1).padding(.leading, 14).padding(.top, 8).frame(height: 30)
+            GuideSidebarHeading(title: "CATEGORIES").padding(.top, 10)
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(library.categories) { category in
@@ -3108,9 +3090,10 @@ private struct GuideSidebar: View {
                         }
                     }
                 }
+                .padding(.vertical, 4)
             }
         }
-        .padding(.trailing, 8)
+        .padding(.horizontal, 12).padding(.top, 6)
         .onMoveCommand { direction in
             if direction == .right { onCollapse() }
         }
@@ -3121,6 +3104,22 @@ private struct GuideSidebar: View {
     }
 }
 
+private struct GuideSidebarHeading: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.inter(13, .bold)).tracking(2.2)
+            .foregroundStyle(GuidePalette.secondary)
+            .lineLimit(1)
+            .padding(.leading, 16)
+            .frame(height: 40, alignment: .bottomLeading)
+            .padding(.bottom, 4)
+    }
+}
+
+/// A sidebar row. The chosen one is white with a bar at its edge; the one the
+/// remote is on wears the focus layer, so the two can never be confused.
 private struct GuideSidebarButton: View {
     let title: String
     let symbol: String
@@ -3131,27 +3130,30 @@ private struct GuideSidebarButton: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: symbol).font(.caption).frame(width: 22)
-            Text(title).foregroundColor(LineupStyle.lightPurple)
-                .font(.inter(22, .medium))
-                .lineLimit(nil)
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 24)
+            Text(title)
+                .font(.inter(21, selected ? .semibold : .medium))
+                .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .foregroundStyle(selected || isFocused ? GuidePalette.text : GuidePalette.secondary)
-        .padding(.horizontal, 14).padding(.vertical, 9)
-        .frame(minHeight: 46)
-        .background(isFocused ? GuidePalette.raised : (selected ? GuidePalette.text.opacity(0.075) : Color.clear))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isFocused ? GuidePalette.focusRing.opacity(0.85) : Color.clear, lineWidth: 1.5))
-        .nullGlass(cornerRadius: 12)
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(minHeight: 50)
+        .background(selected ? GuidePalette.surface : Color.clear, in: shape)
+        .overlay(alignment: .leading) {
+            if selected {
+                Capsule().fill(GuidePalette.text).frame(width: 3, height: 22)
+            }
+        }
+        .lineupFocusLayer(isFocused, in: shape)
         .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
-        .shadow(color: isFocused ? GuidePalette.focusRing.opacity(0.32) : .clear, radius: 18, y: 8)
-        .scaleEffect(isFocused ? LineupStyle.cardLift : 1)
-        .offset(y: isFocused ? -2 : 0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isFocused)
+        .animation(.easeOut(duration: 0.16), value: isFocused)
     }
 }
 
@@ -3162,52 +3164,64 @@ private struct GuideHeaderButton: View {
     var onMoveDown: (() -> Void)? = nil
     let action: () -> Void
     var body: some View {
+        let shape = Capsule()
         Label(title, systemImage: symbol)
-            .font(.inter(.callout, .semibold))
-            .foregroundStyle(LineupStyle.text)
-            .padding(.horizontal, 18).frame(height: 42)
-            .background(isFocused ? LineupStyle.lightPurple.opacity(0.12) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).nullGlass(cornerRadius: 14)
-            .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+            .font(.inter(18, .semibold))
+            .foregroundStyle(GuidePalette.text)
+            .padding(.horizontal, 22).frame(height: 48)
+            .background(GuidePalette.surface, in: shape)
+            .overlay(shape.strokeBorder(GuidePalette.line, lineWidth: 1))
+            .lineupFocusLayer(isFocused, in: shape)
+            .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
             .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
     }
 }
 
+/// The day over the channels, and a tick and a time at every half hour.
 private struct GuideTimelineHeader: View {
     @Environment(\.guideLayout) private var layout
     let now: Date
 
     var body: some View {
         let anchor = guideTimelineAnchor(now)
-        ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                Text(now.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()).uppercased())
-                    .foregroundStyle(GuidePalette.highlight)
-                    .frame(width: layout.channelWidth, alignment: .leading)
-                ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
+        HStack(spacing: 0) {
+            Text(now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()).uppercased())
+                .font(.inter(14, .bold)).tracking(1.6)
+                .foregroundStyle(GuidePalette.text)
+                .lineLimit(1)
+                .frame(width: layout.channelWidth, alignment: .leading)
+            ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
+                HStack(spacing: 10) {
+                    Rectangle().fill(GuidePalette.secondary.opacity(0.5)).frame(width: 1, height: 14)
                     Text(anchor.addingTimeInterval(Double(step) * 1800)
                         .formatted(date: .omitted, time: .shortened))
+                        .font(.interDigits(16, .semibold))
                         .foregroundStyle(GuidePalette.secondary)
-                        .frame(width: layout.slotWidth, alignment: .leading)
+                        .lineLimit(1)
                 }
+                .frame(width: layout.slotWidth, alignment: .leading)
             }
-            .padding(.top, 22)
         }
-        .font(.inter(.caption2, .bold)).tracking(1.4)
-        .padding(.horizontal, 14).frame(height: 56)
-        .background(GuidePalette.surface.opacity(0.72))
+        .padding(.horizontal, 14)
+        .frame(height: guideHeaderHeight)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(GuidePalette.line.opacity(0.9)).frame(height: 1)
+            Rectangle().fill(GuidePalette.line).frame(height: 1)
         }
     }
 }
+
+/// The time bar's height, which is also where the line for now begins.
+private let guideHeaderHeight: CGFloat = 48
 
 private let guideVisibleSlotCount = 6
 
 // Grow the grid cells in both dimensions without scaling typography or artwork.
 // Keep the original channel/half-hour widths and row aspect ratio in sync.
 private struct GuideLayout {
+    /// Keeps the grid clear of a television's overscan without giving up a
+    /// column: tighter than the Live tab's margin, wide enough to be safe.
+    static let margin: CGFloat = 60
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 28) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
@@ -3220,7 +3234,7 @@ private struct GuideLayout {
 }
 
 private struct GuideLayoutKey: EnvironmentKey {
-    static let defaultValue = GuideLayout(width: 1743)
+    static let defaultValue = GuideLayout(width: 1800)
 }
 
 private extension EnvironmentValues {
@@ -3287,10 +3301,7 @@ private struct GuideChannelRow: View {
         HStack(spacing: 0) {
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(GuidePalette.surface.opacity(0.64),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(GuidePalette.line.opacity(0.7), lineWidth: 0.5))
+            .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.vertical, 4)
             .padding(.trailing, 8)
             .clipped()
@@ -3316,16 +3327,13 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, 14)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
-        .background(GuidePalette.background.opacity(0.62))
-        // One hairline between channels, and nothing else. The card, its
-        // border and its shadow made every row an object; a guide wants to
-        // read as one grid a viewer runs their eye down.
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(GuidePalette.line.opacity(0.55)).frame(height: 1)
-        }
+        // Multiview's first channel keeps a white frame while the second is
+        // chosen, so it is never mistaken for where the remote is.
         .overlay {
             if multiviewPrimaryID == stream.id {
-                Rectangle().stroke(GuidePalette.focusRing.opacity(0.9), lineWidth: 2)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(GuidePalette.text, lineWidth: 2)
+                    .padding(.horizontal, 8)
             }
         }
         .contentShape(Rectangle())
@@ -3364,62 +3372,49 @@ private struct GuideTimelineGrid: View {
                 path.move(to: CGPoint(x: x, y: 0))
                 path.addLine(to: CGPoint(x: x, y: size.height))
             }
-            context.stroke(path, with: .color(GuidePalette.line.opacity(0.28)), lineWidth: 0.5)
+            context.stroke(path, with: .color(GuidePalette.line.opacity(0.4)), lineWidth: 1)
         }
         .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), height: layout.rowHeight)
         .accessibilityHidden(true)
     }
 }
 
-/// The channel's own logo, filling the column, with its name only where there
-/// is no logo to show -- the way the phone does it.
-///
-/// It used to be the logo at half size with the full name set under it in two
-/// lines. That name cost thirty-odd points of every row on a screen where the
-/// rows were already too tall to see more than four of, and it was answering a
-/// question the guide answers anyway: the focused channel's name is written
-/// across the preview panel above, in type read from ten feet.
+/// A channel's number, its mark, and a star if it is a favourite. The name is
+/// shown only where there is no mark to show; the preview above names the
+/// channel the remote is on in type read from across the room.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
 
     var body: some View {
-        GeometryReader { proxy in
-            let art = max(1, proxy.size.width - 28)
-            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: art) { loaded in
-                if let image = loaded {
-                    image.resizable().scaledToFit()
-                } else {
-                    Text(stream.name)
-                        .font(.inter(13, .semibold))
-                        .lineLimit(2).minimumScaleFactor(0.5)
-                        .allowsTightening(true)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(GuidePalette.text)
+        HStack(spacing: 12) {
+            Text(stream.num.map { "\($0)" } ?? "")
+                .font(.interDigits(15, .semibold))
+                .foregroundStyle(GuidePalette.secondary)
+                .frame(width: 42, alignment: .leading)
+            GeometryReader { proxy in
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: max(1, proxy.size.width)) { loaded in
+                    if let image = loaded {
+                        image.resizable().scaledToFit()
+                    } else {
+                        Text(stream.name)
+                            .font(.inter(15, .semibold))
+                            .lineLimit(2).minimumScaleFactor(0.6)
+                            .allowsTightening(true)
+                            .multilineTextAlignment(.leading)
+                            .foregroundStyle(GuidePalette.text)
+                    }
                 }
+                .transaction { $0.animation = nil }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
-            .transaction { $0.animation = nil }
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .overlay(alignment: .topLeading) {
-                if isFavorite {
-                    Image(systemName: "star.fill")
-                        .font(.inter(9, .bold))
-                        .foregroundStyle(GuidePalette.text.opacity(0.85))
-                        .padding(6)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if let number = stream.num {
-                    Text("\(number)")
-                        .font(.interDigits(10, .semibold))
-                        .foregroundStyle(GuidePalette.secondary)
-                        .padding(.horizontal, 6).frame(height: 18)
-                        .background(GuidePalette.background.opacity(0.86), in: Capsule())
-                        .padding(5)
-                }
+            if isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(GuidePalette.secondary)
             }
         }
+        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, 14)
         .accessibilityHidden(true)
     }
 }
@@ -3439,22 +3434,18 @@ private struct TVFavoritesOrderView: View {
     var body: some View {
         ZStack {
             LineupStyle.background.ignoresSafeArea()
-            RadialGradient(colors: [LineupStyle.lightPurple.opacity(0.11), .clear],
-                center: .topLeading, startRadius: 0, endRadius: 940).ignoresSafeArea()
-            RadialGradient(colors: [LineupStyle.lightPurple.opacity(0.055), .clear],
-                center: .bottomTrailing, startRadius: 0, endRadius: 820).ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .center, spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR CHANNELS")
-                            .font(.inter(.caption, .bold)).tracking(3)
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
+                            .font(.inter(13, .bold)).tracking(2.2)
+                            .foregroundStyle(LineupStyle.secondary)
                         Text("Arrange Favorites")
-                            .font(.inter(46, .semibold))
+                            .font(.inter(46, .bold))
                         Text(instruction)
                             .font(.inter(.title3))
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.72))
+                            .foregroundStyle(LineupStyle.secondary)
                             .contentTransition(.opacity)
                     }
                     Spacer()
@@ -3493,10 +3484,9 @@ private struct TVFavoritesOrderView: View {
                         }
                     }
                 }
-                .background(GuidePalette.panel.opacity(0.82), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(LineupStyle.lightPurple.opacity(0.1), lineWidth: 1))
-                .lineupShadow(.overlay)
+                .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(GuidePalette.line, lineWidth: 1))
             }
             .padding(.horizontal, 86).padding(.vertical, 58)
         }
@@ -3522,9 +3512,9 @@ private struct TVFavoritesOrderView: View {
         let isFocused = focusedStreamID == stream.id
         return HStack(spacing: 22) {
             ZStack {
-                Circle().fill(isPicked ? LineupStyle.lightPurple : LineupStyle.lightPurple.opacity(0.08))
+                Circle().fill(isPicked ? LineupStyle.text : LineupStyle.raised)
                 Text("\(position)").font(.interDigits(.callout, .bold))
-                    .foregroundStyle(isPicked ? GuidePalette.background : LineupStyle.lightPurple.opacity(0.64))
+                    .foregroundStyle(isPicked ? GuidePalette.background : LineupStyle.secondary)
             }
             .frame(width: 44, height: 44)
             ZStack {
@@ -3532,9 +3522,9 @@ private struct TVFavoritesOrderView: View {
                     .fill(LineupStyle.raised.opacity(0.82))
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 100) { loaded in
                     if let image = loaded {
-                        image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple).padding(10)
+                        image.resizable().scaledToFit().padding(10)
                     } else {
-                        Image(systemName: "tv").foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                        Image(systemName: "tv").foregroundStyle(LineupStyle.secondary)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -3543,7 +3533,7 @@ private struct TVFavoritesOrderView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(stream.name).font(.inter(.title3, .semibold)).lineLimit(1)
                 Text(isPicked ? "Ready to move" : "Favorite channel")
-                    .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                    .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
             }
             Spacer()
             if isPicked {
@@ -3561,20 +3551,16 @@ private struct TVFavoritesOrderView: View {
         }
         .padding(.horizontal, 24)
         .frame(height: 88)
-        .background(
-            LinearGradient(colors: isPicked
-                ? [LineupStyle.focused, LineupStyle.lightPurple.opacity(0.13)]
-                : [isFocused ? LineupStyle.focused : GuidePalette.surface, GuidePalette.surface],
-                startPoint: .leading, endPoint: .trailing),
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(
-            isPicked ? LineupStyle.lightPurple.opacity(0.92) : (isFocused ? LineupStyle.lightPurple.opacity(0.42) : LineupStyle.line),
+        .background(isPicked ? GuidePalette.raised : GuidePalette.surface,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
+            isPicked ? LineupStyle.text : LineupStyle.line,
             lineWidth: isPicked ? 2 : 1
         ))
+        .lineupFocusLayer(isFocused && !isPicked, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(alignment: .leading) {
             if pickedStreamID != nil && isFocused && !isPicked {
-                Capsule().fill(LineupStyle.lightPurple).frame(width: 5, height: 48).offset(x: -2)
+                Capsule().fill(LineupStyle.text).frame(width: 4, height: 44).offset(x: -2)
             }
         }
         .contentShape(Rectangle())
@@ -3587,13 +3573,7 @@ private struct TVFavoritesOrderView: View {
         // one over its neighbours rather than above them.
         .scaleEffect(isPicked ? 1.025 : (isFocused ? 1.012 : 1))
         .offset(y: isPicked ? -3 : 0)
-        // Two cues, so two shadows: a pale one while a row is being carried,
-        // and the standard lifted step while the remote is merely on it. As
-        // one ternary they shared a radius, so the carried row's glow and the
-        // focused row's depth had to meet in the middle at fourteen and
-        // neither got what it wanted.
-        .shadow(color: isPicked ? LineupStyle.lightPurple.opacity(0.2) : .clear, radius: 24, y: 8)
-        .lineupShadow(.lifted, on: isFocused && !isPicked)
+        .lineupShadow(.lifted, on: isPicked || isFocused)
         .zIndex(isPicked ? 2 : (isFocused ? 1 : 0))
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isPicked)
@@ -3627,10 +3607,11 @@ private struct TVReorderDoneButton: View {
     var body: some View {
         Label("Done", systemImage: "checkmark")
             .font(.inter(.callout, .semibold))
-            .padding(.horizontal, 20).frame(height: 46)
-            .background(LineupStyle.lightPurple.opacity(0.09), in: Capsule())
-            .foregroundStyle(LineupStyle.lightPurple)
-            .overlay(Capsule().stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
+            .padding(.horizontal, 22).frame(height: 48)
+            .background(LineupStyle.surface, in: Capsule())
+            .foregroundStyle(LineupStyle.text)
+            .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
+            .lineupFocusLayer(focused, in: Capsule())
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
             .onTapGesture(perform: action)
@@ -3653,6 +3634,9 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date, layout: Gui
     return max(1, durationWidth - 6)
 }
 
+/// A programme block. Coming up is a quiet card; on now is a step lighter
+/// with a hairline of progress along its foot; the one the remote is on wears
+/// the focus layer.
 private struct GuideProgramCell: View {
     @Environment(\.guideLayout) private var layout
     let program: CurrentProgram?
@@ -3673,61 +3657,55 @@ private struct GuideProgramCell: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        VStack(alignment: .leading, spacing: 5) {
             if let program {
-                HStack(spacing: 6) {
-                    Text(program.title.isEmpty ? "Untitled" : program.title).foregroundColor(LineupStyle.lightPurple).font(.inter(.subheadline, .medium)).foregroundStyle(GuidePalette.text).lineLimit(1)
-                    if isOnNow { GuideLiveDot() }
-                    else if program.isNew == true { GuideInlineStatus(title: "NEW") }
+                HStack(spacing: 8) {
+                    Text(program.title.isEmpty ? "Untitled" : program.title)
+                        .font(.inter(20, isOnNow ? .semibold : .medium))
+                        .foregroundStyle(isOnNow || isFocused ? GuidePalette.text : GuidePalette.text.opacity(0.82))
+                        .lineLimit(1)
+                    if program.isNew == true { GuideTinyBadge(title: "NEW") }
                 }
                 if showsTime {
-                    HStack(spacing: 7) {
-                        Text(guideTimeRange(program)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.interDigits(.caption)).foregroundStyle(GuidePalette.secondary)
-                        if let quality { GuideTinyBadge(title: quality, color: GuidePalette.raised) }
+                    HStack(spacing: 8) {
+                        Text(guideTimeRange(program))
+                            .font(.interDigits(15, .medium))
+                            .foregroundStyle(GuidePalette.secondary)
+                            .lineLimit(1)
+                        if let quality { GuideTinyBadge(title: quality) }
                     }
                 }
             } else {
-                Text(empty).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout)).foregroundStyle(GuidePalette.secondary)
+                Text(empty).font(.inter(18)).foregroundStyle(GuidePalette.secondary)
             }
         }
-        .padding(.horizontal, 11).padding(.vertical, 9)
+        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: layout.rowHeight - 7, alignment: .topLeading)
-        .background {
-            GeometryReader { geometry in
-                // Flat. The two-stop wash on every cell was invisible at this
-                // size and cost a gradient per cell per frame.
-                (isFocused ? GuidePalette.cardFocused : GuidePalette.card)
-                // Filled in behind the line, in a lighter shade of it. The
-                // accent itself was tried here and covers most of every cell
-                // in an evening, which read as the ground having gone blue.
-                // Lighter, and over a card that is itself a step lighter, the
-                // same colour reads as fill.
-                if let program {
-                    let elapsedWidth = GuideProgress.playedWidth(
+        .frame(height: layout.rowHeight - 8, alignment: .topLeading)
+        .background(isOnNow ? GuidePalette.cardNow : GuidePalette.card, in: shape)
+        .overlay {
+            if let program, isOnNow {
+                GeometryReader { geometry in
+                    let played = GuideProgress.playedWidth(
                         start: program.start, end: program.end, now: now,
                         visibleStart: guideTimelineAnchor(now),
                         pointsPerSecond: Double(layout.slotWidth) / 1800,
                         cellWidth: Double(geometry.size.width))
-                    GuidePalette.progressFill.opacity(0.10)
-                        .frame(width: CGFloat(elapsedWidth))
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(GuidePalette.track)
+                        Rectangle().fill(GuidePalette.progress.opacity(0.85)).frame(width: CGFloat(played))
+                    }
+                    .frame(height: 3)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
+                .clipShape(shape)
+                .allowsHitTesting(false)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(
-            isFocused ? GuidePalette.focusRing.opacity(0.9) : GuidePalette.line.opacity(0.55),
-            lineWidth: isFocused ? 2 : 0.5
-        ))
-        .overlay(alignment: .leading) {
-            if isFocused {
-                Capsule().fill(GuidePalette.focusRing)
-                    .frame(width: 4).padding(.vertical, 10).offset(x: 3)
-            }
-        }
+        .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
-        .animation(.easeOut(duration: 0.16), value: isFocused)
+        .animation(.easeOut(duration: 0.14), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
         .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")
@@ -3736,13 +3714,7 @@ private struct GuideProgramCell: View {
     }
 }
 
-/// On now, as a dot that breathes.
-///
-/// This was a pill reading LIVE: a word, a capsule, a border and a tint,
-/// repeated down every row of a grid whose whole left-hand column is on now.
-/// Four pieces of ink for one fact, and the word competed with the programme
-/// title beside it. A dot says it instead, and the pulse is the part that
-/// means *now* -- a still dot is a bullet point.
+/// On air, as the app's small red dot.
 private struct GuideLiveDot: View {
     var size: CGFloat = 10
 
@@ -3751,32 +3723,63 @@ private struct GuideLiveDot: View {
     }
 }
 
-private struct GuideInlineStatus: View {
-    let title: String
-    // Only NEW reaches this now that being on the air is a dot.
-    private var accent: Color { GuidePalette.upcomingMark }
+/// The dot and the word, for the preview of a programme on now.
+private struct GuideLiveTag: View {
     var body: some View {
-        Text(title)
-            .font(.inter(10, .heavy)).tracking(1.3)
-            .foregroundStyle(accent)
-            .padding(.horizontal, 8).frame(height: 20)
-            .background(accent.opacity(0.14), in: Capsule())
-            .overlay(Capsule().stroke(accent.opacity(0.34), lineWidth: 0.75))
+        HStack(spacing: 7) {
+            GuideLiveDot(size: 10)
+            Text("LIVE")
+                .font(.inter(14, .heavy)).tracking(1.6)
+                .foregroundStyle(LineupStyle.liveStatus)
+        }
     }
 }
 
-/// The Account screen.
+private struct GuideProgressBar: View {
+    let progress: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(GuidePalette.track)
+                Capsule().fill(GuidePalette.progress)
+                    .frame(width: proxy.size.width * min(max(progress, 0), 1))
+            }
+        }
+    }
+}
+
+/// Now, as a red line down the grid from a mark on the time bar.
+private struct GuideNowLine: View {
+    @Environment(\.guideLayout) private var layout
+    let now: Date
+
+    var body: some View {
+        let x = 14 + layout.channelWidth
+            + CGFloat(now.timeIntervalSince(guideTimelineAnchor(now)) / 1800) * layout.slotWidth
+        ZStack(alignment: .topLeading) {
+            Rectangle().fill(GuidePalette.now)
+                .frame(width: 2)
+                .frame(maxHeight: .infinity)
+                .padding(.top, guideHeaderHeight)
+                .offset(x: x - 1)
+            Circle().fill(GuidePalette.now)
+                .frame(width: 10, height: 10)
+                .offset(x: x - 5, y: guideHeaderHeight - 5)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The Account screen: what the app is connected to, and how it is doing.
 ///
-/// It was a column of label-and-value rows: Profile, Server, Username, then
-/// the same again for the media server, in panels that all looked alike and
-/// said nothing a viewer wanted from across a room. The phone's version was
-/// rebuilt around two cards -- one per source, each saying what it is, whether
-/// it is reachable, what it holds and what can be done with it -- and those
-/// cards are shared code, so this is the same screen at television size rather
-/// than a second design that has to be kept in step with the first.
-///
-/// Everything below the cards is arranged in one column of equal width, so the
-/// edges line up down the whole screen rather than each panel finding its own.
+/// Two sources side by side -- the provider that fills Live and the Guide, and
+/// the media server behind Library -- each a card that says what it is,
+/// whether it answers, what it holds and what can be done with it. Below them
+/// the library, diagnostics and the app itself, on the same two columns, so
+/// every edge on the screen lines up with another.
 struct AccountView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
@@ -3785,19 +3788,17 @@ struct AccountView: View {
     @State private var addingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
-    private let columnWidth: CGFloat = 900
+    private let columnWidth: CGFloat = 1400
+    private let gutter: CGFloat = 24
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 44) {
-                    ScreenHeading(title: "Account", detail: "Your sources, how they look, and what the app is doing")
+                VStack(alignment: .leading, spacing: 56) {
+                    header
                     sources
-                    libraryExperience
-                    integrations
-                    appearance
+                    libraryAndCatalogs
                     diagnostics
                     about
                 }
@@ -3814,7 +3815,6 @@ struct AccountView: View {
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
-            .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
             }
@@ -3827,42 +3827,30 @@ struct AccountView: View {
         }
     }
 
-    private var libraryExperience: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            AccountSectionHeading("LIBRARY")
-            AccountLink(
-                title: "Library Hero",
-                detail: media.heroCatalog.map { "Top 10 from \($0.title)" }
-                    ?? "Choose the catalog shown across the top of Library",
-                symbol: "sparkles.rectangle.stack.fill"
-            ) {
-                LibraryHeroSettingsView().environmentObject(media)
-            }
-            .disabled(media.activeProfile == nil)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SETTINGS")
+                .font(.inter(13, .bold)).tracking(2.2)
+                .foregroundStyle(LineupStyle.secondary)
+            Text("Account")
+                .font(.inter(52, .bold))
+                .foregroundStyle(LineupStyle.text)
+            Text("Your sources, your library, and how the app is running.")
+                .font(.inter(21))
+                .foregroundStyle(LineupStyle.secondary)
         }
     }
 
-    // MARK: - Sections
+    // MARK: Sources
 
-    /// Both sources, as cards, in the order a viewer meets them: the provider
-    /// that fills Live and Guide, then the media server behind its own tab.
     private var sources: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("SOURCES")
-            if let profile = library.activeProfile {
-                ProviderAccountCard(profile: profile) { selectedTab = 1 }
-            } else {
-                AccountEmptyCard(symbol: "antenna.radiowaves.left.and.right",
-                                 title: "No provider",
-                                 detail: "Add your IPTV login to fill Live and the guide.")
+            HStack(alignment: .top, spacing: gutter) {
+                providerCard
+                mediaCard
             }
-            if let profile = media.activeProfile {
-                MediaServerAccountCard(profile: profile) { selectedTab = 2 }
-            } else {
-                AccountEmptyCard(symbol: "play.square.stack",
-                                 title: "No media server",
-                                 detail: "Connect a Jellyfin-compatible server to watch your own library.")
-            }
+            .fixedSize(horizontal: false, vertical: true)
             // Switching between servers is a list, not a card: a viewer with
             // one server -- almost everyone -- should not be shown a chooser
             // for it. It appears when there is a choice to make.
@@ -3873,156 +3861,360 @@ struct AccountView: View {
                                             active: media.activeProfile?.id == profile.id)
                     }
                 }
-                .frame(maxWidth: .infinity)
                 .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            HStack(spacing: 18) {
+        }
+    }
+
+    @ViewBuilder private var providerCard: some View {
+        if let profile = library.activeProfile {
+            AccountSourceCard(
+                symbol: "antenna.radiowaves.left.and.right",
+                kind: "IPTV PROVIDER",
+                title: profile.name,
+                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                status: library.channelsAreSyncing ? .busy("Updating")
+                    : (library.streams.isEmpty ? .offline : .connected),
+                stats: [
+                    AccountStat("Channels", library.streams.count),
+                    AccountStat("Favorites", library.favoriteStreamOrder.count),
+                    AccountStat("Teams", library.teamPreferences.listed().count)
+                ],
+                refreshed: library.lastRefreshedAt
+            ) {
+                AccountButton(title: "Refresh", symbol: "arrow.clockwise") {
+                    Task { await library.reload() }
+                }
+                .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
+                AccountButton(title: "Guide", symbol: "list.bullet.rectangle") { selectedTab = 1 }
+                AccountButton(title: "Remove", symbol: "trash", quiet: true) {
+                    library.removeActiveProfile()
+                }
+            }
+        } else {
+            AccountEmptySource(
+                symbol: "antenna.radiowaves.left.and.right",
+                kind: "IPTV PROVIDER",
+                title: "No provider",
+                detail: "Add your IPTV login to fill Live and the guide."
+            ) {
                 // The first-run screen is the only other place to sign in, and
                 // it never returns once a media server is saved.
-                if library.activeProfile == nil {
-                    AccountAction(title: "Add IPTV Provider", symbol: "plus") { addingProvider = true }
-                }
-                AccountAction(title: "Add Media Server", symbol: "plus") { addingMediaServer = true }
-                if let profile = media.activeProfile, media.profiles.count == 1 {
-                    AccountAction(title: "Remove Server", symbol: "trash", destructive: true) {
-                        media.remove(profile)
-                    }
-                }
-                if library.activeProfile != nil {
-                    AccountAction(title: "Remove Provider", symbol: "trash", destructive: true) {
-                        library.removeActiveProfile()
-                    }
+                AccountButton(title: "Add IPTV Provider", symbol: "plus", prominent: true) {
+                    addingProvider = true
                 }
             }
         }
     }
 
-    private var integrations: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            AccountSectionHeading("INTEGRATIONS")
-            if media.isMDBListConnected {
-                let account = media.mdbListAccount
-                LineupAccountCard(
-                    symbol: "rectangle.stack.badge.play",
-                    title: "MDBList",
-                    subtitle: account.map { "@\($0.username) · \($0.plan ?? "Connected")" }
-                        ?? "Catalog discovery",
-                    connected: true,
-                    status: media.isMDBListLoading ? "Updating…" : "Connected",
-                    statusTint: Color.green,
-                    stats: [
-                        LineupCardStat("Catalogs", media.mdbListCatalogs.count),
-                        LineupCardStat("Requests Left", account?.requestsRemaining),
-                        LineupCardStat("Daily Limit", account?.dailyLimit)
-                    ],
-                    refreshed: nil
-                ) {
-                    LineupCardAction(title: "Configure", symbol: "gearshape") {
-                        configuringMDBList = true
-                    }
-                    LineupCardAction(title: "Refresh", symbol: "arrow.clockwise") {
-                        Task { await media.loadMDBListIntegration() }
-                    }
-                    .disabled(media.isMDBListLoading)
+    @ViewBuilder private var mediaCard: some View {
+        if let profile = media.activeProfile {
+            AccountSourceCard(
+                symbol: "play.square.stack",
+                kind: "MEDIA SERVER",
+                title: profile.name,
+                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                status: media.isLoading ? .busy("Connecting") : (media.isConnected ? .connected : .offline),
+                stats: [
+                    AccountStat("Movies", media.libraryCounts?.movies),
+                    AccountStat("Shows", media.libraryCounts?.shows),
+                    AccountStat("Episodes", media.libraryCounts?.episodes)
+                ],
+                refreshed: media.lastRefreshedAt
+            ) {
+                AccountButton(title: "Reload", symbol: "arrow.clockwise") {
+                    Task { await media.reload() }
                 }
-            } else {
-                AccountEmptyCard(symbol: "rectangle.stack.badge.play",
-                                 title: "MDBList",
-                                 detail: "Connect MDBList to use your movie and show lists as Library shelves.")
-                AccountAction(title: "Connect MDBList", symbol: "link") {
+                .disabled(media.isLoading)
+                AccountButton(title: "Browse", symbol: "square.grid.2x2") { selectedTab = 2 }
+                AccountButton(title: "Add", symbol: "plus") { addingMediaServer = true }
+                if media.profiles.count == 1 {
+                    AccountButton(title: "Remove", symbol: "trash", quiet: true) {
+                        media.remove(profile)
+                    }
+                }
+            }
+        } else {
+            AccountEmptySource(
+                symbol: "play.square.stack",
+                kind: "MEDIA SERVER",
+                title: "No media server",
+                detail: "Connect a Jellyfin-compatible server to watch your own library."
+            ) {
+                AccountButton(title: "Add Media Server", symbol: "plus", prominent: true) {
+                    addingMediaServer = true
+                }
+            }
+        }
+    }
+
+    // MARK: Library
+
+    private var libraryAndCatalogs: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("LIBRARY")
+            HStack(alignment: .top, spacing: gutter) {
+                AccountTile(
+                    title: "Library Hero",
+                    detail: media.heroCatalog.map { "Top 10 from \($0.title)" }
+                        ?? "Choose the catalog shown across the top of Library",
+                    symbol: "sparkles.rectangle.stack"
+                ) {
+                    LibraryHeroSettingsView().environmentObject(media)
+                }
+                .disabled(media.activeProfile == nil)
+                catalogs
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// MDBList, which turns the viewer's lists into Library shelves.
+    @ViewBuilder private var catalogs: some View {
+        if media.isMDBListConnected {
+            let account = media.mdbListAccount
+            AccountSourceCard(
+                symbol: "rectangle.stack.badge.play",
+                kind: "CATALOGS",
+                title: "MDBList",
+                subtitle: account.map { "@\($0.username) · \($0.plan ?? "Connected")" } ?? "Catalog discovery",
+                status: media.isMDBListLoading ? .busy("Updating") : .connected,
+                stats: [
+                    AccountStat("Catalogs", media.mdbListCatalogs.count),
+                    AccountStat("Requests Left", account?.requestsRemaining),
+                    AccountStat("Daily Limit", account?.dailyLimit)
+                ],
+                refreshed: nil
+            ) {
+                AccountButton(title: "Configure", symbol: "gearshape") { configuringMDBList = true }
+                AccountButton(title: "Refresh", symbol: "arrow.clockwise") {
+                    Task { await media.loadMDBListIntegration() }
+                }
+                .disabled(media.isMDBListLoading)
+            }
+        } else {
+            AccountEmptySource(
+                symbol: "rectangle.stack.badge.play",
+                kind: "CATALOGS",
+                title: "MDBList",
+                detail: "Connect MDBList to use your movie and show lists as Library shelves."
+            ) {
+                AccountButton(title: "Connect MDBList", symbol: "link", prominent: true) {
                     configuringMDBList = true
                 }
             }
         }
     }
 
-    private var appearance: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            AccountSectionHeading("APPEARANCE")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 20), GridItem(.flexible())], spacing: 20) {
-                ForEach(LineupTheme.allCases) { theme in
-                    TVSelectable(scale: LineupStyle.cardLift, fill: LineupStyle.focused, fillRadius: 14,
-                        action: { selectedTheme = theme.rawValue }) {
-                        ThemeCard(theme: theme, active: selectedTheme == theme.rawValue)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
+    // MARK: Diagnostics and about
 
-    /// The two screens that answer "why did it do that", side by side and the
-    /// same width, rather than two buttons of different lengths stacked.
+    /// The two screens that answer "why did it do that", side by side.
     private var diagnostics: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("DIAGNOSTICS")
-            HStack(spacing: 18) {
-                AccountLink(title: "Channel matching", detail: "Why each game chose its channel",
+            HStack(alignment: .top, spacing: gutter) {
+                AccountTile(title: "Channel matching", detail: "Why each game chose its channel",
                             symbol: "point.3.connected.trianglepath.dotted") { MatchDiagnosticsView() }
-                AccountLink(title: "Launch timing", detail: "Where the last start spent its time",
+                AccountTile(title: "Launch timing", detail: "Where the last start spent its time",
                             symbol: "speedometer") { TVStartupTraceView() }
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var about: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("ABOUT")
-            VStack(spacing: 0) {
+            HStack(spacing: gutter) {
                 AccountRow(label: "iCloud", value: cloud.status)
-                Divider().overlay(LineupStyle.line)
-                AccountRow(label: "Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
+                AccountRow(label: "Version",
+                           value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
             }
-            .padding(.horizontal, 30)
-            .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 }
 
-/// One heading, one rule, everywhere on the screen.
+/// A section's name, small and spaced, with a hairline running out from it.
 private struct AccountSectionHeading: View {
     let title: String
     init(_ title: String) { self.title = title }
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 18) {
             Text(title)
-                .font(.inter(15, .bold)).tracking(2.4)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .font(.inter(13, .bold)).tracking(2.4)
+                .foregroundStyle(LineupStyle.secondary)
             Rectangle().fill(LineupStyle.line).frame(height: 1)
         }
     }
 }
 
-/// A source that is not connected, in the shape of the card that would be
-/// there if it were. An absence should hold the same space as a presence, or
-/// the screen rearranges itself the first time something connects.
-private struct AccountEmptyCard: View {
-    let symbol: String
-    let title: String
-    let detail: String
+/// One figure on a card: a number over its name.
+private struct AccountStat: Identifiable {
+    let label: String
+    let count: Int?
+    var id: String { label }
 
-    var body: some View {
-        HStack(spacing: 22) {
-            Image(systemName: symbol)
-                .font(.system(size: 32, weight: .semibold))
-                .frame(width: 72, height: 72)
-                .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised, border: LineupStyle.line)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.inter(.headline, .bold))
-                Text(detail).font(.inter(.callout))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(LineupStyle.lightPurple)
-        .padding(30)
-        .frame(maxWidth: 900, alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 26, style: .continuous),
-                           fallback: LineupStyle.surface, border: LineupStyle.line)
+    init(_ label: String, _ count: Int?) {
+        self.label = label
+        self.count = count
     }
 }
 
+/// Whether a source answers, in words with a mark beside them.
+private enum AccountSourceStatus {
+    case connected, offline
+    case busy(String)
+
+    var title: String {
+        switch self {
+        case .connected: "Connected"
+        case .offline: "Offline"
+        case .busy(let word): word
+        }
+    }
+}
+
+private struct AccountStatusMark: View {
+    let status: AccountSourceStatus
+
+    var body: some View {
+        HStack(spacing: 9) {
+            switch status {
+            case .connected:
+                Circle().fill(LineupStyle.text).frame(width: 8, height: 8)
+            case .offline:
+                Circle().strokeBorder(LineupStyle.secondary, lineWidth: 1.5).frame(width: 9, height: 9)
+            case .busy:
+                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 9, height: 9)
+            }
+            Text(status.title.uppercased())
+                .font(.inter(13, .bold)).tracking(1.6)
+        }
+        .foregroundStyle(tint)
+        .fixedSize()
+    }
+
+    private var tint: Color {
+        if case .connected = status { return LineupStyle.text }
+        return LineupStyle.secondary
+    }
+}
+
+/// A connected source: what it is, whether it answers, what it holds, and
+/// what can be done with it, in that order from the top.
+private struct AccountSourceCard<Actions: View>: View {
+    let symbol: String
+    let kind: String
+    let title: String
+    let subtitle: String
+    let status: AccountSourceStatus
+    let stats: [AccountStat]
+    let refreshed: Date?
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack(alignment: .top, spacing: 18) {
+                AccountGlyph(symbol: symbol)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(kind)
+                        .font(.inter(12, .bold)).tracking(2)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(title)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(subtitle)
+                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                AccountStatusMark(status: status)
+            }
+            HStack(spacing: 0) {
+                ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
+                    if index > 0 {
+                        Rectangle().fill(LineupStyle.line).frame(width: 1, height: 52)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(stat.count.map { $0.formatted() } ?? "—")
+                            .font(.interDigits(34, .bold)).foregroundStyle(LineupStyle.text)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                        Text(stat.label.uppercased())
+                            .font(.inter(12, .bold)).tracking(1.6)
+                            .foregroundStyle(LineupStyle.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.leading, index > 0 ? 24 : 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 12) { actions }
+            if let refreshed {
+                Text("Updated \(refreshed, style: .relative) ago")
+                    .font(.inter(14)).foregroundStyle(LineupStyle.secondary)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 1))
+    }
+}
+
+/// A source that is not connected, in the shape of the card that would be
+/// there if it were, holding the one action that connects it.
+private struct AccountEmptySource<Action: View>: View {
+    let symbol: String
+    let kind: String
+    let title: String
+    let detail: String
+    @ViewBuilder var action: Action
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack(alignment: .top, spacing: 18) {
+                AccountGlyph(symbol: symbol)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(kind)
+                        .font(.inter(12, .bold)).tracking(2)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(title)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(detail)
+                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 12) { action }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.surface.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(LineupStyle.line, style: StrokeStyle(lineWidth: 1, dash: [6, 6])))
+    }
+}
+
+/// A card's symbol, on a raised disc.
+private struct AccountGlyph: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 26, weight: .semibold))
+            .foregroundStyle(LineupStyle.text)
+            .frame(width: 64, height: 64)
+            .background(LineupStyle.raised, in: Circle())
+    }
+}
+
+/// A media server to switch to, in the list that appears when there is more
+/// than one.
 private struct AccountServerChoice: View {
     @EnvironmentObject private var media: MediaLibrary
     @FocusState private var isFocused: Bool
@@ -4031,21 +4223,22 @@ private struct AccountServerChoice: View {
 
     var body: some View {
         HStack(spacing: 20) {
-            LineupStatusDot(connected: active && media.isConnected)
+            Circle().fill(active && media.isConnected ? LineupStyle.text : LineupStyle.secondary.opacity(0.5))
+                .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile.name).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupStyle.text)
                 Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
-                    .font(.inter(.callout)).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                    .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
             }
             Spacer(minLength: 20)
             Text(active ? "ACTIVE" : "SELECT")
                 .font(.inter(13, .bold)).tracking(1.6)
-                .foregroundStyle(active ? LineupStyle.text : LineupStyle.lightPurple.opacity(0.55))
+                .foregroundStyle(active ? LineupStyle.text : LineupStyle.secondary)
             Button("Remove", role: .destructive) { media.remove(profile) }
                 .lineupButtonStyle()
         }
         .padding(.horizontal, 30).padding(.vertical, 22)
-        .background(isFocused ? LineupStyle.focused : Color.clear)
+        .lineupFocusLayer(isFocused, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
         .focusable().focused($isFocused).focusEffectDisabled()
         .onTapGesture { if !active { Task { await media.select(profile) } } }
@@ -4054,7 +4247,8 @@ private struct AccountServerChoice: View {
 
 /// A tile that goes somewhere, sized like its neighbour so a row of them reads
 /// as a row rather than as whatever length each title happened to be.
-private struct AccountLink<Destination: View>: View {
+private struct AccountTile<Destination: View>: View {
+    @Environment(\.isEnabled) private var enabled
     @FocusState private var isFocused: Bool
     let title: String
     let detail: String
@@ -4062,26 +4256,30 @@ private struct AccountLink<Destination: View>: View {
     @ViewBuilder var destination: Destination
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         NavigationLink { destination } label: {
             HStack(spacing: 20) {
-                Image(systemName: symbol).font(.system(size: 26, weight: .semibold))
+                AccountGlyph(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
-                    Text(detail).font(.inter(.callout)).lineLimit(2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                    Text(title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(detail).font(.inter(17)).lineLimit(2)
+                        .foregroundStyle(LineupStyle.secondary)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(LineupStyle.secondary)
             }
-            .foregroundStyle(LineupStyle.lightPurple)
-            .padding(26)
-            .frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
-            .background(isFocused ? LineupStyle.focused : LineupStyle.surface,
-                        in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(isFocused ? LineupStyle.liveSelectionBorder : LineupStyle.line,
-                        lineWidth: isFocused ? 2.5 : 1))
-            .scaleEffect(isFocused ? LineupStyle.controlLift : 1)
+            .padding(28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(minHeight: 132)
+            .background(LineupStyle.surface, in: shape)
+            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+            .lineupFocusLayer(isFocused, in: shape)
+            .scaleEffect(isFocused ? LineupStyle.cardLift : 1)
+            .lineupShadow(.lifted, on: isFocused)
+            .opacity(enabled ? 1 : 0.45)
         }
         .lineupFlatButton()
         .focused($isFocused)
@@ -4089,30 +4287,34 @@ private struct AccountLink<Destination: View>: View {
     }
 }
 
-private struct AccountAction: View {
+/// A button on a card. Standard is a raised capsule, prominent adds a white
+/// edge for the one thing a card is asking for, and quiet is an outline for
+/// what removes something.
+private struct AccountButton: View {
+    @Environment(\.isEnabled) private var enabled
     @FocusState private var isFocused: Bool
     let title: String
     let symbol: String
-    var destructive = false
+    var prominent = false
+    var quiet = false
     let action: () -> Void
 
-    private var tint: Color {
-        destructive ? LineupStyle.warning : LineupStyle.text
-    }
-
     var body: some View {
+        let shape = Capsule()
         Button(action: action) {
             Label(title, systemImage: symbol)
-                .font(.inter(.callout, .semibold))
+                .font(.inter(18, .semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .foregroundStyle(isFocused ? LineupStyle.text : tint)
-                .padding(.horizontal, 30).frame(height: 66)
+                .minimumScaleFactor(0.75)
+                .foregroundStyle(quiet && !isFocused ? LineupStyle.secondary : LineupStyle.text)
+                .padding(.horizontal, 24).frame(height: 56)
                 .frame(maxWidth: .infinity)
-                .background(isFocused ? LineupStyle.focused : LineupStyle.surface, in: Capsule())
-                .overlay(Capsule().stroke(isFocused ? LineupStyle.liveSelectionBorder : LineupStyle.line,
-                                          lineWidth: isFocused ? 2.5 : 1))
+                .background(quiet ? Color.clear : LineupStyle.raised, in: shape)
+                .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
+                                            lineWidth: prominent ? 1.5 : 1))
+                .lineupFocusLayer(isFocused, in: shape)
                 .scaleEffect(isFocused ? LineupStyle.controlLift : 1)
+                .opacity(enabled ? 1 : 0.45)
         }
         .lineupFlatButton()
         .focused($isFocused)
@@ -4140,38 +4342,6 @@ private struct TVStartupTraceView: View {
         }
         .focusable()
         .background(LineupStyle.background)
-    }
-}
-
-/// A theme is a set of colours, so the card is painted in them rather than
-/// named in the current one: the choice looks like what it does.
-private struct ThemeCard: View {
-    let theme: LineupTheme
-    let active: Bool
-
-    var body: some View {
-        HStack(spacing: 16) {
-            LineupThemeSwatch(theme: theme)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(theme.name).font(.inter(21, .semibold)).lineLimit(1)
-                Text(theme.detail).font(.inter(14)).opacity(0.6)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-            }
-            Spacer(minLength: 12)
-            Image(systemName: active ? "checkmark.circle.fill" : "circle")
-                .font(.inter(22, .semibold))
-                .foregroundStyle(active ? LineupStyle.highlight : LineupStyle.lightPurple.opacity(0.28))
-        }
-        .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.horizontal, 22).padding(.vertical, 18)
-        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
-        .background(active ? LineupStyle.raised : LineupStyle.surface,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(active ? LineupStyle.highlight.opacity(0.55) : LineupStyle.line, lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(theme.name + ", " + theme.detail)
-        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
@@ -4240,8 +4410,8 @@ private struct MatchDiagnosticsRow: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(focused ? LineupStyle.focused : LineupStyle.surface,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .accessibilityElement(children: .combine)
@@ -4252,10 +4422,18 @@ private struct AccountRow: View {
     let label: String
     let value: String
     var body: some View {
-        HStack(alignment: .top, spacing: 30) {
-            Text(label).foregroundColor(LineupStyle.lightPurple).foregroundStyle(LineupStyle.text); Spacer()
-            Text(value).foregroundColor(LineupStyle.lightPurple).foregroundStyle(LineupStyle.secondary).multilineTextAlignment(.trailing).lineLimit(3)
-        }.padding(.vertical, 18)
+        HStack(alignment: .firstTextBaseline, spacing: 24) {
+            Text(label.uppercased())
+                .font(.inter(13, .bold)).tracking(1.8)
+                .foregroundStyle(LineupStyle.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.inter(19, .medium)).foregroundStyle(LineupStyle.text)
+                .multilineTextAlignment(.trailing).lineLimit(2)
+        }
+        .padding(.horizontal, 28).padding(.vertical, 22)
+        .frame(maxWidth: .infinity)
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
