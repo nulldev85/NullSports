@@ -451,13 +451,15 @@ private enum LivePalette {
     static var onAir: Color { LineupStyle.liveDot }
     /// How strongly a matchup's colours light the wall behind the monitor.
     /// OLED keeps its pixels off, so it gets a breath of colour, not a wash.
-    static var spill: Double { LineupStyle.theme == .oled ? 0.12 : 0.26 }
+    static var spill: Double { LineupStyle.theme == .oled ? 0.14 : 0.32 }
 }
 
-/// One grid for the whole tab. The margin is the Library's, so the two tabs
-/// hang off the same edge of the television.
+/// One grid for the whole tab.
 private enum LiveMetrics {
-    static let margin: CGFloat = 54
+    /// tvOS's own title-safe inset. The stage, the board and the score crawl
+    /// all stop on it, so nothing sits in a television's overscan band and no
+    /// edge on the screen stops in two places.
+    static let margin: CGFloat = 80
     static let railWidth: CGFloat = 380
     static let gutter: CGFloat = 30
     static let columns = 4
@@ -533,6 +535,11 @@ private struct LiveScreen: View {
         }
         .padding(.horizontal, LiveMetrics.margin)
         .padding(.top, 8)
+        // The navigation stack insets its content by the safe area again,
+        // which pushed the board in from the crawl's edge and lifted it off
+        // the crawl, leaving room for the next row to show under the first.
+        // The screen keeps its own margins instead.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
@@ -613,11 +620,11 @@ private struct LiveBiasLight: View {
             let size = proxy.size
             ZStack {
                 glow(liveTeamColor(teams ? game?.awayColor : nil))
-                    .frame(width: size.width * 0.72, height: size.height * 1.12)
-                    .position(x: size.width * 0.28, y: size.height * 0.5)
+                    .frame(width: size.width * 0.95, height: size.height * 1.7)
+                    .position(x: size.width * 0.25, y: size.height * 0.5)
                 glow(liveTeamColor(teams ? game?.homeColor : nil))
-                    .frame(width: size.width * 0.72, height: size.height * 1.12)
-                    .position(x: size.width * 0.72, y: size.height * 0.5)
+                    .frame(width: size.width * 0.95, height: size.height * 1.7)
+                    .position(x: size.width * 0.75, y: size.height * 0.5)
             }
             .id(game?.id ?? "")
             .transition(.opacity)
@@ -628,7 +635,7 @@ private struct LiveBiasLight: View {
     }
 
     private func glow(_ color: Color) -> some View {
-        EllipticalGradient(colors: [color.opacity(LivePalette.spill), color.opacity(LivePalette.spill * 0.3), .clear],
+        EllipticalGradient(colors: [color.opacity(LivePalette.spill), color.opacity(LivePalette.spill * 0.45), .clear],
                            center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
     }
 }
@@ -814,7 +821,7 @@ private struct LiveSlate: View {
             Group {
                 if let place = game.placeLine {
                     HStack(spacing: 8) {
-                        Image(systemName: "mappin.and.ellipse").font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "mappin").font(.system(size: 15, weight: .semibold))
                         Text(place).lineLimit(1)
                     }
                 }
@@ -904,7 +911,7 @@ private struct LiveCrestColumn: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            TeamBadge(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
+            LiveCrest(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
                       size: crest)
             VStack(spacing: 5) {
                 Text(name).font(.inter(30, .semibold)).foregroundStyle(LivePalette.text)
@@ -915,6 +922,40 @@ private struct LiveCrestColumn: View {
             }
         }
         .padding(.horizontal, 10)
+    }
+}
+
+/// A crest at slate size, lit by its own silhouette the way TeamBadge lights a
+/// small one, with the room around it that the glow needs. Flattened inside
+/// its own frame, a blur this wide is cut square at the edges, and a square of
+/// light behind a crest reads as a sticker.
+private struct LiveCrest: View {
+    let url: String
+    let fallback: String
+    let size: CGFloat
+
+    var body: some View {
+        let rim = max(3, size * 0.06)
+        LineupArtView(url: URL(string: url), width: size) { loaded in
+            if let image = loaded {
+                let art = image.resizable().scaledToFit().frame(width: size, height: size)
+                ZStack {
+                    LineupStyle.logoPlate.mask { art.blur(radius: rim) }.opacity(0.6)
+                    art
+                }
+                .frame(width: size + rim * 6, height: size + rim * 6)
+                .drawingGroup()
+                .frame(width: size, height: size)
+            } else {
+                Text(fallback)
+                    .font(.inter(max(12, size * 0.28), .black))
+                    .foregroundStyle(LivePalette.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+            }
+        }
+        .frame(width: size, height: size)
+        .transaction { $0.animation = nil }
+        .accessibilityHidden(true)
     }
 }
 
@@ -1044,7 +1085,7 @@ private struct LiveFlank: View {
                 let score = isHome ? game.homeScore : game.awayScore
                 let abbreviation = isHome ? game.homeAbbreviation : game.awayAbbreviation
                 VStack(spacing: 12) {
-                    TeamBadge(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
+                    LiveCrest(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
                               size: min(92, proxy.size.width * 0.5))
                     Text(abbreviation).font(.inter(20, .bold)).tracking(1.6)
                         .foregroundStyle(LivePalette.secondary)
@@ -1114,10 +1155,16 @@ private struct LiveLowerThird: View {
         }
         .font(.inter(14, .bold)).tracking(1.8)
         .foregroundStyle(.white)
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 28).padding(.bottom, 24)
         .frame(maxWidth: .infinity)
-        .frame(height: 76)
-        .background(LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom))
+        .frame(height: 112, alignment: .bottom)
+        // Deep enough under the words that broadcast red and a dimmed line
+        // still read over the brightest picture.
+        .background(LinearGradient(stops: [
+            .init(color: .clear, location: 0),
+            .init(color: .black.opacity(0.62), location: 0.45),
+            .init(color: .black.opacity(0.92), location: 1)
+        ], startPoint: .top, endPoint: .bottom))
         .allowsHitTesting(false)
     }
 }
@@ -1228,10 +1275,9 @@ private struct LiveMyTeamsEmpty: View {
                 }
                 .padding(.top, 4)
             }
-            Spacer(minLength: 0)
         }
         .padding(26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(LivePalette.card.opacity(0.55), in: shape)
         .overlay(shape.strokeBorder(LivePalette.rule, lineWidth: 1))
     }
@@ -1898,7 +1944,7 @@ private struct LiveTicker: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 20) {
+        HStack(alignment: .bottom, spacing: 24) {
             // The crawl's bug, in the theme's own colour, the way a broadcast
             // brands the corner its scores come in from.
             Text("SCORES")
@@ -1924,8 +1970,8 @@ private struct LiveTicker: View {
                 // off by the edge of the strip.
                 .mask {
                     LinearGradient(stops: [
-                        .init(color: .clear, location: 0), .init(color: .black, location: 0.035),
-                        .init(color: .black, location: 0.965), .init(color: .clear, location: 1)
+                        .init(color: .clear, location: 0), .init(color: .black, location: 0.06),
+                        .init(color: .black, location: 0.94), .init(color: .clear, location: 1)
                     ], startPoint: .leading, endPoint: .trailing)
                 }
             }
