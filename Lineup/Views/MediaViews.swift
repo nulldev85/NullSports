@@ -22,7 +22,7 @@ struct MediaServersView: View {
                     ContentUnavailableView {
                         Label("Add a Media Server", systemImage: "play.square.stack")
                     } description: {
-                        Text("Connect a Jellyfin, Nullfin, or other Jellyfin-compatible server to watch your own library here.")
+                        Text("Connect a Jellyfin server to watch your own library here.")
                     } actions: {
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
@@ -512,7 +512,7 @@ private struct TVMediaEmptyState: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Connect a Jellyfin, Nullfin, or other Jellyfin-compatible server and watch your own library on the big screen.")
+                Text("Connect your Jellyfin server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -3545,6 +3545,9 @@ private struct MediaItemCard: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
                 #endif
+            #if !os(tvOS)
+            // The television shows a poster and its title and nothing more:
+            // "MOVIE · 2026" under every card was clutter a viewer reads past.
             if playback != nil {
                 EmptyView()
             } else {
@@ -3556,6 +3559,7 @@ private struct MediaItemCard: View {
                 .font(.inter(.caption2, .medium))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
             }
+            #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
     }
@@ -3692,7 +3696,7 @@ struct MediaServerSetupView: View {
                         || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
-                    Text("Supports Jellyfin, Nullfin and other Jellyfin-compatible servers. The address can be just the host and port, like 192.168.1.50:8096. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
+                    Text("Connect your Jellyfin server. The address can be just the host and port, like 192.168.1.50:8096. Leave the password blank for a user that has none. Access tokens are stored securely in this device’s Keychain.")
                 }
                 #if os(tvOS)
                 // A television draws no navigation bar, so the toolbar's

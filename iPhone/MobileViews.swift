@@ -413,7 +413,7 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Media Servers").lineupSectionHeader()
                 } footer: {
-                    Text("Jellyfin, Nullfin, and other Jellyfin-compatible servers.")
+                    Text("Jellyfin servers.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
                     NavigationLink {
