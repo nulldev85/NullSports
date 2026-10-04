@@ -545,6 +545,30 @@ struct PlaybackSubtitleTrack: Identifiable, Hashable, Sendable {
     }
 }
 
+/// An audio or video stream inside the playing file, as VLC numbers it. A
+/// film can carry several of each -- languages, commentary, a director's cut
+/// -- and the player offers them by this.
+struct PlaybackStreamTrack: Identifiable, Hashable, Sendable {
+    /// VLC's own index for the stream, which is what choosing it sets.
+    let id: Int
+    let title: String
+
+    /// The streams VLC lists for a file, without the "Disable" entry it adds
+    /// to each list: a picker offers the streams themselves.
+    static func vlcTracks(names: [String], indexes: [Int], kind: String) -> [PlaybackStreamTrack] {
+        var tracks: [PlaybackStreamTrack] = []
+        var seen: Set<Int> = []
+        for (name, index) in zip(names, indexes) where index >= 0 && seen.insert(index).inserted {
+            let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = clean.lowercased()
+            guard lowered != "disable" && lowered != "disabled" && lowered != "off" else { continue }
+            tracks.append(PlaybackStreamTrack(id: index,
+                                              title: clean.isEmpty ? "\(kind) \(tracks.count + 1)" : clean))
+        }
+        return tracks
+    }
+}
+
 struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String?

@@ -3943,7 +3943,7 @@ struct AccountView: View {
                 symbol: "play.square.stack",
                 kind: "MEDIA SERVER",
                 title: "No media server",
-                detail: "Connect a Jellyfin-compatible server to watch your own library."
+                detail: "Connect your Jellyfin server to watch your own library."
             ) {
                 AccountButton(title: "Add Media Server", symbol: "plus", prominent: true) {
                     addingMediaServer = true
@@ -4656,6 +4656,10 @@ struct PlayerView: View {
     @State private var chosenTitle: String?
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
+    /// A subtitle, audio, video or quality list is open. The controls stay up
+    /// until it closes: the lists hang off the controls, so hiding them on the
+    /// usual timer closed a list before anything could be chosen in it.
+    @State private var chooserOpen = false
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
     @State private var lastReportedPosition: TimeInterval = 0
@@ -4690,7 +4694,8 @@ struct PlayerView: View {
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
                     program: program, isLive: isLive, controller: controller,
-                    focusedControl: $focusedControl, onInteraction: keepControlsVisible)
+                    focusedControl: $focusedControl, onInteraction: keepControlsVisible,
+                    onChooserChange: chooserChanged)
                     .transition(.opacity)
             }
             if urls.isEmpty {
@@ -4736,6 +4741,16 @@ struct PlayerView: View {
 
     private func keepControlsVisible() { controlsVisible = true; scheduleAutoHide() }
 
+    private func chooserChanged(_ open: Bool) {
+        chooserOpen = open
+        if open {
+            hideControlsTask?.cancel()
+            controlsVisible = true
+        } else {
+            scheduleAutoHide()
+        }
+    }
+
     private func reportProgress(force: Bool = false) {
         guard !isLive, controller.duration > 0 else { return }
         guard force || abs(controller.elapsed - lastReportedPosition) >= 5 else { return }
@@ -4745,7 +4760,7 @@ struct PlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying else { return }
+        guard controller.isPlaying, !chooserOpen else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -4758,17 +4773,28 @@ struct PlayerView: View {
     }
 }
 
-private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, quality }
+private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, audio, video, quality }
 
 private struct TVPlayerChrome: View {
     @State private var showingQuality = false
     @State private var showingSubtitles = false
+    @State private var showingAudio = false
+    @State private var showingVideo = false
     let title: String
     let program: CurrentProgram?
     let isLive: Bool
     @ObservedObject var controller: VLCPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
+    let onChooserChange: (Bool) -> Void
+
+    private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
+
+    /// A track's name as a control shows it: long stream descriptions are cut
+    /// short so the row of controls keeps its shape.
+    private func short(_ name: String) -> String {
+        name.count > 24 ? String(name.prefix(23)) + "…" : name
+    }
 
     private var nowPlayingTitle: String {
         guard let program, !program.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return title }
@@ -4824,7 +4850,7 @@ private struct TVPlayerChrome: View {
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
                         if !isLive && controller.subtitleTracks.count > 1 {
                             TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
-                                TVPlayerMenuLabel(title: "Subtitles · \(controller.selectedSubtitleTitle)",
+                                TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
                                                   symbol: "captions.bubble.fill",
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
@@ -4834,6 +4860,45 @@ private struct TVPlayerChrome: View {
                                 ForEach(controller.subtitleTracks) { track in
                                     Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
                                         controller.selectSubtitle(track)
+                                        onInteraction()
+                                    }
+                                }
+                                Button("Cancel", role: .cancel) { onInteraction() }
+                            }
+                        }
+                        // A file with more than one audio stream -- languages,
+                        // commentary, a stereo mix beside the surround one.
+                        if !isLive && controller.audioTracks.count > 1 {
+                            TVSelectable(scale: LineupStyle.controlLift, action: { showingAudio = true }) {
+                                TVPlayerMenuLabel(title: "Audio · \(short(controller.selectedAudioTitle))",
+                                                  symbol: "waveform",
+                                                  focused: focusedControl.wrappedValue == .audio)
+                            }
+                            .focused(focusedControl, equals: .audio)
+                            .confirmationDialog("Audio", isPresented: $showingAudio,
+                                                titleVisibility: .visible) {
+                                ForEach(controller.audioTracks) { track in
+                                    Button(track.title + (track.id == controller.selectedAudioTrackID ? "  ✓" : "")) {
+                                        controller.selectAudioTrack(track)
+                                        onInteraction()
+                                    }
+                                }
+                                Button("Cancel", role: .cancel) { onInteraction() }
+                            }
+                        }
+                        // And one with more than one video stream.
+                        if !isLive && controller.videoTracks.count > 1 {
+                            TVSelectable(scale: LineupStyle.controlLift, action: { showingVideo = true }) {
+                                TVPlayerMenuLabel(title: "Video · \(short(controller.selectedVideoTitle))",
+                                                  symbol: "film",
+                                                  focused: focusedControl.wrappedValue == .video)
+                            }
+                            .focused(focusedControl, equals: .video)
+                            .confirmationDialog("Video", isPresented: $showingVideo,
+                                                titleVisibility: .visible) {
+                                ForEach(controller.videoTracks) { track in
+                                    Button(track.title + (track.id == controller.selectedVideoTrackID ? "  ✓" : "")) {
+                                        controller.selectVideoTrack(track)
                                         onInteraction()
                                     }
                                 }
@@ -4862,6 +4927,10 @@ private struct TVPlayerChrome: View {
                 }
         }
         .ignoresSafeArea()
+        .onChange(of: choosing) { _, open in onChooserChange(open) }
+        // If the controls go while a list is open -- playback failing takes
+        // them away -- the player must not wait on a list that is gone.
+        .onDisappear { if choosing { onChooserChange(false) } }
     }
 }
 
@@ -4997,6 +5066,11 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
+    /// The file's audio and video streams, and the one of each playing.
+    @Published private(set) var audioTracks: [PlaybackStreamTrack] = []
+    @Published private(set) var selectedAudioTrackID: Int?
+    @Published private(set) var videoTracks: [PlaybackStreamTrack] = []
+    @Published private(set) var selectedVideoTrackID: Int?
     /// Seconds. Zero duration means the item is not seekable, which is how a
     /// live channel presents, so the seek bar simply does not appear for it.
     @Published private(set) var elapsed: TimeInterval = 0
@@ -5026,6 +5100,12 @@ private struct TVPlayerMenuLabel: View {
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var selectedSubtitleTitle: String {
         subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
+    }
+    var selectedAudioTitle: String {
+        audioTracks.first(where: { $0.id == selectedAudioTrackID })?.title ?? "Default"
+    }
+    var selectedVideoTitle: String {
+        videoTracks.first(where: { $0.id == selectedVideoTrackID })?.title ?? "Default"
     }
     var qualityLabel: String {
         switch videoHeight {
@@ -5111,6 +5191,7 @@ private struct TVPlayerMenuLabel: View {
     private func checkPlayback() {
         updateProgress()
         refreshSubtitleTracks()
+        refreshStreamTracks()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
@@ -5215,6 +5296,43 @@ private struct TVPlayerMenuLabel: View {
     private func resetSubtitles() {
         subtitleTracks = [.off]
         selectedSubtitleID = PlaybackSubtitleTrack.off.id
+        audioTracks = []
+        selectedAudioTrackID = nil
+        videoTracks = []
+        selectedVideoTrackID = nil
+    }
+
+    func selectAudioTrack(_ track: PlaybackStreamTrack) {
+        player.currentAudioTrackIndex = Int32(track.id)
+        selectedAudioTrackID = track.id
+    }
+
+    func selectVideoTrack(_ track: PlaybackStreamTrack) {
+        player.currentVideoTrackIndex = Int32(track.id)
+        selectedVideoTrackID = track.id
+    }
+
+    /// The file's audio and video streams, read on the same cadence as its
+    /// subtitles and published only when something changed, so a film that
+    /// is simply playing causes no redraw.
+    private func refreshStreamTracks() {
+        let audio = PlaybackStreamTrack.vlcTracks(
+            names: (player.audioTrackNames as? [String]) ?? [],
+            indexes: ((player.audioTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
+            kind: "Audio")
+        if audio != audioTracks { audioTracks = audio }
+        let audioIndex = Int(player.currentAudioTrackIndex)
+        let audioID: Int? = audio.contains(where: { $0.id == audioIndex }) ? audioIndex : nil
+        if audioID != selectedAudioTrackID { selectedAudioTrackID = audioID }
+
+        let video = PlaybackStreamTrack.vlcTracks(
+            names: (player.videoTrackNames as? [String]) ?? [],
+            indexes: ((player.videoTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
+            kind: "Video")
+        if video != videoTracks { videoTracks = video }
+        let videoIndex = Int(player.currentVideoTrackIndex)
+        let videoID: Int? = video.contains(where: { $0.id == videoIndex }) ? videoIndex : nil
+        if videoID != selectedVideoTrackID { selectedVideoTrackID = videoID }
     }
 
     func stop() {
