@@ -3299,7 +3299,7 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            GuideChannelArtwork(stream: stream)
+            GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
             .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.vertical, 4)
@@ -3379,15 +3379,16 @@ private struct GuideTimelineGrid: View {
     }
 }
 
-/// A channel as the guide names it: its logo, and its name beside it. Where
-/// there is no logo, a quiet television mark holds the logo's place so every
-/// name starts on the same line.
+/// A channel as the guide names it: its logo, its name under it, and a small
+/// heart in the corner if it is a favourite. Where there is no logo, a quiet
+/// television mark holds its place so every name sits on the same line.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
+    let isFavorite: Bool
 
     var body: some View {
-        HStack(spacing: 14) {
-            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 72) { loaded in
+        VStack(spacing: 6) {
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 120) { loaded in
                 if let image = loaded {
                     image.resizable().scaledToFit()
                 } else {
@@ -3397,18 +3398,24 @@ private struct GuideChannelArtwork: View {
                 }
             }
             .transaction { $0.animation = nil }
-            .frame(width: 72, height: 44)
+            .frame(width: 120, height: 36)
             Text(stream.name)
-                .font(.inter(16, .semibold))
+                .font(.inter(14, .semibold))
                 .foregroundStyle(GuidePalette.text)
-                .lineLimit(2).minimumScaleFactor(0.85)
+                .lineLimit(1).minimumScaleFactor(0.8)
                 .allowsTightening(true)
                 .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.horizontal, 22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            if isFavorite {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(GuidePalette.secondary)
+                    .padding(9)
+            }
+        }
         .accessibilityHidden(true)
     }
 }
