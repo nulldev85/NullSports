@@ -1,0 +1,15 @@
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test1Live]' started.
+2026-10-04 05:42:56.511332+0000 LineupHarnessUITests-Runner[6275:23658] [Common] Snapshot request 0x600000c1e070 complete with error: <NSError: 0x600000c436c0; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+2026-10-04 05:42:56.521539+0000 LineupHarnessUITests-Runner[6275:23658] [Common] Snapshot request 0x600000c48330 complete with error: <NSError: 0x600000c40870; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test1Live]' passed (73.220 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test2Guide]' started.
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test2Guide]' passed (82.647 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test3Account]' started.
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test3Account]' passed (55.280 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test4Library]' started.
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test4Library]' passed (33.891 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test5Multiview]' started.
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test5Multiview]' passed (40.840 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test6NoGames]' started.
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test6NoGames]' passed (23.713 seconds).
+** TEST SUCCEEDED **

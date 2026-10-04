@@ -1,0 +1,1 @@
+tvOS focus check passed: no control draws its own focus plate.

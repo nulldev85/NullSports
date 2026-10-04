@@ -1,0 +1,300 @@
+    construct-stub-executor-link-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup.debug.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'Lineup' from project 'Lineup')
+
+Ld /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup normal (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-tvos17.0-simulator -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.5.sdk -O0 -L/Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator -F/Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/PackageFrameworks -F/Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/PackageFrameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup-ExecutorLinkFileList-normal-arm64.txt /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup.debug.dylib -o /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup
+
+ExtractAppIntentsMetadata (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.6KVh8Q/Metal.xctoolchain --module-name Lineup --sdk-root /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.5.sdk --xcode-version 17F113 --platform-family tvOS --deployment-target 17.0 --bundle-identifier com.nulldev85.NullSports --output /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app --target-triple arm64-apple-tvos17.0-simulator --binary-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup --dependency-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Objects-normal/arm64/Lineup_dependency_info.dat --stringsdata-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Objects-normal/arm64/Lineup.SwiftFileList --metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Lineup.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/Objects-normal/arm64/Lineup.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-10-04 05:42:12.899 appintentsmetadataprocessor[5844:21214] Starting appintentsmetadataprocessor export
+2026-10-04 05:42:12.902 appintentsmetadataprocessor[5844:21214] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CopySwiftLibs /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Lineup.debug.dylib --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Frameworks --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/PlugIns --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/SystemExtensions --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Extensions --platform appletvsimulator --toolchain /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.6KVh8Q/Metal.xctoolchain --toolchain /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/Lineup.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app
+
+Validate /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-validationUtility /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app (in target 'Lineup' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /usr/bin/touch -c /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/Lineup.app
+
+ProcessInfoPlistFile /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Info.plist /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/empty-LineupHarnessUITests.plist (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-infoPlistUtility /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/empty-LineupHarnessUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform appletvsimulator -additionalcontentfile /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Info.plist
+
+Ld /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/LineupHarnessUITests normal (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-tvos17.0-simulator -bundle -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.5.sdk -O0 -L/Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-appletvsimulator -L/Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator -L/Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib -F/Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-appletvsimulator -F/Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator -iframework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.5.sdk/Developer/Library/Frameworks -filelist /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/appletvsimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests.swiftmodule @/Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests-linker-args.resp -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -o /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/LineupHarnessUITests
+
+ExtractAppIntentsMetadata (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.6KVh8Q/Metal.xctoolchain --module-name LineupHarnessUITests --sdk-root /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.5.sdk --xcode-version 17F113 --platform-family tvOS --deployment-target 17.0 --bundle-identifier com.nulldev85.LineupHarnessUITests --output /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest --target-triple arm64-apple-tvos17.0-simulator --binary-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/LineupHarnessUITests --dependency-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests_dependency_info.dat --stringsdata-file /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests.SwiftFileList --metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/LineupHarnessUITests.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/LineupHarnessUITests.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/Objects-normal/arm64/LineupHarnessUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-10-04 05:42:13.196 appintentsmetadataprocessor[5848:21245] Starting appintentsmetadataprocessor export
+2026-10-04 05:42:13.198 appintentsmetadataprocessor[5848:21245] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CopySwiftLibs /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/LineupHarnessUITests --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Frameworks --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/PlugIns --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/SystemExtensions --scan-folder /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Extensions --platform appletvsimulator --toolchain /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.6KVh8Q/Metal.xctoolchain --toolchain /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/NullSports/NullSports/build-harness/Build/Intermediates.noindex/Lineup.build/Debug-appletvsimulator/LineupHarnessUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+CopyPlistFile /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Info.plist /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME LineupHarnessUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.nulldev85.LineupHarnessUITests.xctrunner --macro-expansion TESTPRODUCTNAME LineupHarnessUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.nulldev85.LineupHarnessUITests --copy-value UIDeviceFamily /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest/Info.plist --outdir /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app -- /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PkgInfo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app
+
+CopyAndPreserveArchs /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/LineupHarnessUITests-Runner (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/LineupHarnessUITests-Runner -extract arm64
+
+MkDir /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /bin/mkdir -p /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCUnit.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCUIAutomation.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCTestSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCTestCore.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCTest.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCTest.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks/Testing.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/Testing.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/Frameworks
+
+RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest
+
+Touch /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest (in target 'LineupHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /usr/bin/touch -c /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/LineupHarnessUITests-Runner.app/PlugIns/LineupHarnessUITests.xctest
+
+2026-10-04 05:42:50.991349+0000 LineupHarnessUITests-Runner[6275:23325] [Default] Running tests...
+Test Suite 'All tests' started at 2026-10-04 05:42:53.863.
+Test Suite 'LineupHarnessUITests.xctest' started at 2026-10-04 05:42:53.863.
+Test Suite 'LiveHarnessUITests' started at 2026-10-04 05:42:53.863.
+    t =      nans Suite Set Up
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test1Live]' started.
+    t =     0.00s Start Test at 2026-10-04 05:42:53.867
+    t =     0.58s Set Up
+    t =     0.59s Open com.nulldev85.NullSports
+    t =     0.59s     Launch com.nulldev85.NullSports
+2026-10-04 05:42:54.948 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:42:54.948 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.90s         Setting up automation session
+2026-10-04 05:42:56.511332+0000 LineupHarnessUITests-Runner[6275:23658] [Common] Snapshot request 0x600000c1e070 complete with error: <NSError: 0x600000c436c0; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+    NSLocalizedDescription = an error occurred during a scene snapshotting operation;
+}
+2026-10-04 05:42:56.521539+0000 LineupHarnessUITests-Runner[6275:23658] [Common] Snapshot request 0x600000c48330 complete with error: <NSError: 0x600000c40870; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+    NSLocalizedDescription = an error occurred during a scene snapshotting operation;
+}
+    t =    18.78s Added attachment named 'live-00-launch'
+    t =    18.79s Pressing Down button
+    t =    22.39s Added attachment named 'live-01-rail1'
+    t =    22.40s Pressing Down button
+    t =    26.07s Added attachment named 'live-02-rail2'
+    t =    26.08s Pressing Down button
+    t =    27.52s Pressing Down button
+    t =    30.73s Added attachment named 'live-03-board1'
+    t =    30.75s Pressing Right button
+    t =    34.37s Added attachment named 'live-04-board2'
+    t =    34.38s Pressing Select button
+    t =    44.27s Added attachment named 'live-05-preview'
+    t =    44.29s Pressing Right button
+    t =    47.74s Added attachment named 'live-06-preview-focus-moves'
+    t =    47.82s Pressing Right button
+    t =    49.34s Pressing Up button
+    t =    52.56s Added attachment named 'live-07-filter'
+    t =    52.56s Pressing Down button
+    t =    53.98s Pressing Down button
+    t =    57.16s Added attachment named 'live-08-row2'
+    t =    57.17s Pressing Menu button
+    t =    60.74s Added attachment named 'live-09-stop-preview'
+    t =    60.75s Pressing Left button
+    t =    63.95s Added attachment named 'live-10-upcoming-slate'
+    t =    63.97s Pressing and holding Select button for 1.6s
+    t =    68.72s Added attachment named 'live-11-context-menu'
+    t =    68.74s Terminate com.nulldev85.NullSports:6454
+    t =    72.81s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test1Live]' passed (73.220 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test2Guide]' started.
+    t =     0.00s Start Test at 2026-10-04 05:44:07.090
+    t =     0.05s Set Up
+    t =     0.05s Open com.nulldev85.NullSports
+    t =     0.05s     Launch com.nulldev85.NullSports
+2026-10-04 05:44:07.518 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:44:07.518 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.28s         Setting up automation session
+    t =    18.19s Added attachment named 'guide-00-launch'
+    t =    18.20s Pressing Up button
+    t =    19.64s Pressing Up button
+    t =    21.06s Pressing Right button
+    t =    27.54s Added attachment named 'guide-01-tab'
+    t =    27.54s Pressing Down button
+    t =    30.42s Added attachment named 'guide-02-enter'
+    t =    30.42s Pressing Down button
+    t =    33.33s Added attachment named 'guide-03-down'
+    t =    33.34s Pressing Down button
+    t =    36.25s Added attachment named 'guide-04-down2'
+    t =    36.26s Pressing Right button
+    t =    39.11s Added attachment named 'guide-05-right'
+    t =    39.12s Pressing Right button
+    t =    41.95s Added attachment named 'guide-06-right2'
+    t =    41.96s Pressing Select button
+    t =    51.30s Added attachment named 'guide-07-select'
+    t =    51.30s Pressing Left button
+    t =    52.73s Pressing Left button
+    t =    54.17s Pressing Left button
+    t =    57.03s Added attachment named 'guide-08-sidebar'
+    t =    57.03s Pressing Down button
+    t =    59.85s Added attachment named 'guide-09-sidebar-down'
+    t =    59.85s Pressing Right button
+    t =    62.66s Added attachment named 'guide-10-sidebar-close'
+    t =    62.66s Pressing Menu button
+    t =    66.05s Added attachment named 'guide-11-menu-stops'
+    t =    66.05s Pressing Menu button
+    t =    69.47s Added attachment named 'guide-12-menu-hides'
+    t =    69.47s Terminate com.nulldev85.NullSports:8252
+    t =    82.49s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test2Guide]' passed (82.647 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test3Account]' started.
+    t =     0.00s Start Test at 2026-10-04 05:45:29.738
+    t =     0.04s Set Up
+    t =     0.04s Open com.nulldev85.NullSports
+    t =     0.04s     Launch com.nulldev85.NullSports
+2026-10-04 05:45:29.926 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:45:29.926 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.17s         Setting up automation session
+    t =    18.09s Added attachment named 'account-00-launch'
+    t =    18.09s Pressing Up button
+    t =    19.51s Pressing Up button
+    t =    20.92s Pressing Right button
+    t =    22.34s Pressing Right button
+    t =    23.77s Pressing Right button
+    t =    29.17s Added attachment named 'account-01-tab'
+    t =    29.18s Pressing Down button
+    t =    32.05s Added attachment named 'account-02-enter'
+    t =    32.05s Pressing Right button
+    t =    34.96s Added attachment named 'account-03-right'
+    t =    34.96s Pressing Down button
+    t =    37.80s Added attachment named 'account-04-down'
+    t =    37.81s Pressing Down button
+    t =    40.64s Added attachment named 'account-05-down2'
+    t =    40.65s Pressing Down button
+    t =    43.49s Added attachment named 'account-06-down3'
+    t =    43.49s Pressing Down button
+    t =    46.36s Added attachment named 'account-07-down4'
+    t =    46.36s Pressing Down button
+    t =    49.23s Added attachment named 'account-08-down5'
+    t =    49.23s Pressing Down button
+    t =    52.09s Added attachment named 'account-09-down6'
+    t =    52.09s Terminate com.nulldev85.NullSports:11265
+    t =    55.14s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test3Account]' passed (55.280 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test4Library]' started.
+    t =     0.00s Start Test at 2026-10-04 05:46:25.020
+    t =     0.05s Set Up
+    t =     0.05s Open com.nulldev85.NullSports
+    t =     0.05s     Launch com.nulldev85.NullSports
+2026-10-04 05:46:25.089 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:46:25.089 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.52s         Setting up automation session
+    t =    18.25s Added attachment named 'library-00-launch'
+    t =    18.27s Pressing Up button
+    t =    19.71s Pressing Up button
+    t =    21.13s Pressing Right button
+    t =    22.56s Pressing Right button
+    t =    27.94s Added attachment named 'library-01-tab'
+    t =    27.94s Pressing Down button
+    t =    30.79s Added attachment named 'library-02-enter'
+    t =    30.79s Terminate com.nulldev85.NullSports:13818
+    t =    33.81s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test4Library]' passed (33.891 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test5Multiview]' started.
+    t =     0.00s Start Test at 2026-10-04 05:46:58.911
+    t =     0.05s Set Up
+    t =     0.05s Open com.nulldev85.NullSports
+    t =     0.05s     Launch com.nulldev85.NullSports
+2026-10-04 05:46:58.967 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:46:58.967 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.51s         Setting up automation session
+    t =    17.84s Added attachment named 'multiview-00-launch'
+    t =    17.84s Pressing Down button
+    t =    19.27s Pressing Down button
+    t =    20.71s Pressing Down button
+    t =    22.14s Pressing Down button
+    t =    23.58s Pressing and holding Select button for 1.6s
+    t =    28.13s Added attachment named 'multiview-01-menu'
+    t =    28.14s Pressing Down button
+    t =    29.58s Pressing Down button
+    t =    31.01s Pressing Select button
+    t =    34.59s Added attachment named 'multiview-02-multiview'
+    t =    34.59s Pressing Right button
+    t =    37.69s Added attachment named 'multiview-03-multiview-second'
+    t =    37.69s Terminate com.nulldev85.NullSports:15287
+    t =    40.76s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test5Multiview]' passed (40.840 seconds).
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test6NoGames]' started.
+    t =     0.00s Start Test at 2026-10-04 05:47:39.753
+    t =     0.05s Set Up
+    t =     0.06s Open com.nulldev85.NullSports
+    t =     0.06s     Launch com.nulldev85.NullSports
+2026-10-04 05:47:39.823 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-04 05:47:39.823 xcodebuild[2153:10309] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.51s         Setting up automation session
+    t =    17.55s Added attachment named 'nogames-00-launch'
+    t =    17.56s Pressing Down button
+    t =    20.56s Added attachment named 'nogames-01-down'
+    t =    20.56s Terminate com.nulldev85.NullSports:16768
+    t =    23.62s Tear Down
+Test Case '-[LineupHarnessUITests.LiveHarnessUITests test6NoGames]' passed (23.713 seconds).
+Test Suite 'LiveHarnessUITests' passed at 2026-10-04 05:48:03.468.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 309.593 (309.604) seconds
+Test Suite 'LineupHarnessUITests.xctest' passed at 2026-10-04 05:48:03.470.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 309.593 (309.607) seconds
+Test Suite 'All tests' passed at 2026-10-04 05:48:03.471.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 309.593 (309.608) seconds
+2026-10-04 05:48:45.692 xcodebuild[2153:10309] [MT] IDETestOperationsObserverDebug: 392.388 elapsed -- Testing started completed.
+2026-10-04 05:48:45.693 xcodebuild[2153:10309] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-04 05:48:45.693 xcodebuild[2153:10309] [MT] IDETestOperationsObserverDebug: 392.388 sec, +392.388 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/runner/work/_temp/harness.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
