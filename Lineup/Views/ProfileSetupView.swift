@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProfileSetupView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.dismiss) private var dismiss
     @State private var profileName = ""
     @State private var serverURL = ""
     @State private var username = ""
@@ -55,6 +56,12 @@ struct ProfileSetupView: View {
         }
         .padding(.horizontal, 90)
         .background(LineupStyle.background.ignoresSafeArea())
+        // Opened from Account, this is a sheet. The login is checked and saved
+        // the moment the provider becomes active; its channels keep loading
+        // behind the screen this returns to, as they do after first setup.
+        .onChange(of: library.activeProfile?.id) { _, id in
+            if id != nil { dismiss() }
+        }
     }
 
     private func connect() {
