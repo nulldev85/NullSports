@@ -3818,7 +3818,7 @@ struct AccountView: View {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
-            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
+            .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
             }
@@ -3855,17 +3855,21 @@ struct AccountView: View {
                 mediaCard
             }
             .fixedSize(horizontal: false, vertical: true)
-            // Switching between servers is a list, not a card: a viewer with
-            // one server -- almost everyone -- should not be shown a chooser
-            // for it. It appears when there is a choice to make.
+            // Every server feeds the Library at once, so with more than one
+            // the card above speaks for all of them and this list for each:
+            // whether it answers, what it holds, and the way to remove it.
             if media.profiles.count > 1 {
                 VStack(spacing: 0) {
-                    ForEach(media.profiles) { profile in
-                        AccountServerChoice(profile: profile,
-                                            active: media.activeProfile?.id == profile.id)
+                    ForEach(Array(media.profiles.enumerated()), id: \.element.id) { index, profile in
+                        if index > 0 {
+                            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 30)
+                        }
+                        AccountServerRow(profile: profile)
                     }
                 }
                 .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(LineupStyle.line, lineWidth: 1))
             }
         }
     }
@@ -3912,12 +3916,15 @@ struct AccountView: View {
     }
 
     @ViewBuilder private var mediaCard: some View {
-        if let profile = media.activeProfile {
+        if let profile = media.profiles.first {
+            let several = media.profiles.count > 1
             AccountSourceCard(
                 symbol: "play.square.stack",
-                kind: "MEDIA SERVER",
-                title: profile.name,
-                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                kind: several ? "MEDIA SERVERS" : "MEDIA SERVER",
+                title: several ? "\(media.profiles.count) Jellyfin servers" : profile.name,
+                subtitle: several
+                    ? media.profiles.map(\.name).joined(separator: " · ")
+                    : "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: media.isLoading ? .busy("Connecting") : (media.isConnected ? .connected : .offline),
                 stats: [
                     AccountStat("Movies", media.libraryCounts?.movies),
@@ -3943,7 +3950,7 @@ struct AccountView: View {
                 symbol: "play.square.stack",
                 kind: "MEDIA SERVER",
                 title: "No media server",
-                detail: "Connect a Jellyfin-compatible server to watch your own library."
+                detail: "Connect your Jellyfin server to watch your own library."
             ) {
                 AccountButton(title: "Add Media Server", symbol: "plus", prominent: true) {
                     addingMediaServer = true
@@ -3969,7 +3976,7 @@ struct AccountView: View {
                 ) {
                     LibraryHeroSettingsView().environmentObject(media)
                 }
-                .disabled(media.activeProfile == nil)
+                .disabled(!media.hasAnySource)
                 catalogs
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -4221,35 +4228,41 @@ private struct AccountGlyph: View {
     }
 }
 
-/// A media server to switch to, in the list that appears when there is more
-/// than one.
-private struct AccountServerChoice: View {
+/// One connected server, in the list that appears when there is more than
+/// one. They all feed the Library at once, so a row says how its own server
+/// is doing -- whether it answers and what it holds -- rather than offering a
+/// choice between them.
+private struct AccountServerRow: View {
     @EnvironmentObject private var media: MediaLibrary
-    @FocusState private var isFocused: Bool
     let profile: MediaServerProfile
-    let active: Bool
 
     var body: some View {
-        HStack(spacing: 20) {
-            Circle().fill(active && media.isConnected ? LineupStyle.text : LineupStyle.secondary.opacity(0.5))
-                .frame(width: 8, height: 8)
+        let state = media.state(of: profile)
+        HStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupStyle.text)
-                Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                    .lineLimit(1)
+                Text(detail(state))
                     .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 20)
-            Text(active ? "ACTIVE" : "SELECT")
-                .font(.inter(13, .bold)).tracking(1.6)
-                .foregroundStyle(active ? LineupStyle.text : LineupStyle.secondary)
-            Button("Remove", role: .destructive) { media.remove(profile) }
-                .lineupButtonStyle()
+            AccountStatusMark(status: state.isLoading ? .busy("Connecting")
+                              : (state.isConnected ? .connected : .offline))
+            AccountButton(title: "Remove", symbol: "trash", quiet: true) { media.remove(profile) }
+                .fixedSize()
         }
-        .padding(.horizontal, 30).padding(.vertical, 22)
-        .lineupFocusLayer(isFocused, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contentShape(Rectangle())
-        .focusable().focused($isFocused).focusEffectDisabled()
-        .onTapGesture { if !active { Task { await media.select(profile) } } }
+        .padding(.horizontal, 30).padding(.vertical, 20)
+    }
+
+    /// Its address, and what it holds once it has said.
+    private func detail(_ state: MediaServerState) -> String {
+        var parts = [URL(string: profile.serverURL)?.host ?? profile.serverURL]
+        if let counts = state.counts {
+            parts.append("\(counts.movies.formatted()) movies")
+            parts.append("\(counts.shows.formatted()) shows")
+        }
+        return parts.joined(separator: "  ·  ")
     }
 }
 
@@ -4640,6 +4653,14 @@ private struct MultiviewPane: View {
     }
 }
 
+/// What the player says about a recorded title, in the corner its controls
+/// keep for that: what it is, the line under it, and a line of detail.
+struct TVPlayerSynopsis {
+    let title: String
+    let subtitle: String?
+    let detail: String?
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -4651,11 +4672,18 @@ struct PlayerView: View {
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
+    /// For a Library title: its show, episode and details, which the stream
+    /// URL and name alone cannot say.
+    var synopsis: TVPlayerSynopsis? = nil
     @StateObject private var controller = VLCPlaybackController()
     @State private var choosingGame: SportsGame?
     @State private var chosenTitle: String?
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
+    /// A subtitle, audio, video or quality list is open. The controls stay up
+    /// until it closes: the lists hang off the controls, so hiding them on the
+    /// usual timer closed a list before anything could be chosen in it.
+    @State private var chooserOpen = false
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
     @State private var lastReportedPosition: TimeInterval = 0
@@ -4689,8 +4717,9 @@ struct PlayerView: View {
             }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
-                    program: program, isLive: isLive, controller: controller,
-                    focusedControl: $focusedControl, onInteraction: keepControlsVisible)
+                    program: program, synopsis: synopsis, isLive: isLive, controller: controller,
+                    focusedControl: $focusedControl, onInteraction: keepControlsVisible,
+                    onChooserChange: chooserChanged)
                     .transition(.opacity)
             }
             if urls.isEmpty {
@@ -4736,6 +4765,16 @@ struct PlayerView: View {
 
     private func keepControlsVisible() { controlsVisible = true; scheduleAutoHide() }
 
+    private func chooserChanged(_ open: Bool) {
+        chooserOpen = open
+        if open {
+            hideControlsTask?.cancel()
+            controlsVisible = true
+        } else {
+            scheduleAutoHide()
+        }
+    }
+
     private func reportProgress(force: Bool = false) {
         guard !isLive, controller.duration > 0 else { return }
         guard force || abs(controller.elapsed - lastReportedPosition) >= 5 else { return }
@@ -4745,7 +4784,7 @@ struct PlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying else { return }
+        guard controller.isPlaying, !chooserOpen else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -4758,23 +4797,37 @@ struct PlayerView: View {
     }
 }
 
-private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, quality }
+private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, audio, video, quality }
 
 private struct TVPlayerChrome: View {
     @State private var showingQuality = false
     @State private var showingSubtitles = false
+    @State private var showingAudio = false
+    @State private var showingVideo = false
     let title: String
     let program: CurrentProgram?
+    let synopsis: TVPlayerSynopsis?
     let isLive: Bool
     @ObservedObject var controller: VLCPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
+    let onChooserChange: (Bool) -> Void
+
+    private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
+
+    /// A track's name as a control shows it: long stream descriptions are cut
+    /// short so the row of controls keeps its shape.
+    private func short(_ name: String) -> String {
+        name.count > 24 ? String(name.prefix(23)) + "…" : name
+    }
 
     private var nowPlayingTitle: String {
+        if let synopsis { return synopsis.title }
         guard let program, !program.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return title }
         return program.title
     }
     private var subtitle: String? {
+        if let synopsis { return synopsis.subtitle }
         guard let program else { return title == nowPlayingTitle ? nil : title }
         let time = "\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))"
         return title == nowPlayingTitle ? time : "\(title)  ·  \(time)"
@@ -4794,8 +4847,9 @@ private struct TVPlayerChrome: View {
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
-                        if let detail = program?.detail, !detail.isEmpty {
+                        if let detail = synopsis?.detail ?? program?.detail, !detail.isEmpty {
                             Text(detail).font(.inter(16)).opacity(0.62).lineLimit(1)
+                                .frame(maxWidth: 1100, alignment: .leading)
                         }
                     }
                     .foregroundStyle(LineupStyle.mediaText)
@@ -4824,7 +4878,7 @@ private struct TVPlayerChrome: View {
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
                         if !isLive && controller.subtitleTracks.count > 1 {
                             TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
-                                TVPlayerMenuLabel(title: "Subtitles · \(controller.selectedSubtitleTitle)",
+                                TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
                                                   symbol: "captions.bubble.fill",
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
@@ -4834,6 +4888,45 @@ private struct TVPlayerChrome: View {
                                 ForEach(controller.subtitleTracks) { track in
                                     Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
                                         controller.selectSubtitle(track)
+                                        onInteraction()
+                                    }
+                                }
+                                Button("Cancel", role: .cancel) { onInteraction() }
+                            }
+                        }
+                        // A file with more than one audio stream -- languages,
+                        // commentary, a stereo mix beside the surround one.
+                        if !isLive && controller.audioTracks.count > 1 {
+                            TVSelectable(scale: LineupStyle.controlLift, action: { showingAudio = true }) {
+                                TVPlayerMenuLabel(title: "Audio · \(short(controller.selectedAudioTitle))",
+                                                  symbol: "waveform",
+                                                  focused: focusedControl.wrappedValue == .audio)
+                            }
+                            .focused(focusedControl, equals: .audio)
+                            .confirmationDialog("Audio", isPresented: $showingAudio,
+                                                titleVisibility: .visible) {
+                                ForEach(controller.audioTracks) { track in
+                                    Button(track.title + (track.id == controller.selectedAudioTrackID ? "  ✓" : "")) {
+                                        controller.selectAudioTrack(track)
+                                        onInteraction()
+                                    }
+                                }
+                                Button("Cancel", role: .cancel) { onInteraction() }
+                            }
+                        }
+                        // And one with more than one video stream.
+                        if !isLive && controller.videoTracks.count > 1 {
+                            TVSelectable(scale: LineupStyle.controlLift, action: { showingVideo = true }) {
+                                TVPlayerMenuLabel(title: "Video · \(short(controller.selectedVideoTitle))",
+                                                  symbol: "film",
+                                                  focused: focusedControl.wrappedValue == .video)
+                            }
+                            .focused(focusedControl, equals: .video)
+                            .confirmationDialog("Video", isPresented: $showingVideo,
+                                                titleVisibility: .visible) {
+                                ForEach(controller.videoTracks) { track in
+                                    Button(track.title + (track.id == controller.selectedVideoTrackID ? "  ✓" : "")) {
+                                        controller.selectVideoTrack(track)
                                         onInteraction()
                                     }
                                 }
@@ -4862,6 +4955,10 @@ private struct TVPlayerChrome: View {
                 }
         }
         .ignoresSafeArea()
+        .onChange(of: choosing) { _, open in onChooserChange(open) }
+        // If the controls go while a list is open -- playback failing takes
+        // them away -- the player must not wait on a list that is gone.
+        .onDisappear { if choosing { onChooserChange(false) } }
     }
 }
 
@@ -4997,6 +5094,11 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
+    /// The file's audio and video streams, and the one of each playing.
+    @Published private(set) var audioTracks: [PlaybackStreamTrack] = []
+    @Published private(set) var selectedAudioTrackID: Int?
+    @Published private(set) var videoTracks: [PlaybackStreamTrack] = []
+    @Published private(set) var selectedVideoTrackID: Int?
     /// Seconds. Zero duration means the item is not seekable, which is how a
     /// live channel presents, so the seek bar simply does not appear for it.
     @Published private(set) var elapsed: TimeInterval = 0
@@ -5026,6 +5128,12 @@ private struct TVPlayerMenuLabel: View {
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var selectedSubtitleTitle: String {
         subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
+    }
+    var selectedAudioTitle: String {
+        audioTracks.first(where: { $0.id == selectedAudioTrackID })?.title ?? "Default"
+    }
+    var selectedVideoTitle: String {
+        videoTracks.first(where: { $0.id == selectedVideoTrackID })?.title ?? "Default"
     }
     var qualityLabel: String {
         switch videoHeight {
@@ -5111,6 +5219,7 @@ private struct TVPlayerMenuLabel: View {
     private func checkPlayback() {
         updateProgress()
         refreshSubtitleTracks()
+        refreshStreamTracks()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
@@ -5215,6 +5324,43 @@ private struct TVPlayerMenuLabel: View {
     private func resetSubtitles() {
         subtitleTracks = [.off]
         selectedSubtitleID = PlaybackSubtitleTrack.off.id
+        audioTracks = []
+        selectedAudioTrackID = nil
+        videoTracks = []
+        selectedVideoTrackID = nil
+    }
+
+    func selectAudioTrack(_ track: PlaybackStreamTrack) {
+        player.currentAudioTrackIndex = Int32(track.id)
+        selectedAudioTrackID = track.id
+    }
+
+    func selectVideoTrack(_ track: PlaybackStreamTrack) {
+        player.currentVideoTrackIndex = Int32(track.id)
+        selectedVideoTrackID = track.id
+    }
+
+    /// The file's audio and video streams, read on the same cadence as its
+    /// subtitles and published only when something changed, so a film that
+    /// is simply playing causes no redraw.
+    private func refreshStreamTracks() {
+        let audio = PlaybackStreamTrack.vlcTracks(
+            names: (player.audioTrackNames as? [String]) ?? [],
+            indexes: ((player.audioTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
+            kind: "Audio")
+        if audio != audioTracks { audioTracks = audio }
+        let audioIndex = Int(player.currentAudioTrackIndex)
+        let audioID: Int? = audio.contains(where: { $0.id == audioIndex }) ? audioIndex : nil
+        if audioID != selectedAudioTrackID { selectedAudioTrackID = audioID }
+
+        let video = PlaybackStreamTrack.vlcTracks(
+            names: (player.videoTrackNames as? [String]) ?? [],
+            indexes: ((player.videoTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
+            kind: "Video")
+        if video != videoTracks { videoTracks = video }
+        let videoIndex = Int(player.currentVideoTrackIndex)
+        let videoID: Int? = video.contains(where: { $0.id == videoIndex }) ? videoIndex : nil
+        if videoID != selectedVideoTrackID { selectedVideoTrackID = videoID }
     }
 
     func stop() {
