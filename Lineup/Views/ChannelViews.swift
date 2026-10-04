@@ -2477,8 +2477,11 @@ private enum GuidePalette {
     /// How far the programme on now has run, on its track.
     static var progress: Color { LineupStyle.text }
     static var track: Color { LineupStyle.text.opacity(0.14) }
-    /// Now, and on air: broadcast red, the only colour the guide has.
+    /// Now, and on air: broadcast red.
     static var now: Color { LineupStyle.liveDot }
+    /// A favourite's heart: a deep crimson, darker than broadcast red so it
+    /// is never read as something going out live.
+    static let favorite = Color(red: 0.69, green: 0.13, blue: 0.19)
 }
 
 struct GuideView: View {
@@ -3380,7 +3383,7 @@ private struct GuideTimelineGrid: View {
 }
 
 /// A channel as the guide names it: its logo, its name under it, and a small
-/// heart in the corner if it is a favourite. Where there is no logo, a quiet
+/// dark red heart in the corner if it is a favourite. Where there is no logo, a quiet
 /// television mark holds its place so every name sits on the same line.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
@@ -3412,7 +3415,7 @@ private struct GuideChannelArtwork: View {
             if isFavorite {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(GuidePalette.secondary)
+                    .foregroundStyle(GuidePalette.favorite)
                     .padding(9)
             }
         }
