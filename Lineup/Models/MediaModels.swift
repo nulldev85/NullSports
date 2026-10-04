@@ -143,6 +143,12 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let backdropURL: String?
     let logoArtworkURL: String?
 
+    /// The connected server this came from. Lineup's own, like the artwork
+    /// above: every item a server hands back is marked with it on arrival,
+    /// because with several servers connected an item id only means something
+    /// to the server that issued it.
+    var serverID: UUID?
+
     // An optional `let` gets no implicit default, so the added fields are given
     // one here and every existing caller keeps the call it already makes.
     init(id: String, name: String, type: String, overview: String?,
@@ -158,7 +164,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          people: [MediaPerson]? = nil, remoteTrailers: [MediaTrailer]? = nil,
          providerIDs: [String: String]? = nil,
          posterURL: String? = nil, backdropURL: String? = nil,
-         logoArtworkURL: String? = nil) {
+         logoArtworkURL: String? = nil, serverID: UUID? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -190,7 +196,19 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.posterURL = posterURL
         self.backdropURL = backdropURL
         self.logoArtworkURL = logoArtworkURL
+        self.serverID = serverID
     }
+
+    /// The same item, marked as coming from `server`.
+    func servedBy(_ server: UUID) -> MediaItem {
+        var copy = self
+        copy.serverID = server
+        return copy
+    }
+
+    /// Unique across servers, for lists that mix them: two servers can hand
+    /// out the same item id for different things.
+    var libraryKey: String { (serverID?.uuidString ?? "") + "|" + id }
 
     var isPlayable: Bool {
         ["Movie", "Episode", "Video"].contains(type)
@@ -295,6 +313,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case posterURL = "LineupPoster"
         case backdropURL = "LineupBackdrop"
         case logoArtworkURL = "LineupLogo"
+        case serverID = "LineupServer"
     }
 }
 
@@ -359,7 +378,7 @@ struct MediaUserData: Codable, Hashable, Sendable {
 /// without seeing one another's history.
 struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     let profileID: UUID
-    let item: MediaItem
+    var item: MediaItem
     var position: TimeInterval
     var duration: TimeInterval
     var updatedAt: Date
@@ -401,7 +420,7 @@ enum LocalEpisodeProgressionPolicy {
 
 struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
     let profileID: UUID
-    let item: MediaItem
+    var item: MediaItem
     let addedAt: Date
 
     var id: String { profileID.uuidString + "|" + item.id }
@@ -466,8 +485,83 @@ struct MediaMetricsResponse: Decodable, Sendable {
 struct MediaCatalog: Codable, Identifiable, Hashable, Sendable {
     let root: MediaItem
     let items: [MediaItem]
-    var id: String { root.id }
+    var id: String { Self.id(for: root) }
     var title: String { root.name }
+
+    /// A server's shelf is named by its server as well as its library: two
+    /// servers on the same paths give their libraries the same ids. A shelf
+    /// with no server -- an MDBList one, drawn from all of them -- is its own.
+    static func id(for root: MediaItem) -> String {
+        root.serverID.map { $0.uuidString + "|" + root.id } ?? root.id
+    }
+}
+
+/// Whether two servers hold the same title.
+///
+/// Servers number their items independently, so the same film has a different
+/// id on each. What they share is the film's own ids at IMDb, TMDB and TVDB,
+/// and failing those its name and year. An episode is the same episode when
+/// it is the same place in the same show.
+enum MediaTitleMatch {
+    static func isSame(_ left: MediaItem, _ right: MediaItem) -> Bool {
+        guard left.type == right.type else { return false }
+        if left.type == "Episode" {
+            guard let season = left.parentIndexNumber, let number = left.indexNumber,
+                  season == right.parentIndexNumber, number == right.indexNumber,
+                  let leftShow = left.seriesName, let rightShow = right.seriesName else { return false }
+            return !normalized(leftShow).isEmpty && normalized(leftShow) == normalized(rightShow)
+        }
+        // One shared id settles it. Two different ids from the same provider
+        // settle it the other way, whatever the names say: remakes share them.
+        let leftIDs = providerIDs(of: left)
+        let rightIDs = providerIDs(of: right)
+        var disagree = false
+        for (provider, value) in leftIDs {
+            guard let other = rightIDs[provider] else { continue }
+            if other == value { return true }
+            disagree = true
+        }
+        guard !disagree else { return false }
+        let name = normalized(left.name)
+        guard !name.isEmpty, name == normalized(right.name) else { return false }
+        // Providers disagree about a release year often enough -- a festival
+        // premiere against a cinema release -- that one year apart still counts.
+        guard let leftYear = left.productionYear, let rightYear = right.productionYear else { return true }
+        return abs(leftYear - rightYear) <= 1
+    }
+
+    /// The keys a title is known by. Two results sharing any one of them are
+    /// the same title, which is how a search across servers lists it once.
+    static func keys(of item: MediaItem) -> [String] {
+        if item.type == "Episode" {
+            guard let show = item.seriesName, !normalized(show).isEmpty,
+                  let season = item.parentIndexNumber, let number = item.indexNumber else { return [] }
+            return ["Episode|\(normalized(show))|\(season)|\(number)"]
+        }
+        var keys = providerIDs(of: item).map { "\(item.type)|\($0.key):\($0.value)" }.sorted()
+        let name = normalized(item.name)
+        if !name.isEmpty {
+            keys.append("\(item.type)|\(name)|\(item.productionYear.map(String.init) ?? "")")
+        }
+        return keys
+    }
+
+    /// Only the providers every server spells the same way.
+    static func providerIDs(of item: MediaItem) -> [String: String] {
+        var ids: [String: String] = [:]
+        for (provider, value) in item.providerIDs ?? [:] {
+            let name = provider.lowercased()
+            let id = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard ["imdb", "tmdb", "tvdb"].contains(name), !id.isEmpty else { continue }
+            ids[name] = id
+        }
+        return ids
+    }
+
+    static func normalized(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .filter { $0.isLetter || $0.isNumber }
+    }
 }
 
 enum MediaHeroCatalogSelection {
@@ -570,13 +664,24 @@ struct PlaybackStreamTrack: Identifiable, Hashable, Sendable {
 }
 
 struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
-    let id: String
+    /// The server's own id for this stream, which is what playing it sends.
+    let sourceID: String
     let name: String?
     let path: String?
     let container: String?
     let size: Int64?
     let bitrate: Int64?
     let remux: RemuxInfo?
+
+    // Lineup's own, filled in when the server answers: the streams for one
+    // title can come from several servers, and each has to be played from
+    // the server that offered it, as that server's copy of the title.
+    var serverID: UUID? = nil
+    var serverName: String? = nil
+    var itemID: String? = nil
+
+    /// Unique across servers, which can number their streams alike.
+    var id: String { (serverID?.uuidString ?? "") + "|" + sourceID }
 
     struct RemuxInfo: Decodable, Hashable, Sendable {
         let providerInfo: ProviderInfo?
@@ -590,7 +695,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id = "Id"
+        case sourceID = "Id"
         case name = "Name"
         case path = "Path"
         case container = "Container"

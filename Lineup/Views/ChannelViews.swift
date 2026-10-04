@@ -3818,7 +3818,7 @@ struct AccountView: View {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
-            .onChange(of: media.activeProfile?.id) { _, _ in media.loadShelvesIfNeeded() }
+            .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
             }
@@ -3855,17 +3855,21 @@ struct AccountView: View {
                 mediaCard
             }
             .fixedSize(horizontal: false, vertical: true)
-            // Switching between servers is a list, not a card: a viewer with
-            // one server -- almost everyone -- should not be shown a chooser
-            // for it. It appears when there is a choice to make.
+            // Every server feeds the Library at once, so with more than one
+            // the card above speaks for all of them and this list for each:
+            // whether it answers, what it holds, and the way to remove it.
             if media.profiles.count > 1 {
                 VStack(spacing: 0) {
-                    ForEach(media.profiles) { profile in
-                        AccountServerChoice(profile: profile,
-                                            active: media.activeProfile?.id == profile.id)
+                    ForEach(Array(media.profiles.enumerated()), id: \.element.id) { index, profile in
+                        if index > 0 {
+                            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 30)
+                        }
+                        AccountServerRow(profile: profile)
                     }
                 }
                 .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(LineupStyle.line, lineWidth: 1))
             }
         }
     }
@@ -3912,12 +3916,15 @@ struct AccountView: View {
     }
 
     @ViewBuilder private var mediaCard: some View {
-        if let profile = media.activeProfile {
+        if let profile = media.profiles.first {
+            let several = media.profiles.count > 1
             AccountSourceCard(
                 symbol: "play.square.stack",
-                kind: "MEDIA SERVER",
-                title: profile.name,
-                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                kind: several ? "MEDIA SERVERS" : "MEDIA SERVER",
+                title: several ? "\(media.profiles.count) Jellyfin servers" : profile.name,
+                subtitle: several
+                    ? media.profiles.map(\.name).joined(separator: " · ")
+                    : "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: media.isLoading ? .busy("Connecting") : (media.isConnected ? .connected : .offline),
                 stats: [
                     AccountStat("Movies", media.libraryCounts?.movies),
@@ -3969,7 +3976,7 @@ struct AccountView: View {
                 ) {
                     LibraryHeroSettingsView().environmentObject(media)
                 }
-                .disabled(media.activeProfile == nil)
+                .disabled(!media.hasAnySource)
                 catalogs
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -4221,35 +4228,41 @@ private struct AccountGlyph: View {
     }
 }
 
-/// A media server to switch to, in the list that appears when there is more
-/// than one.
-private struct AccountServerChoice: View {
+/// One connected server, in the list that appears when there is more than
+/// one. They all feed the Library at once, so a row says how its own server
+/// is doing -- whether it answers and what it holds -- rather than offering a
+/// choice between them.
+private struct AccountServerRow: View {
     @EnvironmentObject private var media: MediaLibrary
-    @FocusState private var isFocused: Bool
     let profile: MediaServerProfile
-    let active: Bool
 
     var body: some View {
-        HStack(spacing: 20) {
-            Circle().fill(active && media.isConnected ? LineupStyle.text : LineupStyle.secondary.opacity(0.5))
-                .frame(width: 8, height: 8)
+        let state = media.state(of: profile)
+        HStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupStyle.text)
-                Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                    .lineLimit(1)
+                Text(detail(state))
                     .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 20)
-            Text(active ? "ACTIVE" : "SELECT")
-                .font(.inter(13, .bold)).tracking(1.6)
-                .foregroundStyle(active ? LineupStyle.text : LineupStyle.secondary)
-            Button("Remove", role: .destructive) { media.remove(profile) }
-                .lineupButtonStyle()
+            AccountStatusMark(status: state.isLoading ? .busy("Connecting")
+                              : (state.isConnected ? .connected : .offline))
+            AccountButton(title: "Remove", symbol: "trash", quiet: true) { media.remove(profile) }
+                .fixedSize()
         }
-        .padding(.horizontal, 30).padding(.vertical, 22)
-        .lineupFocusLayer(isFocused, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contentShape(Rectangle())
-        .focusable().focused($isFocused).focusEffectDisabled()
-        .onTapGesture { if !active { Task { await media.select(profile) } } }
+        .padding(.horizontal, 30).padding(.vertical, 20)
+    }
+
+    /// Its address, and what it holds once it has said.
+    private func detail(_ state: MediaServerState) -> String {
+        var parts = [URL(string: profile.serverURL)?.host ?? profile.serverURL]
+        if let counts = state.counts {
+            parts.append("\(counts.movies.formatted()) movies")
+            parts.append("\(counts.shows.formatted()) shows")
+        }
+        return parts.joined(separator: "  ·  ")
     }
 }
 

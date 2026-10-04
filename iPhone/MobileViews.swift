@@ -279,6 +279,38 @@ extension View {
     }
 }
 
+/// A connected media server. The Library uses every one of them at once, so
+/// the row says how its own server is doing rather than offering to switch.
+private struct MediaServerRow: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let profile: MediaServerProfile
+    let remove: () -> Void
+
+    var body: some View {
+        let state = media.state(of: profile)
+        HStack(spacing: 12) {
+            Label {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(profile.name).font(.inter(.body, .semibold)).lineLimit(1)
+                    Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                        .font(.inter(.caption))
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+            } icon: {
+                Image(systemName: state.isConnected ? "checkmark.circle.fill" : "circle.dashed")
+            }
+            Spacer(minLength: 8)
+            Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
+                .font(.inter(.caption)).foregroundStyle(.secondary)
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(profile.name)")
+        }
+    }
+}
+
 private struct AccountSourceRow: View {
     let name: String
     let detail: String
@@ -394,26 +426,19 @@ private struct MobileAccountView: View {
                     Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
-                    if let profile = media.activeProfile {
-                        MediaServerAccountCard(profile: profile) { selectedTab = 2 }
+                    if media.hasAnySource {
+                        MediaServerAccountCard { selectedTab = 2 }
                             .lineupAccountCardRow()
                     }
                     ForEach(media.profiles) { profile in
-                        AccountSourceRow(
-                            name: profile.name,
-                            detail: URL(string: profile.serverURL)?.host ?? profile.serverURL,
-                            isActive: media.activeProfile?.id == profile.id,
-                            kind: "media server",
-                            select: { Task { await media.select(profile) } },
-                            remove: { removingMediaProfile = profile }
-                        )
+                        MediaServerRow(profile: profile, remove: { removingMediaProfile = profile })
                     }
                     Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
-                    if media.isLoading { ProgressView("Connecting…") }
+                    if media.isAddingServer { ProgressView("Connecting…") }
                 } header: {
                     Text("Media Servers").lineupSectionHeader()
                 } footer: {
-                    Text("Jellyfin servers.")
+                    Text("Lineup uses every Jellyfin server here together: their shelves, search and streams all appear in one Library.")
                 }.listRowBackground(LineupGlassRow())
                 Section {
                     NavigationLink {
@@ -422,7 +447,7 @@ private struct MobileAccountView: View {
                         LabeledContent("Library hero",
                             value: media.heroCatalog?.title ?? "Choose catalog")
                     }
-                    .disabled(media.activeProfile == nil)
+                    .disabled(!media.hasAnySource)
                 } header: {
                     Text("Library").lineupSectionHeader()
                 } footer: {
@@ -498,9 +523,7 @@ private struct MobileAccountView: View {
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
             .task {
-                if media.activeProfile != nil && media.roots.isEmpty && !media.isLoading {
-                    await media.reload()
-                }
+                media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }

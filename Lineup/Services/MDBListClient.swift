@@ -196,9 +196,12 @@ enum MDBListCatalogMatcher {
     static func match(_ entries: [MDBListCatalogItem], to library: [MediaItem]) -> [MediaItem] {
         var providerIndex: [String: MediaItem] = [:]
         var titleIndex: [String: [MediaItem]] = [:]
+        // The library can span several servers, listed in the order they were
+        // added. A title more than one of them holds goes to the first.
         for item in library where item.type == "Movie" || item.type == "Series" {
             for (provider, value) in item.providerIDs ?? [:] {
-                providerIndex[provider.lowercased() + ":" + value.lowercased()] = item
+                let key = provider.lowercased() + ":" + value.lowercased()
+                if providerIndex[key] == nil { providerIndex[key] = item }
             }
             titleIndex[normalized(item.name), default: []].append(item)
         }
@@ -218,7 +221,7 @@ enum MDBListCatalogMatcher {
                 guard let expected = entry.releaseYear, let actual = candidate.productionYear else { return true }
                 return expected == actual
             }
-            guard let match = providerMatch ?? titleMatch, seen.insert(match.id).inserted else { return nil }
+            guard let match = providerMatch ?? titleMatch, seen.insert(match.libraryKey).inserted else { return nil }
             return match
         }
     }

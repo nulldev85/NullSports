@@ -1,15 +1,15 @@
 import Foundation
 
-@MainActor
-final class MediaLibrary: ObservableObject {
-    @Published private(set) var profiles: [MediaServerProfile] = []
-    @Published private(set) var activeProfile: MediaServerProfile?
+/// What one connected server has put in the Library, and how its last load
+/// went. Every server keeps its own, so one that is slow or offline costs the
+/// Library that server's shelves and never another's.
+struct MediaServerState {
     /// The server's own libraries, as `/views` reports them.
-    @Published private(set) var roots: [MediaItem] = []
+    var roots: [MediaItem] = []
     /// Collections, which on a Nullfin server is where an enabled addon catalog
     /// lands. Kept apart from `roots` only so the shelf picker can say which is
     /// which; a shelf made from either behaves the same way.
-    @Published private(set) var collections: [MediaItem] = []
+    var collections: [MediaItem] = []
     /// Collections named by the addons themselves, resolved one id at a time.
     ///
     /// The list of every collection is a broad query with a lot of assumptions
@@ -18,28 +18,52 @@ final class MediaLibrary: ObservableObject {
     /// narrowest question there is. Where the two disagree this one is right,
     /// so both are merged and this one is the reason a catalog appears at all
     /// when the broad query comes back short.
-    @Published private(set) var importedCatalogs: [MediaItem] = []
-    @Published private(set) var catalogs: [MediaCatalog] = []
-    /// The shelf driving the large Library feature card. Saved per media
-    /// server so switching households never carries one server's catalog name
-    /// into another one's Library.
-    @Published private(set) var selectedHeroCatalogID: String? = nil
-    @Published private(set) var libraryCounts: MediaLibraryCounts?
-    @Published private(set) var lastRefreshedAt: Date?
-    @Published private(set) var isConnected = false
+    var importedCatalogs: [MediaItem] = []
+    /// This server's shelves, in the order they were added.
+    var catalogs: [MediaCatalog] = []
+    var counts: MediaLibraryCounts?
+    var refreshedAt: Date?
+    var isConnected = false
+    var isLoading = false
+    /// Set when the last attempt ended without shelves, so the tab can say so
+    /// and offer to try again instead of claiming there is nothing to show.
+    var loadFailed = false
+    /// The shelves on screen are this launch's answer from the server, rather
+    /// than the snapshot put up before it was asked.
+    var isLoaded = false
     /// Catalogs each addon offers that the server is not importing yet. Loaded
     /// on demand, because the routes behind it are administrator-only and a
     /// server may refuse them.
-    @Published private(set) var addonGroups: [AddonCatalogGroup] = []
-    /// Catalogs switched on and waiting for the server to finish importing.
-    @Published private(set) var importing: Set<String> = []
+    var addonGroups: [MediaLibrary.AddonCatalogGroup] = []
     /// Set when the server will not discuss addons with this account, so the
     /// screen can say why rather than showing an empty list.
-    @Published private(set) var addonsUnavailable = false
+    var addonsUnavailable = false
+}
+
+@MainActor
+final class MediaLibrary: ObservableObject {
+    /// Every connected server, in the order they were added.
+    ///
+    /// All of them feed the Library at once: shelves, search and the streams
+    /// for a title are drawn from each. Everything a server hands back is
+    /// marked with the server it came from (`MediaItem.serverID`), so whatever
+    /// is done with it later -- its page, its artwork, playing it -- goes back
+    /// to that server.
+    @Published private(set) var profiles: [MediaServerProfile] = []
+    @Published private(set) var servers: [UUID: MediaServerState] = [:]
+    /// MDBList shelves belong to the Library rather than to any one server:
+    /// each list is matched against every server's titles together.
+    @Published private(set) var mdbListShelves: [MediaCatalog] = []
+    /// The shelf driving the large Library feature card.
+    @Published private(set) var selectedHeroCatalogID: String? = nil
+    /// Catalogs switched on and waiting for their server to finish importing,
+    /// by server and catalog.
+    @Published private(set) var importing: Set<String> = []
+    @Published private(set) var isAddingServer = false
     private var importTasks: [String: Task<Void, Never>] = [:]
 
     /// MDBList is an account-level discovery integration. Lists are offered in
-    /// Add Shelf, then matched to titles that the active media server can
+    /// Add Shelf, then matched to titles that the connected media servers can
     /// actually play.
     @Published private(set) var mdbListAccount: MDBListAccount?
     @Published private(set) var mdbListCatalogs: [MDBListCatalog] = []
@@ -48,7 +72,6 @@ final class MediaLibrary: ObservableObject {
     private var hasLoadedMDBListIntegration = false
     private var mdbListLoad: Task<Void, Never>?
 
-    @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
     /// Playback state owned by this device. It deliberately does not travel
@@ -68,19 +91,25 @@ final class MediaLibrary: ObservableObject {
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
+    /// The entry, in the stores that used to keep one per server, for a choice
+    /// that is now the whole Library's.
+    private static let libraryWide = "library"
     // Written by a version that could install media sources the app talked to
     // directly. That feature is gone, so the state it left behind is cleared
     // on the next launch rather than sitting in defaults forever.
     private static let retiredKeys = ["Lineup.stremioAddons", "Lineup.stremioShelves"]
-    private var loadID = UUID()
-    /// The profile whose shelves are on screen, and the load that put them
-    /// there. Both belong to the store rather than to the tab: a load owned by
-    /// a view's task is cancelled the moment the viewer looks at another tab,
-    /// which is most of a slow one.
-    private var loadedProfileID: UUID?
-    private var shelfLoad: Task<Void, Never>?
-    private var reconciledSeriesProfileID: UUID?
-    private var seriesReconcileTask: Task<Void, Never>?
+    /// The newest load of each server. An older one that finishes late leaves
+    /// the newer one's answer alone.
+    private var loadIDs: [UUID: UUID] = [:]
+    /// The load the Library asked for. It belongs to the store rather than to
+    /// the tab: a load owned by a view's task is cancelled the moment the
+    /// viewer looks at another tab, which is most of a slow one.
+    private var libraryLoad: Task<Void, Never>?
+    private var reconciledSeriesServers: Set<UUID> = []
+    private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
+    /// One client per server. Making one reads its token from the Keychain,
+    /// and every poster on screen asks for one.
+    private var clients: [UUID: JellyfinClient] = [:]
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -97,9 +126,13 @@ final class MediaLibrary: ObservableObject {
         let storedAt: Date
     }
     private var detailCache: [String: CachedDetail] = [:]
-    /// Set when the last attempt ended without shelves, so the tab can say so
-    /// and offer to try again instead of claiming there is nothing to show.
-    @Published private(set) var loadFailed = false
+    private struct CachedCounterpart {
+        let item: MediaItem?
+        let storedAt: Date
+    }
+    /// Each title's copy on each other server, once found -- or the finding
+    /// that a server has none -- so playing it again does not search again.
+    private var counterparts: [String: CachedCounterpart] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -108,33 +141,90 @@ final class MediaLibrary: ObservableObject {
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
             profiles = saved
         }
-        let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
-        activeProfile = profiles.first { $0.id == activeID } ?? profiles.first
-        selectedHeroCatalogID = activeProfile.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
         if let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
-            localPlayback = saved
+            localPlayback = saved.map { Self.marked($0) }
         }
         if let data = defaults.data(forKey: localFavoritesKey),
            let saved = try? JSONDecoder().decode([LocalMediaFavorite].self, from: data) {
-            localFavorites = saved
+            localFavorites = saved.map { Self.marked($0) }
         }
-        if let profile = activeProfile { restoreLibrarySnapshot(for: profile) }
+        let listsRestored = restoreMDBListSnapshot()
+        let formerActive = formerActiveServer()
+        for profile in profiles {
+            restoreLibrarySnapshot(for: profile, adoptingLists: !listsRestored && profile.id == formerActive)
+        }
+        migrateLibraryChoices()
+        selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
     }
 
-    var hasProfile: Bool { activeProfile != nil }
+    var hasProfile: Bool { !profiles.isEmpty }
 
     /// Whether there is anything to show at all.
-    var hasAnySource: Bool { activeProfile != nil }
+    var hasAnySource: Bool { !profiles.isEmpty }
+
+    // MARK: - The Library across every server
+
+    var roots: [MediaItem] { profiles.flatMap { servers[$0.id]?.roots ?? [] } }
+    var collections: [MediaItem] { profiles.flatMap { servers[$0.id]?.collections ?? [] } }
+    var importedCatalogs: [MediaItem] { profiles.flatMap { servers[$0.id]?.importedCatalogs ?? [] } }
+
+    /// Every shelf: each server's, servers in the order they were added, then
+    /// the MDBList shelves that draw on all of them.
+    var catalogs: [MediaCatalog] { profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves }
+
+    var addonGroups: [AddonCatalogGroup] { profiles.flatMap { servers[$0.id]?.addonGroups ?? [] } }
+
+    var addonsUnavailable: Bool {
+        !profiles.isEmpty && profiles.allSatisfy { servers[$0.id]?.addonsUnavailable == true }
+    }
+
+    /// Every server's counts together. A server that has not reported yet is
+    /// left out rather than counted as empty, and nothing reported is nil.
+    var libraryCounts: MediaLibraryCounts? {
+        let known = profiles.compactMap { servers[$0.id]?.counts }
+        guard !known.isEmpty else { return nil }
+        return MediaLibraryCounts(movies: known.map(\.movies).reduce(0, +),
+                                  shows: known.map(\.shows).reduce(0, +),
+                                  episodes: known.map(\.episodes).reduce(0, +))
+    }
+
+    var lastRefreshedAt: Date? { profiles.compactMap { servers[$0.id]?.refreshedAt }.max() }
+    var isConnected: Bool { profiles.contains { servers[$0.id]?.isConnected == true } }
+    var isLoading: Bool { isAddingServer || profiles.contains { servers[$0.id]?.isLoading == true } }
+
+    /// Every server's last attempt failed: there is nothing fresh to show.
+    var loadFailed: Bool {
+        !profiles.isEmpty && profiles.allSatisfy { servers[$0.id]?.loadFailed == true }
+    }
+
+    func state(of profile: MediaServerProfile) -> MediaServerState {
+        servers[profile.id] ?? MediaServerState()
+    }
+
+    /// A server's name, for showing beside what it offers -- but only when
+    /// there is more than one server to tell apart.
+    func serverName(of serverID: UUID?) -> String? {
+        guard profiles.count > 1, let serverID else { return nil }
+        return profiles.first { $0.id == serverID }?.name
+    }
+
+    func serverName(for catalog: MediaCatalog) -> String? { serverName(of: catalog.root.serverID) }
+
+    /// A shelf's name where a list of every shelf shows it: with more than one
+    /// server, two of them can each have a "Movies".
+    func shelfName(_ catalog: MediaCatalog) -> String {
+        serverName(for: catalog).map { catalog.title + " · " + $0 } ?? catalog.title
+    }
 
     /// In-progress titles, newest first. A completed title belongs in History,
     /// not in Continue Watching, even if its final saved position is shy of the
     /// exact file duration.
     var continueWatching: [LocalMediaPlayback] {
-        let candidates = playbackForActiveProfile.filter {
+        let candidates = playbackForConnectedServers.filter {
             !$0.completed && ($0.isUpNext == true
                 || ($0.explicitlyUnwatched != true && $0.position >= 5))
         }
@@ -143,9 +233,9 @@ final class MediaLibrary: ObservableObject {
         // newer generated Up Next record from the same series.
         var selected: [String: LocalMediaPlayback] = [:]
         for record in candidates {
-            let key = record.item.type == "Episode"
+            let key = record.profileID.uuidString + "|" + (record.item.type == "Episode"
                 ? "series:" + Self.seriesKey(for: record.item)
-                : "item:" + record.item.id
+                : "item:" + record.item.id)
             if let existing = selected[key] {
                 if Self.prefersForDisplay(record, over: existing) { selected[key] = record }
             } else {
@@ -158,12 +248,12 @@ final class MediaLibrary: ObservableObject {
     /// Finished titles stay useful as a short, local history without taking
     /// over the Library. The stored collection itself is capped as well.
     var watchHistory: [LocalMediaPlayback] {
-        playbackForActiveProfile.filter(\.completed).sorted { $0.updatedAt > $1.updatedAt }
+        playbackForConnectedServers.filter(\.completed).sorted { $0.updatedAt > $1.updatedAt }
     }
 
     var favoriteMedia: [MediaItem] {
-        guard let profileID = activeProfile?.id else { return [] }
-        return localFavorites.filter { $0.profileID == profileID }
+        let connected = Set(profiles.map(\.id))
+        return localFavorites.filter { connected.contains($0.profileID) }
             .sorted { $0.addedAt > $1.addedAt }.map(\.item)
     }
 
@@ -178,13 +268,12 @@ final class MediaLibrary: ObservableObject {
     }
 
     func selectHeroCatalog(_ catalog: MediaCatalog) {
-        guard let profile = activeProfile, catalogs.contains(where: { $0.id == catalog.id }) else { return }
+        guard catalogs.contains(where: { $0.id == catalog.id }) else { return }
         selectedHeroCatalogID = catalog.id
-        var saved = savedHeroCatalogs()
-        saved[profile.id.uuidString] = catalog.id
-        defaults.set(try? JSONEncoder().encode(saved), forKey: heroCatalogKey)
-        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        saveHeroCatalogID(catalog.id)
     }
+
+    // MARK: - Servers
 
     func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -195,24 +284,45 @@ final class MediaLibrary: ObservableObject {
             errorMessage = "Enter your media server user name."
             return false
         }
-        isLoading = true
+        isAddingServer = true
         errorMessage = nil
-        defer { isLoading = false }
+        defer { isAddingServer = false }
         do {
             let client = try JellyfinClient(serverURL: serverURL, deviceID: deviceID)
             let authentication = try await client.authenticate(username: cleanUsername, password: password)
-            let profile = MediaServerProfile(
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My Media" : name,
-                serverURL: client.serverURL.absoluteString,
+            let typedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let address = client.serverURL.absoluteString
+            var profile = MediaServerProfile(
+                name: typedName.isEmpty ? "My Media" : typedName,
+                serverURL: address,
                 username: authentication.user.name,
                 userID: authentication.user.id
             )
+            // Signing in again to a server that is already here is a new token
+            // for it, not a second copy of every one of its shelves.
+            let existing = profiles.firstIndex { $0.serverURL == address && $0.userID == authentication.user.id }
+            if let existing {
+                profile = MediaServerProfile(id: profiles[existing].id,
+                    name: typedName.isEmpty ? profiles[existing].name : typedName,
+                    serverURL: address, username: authentication.user.name,
+                    userID: authentication.user.id)
+            }
             try MediaKeychainStore.save(token: authentication.accessToken, profileID: profile.id)
-            profiles.append(profile)
-            activeProfile = profile
-            selectedHeroCatalogID = savedHeroCatalogs()[profile.id.uuidString]
+            clients[profile.id] = nil
+            if let existing {
+                profiles[existing] = profile
+            } else {
+                profiles.append(profile)
+                servers[profile.id] = MediaServerState()
+            }
             persist()
-            await reload()
+            // Its shelves before the sheet closes, so the Library already has
+            // them. What spans every server follows behind.
+            await loadServer(profile)
+            Task { [weak self] in
+                await self?.loadMDBListShelves()
+                await self?.loadAddonCatalogs(on: [profile])
+            }
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -220,59 +330,37 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
-    func select(_ profile: MediaServerProfile) async {
-        loadID = UUID()
-        loadedProfileID = nil
-        reconciledSeriesProfileID = nil
-        seriesReconcileTask?.cancel()
-        seriesReconcileTask = nil
-        loadFailed = false
-        activeProfile = profile
-        selectedHeroCatalogID = savedHeroCatalogs()[profile.id.uuidString]
-        roots = []
-        collections = []
-        catalogs = []
-        libraryCounts = nil
-        lastRefreshedAt = nil
-        isConnected = false
-        restoreLibrarySnapshot(for: profile)
-        persist()
-        await reload()
-    }
-
     func remove(_ profile: MediaServerProfile) {
-        loadID = UUID()
-        loadedProfileID = nil
-        reconciledSeriesProfileID = nil
-        seriesReconcileTask?.cancel()
-        seriesReconcileTask = nil
-        loadFailed = false
+        loadIDs[profile.id] = nil
+        seriesReconcileTasks[profile.id]?.cancel()
+        seriesReconcileTasks[profile.id] = nil
+        reconciledSeriesServers.remove(profile.id)
+        for (key, task) in importTasks where key.hasPrefix(profile.id.uuidString) { task.cancel() }
         MediaKeychainStore.delete(profileID: profile.id)
+        clients[profile.id] = nil
         profiles.removeAll { $0.id == profile.id }
+        servers[profile.id] = nil
         localPlayback.removeAll { $0.profileID == profile.id }
         persistLocalPlayback()
         localFavorites.removeAll { $0.profileID == profile.id }
         persistLocalFavorites()
-        saveMDBListShelfIDs([], profileID: profile.id)
-        try? FileManager.default.removeItem(at: Self.snapshotURL(profileID: profile.id))
-        var heroChoices = savedHeroCatalogs()
-        heroChoices.removeValue(forKey: profile.id.uuidString)
-        if heroChoices.isEmpty { defaults.removeObject(forKey: heroCatalogKey) }
-        else { defaults.set(try? JSONEncoder().encode(heroChoices), forKey: heroCatalogKey) }
-        if activeProfile?.id == profile.id {
-            activeProfile = profiles.first
-            selectedHeroCatalogID = activeProfile.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
-            roots = []
-            collections = []
-            catalogs = []
-            libraryCounts = nil
-            lastRefreshedAt = nil
-            isConnected = false
-            if let activeProfile { restoreLibrarySnapshot(for: activeProfile) }
+        var shelfChoices = savedShelves()
+        if shelfChoices.removeValue(forKey: profile.id.uuidString) != nil {
+            defaults.set(try? JSONEncoder().encode(shelfChoices), forKey: shelvesKey)
         }
-        isLoading = false
+        try? FileManager.default.removeItem(at: Self.snapshotURL(profileID: profile.id))
+        // Its titles leave the MDBList shelves with it; the lists stay.
+        mdbListShelves = mdbListShelves.map { shelf in
+            MediaCatalog(root: shelf.root, items: shelf.items.filter { $0.serverID != profile.id })
+        }
+        persistMDBListSnapshot()
+        if selectedHeroCatalogID?.hasPrefix(profile.id.uuidString + "|") == true {
+            selectedHeroCatalogID = nil
+            saveHeroCatalogID(nil)
+        }
+        detailCache = detailCache.filter { !$0.key.hasPrefix(profile.id.uuidString) }
+        counterparts = counterparts.filter { !$0.key.contains(profile.id.uuidString) }
         persist()
-        if activeProfile != nil { Task { await reload() } }
     }
 
     /// What the Media Servers tab asks for when it appears.
@@ -283,36 +371,61 @@ final class MediaLibrary: ObservableObject {
     /// The store holds the task instead, so looking away costs nothing and
     /// looking back finds it done.
     ///
-    /// It starts nothing when the shelves for this profile are already loaded,
-    /// and starts again after an attempt that failed, which is the retry a
-    /// viewer would otherwise have to find in a menu.
+    /// It starts nothing for a server whose shelves are already loaded, and
+    /// starts again for one whose attempt failed, which is the retry a viewer
+    /// would otherwise have to find in a menu.
     func loadShelvesIfNeeded() {
-        guard let profile = activeProfile else { return }
-        reconcileSeriesPositionsIfNeeded(for: profile)
-        guard MediaShelfLoad.shouldStart(profile: profile.id, loaded: loadedProfileID,
-                                         alreadyRunning: shelfLoad != nil,
-                                         lastAttemptFailed: loadFailed) else { return }
-        shelfLoad = Task { [weak self] in
-            await self?.reload()
-            self?.shelfLoad = nil
+        guard !profiles.isEmpty else { return }
+        for profile in profiles { reconcileSeriesPositionsIfNeeded(for: profile) }
+        guard libraryLoad == nil else { return }
+        let due = profiles.filter { profile in
+            let current = self.state(of: profile)
+            return MediaShelfLoad.shouldStart(profile: profile.id,
+                                              loaded: current.isLoaded ? profile.id : nil,
+                                              alreadyRunning: false,
+                                              lastAttemptFailed: current.loadFailed)
+        }
+        guard !due.isEmpty else { return }
+        libraryLoad = Task { [weak self] in
+            await self?.reload(servers: due)
+            self?.libraryLoad = nil
         }
     }
 
     func reload() async {
-        guard let profile = activeProfile else {
-            roots = []; collections = []; catalogs = []; selectedHeroCatalogID = nil; isLoading = false
-            libraryCounts = nil; lastRefreshedAt = nil; isConnected = false
-            loadedProfileID = nil; loadFailed = false
-            return
+        await reload(servers: profiles)
+    }
+
+    /// Fresh shelves from each of `targets` at once, then the shelves and
+    /// catalogs that are drawn from them.
+    private func reload(servers targets: [MediaServerProfile]) async {
+        guard !targets.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for profile in targets {
+                group.addTask { await self.loadServer(profile) }
+            }
         }
+        // After the libraries, not before: MDBList is a request per list over
+        // every server's titles, and the addon catalogs a request per enabled
+        // catalog. The shelves should not wait behind either.
+        await loadMDBListShelves()
+        await loadAddonCatalogs(on: targets)
+    }
+
+    /// One server's libraries and shelves.
+    ///
+    /// Its failure is its own: every other server's shelves stay up, and this
+    /// one keeps whatever it showed last.
+    private func loadServer(_ profile: MediaServerProfile) async {
         let requestID = UUID()
-        loadID = requestID
-        isLoading = true
-        isConnected = false
-        errorMessage = nil
+        loadIDs[profile.id] = requestID
+        let isCurrent = { [unowned self] in
+            self.loadIDs[profile.id] == requestID && self.contains(profile)
+        }
+        update(profile) { $0.isLoading = true }
         do {
             let source = try client(for: profile)
-            let loaded = try await source.views(userID: profile.userID)
+            let loaded = try await source.views(userID: profile.userID).map { $0.servedBy(profile.id) }
             // A server with no collections answers with an empty list, and one
             // too old to know the route answers an error. Neither is worth
             // costing the viewer the libraries that did load.
@@ -323,14 +436,14 @@ final class MediaLibrary: ObservableObject {
             let known = Set(loaded.map(\.id))
             let loadedCollections = ((try? await source.allCollections(userID: profile.userID)) ?? [])
                 .filter { !known.contains($0.id) }
-            let shelvable = loaded + loadedCollections
-            let selectedRoots = selectedShelfRoots(from: shelvable, profileID: profile.id)
-            let coldStart = catalogs.isEmpty
+                .map { $0.servedBy(profile.id) }
+            let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
+            let coldStart = state(of: profile).catalogs.isEmpty
             let loadedCatalogs = await withTaskGroup(of: (Int, MediaCatalog).self) { group in
                 for (index, root) in selectedRoots.enumerated() {
                     group.addTask {
                         let items = (try? await source.items(userID: profile.userID, parentID: root.id)) ?? []
-                        return (index, MediaCatalog(root: root, items: items))
+                        return (index, MediaCatalog(root: root, items: items.map { $0.servedBy(profile.id) }))
                     }
                 }
                 var result: [Int: MediaCatalog] = [:]
@@ -340,34 +453,36 @@ final class MediaLibrary: ObservableObject {
                     // shelf as soon as it arrives. Later results are committed
                     // together so a normal refresh does not repeatedly rebuild
                     // the screen.
-                    if coldStart, catalogs.isEmpty, !catalog.items.isEmpty,
-                       loadID == requestID, activeProfile?.id == profile.id {
-                        roots = loaded
-                        collections = loadedCollections
-                        catalogs = [catalog]
+                    if coldStart, isCurrent(), state(of: profile).catalogs.isEmpty, !catalog.items.isEmpty {
+                        update(profile) { state in
+                            state.roots = loaded
+                            state.collections = loadedCollections
+                            state.catalogs = [catalog]
+                        }
                     }
                 }
                 return result.keys.sorted().compactMap { result[$0] }
             }
-            let loadedMDBListCatalogs = await loadSavedMDBListShelves(source: source, profile: profile)
-            guard loadID == requestID, activeProfile?.id == profile.id else { return }
-            roots = loaded
-            collections = loadedCollections
-            catalogs = loadedCatalogs + loadedMDBListCatalogs
-            isConnected = true
-            loadFailed = false
-            loadedProfileID = profile.id
-            lastRefreshedAt = Date()
-            errorMessage = nil
-            Task {
-                let counts = try? await source.libraryCounts(userID: profile.userID)
-                guard loadID == requestID, activeProfile?.id == profile.id else { return }
-                libraryCounts = counts
-                persistLibrarySnapshot(profileID: profile.id)
+            guard isCurrent() else { return }
+            update(profile) { state in
+                state.roots = loaded
+                state.collections = loadedCollections
+                state.catalogs = loadedCatalogs
+                state.isConnected = true
+                state.isLoading = false
+                state.loadFailed = false
+                state.isLoaded = true
+                state.refreshedAt = Date()
             }
-            persistLibrarySnapshot(profileID: profile.id)
+            persistLibrarySnapshot(for: profile)
+            Task { [weak self] in
+                let counts = try? await source.libraryCounts(userID: profile.userID)
+                guard let self, self.loadIDs[profile.id] == requestID else { return }
+                self.update(profile) { $0.counts = counts }
+                self.persistLibrarySnapshot(for: profile)
+            }
         } catch {
-            guard loadID == requestID, activeProfile?.id == profile.id else { return }
+            guard isCurrent() else { return }
             // A cancelled load is the app's own bookkeeping, not a fault: a
             // second refresh replaces the first, and leaving a tab cancels what
             // it started. Reporting it put an alert reading "cancelled" in
@@ -379,44 +494,45 @@ final class MediaLibrary: ObservableObject {
             // behind it -- the tab reading "Loading libraries…" for the rest
             // of the session, and every later attempt declining to start
             // because one was apparently already under way.
-            if !Self.isCancellation(error) {
-                isConnected = false
-                errorMessage = error.localizedDescription
+            let cancelled = Self.isCancellation(error)
+            if !cancelled { report(error, from: profile) }
+            update(profile) { state in
+                if !cancelled { state.isConnected = false }
+                state.loadFailed = true
+                state.isLoading = false
             }
-            loadFailed = true
-            isLoading = false
-            return
         }
-        if loadID == requestID { isLoading = false }
-        // After the libraries, not before: this is one request per enabled
-        // catalog and the shelves should not wait behind it.
-        if loadID == requestID { await loadAddonCatalogs() }
     }
+
+    // MARK: - Titles
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
         if Self.isMDBListShelfID(parent.id) {
             return catalogs.first { $0.id == parent.id }?.items ?? []
         }
-        guard let profile = activeProfile else { return [] }
+        guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
+            .map { $0.servedBy(profile.id) }
     }
 
     // Seasons and episodes are numbered, not named: "Season 10" sorts before
     // "Season 2" by name. A season can also run long past the shelf's limit.
     func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
-        guard let profile = activeProfile else { return [] }
+        guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
             parentID: parent.id, sortBy: "IndexNumber", limit: 500)
+            .map { $0.servedBy(profile.id) }
     }
 
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
-        guard let profile = activeProfile else { return item }
+        guard let profile = profile(for: item) else { return item }
         let key = profile.id.uuidString + "|" + item.id
         if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 {
             return cached.item
         }
         let detailed = try await client(for: profile).item(userID: profile.userID, itemID: item.id)
+            .servedBy(profile.id)
         detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
         return detailed
     }
@@ -425,7 +541,7 @@ final class MediaLibrary: ObservableObject {
         let genres = Set((item.genres ?? []).map { $0.lowercased() })
         let local = shelves.flatMap(\.items).filter { candidate in
             candidate.hasDetailPage && candidate.type == item.type
-                && candidate.id != item.id
+                && candidate.libraryKey != item.libraryKey
                 && !genres.isEmpty
                 && !genres.isDisjoint(with: Set((candidate.genres ?? []).map { $0.lowercased() }))
         }.sorted { left, right in
@@ -434,10 +550,11 @@ final class MediaLibrary: ObservableObject {
             return leftMatch > rightMatch
         }
         var remote: [MediaItem] = []
-        if let profile = activeProfile {
+        if let profile = profile(for: item) {
             remote = (try? await client(for: profile)
                 .similarItems(userID: profile.userID, itemID: item.id))?
-                .filter { $0.id != item.id && $0.hasDetailPage } ?? []
+                .filter { $0.id != item.id && $0.hasDetailPage }
+                .map { $0.servedBy(profile.id) } ?? []
         }
         // Server recommendations can be empty or unavailable. Shelved movies
         // of matching genres keep the Related row useful on either platform.
@@ -448,43 +565,45 @@ final class MediaLibrary: ObservableObject {
         }.prefix(16).map { $0 }
     }
 
-    func personImageURL(for person: MediaPerson, width: Int = 300) -> URL? {
+    /// A cast member's portrait, from the server that described them.
+    func personImageURL(for person: MediaPerson, of item: MediaItem, width: Int = 300) -> URL? {
         guard person.primaryImageTag != nil, let personID = person.personID,
-              let profile = activeProfile else { return nil }
+              let profile = profile(for: item) else { return nil }
         return try? client(for: profile)
             .imageURL(itemID: personID, type: "primary", maxWidth: width)
     }
 
     func nextUp(in series: MediaItem) async -> MediaItem? {
-        guard let profile = activeProfile else { return nil }
-        return try? await client(for: profile)
+        guard let profile = profile(for: series) else { return nil }
+        let next = try? await client(for: profile)
             .nextUp(userID: profile.userID, seriesID: series.id).first
+        return next?.servedBy(profile.id)
     }
 
     /// Per-source scores, when the server keeps them. A Jellyfin server does
     /// not, so a failure here means "show what the item itself carries".
     func metrics(for item: MediaItem) async -> [MediaMetric] {
-        guard let profile = activeProfile else { return [] }
+        guard let profile = profile(for: item) else { return [] }
         return (try? await client(for: profile).itemMetrics(itemID: item.id)) ?? []
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
-        guard let profile = activeProfile else { return }
+        guard let profile = profile(for: item) else { return }
         do {
             try await client(for: profile)
                 .setFavorite(userID: profile.userID, itemID: item.id, isFavorite: isFavorite)
         } catch {
-            errorMessage = error.localizedDescription
+            report(error, from: profile)
         }
     }
 
     func setPlayed(_ isPlayed: Bool, for item: MediaItem) async {
-        guard let profile = activeProfile else { return }
+        guard let profile = profile(for: item) else { return }
         do {
             try await client(for: profile)
                 .setPlayed(userID: profile.userID, itemID: item.id, isPlayed: isPlayed)
         } catch {
-            errorMessage = error.localizedDescription
+            report(error, from: profile)
         }
     }
 
@@ -510,9 +629,7 @@ final class MediaLibrary: ObservableObject {
             isMDBListConnected = true
             hasLoadedMDBListIntegration = true
             errorMessage = nil
-            if let profileID = activeProfile?.id, !savedMDBListShelfIDs(for: profileID).isEmpty {
-                await reload()
-            }
+            if !savedMDBListShelfIDs().isEmpty { await loadMDBListShelves() }
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -570,20 +687,116 @@ final class MediaLibrary: ObservableObject {
         mdbListCatalogs = []
         isMDBListConnected = false
         errorMessage = nil
-        catalogs.removeAll { Self.isMDBListShelfID($0.id) }
+        mdbListShelves = []
         defaults.removeObject(forKey: mdbListShelvesKey)
-        if let profileID = activeProfile?.id { persistLibrarySnapshot(profileID: profileID) }
+        persistMDBListSnapshot()
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     var availableMDBListCatalogs: [MDBListCatalog] {
-        mdbListCatalogs.filter { list in !catalogs.contains(where: { $0.id == list.shelfID }) }
+        mdbListCatalogs.filter { list in !mdbListShelves.contains(where: { $0.id == list.shelfID }) }
+    }
+
+    func addMDBListShelf(_ list: MDBListCatalog) async {
+        guard !profiles.isEmpty, let apiKey = MDBListKeychainStore.apiKey(),
+              !mdbListShelves.contains(where: { $0.id == list.shelfID }) else { return }
+        do {
+            async let entries = MDBListClient(apiKey: apiKey).items(in: list.id)
+            async let titles = combinedInventory()
+            let inventory = await titles
+            if inventory.items.isEmpty, let failure = inventory.failure { throw failure }
+            let matched = MDBListCatalogMatcher.match(try await entries, to: inventory.items)
+            guard !mdbListShelves.contains(where: { $0.id == list.shelfID }) else { return }
+            mdbListShelves.append(Self.mdbListShelf(list, items: matched))
+            var ids = savedMDBListShelfIDs()
+            if !ids.contains(list.id) { ids.append(list.id) }
+            saveMDBListShelfIDs(ids)
+            errorMessage = nil
+            persistMDBListSnapshot()
+        } catch {
+            if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
+        }
+    }
+
+    /// The saved lists, each matched against every connected server's titles
+    /// at once. A list that does not answer keeps the shelf it had.
+    private func loadMDBListShelves() async {
+        let selected = savedMDBListShelfIDs()
+        guard !selected.isEmpty, let apiKey = MDBListKeychainStore.apiKey() else {
+            if !mdbListShelves.isEmpty {
+                mdbListShelves = []
+                persistMDBListSnapshot()
+            }
+            return
+        }
+        guard !profiles.isEmpty else { return }
+        do {
+            let mdb = MDBListClient(apiKey: apiKey)
+            let lists = try await mdb.catalogChoices()
+            mdbListCatalogs = lists
+            isMDBListConnected = true
+            let inventory = await combinedInventory()
+            if inventory.items.isEmpty, let failure = inventory.failure { throw failure }
+            let titles = inventory.items
+            let selectedLists = selected.compactMap { id in lists.first { $0.id == id } }
+            let loaded = await withTaskGroup(of: MediaCatalog?.self) { group in
+                for list in selectedLists {
+                    group.addTask {
+                        guard let entries = try? await mdb.items(in: list.id) else { return nil }
+                        return Self.mdbListShelf(list, items: MDBListCatalogMatcher.match(entries, to: titles))
+                    }
+                }
+                var shelves: [String: MediaCatalog] = [:]
+                for await shelf in group {
+                    if let shelf { shelves[shelf.id] = shelf }
+                }
+                return shelves
+            }
+            let previous = Dictionary(mdbListShelves.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            mdbListShelves = selectedLists.compactMap { loaded[$0.shelfID] ?? previous[$0.shelfID] }
+            persistMDBListSnapshot()
+        } catch {
+            // MDBList being unavailable must never take the connected media
+            // servers or their own shelves down with it.
+        }
+    }
+
+    /// Every connected server's films and shows, servers in the order they
+    /// were added, with the first failure for when none of them answered.
+    private func combinedInventory() async -> (items: [MediaItem], failure: Error?) {
+        let targets = profiles.map { ($0, try? client(for: $0)) }
+        let answers = await withTaskGroup(of: (Int, Result<[MediaItem], Error>).self) { group in
+            for (index, (profile, source)) in targets.enumerated() {
+                group.addTask {
+                    guard let source else { return (index, .failure(JellyfinError.authenticationFailed)) }
+                    do {
+                        let titles = try await source.allTitles(userID: profile.userID)
+                        return (index, .success(titles.map { $0.servedBy(profile.id) }))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            var answers: [Int: Result<[MediaItem], Error>] = [:]
+            for await (index, answer) in group { answers[index] = answer }
+            return answers
+        }
+        var items: [MediaItem] = []
+        var failure: Error?
+        for index in targets.indices {
+            switch answers[index] {
+            case .success(let titles)?: items += titles
+            case .failure(let error)?: if failure == nil { failure = error }
+            case nil: break
+            }
+        }
+        return (items, failure)
     }
 
     // MARK: - Local playback tracking
 
     func localPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
-        guard let profileID = activeProfile?.id else { return nil }
+        guard let profileID = serverID(of: item) else { return nil }
         return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
     }
 
@@ -597,7 +810,7 @@ final class MediaLibrary: ObservableObject {
             if !item.isSeries { return nil }
         }
         guard item.isSeries else { return nil }
-        guard let profileID = activeProfile?.id else { return nil }
+        guard let profileID = serverID(of: item) else { return nil }
         var best: LocalMediaPlayback?
         for record in localPlayback where record.profileID == profileID {
             guard record.item.type == "Episode",
@@ -693,7 +906,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval) {
-        guard let profileID = activeProfile?.id, position.isFinite, duration.isFinite,
+        guard let profileID = serverID(of: item), position.isFinite, duration.isFinite,
               position >= 0, duration > 0 else { return }
 
         let safePosition = min(position, duration)
@@ -702,7 +915,7 @@ final class MediaLibrary: ObservableObject {
         // displacing something the viewer was actually watching.
         guard safePosition >= 5 else { return }
         let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
-        let record = LocalMediaPlayback(profileID: profileID, item: item,
+        let record = LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
         let wasCompleted = localPlayback.first(where: { $0.id == record.id })?.completed == true
         if let index = localPlayback.firstIndex(where: { $0.id == record.id }) {
@@ -711,7 +924,7 @@ final class MediaLibrary: ObservableObject {
             localPlayback.append(record)
         }
         // Keep plenty of useful history without letting artwork-rich item
-        // records grow defaults forever. Each profile retains its newest 200.
+        // records grow defaults forever. Each server retains its newest 200.
         let retained = Dictionary(grouping: localPlayback, by: \.profileID).values.flatMap { records in
             records.sorted { $0.updatedAt > $1.updatedAt }.prefix(200)
         }
@@ -725,43 +938,45 @@ final class MediaLibrary: ObservableObject {
     }
 
     func clearLocalPlayback() {
-        guard let profileID = activeProfile?.id else { return }
-        localPlayback.removeAll { $0.profileID == profileID }
+        let connected = Set(profiles.map(\.id))
+        localPlayback.removeAll { connected.contains($0.profileID) }
         persistLocalPlayback()
     }
 
     func isInContinueWatching(_ item: MediaItem) -> Bool {
-        continueWatching.contains { $0.item.id == item.id }
+        let profileID = serverID(of: item)
+        return continueWatching.contains { $0.profileID == profileID && $0.item.id == item.id }
     }
 
     /// Forget one resume point without telling the media server that the title
     /// was watched or unwatched. Playing it again naturally creates a fresh
     /// progress record.
     func removeFromContinueWatching(_ item: MediaItem) {
-        guard let profileID = activeProfile?.id else { return }
+        guard let profileID = serverID(of: item) else { return }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         persistLocalPlayback()
     }
 
     func isLocalFavorite(_ item: MediaItem) -> Bool {
-        guard let profileID = activeProfile?.id else { return false }
+        guard let profileID = serverID(of: item) else { return false }
         return localFavorites.contains { $0.profileID == profileID && $0.item.id == item.id }
     }
 
     func setLocalFavorite(_ favorite: Bool, for item: MediaItem) {
-        guard let profileID = activeProfile?.id else { return }
+        guard let profileID = serverID(of: item) else { return }
         localFavorites.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         if favorite {
-            localFavorites.append(LocalMediaFavorite(profileID: profileID, item: item, addedAt: Date()))
+            localFavorites.append(LocalMediaFavorite(profileID: profileID,
+                item: item.servedBy(profileID), addedAt: Date()))
         }
         persistLocalFavorites()
     }
 
     func setLocallyPlayed(_ played: Bool, for item: MediaItem) {
-        guard let profileID = activeProfile?.id else { return }
+        guard let profileID = serverID(of: item) else { return }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
-        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: item,
+        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: played ? duration : 0, duration: duration, updatedAt: Date(),
             completed: played, explicitlyUnwatched: played ? nil : true))
         persistLocalPlayback()
@@ -771,7 +986,7 @@ final class MediaLibrary: ObservableObject {
     /// viewer should play next. Generated Up Next records are distinct from
     /// genuine resume points, so rolling back never destroys real progress.
     func setEpisodePlayedAndAdvance(_ played: Bool, for episode: MediaItem) async {
-        guard episode.type == "Episode", let profile = activeProfile else {
+        guard episode.type == "Episode", let profile = profile(for: episode) else {
             setLocallyPlayed(played, for: episode)
             await setPlayed(played, for: episode)
             return
@@ -788,7 +1003,7 @@ final class MediaLibrary: ObservableObject {
         if played {
             following = await followingUnwatchedEpisode(after: trackedEpisode, profile: profile)
         }
-        guard activeProfile?.id == profile.id else { return }
+        guard contains(profile) else { return }
         applyLocalEpisodeProgression(played, for: trackedEpisode, following: following)
         await setPlayed(played, for: episode)
     }
@@ -796,7 +1011,7 @@ final class MediaLibrary: ObservableObject {
     /// Internal for regression tests as well as the async server-backed path.
     func applyLocalEpisodeProgression(_ played: Bool, for episode: MediaItem,
                                       following: MediaItem?) {
-        guard let profileID = activeProfile?.id else { return }
+        guard let profileID = serverID(of: episode) else { return }
         setLocallyPlayed(played, for: episode)
         let seriesKey = Self.seriesKey(for: episode)
         localPlayback.removeAll { record in
@@ -816,7 +1031,7 @@ final class MediaLibrary: ObservableObject {
     /// already loading. Remember it so every poster for that series shows the
     /// same useful position when the viewer returns to Library.
     func rememberNextUp(_ episode: MediaItem) {
-        guard episode.type == "Episode", let profileID = activeProfile?.id else { return }
+        guard episode.type == "Episode", let profileID = serverID(of: episode) else { return }
         let key = Self.seriesKey(for: episode)
         let hasRealProgress = localPlayback.contains { record in
             record.profileID == profileID && Self.seriesKey(for: record.item) == key
@@ -845,17 +1060,18 @@ final class MediaLibrary: ObservableObject {
         guard let seriesID = episode.seriesID else { return nil }
         guard let episodes = try? await client(for: profile)
             .episodes(userID: profile.userID, seriesID: seriesID) else { return nil }
-        return LocalEpisodeProgressionPolicy.nextEpisode(after: episode, in: episodes,
+        return LocalEpisodeProgressionPolicy.nextEpisode(after: episode,
+            in: episodes.map { $0.servedBy(profile.id) },
             isWatched: { [weak self] in self?.isWatched($0) == true })
     }
 
     private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
-        guard let profile = activeProfile, profile.id == profileID else { return }
+        guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let tracked = episode.seriesID == nil
             ? ((try? await details(of: episode)) ?? episode)
             : episode
         let following = await followingUnwatchedEpisode(after: tracked, profile: profile)
-        guard activeProfile?.id == profileID else { return }
+        guard contains(profile) else { return }
         let key = Self.seriesKey(for: tracked)
         localPlayback.removeAll { record in
             record.profileID == profileID && record.isUpNext == true
@@ -866,20 +1082,21 @@ final class MediaLibrary: ObservableObject {
     }
 
     /// Repair records written before automatic playback completion advanced a
-    /// series. It runs once per active profile, off the visible Library path.
+    /// series. It runs once per server, off the visible Library path.
     private func reconcileSeriesPositionsIfNeeded(for profile: MediaServerProfile) {
-        guard reconciledSeriesProfileID != profile.id, seriesReconcileTask == nil else { return }
-        seriesReconcileTask = Task { [weak self] in
+        guard !reconciledSeriesServers.contains(profile.id),
+              seriesReconcileTasks[profile.id] == nil else { return }
+        seriesReconcileTasks[profile.id] = Task { [weak self] in
             guard let self else { return }
             await self.reconcileSeriesPositions(for: profile)
-            guard !Task.isCancelled, self.activeProfile?.id == profile.id else { return }
-            self.reconciledSeriesProfileID = profile.id
-            self.seriesReconcileTask = nil
+            guard !Task.isCancelled, self.contains(profile) else { return }
+            self.reconciledSeriesServers.insert(profile.id)
+            self.seriesReconcileTasks[profile.id] = nil
         }
     }
 
     private func reconcileSeriesPositions(for profile: MediaServerProfile) async {
-        let series = catalogs.flatMap(\.items).filter(\.isSeries)
+        let series = catalogs.flatMap(\.items).filter { $0.isSeries && $0.serverID == profile.id }
         let records: [(seriesID: String, record: LocalMediaPlayback)] = localPlayback.compactMap { record in
             guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
             if let seriesID = record.item.seriesID { return (seriesID, record) }
@@ -893,7 +1110,7 @@ final class MediaLibrary: ObservableObject {
         guard let source = try? client(for: profile) else { return }
         for (seriesID, entries) in grouped {
             let values = entries.map { $0.record }
-            guard !Task.isCancelled, activeProfile?.id == profile.id else { return }
+            guard !Task.isCancelled, contains(profile) else { return }
             let hasCurrentPosition = values.contains { record in
                 record.isUpNext == true || (!record.completed && record.position >= 5
                     && record.explicitlyUnwatched != true)
@@ -903,24 +1120,25 @@ final class MediaLibrary: ObservableObject {
                     .max(by: { $0.updatedAt < $1.updatedAt })?.item else { continue }
 
             let serverNext = (try? await source.nextUp(
-                userID: profile.userID, seriesID: seriesID))?.first
+                userID: profile.userID, seriesID: seriesID))?.first?.servedBy(profile.id)
             let following: MediaItem?
             if let serverNext, !isWatched(serverNext) {
                 following = serverNext
             } else if let episodes = try? await source.episodes(
                 userID: profile.userID, seriesID: seriesID) {
-                following = LocalEpisodeProgressionPolicy.nextEpisode(after: anchor, in: episodes,
+                following = LocalEpisodeProgressionPolicy.nextEpisode(after: anchor,
+                    in: episodes.map { $0.servedBy(profile.id) },
                     isWatched: { [weak self] in self?.isWatched($0) == true })
             } else {
                 following = nil
             }
-            guard activeProfile?.id == profile.id else { return }
+            guard contains(profile) else { return }
             if let following { rememberNextUp(following) }
         }
     }
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
-        guard let profileID = activeProfile?.id else { return }
+        guard let profileID = serverID(of: episode) else { return }
         if let index = localPlayback.firstIndex(where: {
             $0.profileID == profileID && $0.item.id == episode.id
         }), localPlayback[index].position >= 5, !localPlayback[index].completed,
@@ -930,7 +1148,7 @@ final class MediaLibrary: ObservableObject {
         }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == episode.id }
         let duration = episode.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
-        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: episode,
+        localPlayback.append(LocalMediaPlayback(profileID: profileID, item: episode.servedBy(profileID),
             position: 0, duration: duration, updatedAt: Date(), completed: false,
             explicitlyUnwatched: explicitlyUnwatched, isUpNext: true))
     }
@@ -944,9 +1162,25 @@ final class MediaLibrary: ObservableObject {
         return "episode:" + episode.id
     }
 
-    private var playbackForActiveProfile: [LocalMediaPlayback] {
-        guard let profileID = activeProfile?.id else { return [] }
-        return localPlayback.filter { $0.profileID == profileID }
+    private var playbackForConnectedServers: [LocalMediaPlayback] {
+        let connected = Set(profiles.map(\.id))
+        return localPlayback.filter { connected.contains($0.profileID) }
+    }
+
+    /// A record saved before items carried their server gets it from the
+    /// record, which has always said which server it belongs to.
+    nonisolated private static func marked(_ record: LocalMediaPlayback) -> LocalMediaPlayback {
+        guard record.item.serverID == nil else { return record }
+        var marked = record
+        marked.item = record.item.servedBy(record.profileID)
+        return marked
+    }
+
+    nonisolated private static func marked(_ favorite: LocalMediaFavorite) -> LocalMediaFavorite {
+        guard favorite.item.serverID == nil else { return favorite }
+        var marked = favorite
+        marked.item = favorite.item.servedBy(favorite.profileID)
+        return marked
     }
 
     private func persistLocalPlayback() {
@@ -965,14 +1199,16 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    // MARK: - Snapshots
+
     /// Save only the last complete answer. A half-loaded refresh never
     /// replaces the screen that is known to work.
-    private func persistLibrarySnapshot(profileID: UUID) {
-        guard activeProfile?.id == profileID else { return }
-        let snapshot = LibrarySnapshot(roots: roots, collections: collections,
-            importedCatalogs: importedCatalogs, catalogs: catalogs,
-            counts: libraryCounts, refreshedAt: lastRefreshedAt ?? Date())
-        let url = Self.snapshotURL(profileID: profileID)
+    private func persistLibrarySnapshot(for profile: MediaServerProfile) {
+        guard contains(profile), let state = servers[profile.id] else { return }
+        let snapshot = LibrarySnapshot(roots: state.roots, collections: state.collections,
+            importedCatalogs: state.importedCatalogs, catalogs: state.catalogs,
+            counts: state.counts, refreshedAt: state.refreshedAt ?? Date())
+        let url = Self.snapshotURL(profileID: profile.id)
         Task.detached(priority: .utility) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             try? data.write(to: url, options: .atomic)
@@ -980,18 +1216,38 @@ final class MediaLibrary: ObservableObject {
     }
 
     /// Disk decoding is dramatically cheaper than repeating several server
-    /// requests, and it happens only once when a profile becomes active.
-    private func restoreLibrarySnapshot(for profile: MediaServerProfile) {
+    /// requests, and it happens once per server at launch.
+    private func restoreLibrarySnapshot(for profile: MediaServerProfile, adoptingLists: Bool) {
+        var state = servers[profile.id] ?? MediaServerState()
+        defer { servers[profile.id] = state }
         let url = Self.snapshotURL(profileID: profile.id)
         guard let data = try? Data(contentsOf: url),
               let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data) else { return }
-        roots = snapshot.roots
-        collections = snapshot.collections
-        importedCatalogs = snapshot.importedCatalogs
-        catalogs = snapshot.catalogs
-        libraryCounts = snapshot.counts
-        lastRefreshedAt = snapshot.refreshedAt
-        loadFailed = false
+        // Written before items carried their server, a snapshot's items are
+        // given it here.
+        let mark = { (items: [MediaItem]) in
+            items.map { $0.serverID == nil ? $0.servedBy(profile.id) : $0 }
+        }
+        state.roots = mark(snapshot.roots)
+        state.collections = mark(snapshot.collections)
+        state.importedCatalogs = mark(snapshot.importedCatalogs)
+        state.catalogs = snapshot.catalogs.filter { !Self.isMDBListShelfID($0.root.id) }.map { shelf in
+            MediaCatalog(root: shelf.root.serverID == nil ? shelf.root.servedBy(profile.id) : shelf.root,
+                         items: mark(shelf.items))
+        }
+        state.counts = snapshot.counts
+        state.refreshedAt = snapshot.refreshedAt
+        state.loadFailed = false
+        // MDBList shelves used to be saved with the server that was active,
+        // when a list was matched against one server's titles. They are the
+        // Library's own now and kept apart, in their own snapshot.
+        if adoptingLists {
+            let lists = snapshot.catalogs.filter { Self.isMDBListShelfID($0.root.id) }
+            if !lists.isEmpty {
+                mdbListShelves = lists.map { MediaCatalog(root: $0.root, items: mark($0.items)) }
+                persistMDBListSnapshot()
+            }
+        }
     }
 
     nonisolated private static func snapshotURL(profileID: UUID) -> URL {
@@ -999,106 +1255,153 @@ final class MediaLibrary: ObservableObject {
             .appendingPathComponent("Lineup-media-library-\(profileID.uuidString).json")
     }
 
-    /// Search the server, with what is already shelved as the fallback.
+    nonisolated private static var mdbListSnapshotURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-library-mdblist.json")
+    }
+
+    private func persistMDBListSnapshot() {
+        let shelves = mdbListShelves
+        let url = Self.mdbListSnapshotURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(shelves) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func restoreMDBListSnapshot() -> Bool {
+        guard let data = try? Data(contentsOf: Self.mdbListSnapshotURL),
+              let shelves = try? JSONDecoder().decode([MediaCatalog].self, from: data) else { return false }
+        mdbListShelves = shelves
+        return true
+    }
+
+    // MARK: - Search
+
+    /// Search every connected server, with what is already shelved as the
+    /// fallback.
     ///
-    /// The server's own results come first, because those are titles the viewer
-    /// actually holds. A server that fails still leaves the loaded shelves
-    /// searchable, and only an empty result raises the error.
+    /// The servers' own results come first, servers in the order they were
+    /// added, because those are titles the viewer actually holds. A title that
+    /// more than one server holds is listed once: its streams are gathered
+    /// from all of them when it is played. A server that fails still leaves
+    /// the others and the loaded shelves searchable, and only an empty result
+    /// raises the error.
     func search(_ query: String) async throws -> [MediaItem] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        // A loaded shelf stays searchable on its own; the server expands
+        // A loaded shelf stays searchable on its own; the servers expand
         // beyond those first-page cards.
-        var results = shelves.flatMap(\.items).filter {
+        let shelved = shelves.flatMap(\.items).filter {
             $0.hasDetailPage && $0.name.localizedStandardContains(term)
         }
+        let targets = profiles.map { ($0, try? client(for: $0)) }
+        let answers = await withTaskGroup(of: (Int, Result<[MediaItem], Error>).self) { group in
+            for (index, (profile, source)) in targets.enumerated() {
+                group.addTask {
+                    guard let source else { return (index, .failure(JellyfinError.authenticationFailed)) }
+                    do {
+                        let found = try await source.search(userID: profile.userID, query: term)
+                        return (index, .success(found.map { $0.servedBy(profile.id) }))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            var answers: [Int: Result<[MediaItem], Error>] = [:]
+            for await (index, answer) in group { answers[index] = answer }
+            return answers
+        }
+        var results: [MediaItem] = []
         var serverError: Error?
-        if let profile = activeProfile {
-            do {
-                results = try await client(for: profile)
-                    .search(userID: profile.userID, query: term) + results
-            } catch { serverError = error }
+        for index in targets.indices {
+            switch answers[index] {
+            case .success(let found)?: results += found
+            case .failure(let error)?: if serverError == nil { serverError = error }
+            case nil: break
+            }
         }
         var seen: Set<String> = []
-        results = results.filter { seen.insert($0.id).inserted }
+        results = (results + shelved).filter { item in
+            let keys = [item.libraryKey] + MediaTitleMatch.keys(of: item)
+            guard !keys.contains(where: seen.contains) else { return false }
+            seen.formUnion(keys)
+            return true
+        }
         if results.isEmpty, let serverError { throw serverError }
         return results
     }
 
-    /// Add a shelf for a library or collection.
+    // MARK: - Shelves
+
+    /// Add a shelf for a library or collection, on the server it belongs to.
     ///
     /// A shelf whose contents will not load is still added, empty. It was
     /// asked for by name, and a row with a title and nothing under it can be
     /// seen, understood and removed; a choice that quietly does nothing cannot.
     func addShelf(_ root: MediaItem) async {
-        guard let profile = activeProfile, !catalogs.contains(where: { $0.id == root.id }) else { return }
+        guard let profile = profile(for: root) else { return }
+        let shelfRoot = root.servedBy(profile.id)
+        let shelfID = MediaCatalog.id(for: shelfRoot)
+        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
         var loaded: [MediaItem] = []
-        do { loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id) }
-        catch { if !Self.isCancellation(error) { errorMessage = error.localizedDescription } }
-        catalogs.append(MediaCatalog(root: root, items: loaded))
-        saveShelfIDs(catalogs.map(\.id).filter { !Self.isMDBListShelfID($0) }, profileID: profile.id)
-        persistLibrarySnapshot(profileID: profile.id)
-    }
-
-    func addMDBListShelf(_ list: MDBListCatalog) async {
-        guard let profile = activeProfile,
-              let apiKey = MDBListKeychainStore.apiKey(),
-              !catalogs.contains(where: { $0.id == list.shelfID }) else { return }
         do {
-            let source = try client(for: profile)
-            async let entries = MDBListClient(apiKey: apiKey).items(in: list.id)
-            async let serverTitles = source.allTitles(userID: profile.userID)
-            let matched = MDBListCatalogMatcher.match(try await entries, to: try await serverTitles)
-            catalogs.append(Self.mdbListShelf(list, items: matched))
-            var ids = savedMDBListShelfIDs(for: profile.id)
-            if !ids.contains(list.id) { ids.append(list.id) }
-            saveMDBListShelfIDs(ids, profileID: profile.id)
-            errorMessage = nil
-            persistLibrarySnapshot(profileID: profile.id)
+            loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id)
+                .map { $0.servedBy(profile.id) }
         } catch {
-            if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
+            if !Self.isCancellation(error) { report(error, from: profile) }
         }
+        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
+        update(profile) { $0.catalogs.append(MediaCatalog(root: shelfRoot, items: loaded)) }
+        saveShelfIDs(for: profile)
+        persistLibrarySnapshot(for: profile)
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
-        guard let profile = activeProfile else { return }
-        catalogs.removeAll { $0.id == catalog.id }
-        saveShelfIDs(catalogs.map(\.id).filter { !Self.isMDBListShelfID($0) }, profileID: profile.id)
         if Self.isMDBListShelfID(catalog.id) {
-            let ids = savedMDBListShelfIDs(for: profile.id).filter { "mdblist:\($0)" != catalog.id }
-            saveMDBListShelfIDs(ids, profileID: profile.id)
+            mdbListShelves.removeAll { $0.id == catalog.id }
+            saveMDBListShelfIDs(savedMDBListShelfIDs().filter { "mdblist:\($0)" != catalog.id })
+            persistMDBListSnapshot()
+        } else if let profile = profile(for: catalog.root) {
+            update(profile) { state in state.catalogs.removeAll { $0.id == catalog.id } }
+            saveShelfIDs(for: profile)
+            persistLibrarySnapshot(for: profile)
         }
         if selectedHeroCatalogID == catalog.id {
             selectedHeroCatalogID = nil
-            var saved = savedHeroCatalogs()
-            saved.removeValue(forKey: profile.id.uuidString)
-            if saved.isEmpty { defaults.removeObject(forKey: heroCatalogKey) }
-            else { defaults.set(try? JSONEncoder().encode(saved), forKey: heroCatalogKey) }
-            if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+            saveHeroCatalogID(nil)
         }
-        persistLibrarySnapshot(profileID: profile.id)
     }
 
     var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }
 
-    /// The server's own libraries that are not already a shelf.
-    var availableLibraries: [MediaItem] { unshelved(roots) }
+    /// The servers' own libraries that are not already a shelf.
+    var availableLibraries: [MediaItem] { profiles.flatMap { availableLibraries(on: $0) } }
 
     /// The imported catalogs, and any hand-made collection, that are not
     /// already a shelf. On a Nullfin server this is the list the viewer came for.
-    var availableCatalogs: [MediaItem] {
+    var availableCatalogs: [MediaItem] { profiles.flatMap { availableCatalogs(on: $0) } }
+
+    func availableLibraries(on profile: MediaServerProfile) -> [MediaItem] {
+        unshelved(state(of: profile).roots)
+    }
+
+    func availableCatalogs(on profile: MediaServerProfile) -> [MediaItem] {
+        let held = state(of: profile)
         var seen: Set<String> = []
-        return unshelved(importedCatalogs + collections)
-            .filter { seen.insert($0.id).inserted }
+        return unshelved(held.importedCatalogs + held.collections)
+            .filter { seen.insert($0.libraryKey).inserted }
     }
 
     private func unshelved(_ items: [MediaItem]) -> [MediaItem] {
-        items.filter { item in !catalogs.contains(where: { $0.id == item.id }) }
+        let shelved = Set(catalogs.map(\.id))
+        return items.filter { !shelved.contains(MediaCatalog.id(for: $0)) }
     }
 
     // MARK: - Addon catalogs
 
-    /// What each addon offers that the server is not importing yet.
+    /// What each addon offers that its server is not importing yet, on every
+    /// server.
     ///
     /// A catalog arrives switched off, and the server only imports the ones
     /// switched on -- so adding an addon puts nothing in the library by
@@ -1106,7 +1409,19 @@ final class MediaLibrary: ObservableObject {
     /// Already-enabled catalogs are left out: those are collections, and the
     /// shelf list above already offers them.
     func loadAddonCatalogs() async {
-        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
+        await loadAddonCatalogs(on: profiles)
+    }
+
+    private func loadAddonCatalogs(on targets: [MediaServerProfile]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for profile in targets {
+                group.addTask { await self.loadAddonCatalogs(of: profile) }
+            }
+        }
+    }
+
+    private func loadAddonCatalogs(of profile: MediaServerProfile) async {
+        guard let source = try? client(for: profile) else { return }
         do {
             let addons = try await source.addons().filter(\.enabled)
             var groups: [AddonCatalogGroup] = []
@@ -1115,7 +1430,8 @@ final class MediaLibrary: ObservableObject {
                 let offered = (try? await source.addonCatalogs(addonID: addon.id)) ?? []
                 let available = offered.filter { !$0.enabled }
                 if !available.isEmpty {
-                    groups.append(AddonCatalogGroup(id: addon.id, name: addon.name, catalogs: available))
+                    groups.append(AddonCatalogGroup(serverID: profile.id, addonID: addon.id,
+                                                    name: addon.name, catalogs: available))
                 }
                 // A catalog already switched on has a collection waiting, and
                 // the addon has just named it. Ask for that one item rather
@@ -1123,22 +1439,34 @@ final class MediaLibrary: ObservableObject {
                 for enabled in offered where enabled.enabled {
                     guard let id = enabled.collectionId else { continue }
                     guard let item = try? await source.item(userID: profile.userID, itemID: id) else { continue }
-                    imported.append(item)
+                    imported.append(item.servedBy(profile.id))
                 }
             }
-            guard activeProfile?.id == profile.id else { return }
-            addonGroups = groups
-            importedCatalogs = imported
-            addonsUnavailable = false
+            update(profile) { state in
+                state.addonGroups = groups
+                state.importedCatalogs = imported
+                state.addonsUnavailable = false
+            }
         } catch {
-            guard activeProfile?.id == profile.id else { return }
-            addonGroups = []
-            importedCatalogs = []
             // Anything but a refusal is worth reporting; a refusal is the
             // ordinary answer from a plain Jellyfin server or a member account.
-            addonsUnavailable = isRefusal(error)
-            if !addonsUnavailable, !Self.isCancellation(error) { errorMessage = error.localizedDescription }
+            let refused = isRefusal(error)
+            update(profile) { state in
+                state.addonGroups = []
+                state.importedCatalogs = []
+                state.addonsUnavailable = refused
+            }
+            if !refused, !Self.isCancellation(error) { report(error, from: profile) }
         }
+    }
+
+    /// Which catalog, on which server, an import is for.
+    private func importKey(_ catalog: NullfinCatalog, in group: AddonCatalogGroup) -> String {
+        group.serverID.uuidString + "|" + catalog.catalogId
+    }
+
+    func isImporting(_ catalog: NullfinCatalog, in group: AddonCatalogGroup) -> Bool {
+        importing.contains(importKey(catalog, in: group))
     }
 
     /// Switch a catalog on and put it on screen as a shelf.
@@ -1158,29 +1486,32 @@ final class MediaLibrary: ObservableObject {
     ///
     /// The waiting is owned here rather than by the screen that started it, so
     /// it survives the screen closing -- and so a second press can call it off.
-    func enableCatalog(_ catalog: NullfinCatalog, addonID: String) {
-        guard activeProfile != nil, importTasks[catalog.catalogId] == nil else { return }
-        importing.insert(catalog.catalogId)
-        importTasks[catalog.catalogId] = Task { @MainActor [weak self] in
-            await self?.runImport(of: catalog, addonID: addonID)
-            self?.importTasks[catalog.catalogId] = nil
-            self?.importing.remove(catalog.catalogId)
+    func enableCatalog(_ catalog: NullfinCatalog, in group: AddonCatalogGroup) {
+        let key = importKey(catalog, in: group)
+        guard let profile = profiles.first(where: { $0.id == group.serverID }),
+              importTasks[key] == nil else { return }
+        importing.insert(key)
+        importTasks[key] = Task { @MainActor [weak self] in
+            await self?.runImport(of: catalog, addonID: group.addonID, on: profile)
+            self?.importTasks[key] = nil
+            self?.importing.remove(key)
         }
     }
 
     /// Stop waiting on an import. The server keeps going: this only gives up
     /// watching for it, which is the difference between a screen that can be
     /// left and one that holds someone there.
-    func stopWaiting(for catalog: NullfinCatalog) {
-        importTasks[catalog.catalogId]?.cancel()
+    func stopWaiting(for catalog: NullfinCatalog, in group: AddonCatalogGroup) {
+        importTasks[importKey(catalog, in: group)]?.cancel()
     }
 
-    private func runImport(of catalog: NullfinCatalog, addonID: String) async {
-        guard let profile = activeProfile, let source = try? client(for: profile) else { return }
+    private func runImport(of catalog: NullfinCatalog, addonID: String,
+                           on profile: MediaServerProfile) async {
+        guard let source = try? client(for: profile) else { return }
         do {
             try await source.setCatalog(addonID: addonID, catalogID: catalog.catalogId, enabled: true)
         } catch {
-            errorMessage = error.localizedDescription
+            report(error, from: profile)
             return
         }
         // Read the switch back before waiting ten minutes on it. A server that
@@ -1194,16 +1525,19 @@ final class MediaLibrary: ObservableObject {
             return
         }
         do { try await source.refreshLibrary() } catch {
-            errorMessage = error.localizedDescription
+            report(error, from: profile)
             return
         }
-        await waitForImport(of: catalog, addonID: addonID, profile: profile)
+        await waitForImport(of: catalog, addonID: addonID, on: profile)
     }
 
-    private func drop(_ catalog: NullfinCatalog) {
-        addonGroups = addonGroups.compactMap { group in
-            let rest = group.catalogs.filter { $0.catalogId != catalog.catalogId }
-            return rest.isEmpty ? nil : AddonCatalogGroup(id: group.id, name: group.name, catalogs: rest)
+    private func drop(_ catalog: NullfinCatalog, from profile: MediaServerProfile) {
+        update(profile) { state in
+            state.addonGroups = state.addonGroups.compactMap { group in
+                let rest = group.catalogs.filter { $0.catalogId != catalog.catalogId }
+                return rest.isEmpty ? nil : AddonCatalogGroup(serverID: group.serverID,
+                    addonID: group.addonID, name: group.name, catalogs: rest)
+            }
         }
     }
 
@@ -1214,7 +1548,7 @@ final class MediaLibrary: ObservableObject {
     /// waiting forever; the shelf can still be added by hand once the import
     /// finishes.
     private func waitForImport(of catalog: NullfinCatalog, addonID: String,
-                               profile: MediaServerProfile) async {
+                               on profile: MediaServerProfile) async {
         guard let source = try? client(for: profile) else { return }
         // A full library refresh re-imports every enabled catalog, not just
         // this one, so on a server with several addons it is minutes of work.
@@ -1224,13 +1558,13 @@ final class MediaLibrary: ObservableObject {
             if attempt > 0 {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
             }
-            guard activeProfile?.id == profile.id else { return }
+            guard contains(profile) else { return }
             guard let found = await importedCollection(for: catalog, addonID: addonID,
                                                        source: source, profile: profile)
             else { continue }
             await addShelf(found)
-            drop(catalog)
-            await reload()
+            drop(catalog, from: profile)
+            await reload(servers: [profile])
             return
         }
         guard !Task.isCancelled else { return }
@@ -1246,7 +1580,7 @@ final class MediaLibrary: ObservableObject {
         errorMessage = catalog.name + " did not finish importing in ten minutes. The server reports it as "
             + state + " and " + named + ", with " + String(collectionCount)
             + " collections visible to this account. If it is not in the server's own library either, the server has not imported it and nothing here can add it yet."
-        await reload()
+        await reload(servers: [profile])
     }
 
     /// The collection a catalog became, asked for three ways.
@@ -1265,16 +1599,17 @@ final class MediaLibrary: ObservableObject {
                                     profile: MediaServerProfile) async -> MediaItem? {
         if let id = catalog.collectionId,
            let item = try? await source.item(userID: profile.userID, itemID: id) {
-            return item
+            return item.servedBy(profile.id)
         }
         let current = (try? await source.addonCatalogs(addonID: addonID))?
             .first { $0.catalogId == catalog.catalogId }
         if let id = current?.collectionId, id != catalog.collectionId,
            let item = try? await source.item(userID: profile.userID, itemID: id) {
-            return item
+            return item.servedBy(profile.id)
         }
         return (try? await source.allCollections(userID: profile.userID))?
-            .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }
+            .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }?
+            .servedBy(profile.id)
     }
 
     /// Whether a request was called off rather than refused. URLSession reports
@@ -1299,11 +1634,21 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    /// A failure, named for its server when there is more than one it could
+    /// have come from.
+    private func report(_ error: Error, from profile: MediaServerProfile) {
+        errorMessage = profiles.count > 1
+            ? profile.name + ": " + error.localizedDescription
+            : error.localizedDescription
+    }
+
+    // MARK: - Artwork
+
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
         // A source that names its artwork outright is asked for that address
         // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
-        guard let profile = activeProfile else { return nil }
+        guard let profile = profile(for: item) else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
     }
 
@@ -1312,7 +1657,7 @@ final class MediaLibrary: ObservableObject {
     /// show's poster there instead of stretching and cropping the still.
     func seriesPosterURL(for episode: MediaItem, width: Int = 600) -> URL? {
         guard episode.type == "Episode", let seriesID = episode.seriesID,
-              let profile = activeProfile else { return nil }
+              let profile = profile(for: episode) else { return nil }
         return try? client(for: profile).imageURL(itemID: seriesID, maxWidth: width)
     }
 
@@ -1320,20 +1665,108 @@ final class MediaLibrary: ObservableObject {
     // every hero, so each of these answers nil unless the item claims one.
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
         if let backdrop = item.backdropURL { return URL(string: backdrop) }
-        guard item.hasBackdrop, let profile = activeProfile else { return nil }
+        guard item.hasBackdrop, let profile = profile(for: item) else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "backdrop", maxWidth: width)
     }
 
     func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
         if let logo = item.logoArtworkURL { return URL(string: logo) }
-        guard item.hasLogo, let profile = activeProfile else { return nil }
+        guard item.hasLogo, let profile = profile(for: item) else { return nil }
         return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
     }
 
+    // MARK: - Playback
+
     func playbackURL(for item: MediaItem) -> URL? {
-        guard let profile = activeProfile else { return nil }
+        guard let profile = profile(for: item) else { return nil }
         return try? client(for: profile).playbackURL(itemID: item.id)
     }
+
+    /// The servers to ask for a title's streams: its own first, then every
+    /// other connected server, each about its own copy of the title.
+    ///
+    /// Only a film or an episode goes looking elsewhere. Those are what another
+    /// server can be asked about by name; anything else is its own server's.
+    func streamServers(for item: MediaItem) -> [MediaServerProfile] {
+        guard let home = profile(for: item) else { return [] }
+        guard item.type == "Movie" || item.type == "Episode" else { return [home] }
+        return [home] + profiles.filter { $0.id != home.id }
+    }
+
+    /// One server's streams for a title, each marked with the server and the
+    /// item it plays from. The title's own server is asked about the item
+    /// itself; another server about its own copy, and it has nothing to offer
+    /// when it holds none.
+    func playbackSources(for item: MediaItem, on profile: MediaServerProfile) async throws -> [MediaPlaybackSource] {
+        let target: MediaItem
+        if serverID(of: item) == profile.id {
+            target = item
+        } else {
+            guard let copy = try await counterpart(of: item, on: profile) else { return [] }
+            target = copy
+        }
+        return try await client(for: profile).playbackInfo(itemID: target.id).mediaSources
+            .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
+            .map { source in
+                var source = source
+                source.serverID = profile.id
+                source.serverName = profile.name
+                source.itemID = target.id
+                return source
+            }
+    }
+
+    /// Where a stream plays from: the server that offered it, as its copy of
+    /// the title.
+    func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
+        let offering = source.serverID.flatMap { id in profiles.first { $0.id == id } }
+        guard let profile = offering ?? profile(for: item) else { return nil }
+        return try? client(for: profile).playbackURL(itemID: source.itemID ?? item.id,
+                                                     mediaSourceID: source.sourceID)
+    }
+
+    /// The same title on another server, or nil when that server has none.
+    ///
+    /// A film is found by searching the other server for its name and keeping
+    /// the result that is the same film by its IMDb, TMDB or TVDB id, or by
+    /// its name and year. An episode is found by finding its show that way,
+    /// then its season and number in that show.
+    func counterpart(of item: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+        let key = (serverID(of: item)?.uuidString ?? "") + "|" + item.id + ">" + profile.id.uuidString
+        if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600 {
+            return cached.item
+        }
+        let found: MediaItem?
+        if item.type == "Episode" {
+            found = try await counterpartEpisode(of: item, on: profile)
+        } else {
+            found = try await counterpartTitle(of: item, on: profile)
+        }
+        counterparts[key] = CachedCounterpart(item: found, storedAt: Date())
+        return found
+    }
+
+    private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+        let found = try await client(for: profile).search(userID: profile.userID, query: title.name)
+        return found.first { MediaTitleMatch.isSame(title, $0) }?.servedBy(profile.id)
+    }
+
+    private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+        guard let season = episode.parentIndexNumber, let number = episode.indexNumber,
+              let showName = episode.seriesName, !showName.isEmpty else { return nil }
+        // The show as its own server describes it: its ids are what find it on
+        // another server. A server that will not say still leaves its name.
+        var show = MediaItem(id: episode.seriesID ?? "", name: showName, type: "Series",
+                             overview: nil, productionYear: nil, primaryImageAspectRatio: nil,
+                             childCount: nil, serverID: episode.serverID)
+        if episode.seriesID != nil, let described = try? await details(of: show) { show = described }
+        guard let match = try await counterpartTitle(of: show, on: profile) else { return nil }
+        let episodes = try await client(for: profile).episodes(userID: profile.userID, seriesID: match.id)
+        return episodes.first { $0.parentIndexNumber == season && $0.indexNumber == number }?
+            .servedBy(profile.id)
+    }
+
+    // MARK: - Plumbing
 
     private var deviceID: String {
         if let existing = defaults.string(forKey: deviceKey) { return existing }
@@ -1343,60 +1776,50 @@ final class MediaLibrary: ObservableObject {
     }
 
     private func client(for profile: MediaServerProfile) throws -> JellyfinClient {
+        if let made = clients[profile.id] { return made }
         guard let token = MediaKeychainStore.token(profileID: profile.id) else {
             throw JellyfinError.authenticationFailed
         }
-        return try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID)
+        let made = try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID)
+        clients[profile.id] = made
+        return made
     }
 
-    func playbackSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
-        guard let profile = activeProfile else { return [] }
-        return try await client(for: profile).playbackInfo(itemID: item.id).mediaSources
-            .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
+    /// The server an item came from. An item that carries none was made here
+    /// rather than handed over by a server, or saved before items carried one,
+    /// and the first server answers for it.
+    private func serverID(of item: MediaItem) -> UUID? {
+        item.serverID ?? profiles.first?.id
     }
 
-    func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
-        guard let profile = activeProfile else { return nil }
-        return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: source.id)
+    private func profile(for item: MediaItem) -> MediaServerProfile? {
+        guard let id = serverID(of: item) else { return nil }
+        return profiles.first { $0.id == id }
     }
 
-    /// One addon and the catalogs it offers that are not switched on yet.
+    /// Whether a server is still one of the Library's: a load can outlive
+    /// the server it was for.
+    private func contains(_ profile: MediaServerProfile) -> Bool {
+        profiles.contains { $0.id == profile.id }
+    }
+
+    /// Change one server's state, and only while it is still connected: a
+    /// load that finishes after its server was removed has nowhere to land.
+    private func update(_ profile: MediaServerProfile, _ change: (inout MediaServerState) -> Void) {
+        guard contains(profile) else { return }
+        var state = servers[profile.id] ?? MediaServerState()
+        change(&state)
+        servers[profile.id] = state
+    }
+
+    /// One addon on one server, and the catalogs it offers that are not
+    /// switched on yet.
     struct AddonCatalogGroup: Identifiable, Hashable, Sendable {
-        let id: String
+        let serverID: UUID
+        let addonID: String
         let name: String
         let catalogs: [NullfinCatalog]
-    }
-
-    private func loadSavedMDBListShelves(source: JellyfinClient,
-                                         profile: MediaServerProfile) async -> [MediaCatalog] {
-        let selected = savedMDBListShelfIDs(for: profile.id)
-        guard !selected.isEmpty, let apiKey = MDBListKeychainStore.apiKey() else { return [] }
-        do {
-            let mdb = MDBListClient(apiKey: apiKey)
-            let lists = try await mdb.catalogChoices()
-            mdbListCatalogs = lists
-            isMDBListConnected = true
-            let inventory = try await source.allTitles(userID: profile.userID)
-            let selectedLists = selected.compactMap { id in lists.first { $0.id == id } }
-            return await withTaskGroup(of: (Int, MediaCatalog?).self) { group in
-                for (index, list) in selectedLists.enumerated() {
-                    group.addTask {
-                        guard let entries = try? await mdb.items(in: list.id) else { return (index, nil) }
-                        let matched = MDBListCatalogMatcher.match(entries, to: inventory)
-                        return (index, Self.mdbListShelf(list, items: matched))
-                    }
-                }
-                var loaded: [(Int, MediaCatalog)] = []
-                for await (index, shelf) in group {
-                    if let shelf { loaded.append((index, shelf)) }
-                }
-                return loaded.sorted { $0.0 < $1.0 }.map { $0.1 }
-            }
-        } catch {
-            // MDBList being unavailable must never take the connected media
-            // server or its own shelves down with it.
-            return []
-        }
+        var id: String { serverID.uuidString + "|" + addonID }
     }
 
     nonisolated private static func mdbListShelf(_ list: MDBListCatalog,
@@ -1417,16 +1840,13 @@ final class MediaLibrary: ObservableObject {
         return value
     }
 
-    private func savedMDBListShelfIDs(for profileID: UUID) -> [Int] {
-        savedMDBListShelves()[profileID.uuidString] ?? []
+    private func savedMDBListShelfIDs() -> [Int] {
+        savedMDBListShelves()[Self.libraryWide] ?? []
     }
 
-    private func saveMDBListShelfIDs(_ ids: [Int], profileID: UUID) {
-        var value = savedMDBListShelves()
-        if ids.isEmpty { value.removeValue(forKey: profileID.uuidString) }
-        else { value[profileID.uuidString] = ids }
-        if value.isEmpty { defaults.removeObject(forKey: mdbListShelvesKey) }
-        else { defaults.set(try? JSONEncoder().encode(value), forKey: mdbListShelvesKey) }
+    private func saveMDBListShelfIDs(_ ids: [Int]) {
+        if ids.isEmpty { defaults.removeObject(forKey: mdbListShelvesKey) }
+        else { defaults.set(try? JSONEncoder().encode([Self.libraryWide: ids]), forKey: mdbListShelvesKey) }
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -1455,6 +1875,11 @@ final class MediaLibrary: ObservableObject {
         return value
     }
 
+    /// A server's shelves are saved by its own ids for them.
+    private func saveShelfIDs(for profile: MediaServerProfile) {
+        saveShelfIDs(state(of: profile).catalogs.map(\.root.id), profileID: profile.id)
+    }
+
     private func saveShelfIDs(_ ids: [String], profileID: UUID) {
         var value = savedShelves()
         value[profileID.uuidString] = ids
@@ -1468,9 +1893,50 @@ final class MediaLibrary: ObservableObject {
         return value
     }
 
+    private func saveHeroCatalogID(_ id: String?) {
+        if let id { defaults.set(try? JSONEncoder().encode([Self.libraryWide: id]), forKey: heroCatalogKey) }
+        else { defaults.removeObject(forKey: heroCatalogKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// The server that was "active" before every server was used at once, or
+    /// the first server when that one is gone.
+    private func formerActiveServer() -> UUID? {
+        let saved = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
+        return profiles.first { $0.id == saved }?.id ?? profiles.first?.id
+    }
+
+    /// The hero shelf and the MDBList shelves used to be chosen per server,
+    /// and only the active server's applied. They are the whole Library's now:
+    /// the active server's hero carries over, and every list any server had.
+    /// Written straight back, so the answer cannot shift as servers come and go.
+    private func migrateLibraryChoices() {
+        let lists = savedMDBListShelves()
+        if lists[Self.libraryWide] == nil, !lists.isEmpty {
+            let order = [formerActiveServer()].compactMap { $0 } + profiles.map(\.id)
+            var ids: [Int] = []
+            for server in order {
+                for id in lists[server.uuidString] ?? [] where !ids.contains(id) { ids.append(id) }
+            }
+            if ids.isEmpty { defaults.removeObject(forKey: mdbListShelvesKey) }
+            else { defaults.set(try? JSONEncoder().encode([Self.libraryWide: ids]), forKey: mdbListShelvesKey) }
+        }
+        let heroes = savedHeroCatalogs()
+        if heroes[Self.libraryWide] == nil, !heroes.isEmpty {
+            if let server = formerActiveServer(), let old = heroes[server.uuidString] {
+                let id = Self.isMDBListShelfID(old) ? old : server.uuidString + "|" + old
+                defaults.set(try? JSONEncoder().encode([Self.libraryWide: id]), forKey: heroCatalogKey)
+            } else {
+                defaults.removeObject(forKey: heroCatalogKey)
+            }
+        }
+    }
+
     private func persist() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: profilesKey)
-        defaults.set(activeProfile?.id.uuidString, forKey: activeKey)
+        // Still written for builds from before every server was used at once,
+        // which read it to choose the one server they show.
+        defaults.set(profiles.first?.id.uuidString, forKey: activeKey)
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -1478,23 +1944,22 @@ final class MediaLibrary: ObservableObject {
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         guard let data = defaults.data(forKey: profilesKey),
               let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
-        let activeID = defaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
-        profiles = saved
-        let selected = saved.first { $0.id == activeID } ?? saved.first
-        if selected?.id != activeProfile?.id {
-            activeProfile = selected
-            selectedHeroCatalogID = selected.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
-            roots = []
-            catalogs = []
-            if selected != nil { await reload() }
-        } else {
-            activeProfile = selected
-            selectedHeroCatalogID = selected.flatMap { savedHeroCatalogs()[$0.id.uuidString] }
+        let known = Set(profiles.map(\.id))
+        let kept = Set(saved.map(\.id))
+        for gone in profiles where !kept.contains(gone.id) {
+            servers[gone.id] = nil
+            clients[gone.id] = nil
         }
+        let arriving = saved.filter { !known.contains($0.id) }
+        profiles = saved
+        for profile in arriving { restoreLibrarySnapshot(for: profile, adoptingLists: false) }
+        migrateLibraryChoices()
+        selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        if !arriving.isEmpty { await reload(servers: arriving) }
     }
 }
 
-/// Whether opening the Media Servers tab should start a load.
+/// Whether opening the Media Servers tab should start a load for a server.
 ///
 /// Four pieces of state decide it, and getting the combination wrong is not a
 /// crash -- it is a tab that shows a spinner forever, or one that reloads the
