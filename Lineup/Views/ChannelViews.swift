@@ -4640,6 +4640,14 @@ private struct MultiviewPane: View {
     }
 }
 
+/// What the player says about a recorded title, in the corner its controls
+/// keep for that: what it is, the line under it, and a line of detail.
+struct TVPlayerSynopsis {
+    let title: String
+    let subtitle: String?
+    let detail: String?
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -4651,6 +4659,9 @@ struct PlayerView: View {
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
+    /// For a Library title: its show, episode and details, which the stream
+    /// URL and name alone cannot say.
+    var synopsis: TVPlayerSynopsis? = nil
     @StateObject private var controller = VLCPlaybackController()
     @State private var choosingGame: SportsGame?
     @State private var chosenTitle: String?
@@ -4693,7 +4704,7 @@ struct PlayerView: View {
             }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
-                    program: program, isLive: isLive, controller: controller,
+                    program: program, synopsis: synopsis, isLive: isLive, controller: controller,
                     focusedControl: $focusedControl, onInteraction: keepControlsVisible,
                     onChooserChange: chooserChanged)
                     .transition(.opacity)
@@ -4782,6 +4793,7 @@ private struct TVPlayerChrome: View {
     @State private var showingVideo = false
     let title: String
     let program: CurrentProgram?
+    let synopsis: TVPlayerSynopsis?
     let isLive: Bool
     @ObservedObject var controller: VLCPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
@@ -4797,10 +4809,12 @@ private struct TVPlayerChrome: View {
     }
 
     private var nowPlayingTitle: String {
+        if let synopsis { return synopsis.title }
         guard let program, !program.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return title }
         return program.title
     }
     private var subtitle: String? {
+        if let synopsis { return synopsis.subtitle }
         guard let program else { return title == nowPlayingTitle ? nil : title }
         let time = "\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))"
         return title == nowPlayingTitle ? time : "\(title)  ·  \(time)"
@@ -4820,8 +4834,9 @@ private struct TVPlayerChrome: View {
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
-                        if let detail = program?.detail, !detail.isEmpty {
+                        if let detail = synopsis?.detail ?? program?.detail, !detail.isEmpty {
                             Text(detail).font(.inter(16)).opacity(0.62).lineLimit(1)
+                                .frame(maxWidth: 1100, alignment: .leading)
                         }
                     }
                     .foregroundStyle(LineupStyle.mediaText)

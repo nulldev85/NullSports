@@ -1486,6 +1486,8 @@ private struct MediaDetailScreen: View {
     @State private var loading = true
     @State private var error: String?
     @State private var chosen: MediaItem?
+    /// Set by Start Over, so the stream that opens ignores the saved place.
+    @State private var startingOver = false
     // tvOS media cards push through state instead of NavigationLink. Besides
     // avoiding the system's oversized focus plate, this lets the Related row
     // participate in the same focus-region routing as every library shelf.
@@ -1519,7 +1521,7 @@ private struct MediaDetailScreen: View {
         #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
         #else
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #endif
@@ -1581,7 +1583,7 @@ private struct MediaDetailScreen: View {
     private var tvActions: some View {
         HStack(spacing: 16) {
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                         action: { chosen = playTarget },
+                         action: { startingOver = false; chosen = playTarget },
                          requestInitialFocus: true) {
                 HStack(spacing: 10) {
                     Image(systemName: "play.fill")
@@ -1596,6 +1598,15 @@ private struct MediaDetailScreen: View {
             }
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
+
+            // Resume picks up where the viewer left off; this is the way back
+            // to the opening scene, which otherwise meant scrubbing for it.
+            if playTarget.flatMap({ media.resumePosition(for: $0) }) != nil {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                             action: { startingOver = true; chosen = playTarget }) {
+                    tvSecondaryAction("Start Over", symbol: "backward.end.fill")
+                }
+            }
 
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                 favorite.toggle()
@@ -2977,6 +2988,8 @@ private struct MediaSourcePicker: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
     let item: MediaItem
+    /// Play from the beginning rather than from the saved place.
+    var startsOver = false
     @State private var sources: [MediaPlaybackSource] = []
     @State private var loading = true
     @State private var error: String?
@@ -3133,14 +3146,38 @@ private struct MediaSourcePicker: View {
     }
     #endif
 
+    #if os(tvOS)
+    /// An episode reads as its show, its number and its name; a film as its
+    /// name, its year, its length and its rating.
+    private var tvPlayerSynopsis: TVPlayerSynopsis {
+        let facts = { (parts: [String?]) -> String? in
+            let line = parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ·  ")
+            return line.isEmpty ? nil : line
+        }
+        if let series = item.seriesName, !series.isEmpty {
+            return TVPlayerSynopsis(
+                title: series,
+                subtitle: facts([item.episodeCode, item.name]),
+                detail: facts([item.formattedAirDate.map { "Aired \($0)" }, item.formattedRuntime,
+                               item.officialRating]))
+        }
+        return TVPlayerSynopsis(
+            title: item.name,
+            subtitle: facts([item.productionYear.map(String.init), item.formattedRuntime, item.officialRating]),
+            detail: item.overview)
+    }
+    #endif
+
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
-                       initialPosition: media.resumePosition(for: item)) { position, duration in
-                media.trackPlayback(of: item, position: position, duration: duration)
-            }
+                       initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                       onProgress: { position, duration in
+                           media.trackPlayback(of: item, position: position, duration: duration)
+                       },
+                       synopsis: tvPlayerSynopsis)
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
                              sourceBitrate: source.formattedBitrate,
