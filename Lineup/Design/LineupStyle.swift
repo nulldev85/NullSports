@@ -168,6 +168,33 @@ fileprivate struct LineupPalette {
     let leagues: LeagueColors
 }
 
+#if os(tvOS)
+fileprivate extension LineupPalette {
+    /// The television's only look: charcoal, light grey and white.
+    ///
+    /// The four themes are the phone's now. Across a room, colour in the
+    /// chrome competes with the picture, so the set gets one neutral room:
+    /// a charcoal ground, panels a step or two lighter, light grey for what is
+    /// secondary and white for what matters. The games and their teams bring
+    /// the colour, and red is kept for the one thing that is live.
+    static let television = LineupPalette(
+        accent: rgb(0xF5F5F7), background: rgb(0x1A1A1C), surface: rgb(0x242427),
+        raised: rgb(0x2E2E32), sidebar: rgb(0x151517), selected: rgb(0x29292C),
+        focused: rgb(0x3A3A3E), warning: rgb(0xC7C7CC),
+        highlight: rgb(0xFFFFFF), highlightSoft: rgb(0xD1D1D6),
+        selectionBorder: rgb(0xFFFFFF),
+        positive: rgb(0xF5F5F7), logoPlate: rgb(0xF2F2F7),
+        line: rgb(0xFFFFFF).opacity(0.1),
+        // One grey for every league: a league is named in words on the
+        // television, never told apart by a colour that is not the theme's.
+        leagues: LeagueColors(
+            football: rgb(0xC7C7CC), college: rgb(0xC7C7CC), basketball: rgb(0xC7C7CC),
+            hockey: rgb(0xC7C7CC), baseball: rgb(0xC7C7CC), combat: rgb(0xC7C7CC)
+        )
+    )
+}
+#endif
+
 private func rgb(_ value: UInt32) -> Color {
     Color(
         red: Double((value >> 16) & 0xFF) / 255,
@@ -187,7 +214,12 @@ enum LineupStyle {
     static var theme: LineupTheme {
         LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .signal
     }
+    #if os(tvOS)
+    /// The television has one palette, whatever the phone has chosen.
+    private static var palette: LineupPalette { .television }
+    #else
     private static var palette: LineupPalette { theme.palette }
+    #endif
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
     static var lightPurple: Color { palette.accent }
@@ -206,26 +238,42 @@ enum LineupStyle {
     static var liveBorder: Color { palette.highlight.opacity(0.72) }
     static var line: Color { palette.line }
     static var text: Color {
+        #if os(tvOS)
+        return palette.accent
+        #else
         switch theme {
-        case .velvet: rgb(0xF6F2F8)
-        case .graphiteIce: rgb(0xF1F5F9)
-        case .signal: lightPurple
-        case .oled: rgb(0xFAFAFA)
+        case .velvet: return rgb(0xF6F2F8)
+        case .graphiteIce: return rgb(0xF1F5F9)
+        case .signal: return lightPurple
+        case .oled: return rgb(0xFAFAFA)
         }
+        #endif
     }
     static var secondary: Color {
+        #if os(tvOS)
+        // The light grey: a solid colour rather than white at an opacity, so
+        // it reads the same over a card, a row or the picture.
+        return rgb(0xA1A1A6)
+        #else
         switch theme {
-        case .velvet: rgb(0xA9A1AE)
-        case .graphiteIce: rgb(0x8491A3)
-        case .signal: lightPurple.opacity(0.66)
-        case .oled: rgb(0x8C8C8C)
+        case .velvet: return rgb(0xA9A1AE)
+        case .graphiteIce: return rgb(0x8491A3)
+        case .signal: return lightPurple.opacity(0.66)
+        case .oled: return rgb(0x8C8C8C)
         }
+        #endif
     }
     /// Playback chrome stays legible against video. OLED uses its crisp white
     /// focus colour while the other themes retain their text tint.
     static var mediaText: Color { text }
     static var mediaSecondary: Color { secondary }
-    static var mediaAccent: Color { theme == .oled ? highlight : lightPurple }
+    static var mediaAccent: Color {
+        #if os(tvOS)
+        return text
+        #else
+        return theme == .oled ? highlight : lightPurple
+        #endif
+    }
     static var field: Color { lightPurple }
     static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
@@ -262,6 +310,35 @@ enum LineupStyle {
         case .nhl: return leagues.hockey
         case .mlb: return leagues.baseball
         case .ufc: return leagues.combat
+        }
+    }
+}
+
+extension LineupStyle {
+    /// What the remote is on wears a light, see-through white layer.
+    ///
+    /// Focus used to be told five ways -- a fill a shade lighter, a blue rim,
+    /// a lilac rim, a glow, a lift -- each screen choosing its own, so moving
+    /// between them meant learning again where you were. It is one thing now,
+    /// everywhere: the same faint white over the focused card, row, chip or
+    /// button, light enough to read through, with one crisp edge.
+    static let focusLayer = Color.white.opacity(0.12)
+    static let focusEdge = Color.white.opacity(0.6)
+}
+
+extension View {
+    /// The focus layer, in the shape of what is focused. Drawn over the
+    /// content rather than behind it, so it shows on artwork and video as
+    /// plainly as on a grey card.
+    func lineupFocusLayer<S: InsettableShape>(_ focused: Bool, in shape: S, edge: Bool = true) -> some View {
+        overlay {
+            if focused {
+                ZStack {
+                    shape.fill(LineupStyle.focusLayer)
+                    if edge { shape.strokeBorder(LineupStyle.focusEdge, lineWidth: 1.5) }
+                }
+                .allowsHitTesting(false)
+            }
         }
     }
 }
@@ -415,11 +492,14 @@ struct LineupButtonStyle: ButtonStyle {
         let configuration: ButtonStyle.Configuration
 
         var body: some View {
+            let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
             configuration.label
                 .foregroundStyle(LineupStyle.lightPurple)
                 .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(focused ? LineupStyle.focused : LineupStyle.raised,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(LineupStyle.raised, in: shape)
+                .lineupFocusLayer(focused, in: shape)
+                .scaleEffect(focused ? LineupStyle.controlLift : 1)
+                .animation(.easeOut(duration: 0.16), value: focused)
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
     }
@@ -522,10 +602,8 @@ struct TVSelectable<Content: View>: View {
     /// Defaults to the card step, which is what most of these wrap. A control
     /// passes LineupStyle.controlLift.
     var scale: CGFloat = LineupStyle.cardLift
-    /// A borderless row draws nothing of its own, so a lift and a shadow have
-    /// no shape to lift. Such a row asks for a fill instead, and it is painted
-    /// here for the same reason the lift is: this is where focus is known.
-    var fill: Color?
+    /// The corner of the focus layer, which sits a little outside the label so
+    /// a borderless row or a word gets a highlight with room around it.
     var fillRadius: CGFloat = 12
     /// Cards whose visible target is only their artwork, and controls that own
     /// a pill surface, turn this off and use `lineupTVSelectableFocused` to
@@ -541,28 +619,11 @@ struct TVSelectable<Content: View>: View {
         content
             .environment(\.lineupTVSelectableFocused, focused)
             .contentShape(Rectangle())
-            // A lift by itself disappears on a dark television from across the
-            // room. Every custom tvOS control now gets the same restrained
-            // focus language: a faint neutral surface and a crisp light rim.
-            // It is intentionally theme-neutral, so OLED stays black and no
-            // accent color is painted over artwork.
-            .background(focused && drawsFocusChrome
-                        ? (fill ?? LineupStyle.lightPurple.opacity(0.055)) : .clear,
-                        in: focusShape)
-            .overlay {
-                // The rim belongs around the lockup, not on top of its first
-                // and last pixels. Expanding it leaves a deliberate gutter
-                // beside titles and progress copy while preserving the exact
-                // card layout and shelf spacing when focus moves.
-                if drawsFocusChrome {
-                    focusShape.inset(by: -6)
-                        .strokeBorder(focused ? LineupStyle.lightPurple.opacity(0.84) : .clear,
-                                      lineWidth: focused ? 2 : 0)
-                        .shadow(color: focused ? LineupStyle.lightPurple.opacity(0.22) : .clear,
-                                radius: 8)
-                        .allowsHitTesting(false)
-                }
-            }
+            // The app's one focus layer. It sits around the lockup rather than
+            // on its first and last pixels, leaving a gutter beside titles and
+            // progress copy while keeping the card layout and shelf spacing
+            // exactly where they were when focus moves.
+            .lineupFocusLayer(focused && drawsFocusChrome, in: focusShape.inset(by: -6))
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
