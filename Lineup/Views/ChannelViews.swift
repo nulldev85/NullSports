@@ -443,7 +443,6 @@ private enum LivePalette {
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
     static var card: Color { LineupStyle.surface }
-    static var cardFocused: Color { LineupStyle.focused }
     static var rule: Color { LineupStyle.line }
     static var accent: Color { LineupStyle.highlight }
     static var rim: Color { LineupStyle.liveSelectionBorder }
@@ -1325,11 +1324,11 @@ private struct LiveTeamRow: View {
         }
         .padding(.leading, 20).padding(.trailing, 18).padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background { LiveCardSurface(shape: shape, focused: focused, isLive: game.isLive, tally: .leading) }
+        .background { LiveCardSurface(shape: shape, isLive: game.isLive, tally: .leading) }
         .overlay {
-            shape.strokeBorder(focused || isPrimary ? LivePalette.rim : LivePalette.rule,
-                               lineWidth: focused ? 2.5 : (isPrimary ? 2 : 1))
+            shape.strokeBorder(isPrimary ? LivePalette.rim : LivePalette.rule, lineWidth: isPrimary ? 2 : 1)
         }
+        .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
@@ -1367,30 +1366,17 @@ private struct LiveTeamRow: View {
 private struct LiveCardSurface: View {
     enum Tally { case top, leading }
     let shape: RoundedRectangle
-    let focused: Bool
     let isLive: Bool
     var tally: Tally = .top
 
     var body: some View {
         ZStack(alignment: tally == .top ? .top : .leading) {
-            focused ? LivePalette.cardFocused : LivePalette.card
-            LinearGradient(colors: [.white.opacity(focused ? 0.07 : 0.045), .clear],
-                           startPoint: .top, endPoint: .center)
+            LivePalette.card
             if isLive {
                 if tally == .top {
-                    VStack(spacing: 0) {
-                        LivePalette.onAir.frame(height: 3)
-                        LinearGradient(colors: [LivePalette.onAir.opacity(0.18), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: 44)
-                    }
+                    LivePalette.onAir.frame(height: 3)
                 } else {
-                    HStack(spacing: 0) {
-                        LivePalette.onAir.frame(width: 3)
-                        LinearGradient(colors: [LivePalette.onAir.opacity(0.16), .clear],
-                                       startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 44)
-                    }
+                    LivePalette.onAir.frame(width: 3)
                 }
             }
         }
@@ -1658,11 +1644,12 @@ private struct LiveChipLabel: View {
                 Image(systemName: trailing).font(.system(size: 13, weight: .bold)).opacity(0.7)
             }
         }
-        .foregroundStyle(focused ? LineupStyle.background : LivePalette.text)
+        .foregroundStyle(LivePalette.text)
         .padding(.horizontal, 20).frame(height: 46)
-        .background(focused ? LivePalette.text : LivePalette.card, in: Capsule())
-        .overlay(Capsule().strokeBorder(focused ? Color.clear : LivePalette.rule, lineWidth: 1))
-        .shadow(color: .black.opacity(focused ? 0.34 : 0), radius: 10, y: 5)
+        .background(LivePalette.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(LivePalette.rule, lineWidth: 1))
+        .lineupFocusLayer(focused, in: Capsule())
+        .lineupShadow(.lifted, on: focused)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 }
@@ -1776,11 +1763,11 @@ private struct LiveMatchupCard: View {
         }
         .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background { LiveCardSurface(shape: shape, focused: focused, isLive: game.isLive) }
+        .background { LiveCardSurface(shape: shape, isLive: game.isLive) }
         .overlay {
-            shape.strokeBorder(focused || isPrimary ? LivePalette.rim : LivePalette.rule,
-                               lineWidth: focused ? 2.5 : (isPrimary ? 2 : 1))
+            shape.strokeBorder(isPrimary ? LivePalette.rim : LivePalette.rule, lineWidth: isPrimary ? 2 : 1)
         }
+        .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture(perform: onPlay)
@@ -4864,10 +4851,11 @@ private struct TVPlayerButton: View {
             }
             .foregroundStyle(LineupStyle.lightPurple)
             .padding(.horizontal, 18).frame(height: 52)
-            .background(selected || prominent ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
+            .background(prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
+                .strokeBorder(LineupStyle.line, lineWidth: 1))
+            .lineupFocusLayer(selected, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .lineupShadow(.resting)
             .scaleEffect(selected ? LineupStyle.controlLift : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
@@ -4891,10 +4879,11 @@ private struct TVPlayerMenuLabel: View {
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 18).frame(height: 52)
-        .background(focused ? LineupStyle.focused : LineupStyle.surface.opacity(0.88),
+        .background(LineupStyle.surface.opacity(0.88),
             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .stroke(LineupStyle.lightPurple.opacity(0.16), lineWidth: 1))
+            .strokeBorder(LineupStyle.line, lineWidth: 1))
+        .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
