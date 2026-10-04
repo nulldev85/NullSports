@@ -38,8 +38,20 @@ final class LiveHarnessUITests: XCTestCase {
             Self.shot("preview", .select, wait: 9), Self.shot("preview-focus-moves", .right),
             Self.quiet(.right), Self.shot("filter", .up), Self.quiet(.down),
             Self.shot("row2", .down), Self.shot("stop-preview", .menu, wait: 3),
+            Self.shot("upcoming-slate", .left),
             Step(name: "context-menu", button: .select, hold: 1.6, wait: 2.5)
         ])
+    }
+
+    /// Hold Select on a matched game, choose Start Multiview (the last item),
+    /// and look at the board asking for a second game.
+    func test6Multiview() {
+        capture(theme: "signal", steps: [
+            Self.quiet(.down), Self.quiet(.down), Self.quiet(.down), Self.quiet(.down),
+            Step(name: "menu", button: .select, hold: 1.6, wait: 2.5),
+            Self.quiet(.down), Self.quiet(.down), Self.shot("multiview", .select, wait: 3),
+            Self.shot("multiview-second", .right)
+        ], prefix: "multiview")
     }
 
     func test2Velvet() {

@@ -536,10 +536,10 @@ private struct LiveScreen: View {
         .padding(.horizontal, LiveMetrics.margin)
         .padding(.top, 8)
         // The navigation stack insets its content by the safe area again,
-        // which pushed the board in from the crawl's edge and lifted it off
-        // the crawl, leaving room for the next row to show under the first.
-        // The screen keeps its own margins instead.
-        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        // which pushed the stage and the board in from the crawl's edge. The
+        // screen keeps its own margins instead. Only the sides: below, the
+        // inset is what keeps the board above the crawl.
+        .ignoresSafeArea(.container, edges: .horizontal)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }
 
@@ -619,12 +619,15 @@ private struct LiveBiasLight: View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
+                // Seated low, so the light has faded to nothing before it
+                // reaches the tab bar and spills mostly beside and beneath
+                // the monitor, where a real set lights a wall.
                 glow(liveTeamColor(teams ? game?.awayColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.7)
-                    .position(x: size.width * 0.25, y: size.height * 0.5)
+                    .frame(width: size.width * 0.95, height: size.height * 1.3)
+                    .position(x: size.width * 0.25, y: size.height * 0.62)
                 glow(liveTeamColor(teams ? game?.homeColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.7)
-                    .position(x: size.width * 0.75, y: size.height * 0.5)
+                    .frame(width: size.width * 0.95, height: size.height * 1.3)
+                    .position(x: size.width * 0.75, y: size.height * 0.62)
             }
             .id(game?.id ?? "")
             .transition(.opacity)
@@ -1681,6 +1684,14 @@ private struct LiveMatchupGrid: View {
             }
         }
         .frame(height: LiveMetrics.cardHeight + LiveMetrics.liftRoom * 2)
+        // A television's scroll view does not clip, so the next row would show
+        // beneath this one. The mask stops just past the row's own lift room:
+        // a focused card's shadow fits inside it, the next row's edge does not.
+        .mask(alignment: .top) {
+            Rectangle()
+                .frame(height: LiveMetrics.cardHeight + LiveMetrics.liftRoom * 2 + 14)
+                .padding(.horizontal, -60)
+        }
         .padding(.horizontal, -LiveMetrics.liftRoom)
     }
 }
