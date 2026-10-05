@@ -2192,6 +2192,14 @@ final class MediaLibrary: ObservableObject {
         return detailed
     }
 
+    /// Read the IPTV provider's film and show list back into memory once the
+    /// app has opened, so the first title's streams do not wait on it. A
+    /// moment after launch, so it does not compete with what is drawn first.
+    func prepareProviderVOD() async {
+        try? await Task.sleep(for: .seconds(3))
+        providerVOD.prefetch(onlyFromDevice: true)
+    }
+
     /// The provider's chosen categories as shelves, once its list is in hand.
     func loadProviderShelves() async {
         guard let profile = providerVOD.profile else { providerShelves = []; return }

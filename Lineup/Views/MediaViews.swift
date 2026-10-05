@@ -3207,6 +3207,9 @@ private enum StreamLookup {
 private struct StreamServerStatus: Identifiable {
     enum Phase {
         case looking
+        /// Waiting on what the looking needs first, and saying so: the IPTV
+        /// provider's list, read from the device or downloaded.
+        case preparing(String)
         case found(Int)
         /// Carries how the title was looked for there.
         case notOnServer(tried: String)
@@ -3220,6 +3223,7 @@ private struct StreamServerStatus: Identifiable {
     var detail: String {
         switch phase {
         case .looking: "Looking…"
+        case .preparing(let note): note
         case .found(let count): count == 0 ? "No streams" : (count == 1 ? "1 stream" : "\(count) streams")
         case .notOnServer: "Doesn't have this title"
         case .failed(let message): "Didn't answer · " + message
@@ -3234,7 +3238,7 @@ private struct StreamServerStatus: Identifiable {
 
     var symbol: String {
         switch phase {
-        case .looking: "hourglass"
+        case .looking, .preparing: "hourglass"
         case .found(let count): count > 0 ? "checkmark.circle.fill" : "minus.circle"
         case .notOnServer: "minus.circle"
         case .failed: "exclamationmark.triangle.fill"
@@ -3272,12 +3276,12 @@ private struct MediaSourcePicker: View {
     // row reads the same way the list below it does.
     private var providers: [String] {
         var seen: Set<String> = []
-        return sources.map(\.provider).filter { seen.insert($0).inserted }
+        return sources.map(\.group).filter { seen.insert($0).inserted }
     }
 
     private var visibleSources: [MediaPlaybackSource] {
         guard let providerFilter else { return sources }
-        return sources.filter { $0.provider == providerFilter }
+        return sources.filter { $0.group == providerFilter }
     }
 
     var body: some View {
@@ -3347,7 +3351,7 @@ private struct MediaSourcePicker: View {
                                     providerChip(title: "All", count: sources.count, provider: nil)
                                     ForEach(providers, id: \.self) { provider in
                                         providerChip(title: provider,
-                                            count: sources.filter { $0.provider == provider }.count,
+                                            count: sources.filter { $0.group == provider }.count,
                                             provider: provider)
                                     }
                                 }
@@ -3415,7 +3419,12 @@ private struct MediaSourcePicker: View {
             if title.isProviderTitle { lookups.insert(lookup, at: 0) } else { lookups.append(lookup) }
         }
         pendingServers = lookups.count
-        serverStatus = lookups.map { StreamServerStatus(id: $0.id, name: $0.name, phase: .looking) }
+        let providerWait = library.providerVOD.waitNote
+        serverStatus = lookups.map { lookup -> StreamServerStatus in
+            var phase = StreamServerStatus.Phase.looking
+            if case .provider = lookup, let providerWait { phase = .preparing(providerWait) }
+            return StreamServerStatus(id: lookup.id, name: lookup.name, phase: phase)
+        }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
         await withTaskGroup(of: (Int, Result<[MediaPlaybackSource], Error>).self) { group in

@@ -198,6 +198,69 @@ final class XtreamVODTests: XCTestCase {
         XCTAssertTrue(film.isProviderTitle)
     }
 
+    // The copy kept on the device carries each title's filings, so a launch
+    // reads the list back without cleaning tens of thousands of names again.
+    func testTheListKeptOnTheDeviceReadsBackFiledAsItWasWritten() throws {
+        let provider = UUID()
+        let catalog = ProviderVOD.Catalog(profileID: provider, films: [
+            XtreamVODStream(streamID: 1, name: "EN - Dune: Part Two (2024) [4K]", icon: "https://img/dune.jpg",
+                            categoryID: "23", containerExtension: "mkv", rating: 8.3, tmdbID: "693134", year: 2024),
+            XtreamVODStream(streamID: 2, name: "Blade Runner 2049", categoryID: "24")
+        ], shows: [XtreamSeries(seriesID: 9, name: "Dune: Prophecy", cover: "https://img/prophecy.jpg",
+                                plot: "Sisters", genre: "Drama", rating: 7.1, backdrop: "https://img/wide.jpg",
+                                categoryID: "5", tmdbID: "90228", year: 2024)],
+           filmCategories: [XtreamCategory(categoryID: "23", categoryName: "New")],
+           showCategories: [XtreamCategory(categoryID: "5", categoryName: "Drama")],
+           fetchedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let url = try XCTUnwrap(ProviderVOD.cacheURL(profileID: provider))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        ProviderVOD.writeCache(catalog, filmFilings: catalog.films.map { ProviderTitle.filings(for: $0.name) },
+                               showFilings: catalog.shows.map { ProviderTitle.filings(for: $0.name) })
+        let read = try XCTUnwrap(ProviderVOD.readCache(profileID: provider))
+
+        XCTAssertEqual(read.catalog.films, catalog.films)
+        XCTAssertEqual(read.catalog.shows, catalog.shows)
+        XCTAssertEqual(read.catalog.filmCategories, catalog.filmCategories)
+        XCTAssertEqual(read.catalog.showCategories, catalog.showCategories)
+        XCTAssertEqual(read.catalog.fetchedAt, catalog.fetchedAt)
+        let fresh = ProviderVOD.Index(catalog)
+        for (name, year) in [("Blade Runner 2049", 2017), ("Blade Runner", 2049), ("Dune: Part Two", 2024)] {
+            let title = MediaItem(id: "server", name: name, type: "Movie", overview: nil, productionYear: year,
+                                  primaryImageAspectRatio: nil, childCount: nil)
+            XCTAssertEqual(read.index.films(for: title, in: read.catalog).map(\.streamID),
+                           fresh.films(for: title, in: catalog).map(\.streamID), name)
+        }
+        XCTAssertEqual(read.index.search("dune", in: read.catalog).films.map(\.streamID), [1])
+        XCTAssertEqual(read.index.shows(inCategory: "5", in: read.catalog).map(\.seriesID), [9])
+        XCTAssertNil(ProviderVOD.readCache(profileID: UUID()), "Another provider's copy is not this one's")
+    }
+
+    // Updating the app does not mean downloading the whole list again: the
+    // copy the earlier builds kept is read once and removed. One from before
+    // categories were kept is not, or there would be no shelves to offer.
+    func testTheListAnEarlierBuildKeptIsReadOnceAndRemoved() throws {
+        let provider = UUID()
+        let url = try XCTUnwrap(ProviderVOD.earlierCacheURL(profileID: provider))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let films = #"[{"stream_id":1,"name":"Dune (2021)","tmdb":"438631","year":2021,"container_extension":"mkv"}]"#
+
+        let kept = #"{"profileID":"\#(provider.uuidString)","films":\#(films),"shows":[],"#
+            + #""filmCategories":[{"category_id":"23","category_name":"New"}],"showCategories":[],"#
+            + #""fetchedAt":721692800}"#
+        try Data(kept.utf8).write(to: url)
+        let earlier = try XCTUnwrap(ProviderVOD.readEarlierCache(profileID: provider))
+        XCTAssertEqual(earlier.films.map(\.streamID), [1])
+        XCTAssertEqual(earlier.films.first?.tmdbID, "438631")
+        XCTAssertEqual(earlier.filmCategories.map(\.categoryID), ["23"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Read once, then removed")
+
+        try Data(#"{"profileID":"\#(provider.uuidString)","films":\#(films),"shows":[],"fetchedAt":721692800}"#.utf8)
+            .write(to: url)
+        XCTAssertNil(ProviderVOD.readEarlierCache(profileID: provider), "No categories: download afresh")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testAShowsSeasonsAreTheSeasonsItsEpisodesNumber() {
         let show = XtreamSeries(seriesID: 7, name: "Breaking Bad", cover: "https://img/bb.jpg")
         let episodes = [XtreamEpisode(id: "1", season: 1, episodeNumber: 1, title: "Pilot"),

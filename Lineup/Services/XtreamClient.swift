@@ -108,15 +108,17 @@ struct XtreamClient {
     // MARK: - Video library
 
     /// Every film the provider has. On a large provider that is tens of
-    /// thousands of entries and several megabytes, so it gets longer than a
-    /// channel list does.
+    /// thousands of entries and many megabytes, which a panel can take a
+    /// minute or more to start sending -- so it gets far longer than a
+    /// channel list does. The wait is a silence before the first byte; a
+    /// download that is still arriving never times out.
     func vodStreams() async throws -> [XtreamVODStream] {
-        try Self.decodeList(try await payload(action: "get_vod_streams", timeout: 90))
+        try Self.decodeList(try await payload(action: "get_vod_streams", timeout: 180))
     }
 
     /// Every show the provider has.
     func series() async throws -> [XtreamSeries] {
-        try Self.decodeList(try await payload(action: "get_series", timeout: 90))
+        try Self.decodeList(try await payload(action: "get_series", timeout: 180))
     }
 
     /// One show's episodes, season by season.

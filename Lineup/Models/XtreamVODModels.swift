@@ -294,9 +294,12 @@ enum XtreamVOD {
         return plausibleYear(year)
     }
 
+    /// A year in brackets, as a provider writes one into a title.
+    static let bracketedYear = CompiledPattern(#"\((19|20)\d{2}\)"#)
+
     /// The year a provider wrote into a title: "Dune: Part Two (2024)".
     static func year(inTitle title: String) -> Int? {
-        guard let range = title.range(of: #"\((19|20)\d{2}\)"#, options: .regularExpression) else { return nil }
+        guard title.contains("("), let range = bracketedYear.firstRange(in: title) else { return nil }
         return Int(title[range].dropFirst().dropLast())
     }
 }
@@ -388,25 +391,28 @@ enum ProviderTitle {
     /// An episode's own name, without the show and the number a provider puts
     /// before it: "Breaking Bad - S01E01 - Pilot" is "Pilot".
     static func episodeName(_ title: String, number: Int) -> String {
-        let name = title
-            .replacingOccurrences(of: #"(?i)^.*?\bS\d{1,3}\s*E\d{1,4}\b\s*[-:–|]?\s*"#, with: "",
-                                  options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
+        let name = episodeNumbering.replacing(in: title, with: "").trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? "Episode \(number)" : name
     }
+
+    // Each compiled once: a provider's list is cleaned name by name, tens of
+    // thousands of times over.
+    private static let episodeNumbering = CompiledPattern(#"(?i)^.*?\bS\d{1,3}\s*E\d{1,4}\b\s*[-:–|]?\s*"#)
+    private static let bracketedMarks = CompiledPattern(#"\[[^\]]*\]|\{[^}]*\}|\|[^|]*\|"#)
+    private static let leadingMark = CompiledPattern(#"^([A-Za-z0-9+]{2,5})\s*([-:•])\s+"#)
+    private static let joinedLeadingMark = CompiledPattern(#"^([A-Z0-9+]{2,5})-(?=[A-Z0-9+]{2,5}\s*[-:])"#)
 
     /// A provider's name as its words, with its decoration gone, and the year
     /// it wrote in brackets.
     private static func cleaned(_ name: String) -> (words: [String], year: Int?) {
         let year = XtreamVOD.year(inTitle: name)
         var text = name
-            .replacingOccurrences(of: #"\[[^\]]*\]|\{[^}]*\}|\|[^|]*\|"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\((19|20)\d{2}\)"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
+        if text.contains(where: { "[{|".contains($0) }) { text = bracketedMarks.replacing(in: text, with: " ") }
+        if year != nil { text = XtreamVOD.bracketedYear.replacing(in: text, with: " ") }
+        text = text.trimmingCharacters(in: .whitespaces)
         // Up to two leading marks: "4K-EN - Dune", "EN: Dune", "AMZ - Dune".
         for _ in 0..<2 {
-            guard let match = text.range(of: #"^([A-Za-z0-9+]{2,5})\s*([-:•])\s+"#, options: .regularExpression)
-                    ?? text.range(of: #"^([A-Z0-9+]{2,5})-(?=[A-Z0-9+]{2,5}\s*[-:])"#, options: .regularExpression)
+            guard let match = leadingMark.firstRange(in: text) ?? joinedLeadingMark.firstRange(in: text)
             else { break }
             let mark = text[match].trimmingCharacters(in: CharacterSet(charactersIn: " -:•"))
             let isCode = prefixCodes.contains(mark.uppercased())

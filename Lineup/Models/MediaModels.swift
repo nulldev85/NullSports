@@ -613,8 +613,12 @@ enum MediaTitleMatch {
 
     /// "Dune (2021)" is "Dune": some servers put the year in the name.
     private static func withoutYear(_ value: String) -> String {
-        value.replacingOccurrences(of: "\\s*\\((19|20)\\d{2}\\)\\s*$", with: "", options: .regularExpression)
+        value.contains("(") ? trailingYear.replacing(in: value, with: "") : value
     }
+
+    // Compiled once: every title of an IPTV provider's list is filed through
+    // here.
+    private static let trailingYear = CompiledPattern("\\s*\\((19|20)\\d{2}\\)\\s*$")
 }
 
 /// What a server is, as far as finding a title on it goes.
@@ -822,6 +826,8 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     let size: Int64?
     let bitrate: Int64?
     let remux: RemuxInfo?
+    /// What AIOStreams adds about a stream. Absent from every other server.
+    var aiostreams: AIOStreamsInfo? = nil
 
     // Lineup's own, filled in when the server answers: the streams for one
     // title can come from several servers, and each has to be played from
@@ -847,6 +853,19 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let description: String?
     }
 
+    /// Which of AIOStreams' add-ons found the stream. Read however it is
+    /// written, and left out when it will not read: one odd field is no
+    /// reason to lose a server's whole list.
+    struct AIOStreamsInfo: Decodable, Hashable, Sendable {
+        let addon: String?
+
+        enum CodingKeys: String, CodingKey { case addon }
+
+        init(from decoder: Decoder) throws {
+            addon = (try? decoder.container(keyedBy: CodingKeys.self))?.lenientString(.addon)
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case sourceID = "Id"
         case name = "Name"
@@ -855,6 +874,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         case size = "Size"
         case bitrate = "Bitrate"
         case remux = "Remux"
+        case aiostreams
     }
 
     var displayLines: [String] {
@@ -863,7 +883,15 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     var provider: String {
-        remux?.providerInfo?.source ?? displayLines.first ?? "Media Server"
+        remux?.providerInfo?.source ?? aiostreams?.addon ?? displayLines.first ?? "Media Server"
+    }
+
+    /// The chip a stream is listed under in the stream list: the add-on a
+    /// Remux server names, as one server can carry several, and otherwise the
+    /// server itself. Without this, a server that names no add-on had its
+    /// streams split by the first line of their names -- by quality.
+    var group: String {
+        remux?.providerInfo?.source ?? serverName ?? provider
     }
 
     var releaseName: String {

@@ -170,6 +170,31 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(first.sourceID, "source-1")
     }
 
+    // A Remux server names the add-on behind each stream, and its chips are
+    // those add-ons. AIOStreams names its add-on elsewhere, and its streams'
+    // first line is their quality -- so its chip is the server.
+    func testAServersStreamsAreListedUnderItsAddonOrItsName() throws {
+        let decoder = JSONDecoder()
+        var remux = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"a","Name":"StreamNZB\n4K","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}
+            """#.utf8))
+        remux.serverName = "Null"
+        XCTAssertEqual(remux.group, "StreamNZB")
+
+        var aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"b","Name":"4K ⚡\nMutiny.2026.2160p.WEB-DL","aiostreams":{"addon":"Torrentio","cached":true}}
+            """#.utf8))
+        aio.serverName = "Matt"
+        XCTAssertEqual(aio.group, "Matt", "Not \"4K ⚡\": the first line is the quality")
+        XCTAssertEqual(aio.provider, "Torrentio")
+
+        let odd = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"c","Name":"1080P ⚡","aiostreams":"unexpected"}
+            """#.utf8))
+        XCTAssertNil(odd.aiostreams?.addon, "An extension that will not read loses only itself")
+        XCTAssertEqual(odd.group, "1080P ⚡", "With no server known, the old label stays")
+    }
+
     func testAnItemsServerSurvivesTheLaunchCache() throws {
         let server = UUID()
         let item = movie("a", "Film", year: 2020, server: server)
