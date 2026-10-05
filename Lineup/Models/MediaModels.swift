@@ -853,16 +853,25 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let description: String?
     }
 
-    /// Which of AIOStreams' add-ons found the stream. Read however it is
+    /// What AIOStreams knows of a stream beyond its formatted name: the
+    /// add-on that found it, the release's own file name, the indexer, and
+    /// whether its debrid service already has it. Read however it is
     /// written, and left out when it will not read: one odd field is no
     /// reason to lose a server's whole list.
     struct AIOStreamsInfo: Decodable, Hashable, Sendable {
         let addon: String?
+        let filename: String?
+        let indexer: String?
+        let cached: Bool?
 
-        enum CodingKeys: String, CodingKey { case addon }
+        enum CodingKeys: String, CodingKey { case addon, filename, indexer, cached }
 
         init(from decoder: Decoder) throws {
-            addon = (try? decoder.container(keyedBy: CodingKeys.self))?.lenientString(.addon)
+            let values = try? decoder.container(keyedBy: CodingKeys.self)
+            addon = values?.lenientString(.addon)
+            filename = values?.lenientString(.filename)
+            indexer = values?.lenientString(.indexer)
+            cached = try? values?.decodeIfPresent(Bool.self, forKey: .cached)
         }
     }
 
@@ -901,8 +910,15 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
             return filename.replacingOccurrences(of: #"^🎯 SCORE [+-]?\d+ 🎯 •\s*"#,
                 with: "", options: .regularExpression)
         }
+        // AIOStreams' name is laid out by its own formatter; the file name
+        // is the release itself.
+        if let filename = aiostreams?.filename { return filename }
         return displayLines.dropFirst(2).first ?? displayLines.dropFirst().first ?? "Available stream"
     }
+
+    /// A stream its debrid service already has, which plays at once rather
+    /// than after being fetched. Only AIOStreams says.
+    var isInstant: Bool { aiostreams?.cached == true }
 
     var score: Int? {
         let text = [name, remux?.providerInfo?.filename, remux?.providerInfo?.description]
@@ -1006,6 +1022,9 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     // The server's search line reads "\u{1F50D} StreamNZB Library - altHUB \u{2022} \u{1F3AF} Score: +70494".
     // Only the tail names the indexer; the rest repeats the addon shown beside it.
     var indexer: String? {
+        if let indexer = aiostreams?.indexer, indexer.caseInsensitiveCompare(provider) != .orderedSame {
+            return indexer
+        }
         guard let line = displayLines.first(where: { $0.contains("\u{1F50D}") }) else { return nil }
         let head = line.split(separator: Character("\u{2022}")).first.map(String.init) ?? line
         let cleaned = head.replacingOccurrences(of: "\u{1F50D}", with: "")

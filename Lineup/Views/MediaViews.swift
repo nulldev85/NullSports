@@ -3218,10 +3218,12 @@ private enum StreamLookup {
         }
     }
 
+    /// The tab it is listed under: a server by its name, the provider as
+    /// VOD -- the name its streams are grouped under.
     var name: String {
         switch self {
         case .server(let server): server.name
-        case .provider(_, let name): name
+        case .provider: "VOD"
         }
     }
 }
@@ -3272,6 +3274,35 @@ private struct StreamServerStatus: Identifiable {
         if case .found(let count) = phase { return count > 0 }
         return false
     }
+
+    /// Still asking, or still getting ready to.
+    var isWaiting: Bool {
+        switch phase {
+        case .looking, .preparing: true
+        default: false
+        }
+    }
+
+    var isPreparing: Bool {
+        if case .preparing = phase { return true }
+        return false
+    }
+
+    /// What went wrong, for a server that did not answer.
+    var failure: String? {
+        if case .failed(let message) = phase { return message }
+        return nil
+    }
+
+    /// What its tab says after its name.
+    var mark: MediaStreamTab.Mark {
+        switch phase {
+        case .looking, .preparing: .looking
+        case .found(let count): .count(count)
+        case .notOnServer: .none
+        case .failed: .failed
+        }
+    }
 }
 
 private struct MediaSourcePicker: View {
@@ -3295,131 +3326,54 @@ private struct MediaSourcePicker: View {
     /// list so a server that added nothing says why.
     @State private var serverStatus: [StreamServerStatus] = []
 
-    // One tab per server, and one for the IPTV provider's VOD, in the order
-    // their streams are listed, so the tab row reads the same way the list
-    // below it does.
-    private var providers: [String] {
-        var seen: Set<String> = []
-        return sources.map(\.group).filter { seen.insert($0).inserted }
-    }
-
-    private var visibleSources: [MediaPlaybackSource] {
-        guard let providerFilter else { return sources }
-        return sources.filter { $0.group == providerFilter }
-    }
-
     var body: some View {
         #if os(tvOS)
         // No NavigationStack: its bar is what drew the oversized title and the
-        // Close button, and a sheet drew the card around them. The remote's
-        // Menu button is how a viewer leaves a screen on this platform.
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SELECT A STREAM").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                Text(item.name).font(.inter(22, .semibold)).lineLimit(1)
+        // Close button. The remote's Menu button is how a viewer leaves a
+        // screen on this platform.
+        board
+            .onExitCommand { dismiss() }
+            .task(id: item.libraryKey) { await loadSources() }
+            .fullScreenCover(item: $selectedSource, onDismiss: { if playedOnlySource { dismiss() } }) { source in
+                playback(for: source)
             }
-            .padding(.horizontal, horizontalPadding).padding(.top, 36).padding(.bottom, 18)
-            results
-        }
-        // A row left to its own devices runs the full width of a television,
-        // which is what made every result read as a stretched strip. The whole
-        // screen is held to one column instead, so the rows are boxes and the
-        // eyebrow above them still lines up with their left edge.
-        .frame(maxWidth: columnWidth, alignment: .topLeading)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
-        .onExitCommand { dismiss() }
-        .task(id: item.libraryKey) { await loadSources() }
-        .fullScreenCover(item: $selectedSource, onDismiss: { if playedOnlySource { dismiss() } }) { source in
-            playback(for: source)
-        }
         #else
         NavigationStack {
-            results
+            board
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
+                }
         }
         .task(id: item.libraryKey) { await loadSources() }
         .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
         #endif
     }
 
-    private var results: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            serverSummary
-        Group {
-                if loading {
-                    VStack(spacing: 14) {
-                        ProgressView().controlSize(.large)
-                        Text("Finding the best streams…").font(.inter(.headline))
-                        Text("Looking for playable versions of \(item.name).")
-                            .font(.inter(.subheadline)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
-                    }
-                    .mediaFocusAnchor()
-                } else if let error {
-                    ContentUnavailableView("Streams Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
-                        .mediaFocusAnchor()
-                } else if sources.isEmpty {
-                    ContentUnavailableView("No Streams Found", systemImage: "play.slash",
-                        description: Text(media.profiles.count > 1
-                            ? "None of your servers returned a playable version of this title."
-                            : "Your server returned no playable version of this title."))
-                        .mediaFocusAnchor()
-                } else {
-                    VStack(spacing: 0) {
-                        // A tab for each server's results and one for VOD: a
-                        // viewer who trusts one source wants only its rows.
-                        if providers.count > 1 {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    providerChip(title: "All", count: sources.count, provider: nil)
-                                    ForEach(providers, id: \.self) { provider in
-                                        providerChip(title: provider,
-                                            count: sources.filter { $0.group == provider }.count,
-                                            provider: provider)
-                                    }
-                                }
-                                .padding(.horizontal, horizontalPadding).padding(.vertical, 12)
-                            }
-                            .lineupFocusRegion()
-                        }
-                        ScrollView {
-                            // Leading, because a row is as wide as its text
-                            // now: centred, the ragged edge would be on both
-                            // sides instead of neither.
-                            LazyVStack(alignment: .leading, spacing: rowSpacing) {
-                                ForEach(visibleSources) { source in
-                                    #if os(tvOS)
-                                    TVSelectable(scale: LineupStyle.cardLift,
-                                        fillRadius: 14, action: { selectedSource = source }) {
-                                        MediaSourceRow(source: source, server: serverLabel(for: source))
-                                    }
-                                    #else
-                                    Button { selectedSource = source } label: {
-                                        MediaSourceRow(source: source, server: serverLabel(for: source))
-                                    }
-                                    .lineupFlatButton()
-                                    #endif
-                                }
-                            }
-                            .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .lineupFocusRegion()
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var board: some View {
+        MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
+                         loading: loading, error: error, filter: $providerFilter,
+                         serverLabel: { serverLabel(for: $0) }, choose: { selectedSource = $0 })
+    }
+
+    /// What the list is for: an episode as its show, number and name, a film
+    /// as its name, year and length. The art behind it is the title's own
+    /// wide picture -- an episode's still when it has no other -- and never a
+    /// poster stretched across the screen.
+    private var heading: MediaStreamHeading {
+        let line = { (parts: [String?]) -> String? in
+            let text = parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ·  ")
+            return text.isEmpty ? nil : text
         }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(LineupStyle.background.ignoresSafeArea())
-            .foregroundStyle(LineupStyle.lightPurple)
-            #if !os(tvOS)
-            .navigationTitle(item.name)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
-            }
-            #endif
+        let backdrop = media.backdropURL(for: item, width: 1920)
+            ?? (item.type == "Episode" ? media.imageURL(for: item, width: 1920) : nil)
+        if let series = item.seriesName, !series.isEmpty {
+            return MediaStreamHeading(title: series, subtitle: line([item.episodeCode, item.name]),
+                                      backdrop: backdrop)
+        }
+        return MediaStreamHeading(title: item.name,
+                                  subtitle: line([item.productionYear.map(String.init), item.formattedRuntime]),
+                                  backdrop: backdrop)
     }
 
     /// Every connected server is asked at once: the title's own server about
@@ -3571,84 +3525,10 @@ private struct MediaSourcePicker: View {
         }
     }
 
-    /// Each server's outcome on one line, once there is more than one server.
-    @ViewBuilder
-    private var serverSummary: some View {
-        if serverStatus.count > 1 {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 26) {
-                    ForEach(serverStatus) { status in
-                        HStack(spacing: 8) {
-                            Image(systemName: status.symbol)
-                                .font(.system(size: summarySize, weight: .semibold))
-                                .opacity(status.isGood ? 0.9 : 0.55)
-                            Text(status.name).font(.inter(summarySize, .semibold))
-                            Text(status.detail).font(.inter(summarySize))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                        }
-                        .lineLimit(1)
-                    }
-                }
-                // A server that found nothing says how it was asked, so a
-                // title it should have had shows what went looking for it.
-                ForEach(serverStatus.filter { $0.tried != nil }) { status in
-                    Text(status.name + " · " + (status.tried ?? ""))
-                        .font(.inter(summarySize - 2))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                        .lineLimit(2)
-                }
-            }
-            .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, horizontalPadding).padding(.top, 4).padding(.bottom, 10)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
-    private var summarySize: CGFloat {
-        #if os(tvOS)
-        16
-        #else
-        12
-        #endif
-    }
-
     /// Which server a stream comes from, once there is more than one it could.
     /// The IPTV provider is always named: it is never the only place.
     private func serverLabel(for source: MediaPlaybackSource) -> String? {
         media.profiles.count > 1 || source.directURL != nil ? source.serverName : nil
-    }
-
-    private func providerChip(title: String, count: Int, provider: String?) -> some View {
-        Button { providerFilter = provider } label: {
-            MediaProviderChip(title: title, count: count, active: providerFilter == provider)
-        }
-        .lineupFlatButton()
-    }
-
-    private var rowSpacing: CGFloat {
-        #if os(tvOS)
-        14
-        #else
-        10
-        #endif
-    }
-    private var horizontalPadding: CGFloat {
-        #if os(tvOS)
-        // The sheet already insets itself. Another 70 on top of that left the
-        // rows floating in a column down the middle of the screen.
-        28
-        #else
-        16
-        #endif
-    }
-    /// The measure the list is held to. A line of a release name wider than
-    /// this is further than the eye tracks comfortably from a couch.
-    private var columnWidth: CGFloat {
-        #if os(tvOS)
-        1180
-        #else
-        .infinity
-        #endif
     }
 }
 
@@ -3748,148 +3628,605 @@ private struct MediaChromeLabel<Content: View>: View {
     }
 }
 
-private struct MediaProviderChip: View {
-    @Environment(\.isFocused) private var focused
+// MARK: - The stream list
+
+/// What a stream list is for, drawn at its top.
+private struct MediaStreamHeading {
     let title: String
-    let count: Int
-    let active: Bool
+    let subtitle: String?
+    let backdrop: URL?
+}
+
+/// The resolution a stream is listed under. Sections come in the order of
+/// their best stream, so a server that ranks a 1080p remux above a 4K web
+/// copy keeps it first.
+private enum MediaStreamTier: Hashable {
+    case uhd, fullHD, hd, other
+
+    init(_ source: MediaPlaybackSource) {
+        switch source.quality {
+        case "4K": self = .uhd
+        case "1440p", "1080p": self = .fullHD
+        case "720p": self = .hd
+        default: self = .other
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .uhd: "4K Ultra HD"
+        case .fullHD: "1080p Full HD"
+        case .hd: "720p HD"
+        case .other: "Other"
+        }
+    }
+
+    struct Section: Identifiable {
+        let tier: MediaStreamTier
+        let sources: [MediaPlaybackSource]
+        var id: MediaStreamTier { tier }
+    }
+
+    static func sections(of sources: [MediaPlaybackSource]) -> [Section] {
+        var order: [MediaStreamTier] = []
+        var grouped: [MediaStreamTier: [MediaPlaybackSource]] = [:]
+        for source in sources {
+            let tier = MediaStreamTier(source)
+            if grouped[tier] == nil { order.append(tier) }
+            grouped[tier, default: []].append(source)
+        }
+        return order.map { Section(tier: $0, sources: grouped[$0] ?? []) }
+    }
+}
+
+/// The stream list as it is drawn: the title it is for, a tab for each place
+/// that was asked, and what they found -- by resolution, each row leading
+/// with what a stream is chosen by. Everything comes from the picker, which
+/// does the asking; nothing here goes to a server.
+private struct MediaStreamBoard: View {
+    let heading: MediaStreamHeading
+    let statuses: [StreamServerStatus]
+    let sources: [MediaPlaybackSource]
+    let loading: Bool
+    let error: String?
+    @Binding var filter: String?
+    let serverLabel: (MediaPlaybackSource) -> String?
+    let choose: (MediaPlaybackSource) -> Void
+
+    private typealias Style = MediaStreamStyle
+
+    private var visible: [MediaPlaybackSource] {
+        guard let filter else { return sources }
+        return sources.filter { $0.group == filter }
+    }
+
+    private var selectedStatus: StreamServerStatus? {
+        filter.flatMap { name in statuses.first { $0.name == name } }
+    }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(title).font(.inter(.caption, .semibold)).lineLimit(1)
-            Text("\(count)").font(.interDigits(.caption2, .bold)).opacity(0.55)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                if statuses.count > 1 { tabs }
+                list
+            }
+            .frame(maxWidth: Style.boardWidth, alignment: .leading)
+            .padding(.horizontal, Style.sideInset)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, Style.bottomInset)
         }
-        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop) }
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Style.headerGap) {
+            Text("CHOOSE A STREAM")
+                .font(.inter(Style.eyebrowSize, .heavy)).tracking(Style.eyebrowTracking)
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+            Text(heading.title)
+                .font(.inter(Style.titleSize, .bold))
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            if let subtitle = heading.subtitle {
+                Text(subtitle)
+                    .font(.inter(Style.subtitleSize))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                    .lineLimit(1)
+            }
+        }
+        .shadow(color: .black.opacity(0.4), radius: 14, y: 2)
+        .padding(.top, Style.headerTop).padding(.bottom, Style.headerBottom)
+    }
+
+    // MARK: Tabs
+
+    /// One tab for everything, then one for each place asked -- each server,
+    /// and VOD -- saying how its search is going: still looking, how many it
+    /// found, or that it has none.
+    private var tabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Style.tabGap) {
+                tab(nil, title: "All", mark: allMark)
+                ForEach(statuses) { status in
+                    tab(status.name, title: status.name, mark: status.mark)
+                }
+            }
+            .padding(.vertical, Style.tabLift)
+        }
+        .scrollClipDisabled()
+        .lineupFocusRegion()
+        .padding(.bottom, Style.tabsBottom)
+    }
+
+    private var allMark: MediaStreamTab.Mark {
+        sources.isEmpty && statuses.contains(where: \.isWaiting) ? .looking : .count(sources.count)
+    }
+
+    private func tab(_ value: String?, title: String, mark: MediaStreamTab.Mark) -> some View {
+        Button { filter = value } label: {
+            MediaStreamTab(title: title, mark: mark, active: filter == value)
+        }
+        .lineupFlatButton()
+    }
+
+    // MARK: List
+
+    @ViewBuilder
+    private var list: some View {
+        let shown = visible
+        if shown.isEmpty {
+            emptyState
+        } else {
+            let sections = MediaStreamTier.sections(of: shown)
+            LazyVStack(alignment: .leading, spacing: Style.rowSpacing) {
+                ForEach(sections) { section in
+                    if sections.count > 1 {
+                        sectionHeader(section, first: section.id == sections.first?.id)
+                    }
+                    ForEach(section.sources) { source in
+                        row(source)
+                    }
+                }
+            }
+            if filter == nil { missingFooter }
+        }
+    }
+
+    private func sectionHeader(_ section: MediaStreamTier.Section, first: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(section.tier.title.uppercased())
+                .font(.inter(Style.sectionSize, .heavy)).tracking(Style.eyebrowTracking)
+            Spacer()
+            Text("\(section.sources.count)")
+                .font(.interDigits(Style.sectionSize, .heavy))
+        }
+        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+        .padding(.horizontal, Style.rowInsetH)
+        .padding(.top, first ? 0 : Style.sectionGap - Style.rowSpacing)
+    }
+
+    @ViewBuilder
+    private func row(_ source: MediaPlaybackSource) -> some View {
+        let label = MediaStreamRow(source: source, server: filter == nil ? serverLabel(source) : nil)
+        #if os(tvOS)
+        TVSelectable(scale: LineupStyle.cardLift, fillRadius: Style.rowRadius, action: { choose(source) }) {
+            label
+        }
+        #else
+        Button { choose(source) } label: { label }
+            .lineupFlatButton()
+        #endif
+    }
+
+    /// The places that added nothing, and why, under everything the others
+    /// found -- so a server that should have had the title says how it was
+    /// asked, without standing between the viewer and a stream.
+    @ViewBuilder
+    private var missingFooter: some View {
+        let missing = statuses.filter { $0.tried != nil || $0.failure != nil }
+        if !missing.isEmpty {
+            VStack(alignment: .leading, spacing: Style.lineGap * 2) {
+                ForEach(missing) { status in
+                    VStack(alignment: .leading, spacing: Style.lineGap) {
+                        Text(status.failure == nil ? "\(status.name) doesn't have this title"
+                                                   : "\(status.name) didn't answer")
+                            .font(.inter(Style.noteSize, .semibold))
+                        if let why = status.tried ?? status.failure {
+                            Text(why).font(.inter(Style.noteSize - 2)).lineLimit(2)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                        }
+                    }
+                }
+            }
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            .padding(.horizontal, Style.rowInsetH)
+            .padding(.top, Style.sectionGap)
+        }
+    }
+
+    // MARK: Nothing to list (yet)
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if let error, sources.isEmpty {
+            notice("exclamationmark.triangle", title: "Streams unavailable", detail: error)
+        } else if let status = selectedStatus {
+            switch status.phase {
+            case .looking, .preparing:
+                waiting("Asking \(status.name)…", detail: status.isPreparing ? status.detail : nil)
+            case .notOnServer(let tried):
+                notice("film.stack", title: "\(status.name) doesn't have this title", detail: tried)
+            case .failed(let message):
+                notice("wifi.exclamationmark", title: "\(status.name) didn't answer", detail: message)
+            case .found:
+                notice("play.slash", title: "No streams on \(status.name)", detail: nil)
+            }
+        } else if loading || statuses.contains(where: \.isWaiting) {
+            waiting("Finding streams…", detail: asking)
+        } else {
+            notice("play.slash", title: "No streams found",
+                   detail: statuses.count > 1 ? "None of your servers had a playable version of this title."
+                                              : "Your server had no playable version of this title.")
+        }
+    }
+
+    private var asking: String? {
+        let names = statuses.map(\.name)
+        return names.isEmpty ? nil : "Asking " + ListFormatter.localizedString(byJoining: names)
+    }
+
+    private func waiting(_ title: String, detail: String?) -> some View {
+        VStack(spacing: Style.lineGap * 2) {
+            ProgressView().controlSize(.large)
+            Text(title).font(.inter(Style.noticeTitleSize, .semibold))
+            if let detail {
+                Text(detail).font(.inter(Style.noteSize))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Style.noticeTop)
+        .mediaFocusAnchor()
+    }
+
+    private func notice(_ symbol: String, title: String, detail: String?) -> some View {
+        VStack(spacing: Style.lineGap * 2) {
+            Image(systemName: symbol)
+                .font(.system(size: Style.noticeSymbolSize, weight: .semibold))
+                .opacity(0.5)
+            Text(title).font(.inter(Style.noticeTitleSize, .semibold))
+                .multilineTextAlignment(.center)
+            if let detail {
+                Text(detail).font(.inter(Style.noteSize))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .multilineTextAlignment(.center).lineLimit(3)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Style.noticeTop)
+        .mediaFocusAnchor()
+    }
+}
+
+/// The title's own wide picture behind the top of the list, fading into the
+/// background well before the first row, so it sets the scene without
+/// sitting behind anything that has to be read.
+private struct MediaStreamBackdrop: View {
+    let url: URL?
+
+    var body: some View {
+        Color.clear
+            .frame(height: MediaStreamStyle.backdropHeight)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                LineupArtView(url: url, width: MediaStreamStyle.backdropWidth) { image in
+                    if let image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Color.clear
+                    }
+                }
+            }
+            .clipped()
+            .overlay {
+                LinearGradient(stops: [
+                    .init(color: LineupStyle.background.opacity(0.45), location: 0),
+                    .init(color: LineupStyle.background.opacity(0.78), location: 0.5),
+                    .init(color: LineupStyle.background, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+            }
+            .overlay {
+                LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A tab in the stream list: its name, then how its search went.
+private struct MediaStreamTab: View {
+    enum Mark: Equatable {
+        case count(Int)
+        case looking
+        case none
+        case failed
+    }
+
+    @Environment(\.isFocused) private var focused
+    let title: String
+    let mark: Mark
+    let active: Bool
+
+    private typealias Style = MediaStreamStyle
+
+    var body: some View {
+        HStack(spacing: Style.tabInnerGap) {
+            Text(title).font(.inter(Style.tabSize, .semibold)).lineLimit(1)
+            markView
+        }
+        .padding(.horizontal, Style.tabPadH).padding(.vertical, Style.tabPadV)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
         .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().stroke(border, lineWidth: 1))
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.line, lineWidth: 1))
+        .opacity(quiet && !active ? 0.55 : 1)
         .lineupFocusLayer(focused && !active, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
 
-    // Constant: the chip shows whether it is active, not whether it is focused.
-    private var border: Color { active ? .clear : LineupStyle.line }
+    /// A place that found nothing stays a tab -- it says why when chosen --
+    /// but steps back from the ones with streams.
+    private var quiet: Bool { mark == .none || mark == .failed }
+
+    @ViewBuilder
+    private var markView: some View {
+        switch mark {
+        case .count(let count):
+            Text("\(count)").font(.interDigits(Style.tabCountSize, .bold)).opacity(0.55)
+        case .looking:
+            ProgressView()
+                .tint(active ? LineupStyle.background : LineupStyle.lightPurple)
+                .scaleEffect(Style.tabSpinnerScale)
+                .frame(width: Style.tabSpinner, height: Style.tabSpinner)
+        case .none:
+            Text("—").font(.inter(Style.tabCountSize, .bold)).opacity(0.5)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: Style.tabCountSize - 3, weight: .bold)).opacity(0.6)
+        }
+    }
 }
 
-private struct MediaSourceRow: View {
+/// One stream, read the way a stream is chosen: its resolution and range on
+/// the left, what it is in a line, the release under that, where it is from
+/// under that, and its size on the right, where every row's lines up.
+private struct MediaStreamRow: View {
     let source: MediaPlaybackSource
-    /// The server offering it, when there is more than one to choose between.
-    var server: String? = nil
+    /// The server it is from, said when the list mixes servers.
+    var server: String?
+
+    private typealias Style = MediaStreamStyle
 
     var body: some View {
-        // Everything in one column. Spread across a television the old
-        // three-column row put the provider a screen away from the title it
-        // belonged to, and left each result a thin strip a few pixels tall.
-        // Stacked, a result is a block of lines the eye reads straight down.
-        VStack(alignment: .leading, spacing: lineSpacing) {
-            HStack(alignment: .top, spacing: 12) {
-                // Fixed width and a single line, so 1080p reads as a rank marker
-                // and can never wrap into a stack of digits the way it used to.
-                Text(source.quality ?? "SD")
-                    .font(.interDigits(qualitySize, .heavy))
-                    .lineLimit(1).fixedSize()
-                    .frame(width: qualityWidth, height: qualityHeight)
-                    .background(accent.opacity(0.14),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Text(source.releaseName)
-                    .font(.inter(titleSize, .semibold))
-                    .lineLimit(2).multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // One quiet line each. Pills inside a pill inside a card was the
-            // cheap part; the words carry themselves.
-            if !source.badges.isEmpty {
-                Text(source.badges.joined(separator: "  \u{00B7}  "))
-                    .font(.inter(badgeSize, .medium))
-                    .foregroundStyle(accent.opacity(0.74))
-                    .lineLimit(1).truncationMode(.tail)
-            }
-            if !source.facts.isEmpty {
-                Text(source.facts.joined(separator: "  \u{00B7}  "))
-                    .font(.interDigits(factSize))
-                    .foregroundStyle(accent.opacity(0.5))
-                    .lineLimit(1).truncationMode(.tail)
-            }
-            HStack(spacing: 8) {
-                Text(source.provider.uppercased())
-                    .font(.inter(markSize, .heavy)).tracking(1.1)
+        HStack(alignment: .center, spacing: Style.rowGap) {
+            tile
+            VStack(alignment: .leading, spacing: Style.lineGap) {
+                Text(summary)
+                    .font(.inter(Style.summarySize, .semibold))
                     .lineLimit(1)
-                if let score = source.score {
-                    Text("\u{00B7}").font(.inter(markSize, .heavy))
-                    Text("RANK " + (score >= 0 ? "+\(score)" : "\(score)"))
-                        .font(.inter(markSize, .heavy)).tracking(1.1)
-                        .monospacedDigit()
-                }
-                if let server {
-                    Text("\u{00B7}").font(.inter(markSize, .heavy))
-                    Text("FROM " + server.uppercased())
-                        .font(.inter(markSize, .heavy)).tracking(1.1)
-                        .lineLimit(1)
-                }
+                Text(source.releaseName)
+                    .font(.inter(Style.releaseSize))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                    .lineLimit(1).truncationMode(.middle)
+                origin
             }
-            .foregroundStyle(accent.opacity(0.5))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            measures
         }
-        .padding(.horizontal, insetH).padding(.vertical, insetV)
-        // A television row is as wide as the words in it. Held to the column
-        // width it ran on past the end of a release name -- half an empty card
-        // on every row, and the whole of it lit when the row took focus.
-        .frame(maxWidth: rowWidth, alignment: .leading)
-        .background { plate }
-        .foregroundStyle(accent)
+        .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 1))
+        .foregroundStyle(LineupStyle.lightPurple)
         .accessibilityElement(children: .combine)
     }
 
-    /// Nothing is drawn around a result on a television: the list floats on the
-    /// background and the focused row is the only one wearing a fill. A phone
-    /// keeps its card, where a tap target needs an edge to aim at.
-    @ViewBuilder private var plate: some View {
-        #if !os(tvOS)
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(LineupStyle.surface)
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
-        #endif
+    /// Resolution, large, with the dynamic range under it.
+    private var tile: some View {
+        VStack(spacing: Style.tileGap) {
+            Text(source.quality ?? "SD")
+                .font(.interDigits(Style.tileSize, .heavy))
+                .lineLimit(1).minimumScaleFactor(0.7)
+            if let range = dynamicRange {
+                Text(range)
+                    .font(.inter(Style.tileRangeSize, .heavy)).tracking(0.6)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .opacity(0.72)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(width: Style.tileWidth, height: Style.tileHeight)
+        .background(LineupStyle.lightPurple.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: Style.tileRadius, style: .continuous))
     }
 
+    private var dynamicRange: String? {
+        let tags = source.dynamicRangeTags
+        return tags.isEmpty ? nil : tags.joined(separator: " · ")
+    }
+
+    /// What it is, in one line: where it was mastered from, how it is
+    /// encoded, how it sounds.
+    private var summary: String {
+        var parts: [String] = []
+        if let tag = source.sourceTag { parts.append(tag) }
+        if let codec = source.videoCodec {
+            parts.append(source.bitDepth == "10-bit" ? codec + " 10-bit" : codec)
+        }
+        let audio = [source.audioCodec, source.audioChannels].compactMap { $0 }.joined(separator: " ")
+        if source.hasAtmos {
+            parts.append(audio.isEmpty ? "Atmos" : audio + " Atmos")
+        } else if !audio.isEmpty {
+            parts.append(audio)
+        }
+        if !parts.isEmpty { return parts.joined(separator: "  ·  ") }
+        if source.directURL != nil { return "Your IPTV provider's copy" }
+        return source.containerLabel.map { $0 + " file" } ?? "Stream"
+    }
+
+    /// Where it is from: the add-on that found it and its indexer, and the
+    /// server, when the list mixes servers.
+    private var origin: some View {
+        HStack(spacing: Style.markGap) {
+            if source.isInstant {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill")
+                    Text("INSTANT")
+                }
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
+            }
+            Text(originText).lineLimit(1)
+        }
+        .font(.inter(Style.markSize, .heavy)).tracking(1.2)
+        .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+    }
+
+    private var originText: String {
+        if source.directURL != nil { return "IPTV VOD" }
+        var parts = [source.provider]
+        if let indexer = source.indexer { parts.append(indexer) }
+        if let server { parts.append("from " + server) }
+        return parts.joined(separator: "  ·  ").uppercased()
+    }
+
+    /// Size over bitrate, right-aligned, so the column of them can be read
+    /// down the list.
+    @ViewBuilder
+    private var measures: some View {
+        let size = source.formattedSize
+        let rate = source.formattedBitrate
+        if size != nil || rate != nil {
+            VStack(alignment: .trailing, spacing: Style.lineGap) {
+                if let size {
+                    Text(size).font(.interDigits(Style.sizeSize, .semibold))
+                }
+                if let rate {
+                    Text(rate).font(.interDigits(Style.rateSize)).opacity(0.55)
+                }
+            }
+            .lineLimit(1)
+            .frame(width: Style.measureWidth, alignment: .trailing)
+        }
+    }
+}
+
+/// The stream list's measurements, one set per platform.
+private enum MediaStreamStyle {
     #if os(tvOS)
-    /// nil lets the row size to its content; a phone card still spans its list.
-    private var rowWidth: CGFloat? { nil }
-    private var lineSpacing: CGFloat { 13 }
-    private var titleSize: CGFloat { 28 }
-    // The three lines under the release carry the detail somebody is actually
-    // choosing between -- codec, size, indexer -- and at a footnote's size a
-    // television turns them into texture. They keep their order below the
-    // title without being small enough to squint at.
-    private var badgeSize: CGFloat { 23 }
-    private var factSize: CGFloat { 21 }
-    private var markSize: CGFloat { 20 }
-    private var qualitySize: CGFloat { 20 }
-    private var qualityWidth: CGFloat { 90 }
-    private var qualityHeight: CGFloat { 40 }
-    private var insetH: CGFloat { 26 }
-    private var insetV: CGFloat { 24 }
+    static let boardWidth: CGFloat = 1480
+    static let sideInset: CGFloat = 0
+    static let bottomInset: CGFloat = 60
+    static let backdropHeight: CGFloat = 640
+    static let backdropWidth: CGFloat = 1920
+    static let headerTop: CGFloat = 36
+    static let headerBottom: CGFloat = 30
+    static let headerGap: CGFloat = 8
+    static let eyebrowSize: CGFloat = 15
+    static let eyebrowTracking: CGFloat = 2.2
+    static let titleSize: CGFloat = 54
+    static let subtitleSize: CGFloat = 24
+    static let tabSize: CGFloat = 22
+    static let tabCountSize: CGFloat = 19
+    static let tabPadH: CGFloat = 22
+    static let tabPadV: CGFloat = 11
+    static let tabGap: CGFloat = 14
+    static let tabInnerGap: CGFloat = 10
+    static let tabSpinner: CGFloat = 22
+    static let tabSpinnerScale: CGFloat = 0.5
+    static let tabLift: CGFloat = 10
+    static let tabsBottom: CGFloat = 22
+    static let sectionSize: CGFloat = 15
+    static let sectionGap: CGFloat = 34
+    static let rowSpacing: CGFloat = 12
+    static let rowRadius: CGFloat = 18
+    static let rowInsetH: CGFloat = 22
+    static let rowInsetV: CGFloat = 18
+    static let rowGap: CGFloat = 24
+    static let lineGap: CGFloat = 6
+    static let tileWidth: CGFloat = 118
+    static let tileHeight: CGFloat = 84
+    static let tileRadius: CGFloat = 12
+    static let tileGap: CGFloat = 2
+    static let tileSize: CGFloat = 30
+    static let tileRangeSize: CGFloat = 13
+    static let summarySize: CGFloat = 25
+    static let releaseSize: CGFloat = 19
+    static let markSize: CGFloat = 14
+    static let markGap: CGFloat = 12
+    static let sizeSize: CGFloat = 25
+    static let rateSize: CGFloat = 18
+    static let measureWidth: CGFloat = 150
+    static let noteSize: CGFloat = 20
+    static let noticeTitleSize: CGFloat = 28
+    static let noticeSymbolSize: CGFloat = 44
+    static let noticeTop: CGFloat = 70
     #else
-    private var rowWidth: CGFloat? { .infinity }
-    private var lineSpacing: CGFloat { 8 }
-    private var titleSize: CGFloat { 16 }
-    private var badgeSize: CGFloat { 12 }
-    private var factSize: CGFloat { 11 }
-    private var markSize: CGFloat { 11 }
-    private var qualitySize: CGFloat { 13 }
-    private var qualityWidth: CGFloat { 62 }
-    private var qualityHeight: CGFloat { 26 }
-    private var insetH: CGFloat { 20 }
-    private var insetV: CGFloat { 18 }
+    static let boardWidth: CGFloat = .infinity
+    static let sideInset: CGFloat = 16
+    static let bottomInset: CGFloat = 28
+    static let backdropHeight: CGFloat = 300
+    static let backdropWidth: CGFloat = 900
+    static let headerTop: CGFloat = 8
+    static let headerBottom: CGFloat = 16
+    static let headerGap: CGFloat = 4
+    static let eyebrowSize: CGFloat = 11
+    static let eyebrowTracking: CGFloat = 1.6
+    static let titleSize: CGFloat = 26
+    static let subtitleSize: CGFloat = 14
+    static let tabSize: CGFloat = 14
+    static let tabCountSize: CGFloat = 12
+    static let tabPadH: CGFloat = 14
+    static let tabPadV: CGFloat = 8
+    static let tabGap: CGFloat = 8
+    static let tabInnerGap: CGFloat = 6
+    static let tabSpinner: CGFloat = 14
+    static let tabSpinnerScale: CGFloat = 0.6
+    static let tabLift: CGFloat = 2
+    static let tabsBottom: CGFloat = 14
+    static let sectionSize: CGFloat = 11
+    static let sectionGap: CGFloat = 22
+    static let rowSpacing: CGFloat = 8
+    static let rowRadius: CGFloat = 14
+    static let rowInsetH: CGFloat = 12
+    static let rowInsetV: CGFloat = 12
+    static let rowGap: CGFloat = 12
+    static let lineGap: CGFloat = 3
+    static let tileWidth: CGFloat = 58
+    static let tileHeight: CGFloat = 50
+    static let tileRadius: CGFloat = 10
+    static let tileGap: CGFloat = 1
+    static let tileSize: CGFloat = 16
+    static let tileRangeSize: CGFloat = 8
+    static let summarySize: CGFloat = 15
+    static let releaseSize: CGFloat = 12
+    static let markSize: CGFloat = 9
+    static let markGap: CGFloat = 8
+    static let sizeSize: CGFloat = 14
+    static let rateSize: CGFloat = 11
+    static let measureWidth: CGFloat = 70
+    static let noteSize: CGFloat = 13
+    static let noticeTitleSize: CGFloat = 17
+    static let noticeSymbolSize: CGFloat = 30
+    static let noticeTop: CGFloat = 40
     #endif
-
-    private var accent: Color { LineupStyle.lightPurple }
-
-    private func badge(_ text: String) -> some View {
-        Text(text).font(.inter(.caption2, .bold)).lineLimit(1).fixedSize()
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .foregroundStyle(accent.opacity(0.85))
-            .background(accent.opacity(0.11), in: Capsule())
-    }
 }
 
 /// A stream carries anywhere from two to seven badges. One row of them either
