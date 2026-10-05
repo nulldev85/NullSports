@@ -139,7 +139,7 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
         let response: JellyfinItemsResponse = try await send(
-            try request(path: "users/\(userID)/items", query: query))
+            try request(path: "users/\(userID)/items", query: query, timeout: 30))
         return LocalEpisodeProgressionPolicy.ordered(response.items)
     }
 
@@ -202,8 +202,11 @@ struct JellyfinClient: Sendable {
         try await sendIgnoringBody(try request(path: "library/refresh", method: "POST"))
     }
 
+    /// One item in full. Generous with time: a server that builds items on
+    /// demand -- Gelato makes a library item of a search result the first time
+    /// it is asked for -- fetches its metadata before it answers.
     func item(userID: String, itemID: String) async throws -> MediaItem {
-        try await send(try request(path: "users/\(userID)/items/\(itemID)"))
+        try await send(try request(path: "users/\(userID)/items/\(itemID)", timeout: 40))
     }
 
     func similarItems(userID: String, itemID: String) async throws -> [MediaItem] {
@@ -289,8 +292,10 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
             URLQueryItem(name: "Limit", value: "60")
         ]
+        // A server can answer a search from its addons rather than its
+        // library, which takes longer than reading a list.
         let response: JellyfinItemsResponse = try await send(
-            try request(path: "users/\(userID)/items", query: parameters))
+            try request(path: "users/\(userID)/items", query: parameters, timeout: 30))
         return response.items
     }
 
@@ -305,8 +310,11 @@ struct JellyfinClient: Sendable {
         playbackURL(itemID: itemID, mediaSourceID: nil)
     }
 
+    /// The streams for an item. The longest wait in the client, because a
+    /// server that resolves streams through addons -- AIOStreams asking every
+    /// one of its sources -- can take most of a minute to answer.
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
-        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST")
+        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", timeout: 60)
         value.httpBody = Data("{}".utf8)
         return try await send(value)
     }
@@ -317,7 +325,8 @@ struct JellyfinClient: Sendable {
         return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
     }
 
-    private func request(path: String, method: String = "GET", query: [URLQueryItem] = []) throws -> URLRequest {
+    private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
+                         timeout: TimeInterval = 20) throws -> URLRequest {
         guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw JellyfinError.invalidServer
         }
@@ -325,7 +334,7 @@ struct JellyfinClient: Sendable {
         guard let url = components.url else { throw JellyfinError.invalidServer }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var authorization = "MediaBrowser Client=\"Lineup\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""

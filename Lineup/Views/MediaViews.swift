@@ -586,7 +586,7 @@ private struct MediaCatalogsScreen: View {
     // typing otherwise launches and cancels a network search for every letter.
     @State private var submittedQuery = ""
     @State private var searchRequestID = UUID()
-    @State private var results: [MediaItem] = []
+    @State private var results: [MediaLibrary.SearchGroup] = []
     @State private var searching = false
     @State private var searchError: String?
     @FocusState private var searchFocused: Bool
@@ -640,7 +640,13 @@ private struct MediaCatalogsScreen: View {
                         ContentUnavailableView("No Results", systemImage: "magnifyingglass",
                             description: Text("Nothing in your connected libraries matched that."))
                     } else {
-                        MediaGridScreen(title: "Search Results", items: results)
+                        // One section per server once there is more than
+                        // one, each headed by its server's name.
+                        MediaGridScreen(title: "Search Results", sections: results.map { group in
+                            MediaGridSection(id: group.serverID.uuidString,
+                                             title: media.profiles.count > 1 ? group.serverName : nil,
+                                             items: group.items)
+                        })
                     }
                 }
             } else {
@@ -1066,36 +1072,77 @@ private struct MediaCatalogsScreen: View {
     }
 }
 
+/// A run of cards in a grid with a heading of its own: one server's search
+/// results. A section with no title is just the grid.
+private struct MediaGridSection: Identifiable {
+    let id: String
+    let title: String?
+    let items: [MediaItem]
+}
+
 private struct MediaGridScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let title: String
-    let items: [MediaItem]
+    let sections: [MediaGridSection]
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var choosingShelf = false
     @State private var editingQuery = false
 
+    init(title: String, items: [MediaItem]) {
+        self.title = title
+        sections = [MediaGridSection(id: "all", title: nil, items: items)]
+    }
+
+    init(title: String, sections: [MediaGridSection]) {
+        self.title = title
+        self.sections = sections
+    }
+
+    private var items: [MediaItem] { sections.flatMap(\.items) }
+
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: gridSpacing) {
-                ForEach(items, id: \.libraryKey) { item in
-                    if item.opensPage {
-                        #if os(tvOS)
-                        TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
-                            MediaItemCard(item: item, shape: shape)
+            LazyVStack(alignment: .leading, spacing: sectionSpacing) {
+                ForEach(sections) { section in
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let heading = section.title {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text(heading).font(headingFont)
+                                Text(section.items.count == 1 ? "1 result" : "\(section.items.count) results")
+                                    .font(.inter(13, .semibold))
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                            }
                         }
-                        #else
-                        NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                            .lineupFlatButton()
-                        #endif
-                    } else {
-                        MediaPlayableCard(item: item, shape: shape)
+                        LazyVGrid(columns: columns, spacing: gridSpacing) {
+                            ForEach(section.items, id: \.libraryKey) { item in
+                                cell(item)
+                            }
+                        }
+                        // Down from a section's last row reaches the next one.
+                        .lineupFocusRegion()
                     }
                 }
             }
             .padding(.horizontal, horizontalPadding).padding(.vertical, 28)
         }
         .lineupFocusRegion()
+    }
+
+    @ViewBuilder
+    private func cell(_ item: MediaItem) -> some View {
+        if item.opensPage {
+            #if os(tvOS)
+            TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
+                MediaItemCard(item: item, shape: shape)
+            }
+            #else
+            NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
+                .lineupFlatButton()
+            #endif
+        } else {
+            MediaPlayableCard(item: item, shape: shape)
+        }
     }
 
     @ViewBuilder
@@ -1127,6 +1174,20 @@ private struct MediaGridScreen: View {
         30
         #else
         20
+        #endif
+    }
+    private var sectionSpacing: CGFloat {
+        #if os(tvOS)
+        44
+        #else
+        28
+        #endif
+    }
+    private var headingFont: Font {
+        #if os(tvOS)
+        .inter(24, .semibold)
+        #else
+        .inter(.title3, .bold)
         #endif
     }
     private var horizontalPadding: CGFloat {
@@ -3055,6 +3116,43 @@ struct LibraryHeroSettingsView: View {
     #endif
 }
 
+/// How one server's search for a title's streams went.
+private struct StreamServerStatus: Identifiable {
+    enum Phase {
+        case looking
+        case found(Int)
+        case notOnServer
+        case failed(String)
+    }
+
+    let id: UUID
+    let name: String
+    var phase: Phase
+
+    var detail: String {
+        switch phase {
+        case .looking: "Looking…"
+        case .found(let count): count == 0 ? "No streams" : (count == 1 ? "1 stream" : "\(count) streams")
+        case .notOnServer: "Doesn't have this title"
+        case .failed(let message): "Didn't answer · " + message
+        }
+    }
+
+    var symbol: String {
+        switch phase {
+        case .looking: "hourglass"
+        case .found(let count): count > 0 ? "checkmark.circle.fill" : "minus.circle"
+        case .notOnServer: "minus.circle"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    var isGood: Bool {
+        if case .found(let count) = phase { return count > 0 }
+        return false
+    }
+}
+
 private struct MediaSourcePicker: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
@@ -3072,6 +3170,9 @@ private struct MediaSourcePicker: View {
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
     @State private var pendingServers = 0
+    /// How each server's search for this title went, said at the top of the
+    /// list so a server that added nothing says why.
+    @State private var serverStatus: [StreamServerStatus] = []
 
     // Sources in the order the server ranked their best result, so the chip
     // row reads the same way the list below it does.
@@ -3122,6 +3223,8 @@ private struct MediaSourcePicker: View {
     }
 
     private var results: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            serverSummary
         Group {
                 if loading {
                     VStack(spacing: 14) {
@@ -3176,17 +3279,6 @@ private struct MediaSourcePicker: View {
                                     .lineupFlatButton()
                                     #endif
                                 }
-                                if pendingServers > 0 {
-                                    HStack(spacing: 12) {
-                                        ProgressView()
-                                        Text(pendingServers == 1
-                                             ? "Checking one more server…"
-                                             : "Checking \(pendingServers) more servers…")
-                                            .font(.inter(.subheadline))
-                                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                                    }
-                                    .padding(.vertical, 8)
-                                }
                             }
                             .padding(.horizontal, horizontalPadding).padding(.vertical, 20)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3195,6 +3287,8 @@ private struct MediaSourcePicker: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LineupStyle.background.ignoresSafeArea())
             .foregroundStyle(LineupStyle.lightPurple)
@@ -3220,6 +3314,7 @@ private struct MediaSourcePicker: View {
         let title = item
         let servers = library.streamServers(for: title)
         pendingServers = servers.count
+        serverStatus = servers.map { StreamServerStatus(id: $0.id, name: $0.name, phase: .looking) }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
         await withTaskGroup(of: (Int, Result<[MediaPlaybackSource], Error>).self) { group in
@@ -3234,11 +3329,16 @@ private struct MediaSourcePicker: View {
                 switch answer {
                 case .success(let streams):
                     found[index] = streams
-                // Only the title's own server failing is worth saying. Another
-                // server without a copy of it, or not answering, simply has
-                // nothing to add.
+                    serverStatus[index].phase = .found(streams.count)
+                // The title's own server failing is the error for the screen.
+                // Any server's outcome is said in its line at the top.
                 case .failure(let problem):
                     if index == 0 { failure = problem }
+                    if problem is MediaLibrary.StreamLookupError {
+                        serverStatus[index].phase = .notOnServer
+                    } else if !MediaLibrary.isCancellation(problem) {
+                        serverStatus[index].phase = .failed(problem.localizedDescription)
+                    }
                 }
                 sources = found.keys.sorted().flatMap { found[$0] ?? [] }
                 if !sources.isEmpty { loading = false }
@@ -3329,6 +3429,37 @@ private struct MediaSourcePicker: View {
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
         }
+    }
+
+    /// Each server's outcome on one line, once there is more than one server.
+    @ViewBuilder
+    private var serverSummary: some View {
+        if serverStatus.count > 1 {
+            HStack(spacing: 26) {
+                ForEach(serverStatus) { status in
+                    HStack(spacing: 8) {
+                        Image(systemName: status.symbol)
+                            .font(.system(size: summarySize, weight: .semibold))
+                            .opacity(status.isGood ? 0.9 : 0.55)
+                        Text(status.name).font(.inter(summarySize, .semibold))
+                        Text(status.detail).font(.inter(summarySize))
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    }
+                    .lineLimit(1)
+                }
+            }
+            .foregroundStyle(LineupStyle.lightPurple)
+            .padding(.horizontal, horizontalPadding).padding(.top, 4).padding(.bottom, 10)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var summarySize: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        12
+        #endif
     }
 
     /// Which server a stream comes from, once there is more than one it could.

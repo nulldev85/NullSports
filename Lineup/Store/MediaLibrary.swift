@@ -1278,20 +1278,26 @@ final class MediaLibrary: ObservableObject {
 
     // MARK: - Search
 
-    /// Search every connected server, with what is already shelved as the
-    /// fallback.
+    /// What one server found for a search.
+    struct SearchGroup: Identifiable {
+        let serverID: UUID
+        let serverName: String
+        let items: [MediaItem]
+        var id: UUID { serverID }
+    }
+
+    /// Search every connected server at once, each server's results kept
+    /// together, servers in the order they were added.
     ///
-    /// The servers' own results come first, servers in the order they were
-    /// added, because those are titles the viewer actually holds. A title that
-    /// more than one server holds is listed once: its streams are gathered
-    /// from all of them when it is played. A server that fails still leaves
-    /// the others and the loaded shelves searchable, and only an empty result
-    /// raises the error.
-    func search(_ query: String) async throws -> [MediaItem] {
+    /// Kept apart rather than merged into one list: merged, a title both
+    /// servers hold showed only the first server's copy, and the second
+    /// server's results queued behind every one of the first's, which read as
+    /// the second server not being searched at all. A loaded shelf stays
+    /// searchable too, so a server that fails still answers from what is on
+    /// screen. Only an empty result raises the error.
+    func search(_ query: String) async throws -> [SearchGroup] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        // A loaded shelf stays searchable on its own; the servers expand
-        // beyond those first-page cards.
         let shelved = shelves.flatMap(\.items).filter {
             $0.hasDetailPage && $0.name.localizedStandardContains(term)
         }
@@ -1312,24 +1318,30 @@ final class MediaLibrary: ObservableObject {
             for await (index, answer) in group { answers[index] = answer }
             return answers
         }
-        var results: [MediaItem] = []
+        var groups: [SearchGroup] = []
         var serverError: Error?
-        for index in targets.indices {
+        for (index, (profile, _)) in targets.enumerated() {
+            var found: [MediaItem] = []
             switch answers[index] {
-            case .success(let found)?: results += found
+            case .success(let items)?: found = items
             case .failure(let error)?: if serverError == nil { serverError = error }
             case nil: break
             }
+            // Within a server a title is listed once, whichever of its search
+            // and its shelves found it.
+            var seen: Set<String> = []
+            let items = (found + shelved.filter { $0.serverID == profile.id }).filter { item in
+                let keys = [item.libraryKey] + MediaTitleMatch.keys(of: item)
+                guard !keys.contains(where: seen.contains) else { return false }
+                seen.formUnion(keys)
+                return true
+            }
+            if !items.isEmpty {
+                groups.append(SearchGroup(serverID: profile.id, serverName: profile.name, items: items))
+            }
         }
-        var seen: Set<String> = []
-        results = (results + shelved).filter { item in
-            let keys = [item.libraryKey] + MediaTitleMatch.keys(of: item)
-            guard !keys.contains(where: seen.contains) else { return false }
-            seen.formUnion(keys)
-            return true
-        }
-        if results.isEmpty, let serverError { throw serverError }
-        return results
+        if groups.isEmpty, let serverError { throw serverError }
+        return groups
     }
 
     // MARK: - Shelves
@@ -1693,16 +1705,25 @@ final class MediaLibrary: ObservableObject {
         return [home] + profiles.filter { $0.id != home.id }
     }
 
+    /// Why another server added nothing to a title's streams.
+    enum StreamLookupError: LocalizedError {
+        case notOnServer
+
+        var errorDescription: String? { "Doesn't have this title" }
+    }
+
     /// One server's streams for a title, each marked with the server and the
     /// item it plays from. The title's own server is asked about the item
-    /// itself; another server about its own copy, and it has nothing to offer
-    /// when it holds none.
+    /// itself; another server about its own copy, and it throws
+    /// `StreamLookupError.notOnServer` when it holds none.
     func playbackSources(for item: MediaItem, on profile: MediaServerProfile) async throws -> [MediaPlaybackSource] {
         let target: MediaItem
         if serverID(of: item) == profile.id {
             target = item
         } else {
-            guard let copy = try await counterpart(of: item, on: profile) else { return [] }
+            guard let copy = try await counterpart(of: item, on: profile) else {
+                throw StreamLookupError.notOnServer
+            }
             target = copy
         }
         return try await client(for: profile).playbackInfo(itemID: target.id).mediaSources
@@ -1733,8 +1754,9 @@ final class MediaLibrary: ObservableObject {
     /// then its season and number in that show.
     func counterpart(of item: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
         let key = (serverID(of: item)?.uuidString ?? "") + "|" + item.id + ">" + profile.id.uuidString
-        if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600 {
-            return cached.item
+        if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600,
+           let copy = cached.item {
+            return copy
         }
         let found: MediaItem?
         if item.type == "Episode" {
@@ -1742,13 +1764,24 @@ final class MediaLibrary: ObservableObject {
         } else {
             found = try await counterpartTitle(of: item, on: profile)
         }
-        counterparts[key] = CachedCounterpart(item: found, storedAt: Date())
+        // Only a copy found is remembered. A miss is asked again next time:
+        // a server that builds items on demand may simply not have finished.
+        if let found { counterparts[key] = CachedCounterpart(item: found, storedAt: Date()) }
         return found
     }
 
+    /// A film or a show on another server, opened there before it is used.
+    ///
+    /// Opening it is what makes it real on a server that builds items on
+    /// demand: Gelato answers a search with results that only become library
+    /// items -- with an id its other routes accept -- once an item route is
+    /// called with them. The opened item's id is the one to use from then on.
     private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
-        let found = try await client(for: profile).search(userID: profile.userID, query: title.name)
-        return found.first { MediaTitleMatch.isSame(title, $0) }?.servedBy(profile.id)
+        let source = try client(for: profile)
+        let found = try await source.search(userID: profile.userID, query: title.name)
+        guard let match = found.first(where: { MediaTitleMatch.isSame(title, $0) }) else { return nil }
+        let opened = (try? await source.item(userID: profile.userID, itemID: match.id)) ?? match
+        return opened.servedBy(profile.id)
     }
 
     private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
@@ -1761,9 +1794,19 @@ final class MediaLibrary: ObservableObject {
                              childCount: nil, serverID: episode.serverID)
         if episode.seriesID != nil, let described = try? await details(of: show) { show = described }
         guard let match = try await counterpartTitle(of: show, on: profile) else { return nil }
-        let episodes = try await client(for: profile).episodes(userID: profile.userID, seriesID: match.id)
-        return episodes.first { $0.parentIndexNumber == season && $0.indexNumber == number }?
-            .servedBy(profile.id)
+        let source = try client(for: profile)
+        // A show a server has only just built from a search can be missing
+        // its episodes for a moment while the server fetches them, so an
+        // empty answer is asked again before it is believed.
+        for attempt in 0..<3 {
+            if attempt > 0 { try await Task.sleep(for: .seconds(Double(attempt) * 1.5)) }
+            let episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            if let episode = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
+                return episode.servedBy(profile.id)
+            }
+            if !episodes.isEmpty { return nil }
+        }
+        return nil
     }
 
     // MARK: - Plumbing
@@ -1852,7 +1895,7 @@ final class MediaLibrary: ObservableObject {
 
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
         let selections = savedShelves()
-        if let saved = selections[profileID.uuidString] {
+        if let saved = selections[profileID.uuidString], !saved.isEmpty {
             return saved.compactMap { id in roots.first { $0.id == id } }
         }
 
@@ -1864,7 +1907,11 @@ final class MediaLibrary: ObservableObject {
             let name = root.name.lowercased()
             return name.contains("trending") && (name.contains("series") || name.contains("show") || name.contains("tv"))
         }
-        let defaults = [movie, series].compactMap { $0 }
+        var defaults = [movie, series].compactMap { $0 }
+        // A server with nothing named trending still shows its own first
+        // libraries: added beside another server, it must not be invisible in
+        // the Library until someone goes looking for Add Shelf.
+        if defaults.isEmpty { defaults = Array(roots.prefix(2)) }
         saveShelfIDs(defaults.map(\.id), profileID: profileID)
         return defaults
     }
