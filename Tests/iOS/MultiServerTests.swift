@@ -180,7 +180,7 @@ final class MultiServerTests: XCTestCase {
             """#.utf8))
         remux.serverName = "Null"
         XCTAssertEqual(remux.group, "Null")
-        XCTAssertEqual(remux.provider, "StreamNZB", "The row still says which add-on found it")
+        XCTAssertEqual(remux.provider, "StreamNZB")
 
         var aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"b","Name":"4K ⚡\nMutiny.2026.2160p.WEB-DL","aiostreams":{"addon":"Torrentio","cached":true}}

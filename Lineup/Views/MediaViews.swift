@@ -4100,37 +4100,40 @@ private struct MediaStreamRow: View {
         return source.containerLabel.map { $0 + " file" } ?? "Stream"
     }
 
-    /// Where it is from: the server's ranking first, where it lines up down
-    /// the list, then the add-on that found it and its indexer, and the
-    /// server, when the list mixes servers.
+    /// What a stream is chosen by beyond what it is: the server's ranking,
+    /// where it lines up down the list, whether it plays at once, and the
+    /// server, when the list mixes servers. The add-on and indexer that found
+    /// it are left out: they say nothing about which to pick.
+    @ViewBuilder
     private var origin: some View {
-        HStack(spacing: Style.markGap) {
-            if let rank = source.rankLabel {
-                Text(rank).tracking(1.2)
-                    .font(.interDigits(Style.markSize + 1, .heavy))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.9))
-                    .fixedSize()
-            }
-            if source.isInstant {
-                HStack(spacing: 4) {
-                    Image(systemName: "bolt.fill")
-                    Text("INSTANT").tracking(1.2)
+        let rank = source.rankLabel
+        if rank != nil || source.isInstant || server != nil {
+            HStack(spacing: Style.markGap) {
+                if let rank {
+                    Text(rank).tracking(1.2)
+                        .font(.interDigits(Style.markSize + 1, .heavy))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.9))
+                        .fixedSize()
                 }
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
-                .fixedSize()
+                if source.isInstant {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bolt.fill")
+                        Text("INSTANT").tracking(1.2)
+                    }
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
+                    .fixedSize()
+                }
+                if let server {
+                    HStack(spacing: 4) {
+                        Image(systemName: "server.rack")
+                        Text(server.uppercased()).tracking(1.2)
+                    }
+                    .lineLimit(1)
+                }
             }
-            Text(originText).tracking(1.2).lineLimit(1)
+            .font(.inter(Style.markSize, .heavy))
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
         }
-        .font(.inter(Style.markSize, .heavy))
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-    }
-
-    private var originText: String {
-        if source.directURL != nil { return "IPTV VOD" }
-        var parts = [source.provider]
-        if let indexer = source.indexer { parts.append(indexer) }
-        if let server { parts.append("from " + server) }
-        return parts.joined(separator: Style.separator).uppercased()
     }
 
     private var measuresLine: String? {

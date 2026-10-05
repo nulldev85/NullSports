@@ -854,23 +854,21 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     /// What AIOStreams knows of a stream beyond its formatted name: the
-    /// add-on that found it, the release's own file name, the indexer, and
-    /// whether its debrid service already has it. Read however it is
-    /// written, and left out when it will not read: one odd field is no
-    /// reason to lose a server's whole list.
+    /// add-on that found it, the release's own file name, and whether its
+    /// debrid service already has it. Read however it is written, and left
+    /// out when it will not read: one odd field is no reason to lose a
+    /// server's whole list.
     struct AIOStreamsInfo: Decodable, Hashable, Sendable {
         let addon: String?
         let filename: String?
-        let indexer: String?
         let cached: Bool?
 
-        enum CodingKeys: String, CodingKey { case addon, filename, indexer, cached }
+        enum CodingKeys: String, CodingKey { case addon, filename, cached }
 
         init(from decoder: Decoder) throws {
             let values = try? decoder.container(keyedBy: CodingKeys.self)
             addon = values?.lenientString(.addon)
             filename = values?.lenientString(.filename)
-            indexer = values?.lenientString(.indexer)
             cached = try? values?.decodeIfPresent(Bool.self, forKey: .cached)
         }
     }
@@ -1051,22 +1049,6 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         return nil
     }
 
-    // The server's search line reads "\u{1F50D} StreamNZB Library - altHUB \u{2022} \u{1F3AF} Score: +70494".
-    // Only the tail names the indexer; the rest repeats the addon shown beside it.
-    var indexer: String? {
-        if let indexer = aiostreams?.indexer, indexer.caseInsensitiveCompare(provider) != .orderedSame {
-            return indexer
-        }
-        guard let line = displayLines.first(where: { $0.contains("\u{1F50D}") }) else { return nil }
-        let head = line.split(separator: Character("\u{2022}")).first.map(String.init) ?? line
-        let cleaned = head.replacingOccurrences(of: "\u{1F50D}", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        let name = cleaned.components(separatedBy: " - ").last?
-            .trimmingCharacters(in: .whitespaces) ?? cleaned
-        guard !name.isEmpty, name.caseInsensitiveCompare(provider) != .orderedSame else { return nil }
-        return name
-    }
-
     // Ordered the way a stream is judged: how it looks, then how it sounds, then
     // where it was mastered from.
     var badges: [String] {
@@ -1081,10 +1063,6 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     // The measurable facts, in the order someone compares two results by.
-    var facts: [String] {
-        [formattedSize, formattedBitrate, containerLabel, indexer].compactMap { $0 }
-    }
-
     // Servers name containers in full, and "MATROSKA" costs the width of the
     // numbers beside it for no more meaning than "MKV".
     var containerLabel: String? {
