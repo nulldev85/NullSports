@@ -210,6 +210,10 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     /// out the same item id for different things.
     var libraryKey: String { (serverID?.uuidString ?? "") + "|" + id }
 
+    /// One of the IPTV provider's films, shows or episodes, rather than a
+    /// media server's.
+    var isProviderTitle: Bool { ProviderItem(id: id) != nil }
+
     var isPlayable: Bool {
         ["Movie", "Episode", "Video"].contains(type)
     }

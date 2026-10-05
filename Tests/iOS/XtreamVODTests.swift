@@ -48,6 +48,34 @@ final class XtreamVODTests: XCTestCase {
         XCTAssertEqual(shows[1].year, 2022)
     }
 
+    func testACategoryReadsItsNumberAsTextOrNumber() throws {
+        let categories = try decode([Lenient<XtreamCategory>].self, #"""
+        [{"category_id":"23","category_name":"New Releases"},{"category_id":24,"category_name":" Kids "},
+         {"category_id":25,"category_name":""},{"category_name":"No number"}]
+        """#).compactMap(\.value)
+
+        XCTAssertEqual(categories.map(\.categoryID), ["23", "24", "25"])
+        XCTAssertEqual(categories.map(\.categoryName), ["New Releases", "Kids", "25"])
+    }
+
+    func testAFilmsInfoReadsWhatThePanelSays() throws {
+        let info = try decode(XtreamVODInfo.self, #"""
+        {"info":{"description":"Paul joins the Fremen.","genre":"Science Fiction / Adventure",
+                 "backdrop_path":["https://img/dune-wide.jpg"],"duration_secs":"9960",
+                 "releasedate":"2024-02-27","tmdb_id":693134,"actors":"Timothée Chalamet, Zendaya",
+                 "director":"Denis Villeneuve"},"movie_data":{"stream_id":12345}}
+        """#)
+        XCTAssertEqual(info.plot, "Paul joins the Fremen.")
+        XCTAssertEqual(info.backdrop, "https://img/dune-wide.jpg")
+        XCTAssertEqual(info.durationSeconds, 9960)
+        XCTAssertEqual(info.tmdbID, "693134")
+        XCTAssertEqual(info.cast.map(ProviderVOD.list(in:)), ["Timothée Chalamet", "Zendaya"])
+        XCTAssertEqual(info.genre.map(ProviderVOD.list(in:)), ["Science Fiction", "Adventure"])
+
+        let empty = try decode(XtreamVODInfo.self, #"{"info":[],"movie_data":[]}"#)
+        XCTAssertNil(empty.plot, "A panel with nothing to say answers with an empty list")
+    }
+
     // Keyed by season on most panels; the season comes from the list when an
     // episode does not say its own.
     func testAShowsEpisodesComeInSeasonOrder() throws {
@@ -120,6 +148,69 @@ final class XtreamVODTests: XCTestCase {
         XCTAssertEqual(found(film("Dune", 1984)), [3])
         XCTAssertEqual(found(film("Blade Runner 2049", 2017)), [5])
         XCTAssertEqual(found(film("Blade Runner", 1982)), [6], "Blade Runner 2049 is not Blade Runner from 2049")
+    }
+
+    // MARK: The provider's titles in the Library
+
+    func testAProviderItemSaysWhatItIs() {
+        let places: [ProviderItem] = [.film(streamID: 12), .series(seriesID: 7), .season(seriesID: 7, number: 0),
+                                      .episode(seriesID: 7, episodeID: "9001"), .filmCategory("23"),
+                                      .seriesCategory("5")]
+        for place in places { XCTAssertEqual(ProviderItem(id: place.id), place) }
+        XCTAssertEqual(ProviderItem.film(streamID: 12).id, "iptv:film:12")
+        XCTAssertNil(ProviderItem(id: "12"), "A media server's id is not the provider's")
+        XCTAssertNil(ProviderItem(id: "iptv:film:twelve"))
+        XCTAssertNil(ProviderItem(id: "mdblist:7"))
+    }
+
+    func testAProvidersTitleIsShownWithoutItsDecoration() {
+        XCTAssertEqual(ProviderTitle.displayName(for: "EN - Dune: Part Two (2024) [4K]"), "Dune: Part Two")
+        XCTAssertEqual(ProviderTitle.displayName(for: "|FR| Amélie"), "Amélie")
+        XCTAssertEqual(ProviderTitle.displayName(for: "TRON: Legacy"), "TRON: Legacy")
+        XCTAssertEqual(ProviderTitle.episodeName("Breaking Bad - S01E01 - Pilot", number: 1), "Pilot")
+        XCTAssertEqual(ProviderTitle.episodeName("S02E10", number: 10), "Episode 10")
+        XCTAssertEqual(ProviderTitle.episodeName("Ozymandias", number: 14), "Ozymandias")
+    }
+
+    func testCategoriesAndSearchReadTheProvidersList() {
+        let provider = UUID()
+        let catalog = ProviderVOD.Catalog(profileID: provider, films: [
+            XtreamVODStream(streamID: 1, name: "EN - Dune: Part Two", categoryID: "23"),
+            XtreamVODStream(streamID: 2, name: "Dune (1984)", categoryID: "24"),
+            XtreamVODStream(streamID: 3, name: "Arrival", categoryID: "23"),
+            XtreamVODStream(streamID: 4, name: "Paul and Dune Friends", categoryID: "24")
+        ], shows: [XtreamSeries(seriesID: 9, name: "Dune: Prophecy", categoryID: "5")],
+           filmCategories: [XtreamCategory(categoryID: "23", categoryName: "New")],
+           fetchedAt: Date())
+        let index = ProviderVOD.Index(catalog)
+        XCTAssertEqual(index.films(inCategory: "23", in: catalog).map(\.streamID), [1, 3])
+        XCTAssertEqual(index.film(streamID: 3, in: catalog)?.name, "Arrival")
+        XCTAssertNil(index.film(streamID: 99, in: catalog))
+        let found = index.search("dune", in: catalog)
+        XCTAssertEqual(found.films.map(\.streamID), [2, 1, 4], "The name itself, then names starting with it")
+        XCTAssertEqual(found.shows.map(\.seriesID), [9])
+        XCTAssertEqual(index.search("   ", in: catalog).films, [])
+
+        let film = ProviderVOD.item(for: catalog.films[0], provider: provider)
+        XCTAssertEqual(film.name, "Dune: Part Two")
+        XCTAssertEqual(film.type, "Movie")
+        XCTAssertEqual(film.serverID, provider)
+        XCTAssertTrue(film.isProviderTitle)
+    }
+
+    func testAShowsSeasonsAreTheSeasonsItsEpisodesNumber() {
+        let show = XtreamSeries(seriesID: 7, name: "Breaking Bad", cover: "https://img/bb.jpg")
+        let episodes = [XtreamEpisode(id: "1", season: 1, episodeNumber: 1, title: "Pilot"),
+                        XtreamEpisode(id: "2", season: 1, episodeNumber: 2, title: "Cat's in the Bag"),
+                        XtreamEpisode(id: "3", season: 0, episodeNumber: 1, title: "Minisode")]
+        let seasons = ProviderVOD.seasons(of: show, episodes: episodes, provider: UUID())
+        XCTAssertEqual(seasons.map(\.name), ["Specials", "Season 1"])
+        XCTAssertEqual(seasons.map(\.indexNumber), [0, 1])
+        XCTAssertEqual(seasons.last?.childCount, 2)
+        let episode = ProviderVOD.item(for: episodes[1], of: show, provider: UUID())
+        XCTAssertEqual(episode.episodeCode, "S01E02")
+        XCTAssertEqual(episode.seriesName, "Breaking Bad")
+        XCTAssertEqual(ProviderItem(id: episode.id), .episode(seriesID: 7, episodeID: "2"))
     }
 
     func testFilmsAndEpisodesPlayFromTheProvidersOwnPaths() throws {

@@ -127,6 +127,14 @@ struct XtreamClient {
         catch { throw XtreamError.invalidResponse }
     }
 
+    /// What the provider says about one film beyond its list entry.
+    func vodInfo(streamID: Int) async throws -> XtreamVODInfo {
+        let data = try await payload(action: "get_vod_info",
+            extra: [URLQueryItem(name: "vod_id", value: String(streamID))], timeout: 30)
+        do { return try JSONDecoder().decode(XtreamVODInfo.self, from: data) }
+        catch { throw XtreamError.invalidResponse }
+    }
+
     func vodCategories() async throws -> [XtreamCategory] {
         try Self.decodeList(try await payload(action: "get_vod_categories"))
     }

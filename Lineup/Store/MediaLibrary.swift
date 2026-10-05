@@ -54,6 +54,8 @@ final class MediaLibrary: ObservableObject {
     /// MDBList shelves belong to the Library rather than to any one server:
     /// each list is matched against every server's titles together.
     @Published private(set) var mdbListShelves: [MediaCatalog] = []
+    /// Shelves of the IPTV provider's categories, as chosen.
+    @Published private(set) var providerShelves: [MediaCatalog] = []
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
     /// Catalogs switched on and waiting for their server to finish importing,
@@ -90,6 +92,7 @@ final class MediaLibrary: ObservableObject {
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
+    private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
     /// that is now the whole Library's.
@@ -180,7 +183,9 @@ final class MediaLibrary: ObservableObject {
 
     /// Every shelf: each server's, servers in the order they were added, then
     /// the MDBList shelves that draw on all of them.
-    var catalogs: [MediaCatalog] { profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves }
+    var catalogs: [MediaCatalog] {
+        profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+    }
 
     var addonGroups: [AddonCatalogGroup] { profiles.flatMap { servers[$0.id]?.addonGroups ?? [] } }
 
@@ -214,7 +219,10 @@ final class MediaLibrary: ObservableObject {
     /// A server's name, for showing beside what it offers -- but only when
     /// there is more than one server to tell apart.
     func serverName(of serverID: UUID?) -> String? {
-        guard profiles.count > 1, let serverID else { return nil }
+        guard let serverID else { return nil }
+        // The provider's shelves are always named: they sit among the servers'.
+        if let provider = providerVOD.profile, provider.id == serverID { return provider.name }
+        guard profiles.count > 1 else { return nil }
         return profiles.first { $0.id == serverID }?.name
     }
 
@@ -258,7 +266,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     var favoriteMedia: [MediaItem] {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         return localFavorites.filter { connected.contains($0.profileID) }
             .sorted { $0.addedAt > $1.addedAt }.map(\.item)
     }
@@ -515,6 +523,9 @@ final class MediaLibrary: ObservableObject {
     // MARK: - Titles
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
+        if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
+            return try await providerChildren(of: place, provider: provider)
+        }
         if Self.isMDBListShelfID(parent.id) {
             return catalogs.first { $0.id == parent.id }?.items ?? []
         }
@@ -526,6 +537,9 @@ final class MediaLibrary: ObservableObject {
     // Seasons and episodes are numbered, not named: "Season 10" sorts before
     // "Season 2" by name. A season can also run long past the shelf's limit.
     func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
+        if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
+            return try await providerChildren(of: place, provider: provider)
+        }
         guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
             parentID: parent.id, sortBy: "IndexNumber", limit: 500)
@@ -534,6 +548,7 @@ final class MediaLibrary: ObservableObject {
 
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
+        if ProviderItem(id: item.id) != nil { return await providerDetails(of: item) }
         guard let profile = profile(for: item) else { return item }
         let key = profile.id.uuidString + "|" + item.id
         if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 {
@@ -946,7 +961,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func clearLocalPlayback() {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         localPlayback.removeAll { connected.contains($0.profileID) }
         persistLocalPlayback()
     }
@@ -1074,6 +1089,10 @@ final class MediaLibrary: ObservableObject {
     }
 
     private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
+        if ProviderItem(id: episode.id) != nil {
+            await advanceProviderEpisode(after: episode, profileID: profileID)
+            return
+        }
         guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let tracked = episode.seriesID == nil
             ? ((try? await details(of: episode)) ?? episode)
@@ -1170,8 +1189,16 @@ final class MediaLibrary: ObservableObject {
         return "episode:" + episode.id
     }
 
+    /// Where a local record can belong: every connected server, and the IPTV
+    /// provider, whose titles are played and remembered the same way.
+    private var recordSources: Set<UUID> {
+        var sources = Set(profiles.map(\.id))
+        if let provider = providerVOD.profile?.id { sources.insert(provider) }
+        return sources
+    }
+
     private var playbackForConnectedServers: [LocalMediaPlayback] {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         return localPlayback.filter { connected.contains($0.profileID) }
     }
 
@@ -1348,6 +1375,8 @@ final class MediaLibrary: ObservableObject {
                 groups.append(SearchGroup(serverID: profile.id, serverName: profile.name, items: items))
             }
         }
+        // The IPTV provider's films and shows, after every server's.
+        if let provider = await providerSearchGroup(term) { groups.append(provider) }
         if groups.isEmpty, let serverError { throw serverError }
         return groups
     }
@@ -1360,6 +1389,7 @@ final class MediaLibrary: ObservableObject {
     /// asked for by name, and a row with a title and nothing under it can be
     /// seen, understood and removed; a choice that quietly does nothing cannot.
     func addShelf(_ root: MediaItem) async {
+        if ProviderItem(id: root.id) != nil { await addProviderShelf(root); return }
         guard let profile = profile(for: root) else { return }
         let shelfRoot = root.servedBy(profile.id)
         let shelfID = MediaCatalog.id(for: shelfRoot)
@@ -1378,7 +1408,11 @@ final class MediaLibrary: ObservableObject {
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
-        if Self.isMDBListShelfID(catalog.id) {
+        if ProviderItem(id: catalog.root.id) != nil, let provider = catalog.root.serverID {
+            providerShelves.removeAll { $0.id == catalog.id }
+            saveProviderShelfIDs(savedProviderShelfIDs(for: provider).filter { $0 != catalog.root.id },
+                                 for: provider)
+        } else if Self.isMDBListShelfID(catalog.id) {
             mdbListShelves.removeAll { $0.id == catalog.id }
             saveMDBListShelfIDs(savedMDBListShelfIDs().filter { "mdblist:\($0)" != catalog.id })
             persistMDBListSnapshot()
@@ -1708,6 +1742,11 @@ final class MediaLibrary: ObservableObject {
     /// Only a film or an episode goes looking elsewhere. Those are what another
     /// server can be asked about by name; anything else is its own server's.
     func streamServers(for item: MediaItem) -> [MediaServerProfile] {
+        // A provider's title has no server of its own; each is asked about its
+        // own copy, the way it is for another server's title.
+        if ProviderItem(id: item.id) != nil {
+            return item.type == "Movie" || item.type == "Episode" ? profiles : []
+        }
         guard let home = profile(for: item) else { return [] }
         guard item.type == "Movie" || item.type == "Episode" else { return [home] }
         return [home] + profiles.filter { $0.id != home.id }
@@ -1970,6 +2009,11 @@ final class MediaLibrary: ObservableObject {
             throw StreamLookupError.notOnServer(tried: "No IPTV provider is signed in")
         }
         let (catalog, index) = try await providerVOD.catalog()
+        // A provider's own film or episode plays itself first.
+        if let place = ProviderItem(id: item.id) {
+            return try await providerSources(for: place, item: item, catalog: catalog, index: index,
+                                             provider: provider)
+        }
         if item.type == "Episode" {
             guard let season = item.parentIndexNumber, let number = item.indexNumber,
                   let showName = item.seriesName, !showName.isEmpty else {
@@ -2014,6 +2058,38 @@ final class MediaLibrary: ObservableObject {
         return sources
     }
 
+    /// The streams of one of the provider's own titles: the title itself, and
+    /// for a film, every other copy the provider lists of it.
+    private func providerSources(for place: ProviderItem, item: MediaItem, catalog: ProviderVOD.Catalog,
+                                 index: ProviderVOD.Index,
+                                 provider: (profile: XtreamProfile, client: XtreamClient))
+        async throws -> [MediaPlaybackSource] {
+        switch place {
+        case .film(let streamID):
+            guard let film = index.film(streamID: streamID, in: catalog) else {
+                throw StreamLookupError.notOnServer(tried: "The provider no longer lists it")
+            }
+            let copies = [film] + index.films(for: item, in: catalog).filter { $0.streamID != streamID }
+            return copies.compactMap { copy -> MediaPlaybackSource? in
+                guard let url = provider.client.movieURL(for: copy) else { return nil }
+                return Self.providerSource(id: "movie-\(copy.streamID)", title: copy.name,
+                                           container: copy.containerExtension, url: url, provider: provider.profile)
+            }
+        case .episode(let seriesID, let episodeID):
+            guard let show = index.show(seriesID: seriesID, in: catalog),
+                  let episode = try await providerVOD.episodes(of: show).first(where: { $0.id == episodeID }),
+                  let url = provider.client.episodeURL(for: episode) else {
+                throw StreamLookupError.notOnServer(tried: "The provider no longer lists it")
+            }
+            return [Self.providerSource(id: "series-\(seriesID)-\(episode.id)",
+                                        title: show.name + " · " + episode.title,
+                                        container: episode.containerExtension, url: url,
+                                        provider: provider.profile)]
+        default:
+            return []
+        }
+    }
+
     /// A provider's film or episode as a stream in the list: its own name as
     /// the release, "IPTV" as where it comes from, the provider as its server.
     private static func providerSource(id: String, title: String, container: String?, url: URL,
@@ -2035,6 +2111,187 @@ final class MediaLibrary: ObservableObject {
         if let tmdb = MediaTitleMatch.providerIDs(of: title)["tmdb"] { wanted.append("TMDB " + tmdb) }
         wanted.append("“\(title.name)”" + (title.productionYear.map { " (\($0))" } ?? ""))
         return "Searched \(count.formatted()) \(kind) for " + wanted.joined(separator: " and ")
+    }
+
+    // MARK: - The IPTV provider's titles in the Library
+
+    /// What is under one of the provider's places: a category's films or
+    /// shows, a show's seasons, a season's episodes.
+    private func providerChildren(of place: ProviderItem, provider: UUID) async throws -> [MediaItem] {
+        let (catalog, index) = try await providerVOD.catalog()
+        switch place {
+        case .filmCategory(let category):
+            return index.films(inCategory: category, in: catalog).map { ProviderVOD.item(for: $0, provider: provider) }
+        case .seriesCategory(let category):
+            return index.shows(inCategory: category, in: catalog).map { ProviderVOD.item(for: $0, provider: provider) }
+        case .series(let seriesID):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return [] }
+            let episodes = try await providerVOD.episodes(of: show)
+            return ProviderVOD.seasons(of: show, episodes: episodes, provider: provider)
+        case .season(let seriesID, let number):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return [] }
+            return try await providerVOD.episodes(of: show).filter { $0.season == number }
+                .map { ProviderVOD.item(for: $0, of: show, provider: provider) }
+        case .film, .episode:
+            return []
+        }
+    }
+
+    /// A provider's title in full. A film is asked about (get_vod_info) for
+    /// what its list entry leaves out; a show's list entry already says it
+    /// all. Kept for ten minutes, like a server's: a focused poster asks.
+    private func providerDetails(of item: MediaItem) async -> MediaItem {
+        guard let provider = item.serverID, let place = ProviderItem(id: item.id) else { return item }
+        let key = provider.uuidString + "|" + item.id
+        if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 { return cached.item }
+        guard let loaded = try? await providerVOD.catalog() else { return item }
+        let (catalog, index) = loaded
+        var detailed = item
+        switch place {
+        case .film(let streamID):
+            guard let film = index.film(streamID: streamID, in: catalog) else { return item }
+            let base = ProviderVOD.item(for: film, provider: provider)
+            let info = try? await providerVOD.provider?.client.vodInfo(streamID: streamID)
+            let cast: [String] = info?.cast.map(ProviderVOD.list(in:)) ?? []
+            var people: [MediaPerson] = cast.prefix(12).map {
+                MediaPerson(personID: nil, name: $0, role: nil, type: "Actor", primaryImageTag: nil)
+            }
+            if let director = info?.director {
+                people.append(MediaPerson(personID: nil, name: director, role: nil, type: "Director",
+                                          primaryImageTag: nil))
+            }
+            detailed = MediaItem(id: base.id, name: base.name, type: base.type, overview: info?.plot,
+                                 productionYear: base.productionYear ?? XtreamVOD.year(in: info?.releaseDate),
+                                 primaryImageAspectRatio: nil, childCount: nil,
+                                 genres: info?.genre.map(ProviderVOD.list(in:)),
+                                 communityRating: base.communityRating,
+                                 runTimeTicks: info?.durationSeconds.map { Int64($0) * 10_000_000 },
+                                 people: people.isEmpty ? nil : people,
+                                 providerIDs: (film.tmdbID ?? info?.tmdbID).map { ["Tmdb": $0] },
+                                 posterURL: base.posterURL, backdropURL: info?.backdrop, serverID: provider)
+        case .series(let seriesID):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return item }
+            detailed = ProviderVOD.item(for: show, provider: provider)
+        default:
+            return item
+        }
+        detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
+        return detailed
+    }
+
+    /// The provider's chosen categories as shelves, once its list is in hand.
+    func loadProviderShelves() async {
+        guard let profile = providerVOD.profile else { providerShelves = []; return }
+        let chosen = savedProviderShelfIDs(for: profile.id)
+        guard !chosen.isEmpty else { providerShelves = []; return }
+        guard let loaded = try? await providerVOD.catalog() else { return }
+        let (catalog, index) = loaded
+        providerShelves = chosen.compactMap { id in
+            providerShelf(id, catalog: catalog, index: index, provider: profile.id)
+        }
+    }
+
+    /// The first forty of a category, in the provider's own order. See All
+    /// opens the rest.
+    private func providerShelf(_ rootID: String, catalog: ProviderVOD.Catalog, index: ProviderVOD.Index,
+                               provider: UUID) -> MediaCatalog? {
+        switch ProviderItem(id: rootID) {
+        case .filmCategory(let category)?:
+            guard let group = catalog.filmCategories.first(where: { $0.categoryID == category }) else { return nil }
+            let films = index.films(inCategory: category, in: catalog)
+            return MediaCatalog(root: ProviderVOD.shelfRoot(for: group, films: true, count: films.count,
+                                                            provider: provider),
+                                items: films.prefix(40).map { ProviderVOD.item(for: $0, provider: provider) })
+        case .seriesCategory(let category)?:
+            guard let group = catalog.showCategories.first(where: { $0.categoryID == category }) else { return nil }
+            let shows = index.shows(inCategory: category, in: catalog)
+            return MediaCatalog(root: ProviderVOD.shelfRoot(for: group, films: false, count: shows.count,
+                                                            provider: provider),
+                                items: shows.prefix(40).map { ProviderVOD.item(for: $0, provider: provider) })
+        default:
+            return nil
+        }
+    }
+
+    /// The provider's categories not yet on a shelf, films first, each with
+    /// how many titles it holds. Empty until the provider's list is in hand.
+    var availableProviderShelves: (films: [MediaItem], shows: [MediaItem]) {
+        guard let profile = providerVOD.profile, let ready = providerVOD.ready else { return ([], []) }
+        let (catalog, index) = ready
+        let shelved = Set(providerShelves.map(\.root.id))
+        let films = catalog.filmCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: true,
+                                  count: index.films(inCategory: group.categoryID, in: catalog).count,
+                                  provider: profile.id)
+        }
+        let shows = catalog.showCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: false,
+                                  count: index.shows(inCategory: group.categoryID, in: catalog).count,
+                                  provider: profile.id)
+        }
+        return (films.filter { !shelved.contains($0.id) && ($0.childCount ?? 0) > 0 },
+                shows.filter { !shelved.contains($0.id) && ($0.childCount ?? 0) > 0 })
+    }
+
+    /// Read the provider's list for the shelf picker, and redraw it once read.
+    func loadProviderCatalog() async {
+        guard providerVOD.profile != nil, providerVOD.ready == nil else { return }
+        _ = try? await providerVOD.catalog()
+        objectWillChange.send()
+    }
+
+    func addProviderShelf(_ root: MediaItem) async {
+        guard let provider = root.serverID, ProviderItem(id: root.id) != nil else { return }
+        var chosen = savedProviderShelfIDs(for: provider)
+        guard !chosen.contains(root.id) else { return }
+        chosen.append(root.id)
+        saveProviderShelfIDs(chosen, for: provider)
+        await loadProviderShelves()
+    }
+
+    /// The provider's shelves, chosen per provider: another provider's
+    /// categories are numbered differently.
+    private func savedProviderShelfIDs(for provider: UUID) -> [String] {
+        guard let data = defaults.data(forKey: providerShelvesKey),
+              let saved = try? JSONDecoder().decode([String: [String]].self, from: data) else { return [] }
+        return saved[provider.uuidString] ?? []
+    }
+
+    private func saveProviderShelfIDs(_ ids: [String], for provider: UUID) {
+        var saved = (defaults.data(forKey: providerShelvesKey))
+            .flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:]
+        saved[provider.uuidString] = ids.isEmpty ? nil : ids
+        defaults.set(try? JSONEncoder().encode(saved), forKey: providerShelvesKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// The provider's films and shows whose names hold a search, as one group.
+    private func providerSearchGroup(_ term: String) async -> SearchGroup? {
+        guard let profile = providerVOD.profile,
+              let loaded = try? await providerVOD.catalog() else { return nil }
+        let found = loaded.index.search(term, in: loaded.catalog)
+        let items = found.films.map { ProviderVOD.item(for: $0, provider: profile.id) }
+            + found.shows.map { ProviderVOD.item(for: $0, provider: profile.id) }
+        return items.isEmpty ? nil : SearchGroup(serverID: profile.id, serverName: profile.name, items: items)
+    }
+
+    /// When a provider's episode is watched, the next one in its show is up
+    /// next, as it is for a server's.
+    private func advanceProviderEpisode(after episode: MediaItem, profileID: UUID) async {
+        guard case .episode(let seriesID, let episodeID)? = ProviderItem(id: episode.id),
+              let loaded = try? await providerVOD.catalog(),
+              let show = loaded.index.show(seriesID: seriesID, in: loaded.catalog),
+              let episodes = try? await providerVOD.episodes(of: show),
+              let position = episodes.firstIndex(where: { $0.id == episodeID }) else { return }
+        let key = Self.seriesKey(for: episode)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true && Self.seriesKey(for: record.item) == key
+        }
+        if position + 1 < episodes.count {
+            queueAsUpNext(ProviderVOD.item(for: episodes[position + 1], of: show, provider: profileID),
+                          explicitlyUnwatched: false)
+        }
+        persistLocalPlayback()
     }
 
     private static let providerOrder = ["imdb", "tmdb", "tvdb"]

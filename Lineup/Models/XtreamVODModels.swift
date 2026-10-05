@@ -211,6 +211,41 @@ struct XtreamEpisode: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// What `get_vod_info` says about a film beyond its list entry. Panels with
+/// nothing to say answer with an empty list where the object belongs, which
+/// reads as nothing here rather than as an error.
+struct XtreamVODInfo: Decodable, Sendable {
+    let plot: String?
+    let genre: String?
+    let backdrop: String?
+    let durationSeconds: Int?
+    let releaseDate: String?
+    let tmdbID: String?
+    let cast: String?
+    let director: String?
+
+    enum CodingKeys: String, CodingKey { case info }
+
+    enum InfoKeys: String, CodingKey {
+        case plot, description, genre, backdrop = "backdrop_path", durationSeconds = "duration_secs"
+        case releaseDate = "releasedate", tmdbID = "tmdb_id", cast, actors, director
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let info = try? values.nestedContainer(keyedBy: InfoKeys.self, forKey: .info)
+        plot = info?.lenientString(.plot) ?? info?.lenientString(.description)
+        genre = info?.lenientString(.genre)
+        backdrop = (try? info?.decode([String].self, forKey: .backdrop))?.first { !$0.isEmpty }
+            ?? info?.lenientString(.backdrop)
+        durationSeconds = info?.lenientInt(.durationSeconds)
+        releaseDate = info?.lenientString(.releaseDate)
+        tmdbID = info?.lenientString(.tmdbID).flatMap(XtreamVOD.tmdbID)
+        cast = info?.lenientString(.cast) ?? info?.lenientString(.actors)
+        director = info?.lenientString(.director)
+    }
+}
+
 /// What `get_series_info` says about a show: its episodes, season by season.
 struct XtreamSeriesInfo: Decodable, Sendable {
     let episodes: [XtreamEpisode]
@@ -331,6 +366,38 @@ enum ProviderTitle {
     /// nothing of its year, and without it, as from that year. Whichever the
     /// title is, one of the two agrees with it.
     static func filings(for name: String) -> [Filed] {
+        let (words, year) = cleaned(name)
+        var filings = [Filed(key: MediaTitleMatch.normalized(words.joined(separator: " ")), year: year)]
+        if words.count > 1, let last = words.last, last.count == 4,
+           let bare = Int(last).flatMap(XtreamVOD.plausibleYear) {
+            filings.append(Filed(key: MediaTitleMatch.normalized(words.dropLast().joined(separator: " ")),
+                                 year: year ?? bare))
+        }
+        var seen: Set<String> = []
+        return filings.filter { !$0.key.isEmpty && seen.insert($0.key).inserted }
+    }
+
+    /// The name to show for a provider's title: what is left once its
+    /// decoration is gone, punctuation and all. The name itself when nothing
+    /// would be left.
+    static func displayName(for name: String) -> String {
+        let shown = cleaned(name).words.joined(separator: " ")
+        return shown.isEmpty ? name : shown
+    }
+
+    /// An episode's own name, without the show and the number a provider puts
+    /// before it: "Breaking Bad - S01E01 - Pilot" is "Pilot".
+    static func episodeName(_ title: String, number: Int) -> String {
+        let name = title
+            .replacingOccurrences(of: #"(?i)^.*?\bS\d{1,3}\s*E\d{1,4}\b\s*[-:–|]?\s*"#, with: "",
+                                  options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Episode \(number)" : name
+    }
+
+    /// A provider's name as its words, with its decoration gone, and the year
+    /// it wrote in brackets.
+    private static func cleaned(_ name: String) -> (words: [String], year: Int?) {
         let year = XtreamVOD.year(inTitle: name)
         var text = name
             .replacingOccurrences(of: #"\[[^\]]*\]|\{[^}]*\}|\|[^|]*\|"#, with: " ", options: .regularExpression)
@@ -353,13 +420,50 @@ enum ProviderTitle {
               suffixTags.contains(last.uppercased().trimmingCharacters(in: CharacterSet(charactersIn: "-_."))) {
             words.removeLast()
         }
-        var filings = [Filed(key: MediaTitleMatch.normalized(words.joined(separator: " ")), year: year)]
-        if words.count > 1, let last = words.last, last.count == 4,
-           let bare = Int(last).flatMap(XtreamVOD.plausibleYear) {
-            filings.append(Filed(key: MediaTitleMatch.normalized(words.dropLast().joined(separator: " ")),
-                                 year: year ?? bare))
+        return (words, year)
+    }
+}
+
+/// A Library item that is one of the IPTV provider's titles, or one of its
+/// categories, as its id says.
+///
+/// The provider's own ids are numbers, which a media server's could be too;
+/// the prefix keeps them apart, and says how to play or open the item without
+/// looking anything up.
+enum ProviderItem: Equatable, Sendable {
+    case film(streamID: Int)
+    case series(seriesID: Int)
+    case season(seriesID: Int, number: Int)
+    case episode(seriesID: Int, episodeID: String)
+    case filmCategory(String)
+    case seriesCategory(String)
+
+    init?(id: String) {
+        let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3, parts[0] == "iptv" else { return nil }
+        switch (parts[1], parts.count) {
+        case ("film", 3): guard let value = Int(parts[2]) else { return nil }; self = .film(streamID: value)
+        case ("series", 3): guard let value = Int(parts[2]) else { return nil }; self = .series(seriesID: value)
+        case ("season", 4):
+            guard let series = Int(parts[2]), let number = Int(parts[3]) else { return nil }
+            self = .season(seriesID: series, number: number)
+        case ("episode", 4):
+            guard let series = Int(parts[2]), !parts[3].isEmpty else { return nil }
+            self = .episode(seriesID: series, episodeID: parts[3])
+        case ("vodcat", 3): self = .filmCategory(parts[2])
+        case ("seriescat", 3): self = .seriesCategory(parts[2])
+        default: return nil
         }
-        var seen: Set<String> = []
-        return filings.filter { !$0.key.isEmpty && seen.insert($0.key).inserted }
+    }
+
+    var id: String {
+        switch self {
+        case .film(let streamID): "iptv:film:\(streamID)"
+        case .series(let seriesID): "iptv:series:\(seriesID)"
+        case .season(let seriesID, let number): "iptv:season:\(seriesID):\(number)"
+        case .episode(let seriesID, let episodeID): "iptv:episode:\(seriesID):\(episodeID)"
+        case .filmCategory(let category): "iptv:vodcat:\(category)"
+        case .seriesCategory(let category): "iptv:seriescat:\(category)"
+        }
     }
 }

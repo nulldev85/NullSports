@@ -114,8 +114,9 @@ struct MediaServersView: View {
             // one is needed; appearing only asks.
             .onAppear {
                 media.loadShelvesIfNeeded()
-                // The IPTV provider's list is read ahead, so the first title
-                // played does not wait on all of it.
+                // The IPTV provider's list is read ahead, for its shelves and
+                // so the first title played does not wait on all of it.
+                Task { await media.loadProviderShelves() }
                 media.providerVOD.prefetch()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
@@ -691,7 +692,7 @@ private struct MediaCatalogsScreen: View {
                         // one, each headed by its server's name.
                         MediaGridScreen(title: "Search Results", sections: results.map { group in
                             MediaGridSection(id: group.serverID.uuidString,
-                                             title: media.profiles.count > 1 ? group.serverName : nil,
+                                             title: results.count > 1 ? group.serverName : nil,
                                              items: group.items)
                         })
                     }
@@ -1345,7 +1346,7 @@ private struct MediaShelfPicker: View {
     /// one, every heading says whose they are.
     private var groups: [Group] {
         let several = media.profiles.count > 1
-        return media.profiles.flatMap { server -> [Group] in
+        let servers = media.profiles.flatMap { server -> [Group] in
             let owner = several ? " · " + server.name.uppercased() : ""
             return [Group(id: server.id.uuidString + "|libraries", title: "LIBRARIES" + owner,
                           detail: several ? "Folders \(server.name) keeps itself" : "Folders this server keeps itself",
@@ -1354,7 +1355,16 @@ private struct MediaShelfPicker: View {
                           detail: several ? "Already on \(server.name), ready to shelve" : "Already on your server, ready to shelve",
                           items: media.availableCatalogs(on: server))]
         }
-        .filter { !$0.items.isEmpty }
+        // The IPTV provider's own categories, films and then shows.
+        var provider: [Group] = []
+        if let name = media.providerVOD.profile?.name {
+            let shelves = media.availableProviderShelves
+            provider = [Group(id: "provider|films", title: "MOVIES · " + name.uppercased(),
+                              detail: "Film categories from your IPTV provider", items: shelves.films),
+                        Group(id: "provider|shows", title: "SERIES · " + name.uppercased(),
+                              detail: "Series categories from your IPTV provider", items: shelves.shows)]
+        }
+        return (servers + provider).filter { !$0.items.isEmpty }
     }
 
     private var mdbListGroups: [MDBListGroup] {
@@ -1532,7 +1542,8 @@ private struct MediaShelfPicker: View {
     private func loadSources() async {
         async let addons: Void = media.loadAddonCatalogs()
         async let mdbList: Void = media.loadMDBListIntegration()
-        _ = await (addons, mdbList)
+        async let provider: Void = media.loadProviderCatalog()
+        _ = await (addons, mdbList, provider)
     }
 
     /// Switching a catalog on is the server's work, not this screen's: it can
@@ -3171,6 +3182,27 @@ struct LibraryHeroSettingsView: View {
     #endif
 }
 
+/// One place asked for a title's streams: a media server, or the IPTV
+/// provider.
+private enum StreamLookup {
+    case server(MediaServerProfile)
+    case provider(id: UUID, name: String)
+
+    var id: UUID {
+        switch self {
+        case .server(let server): server.id
+        case .provider(let id, _): id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .server(let server): server.name
+        case .provider(_, let name): name
+        }
+    }
+}
+
 /// How one server's search for a title's streams went.
 private struct StreamServerStatus: Identifiable {
     enum Phase {
@@ -3374,27 +3406,29 @@ private struct MediaSourcePicker: View {
         providerFilter = nil
         let library = media
         let title = item
-        let servers = library.streamServers(for: title)
-        // The IPTV provider is asked too, after every server, about its own
-        // copy of a film or an episode.
-        let provider = library.streamProvider(for: title)
-        pendingServers = servers.count + (provider == nil ? 0 : 1)
-        serverStatus = servers.map { StreamServerStatus(id: $0.id, name: $0.name, phase: .looking) }
-            + (provider.map { [StreamServerStatus(id: $0.id, name: $0.name, phase: .looking)] } ?? [])
+        // Every server, each about its own copy, and the IPTV provider. The
+        // provider is asked last about a server's title and first about its
+        // own, so a title's own streams always lead the list.
+        var lookups = library.streamServers(for: title).map { StreamLookup.server($0) }
+        if let provider = library.streamProvider(for: title) {
+            let lookup = StreamLookup.provider(id: provider.id, name: provider.name)
+            if title.isProviderTitle { lookups.insert(lookup, at: 0) } else { lookups.append(lookup) }
+        }
+        pendingServers = lookups.count
+        serverStatus = lookups.map { StreamServerStatus(id: $0.id, name: $0.name, phase: .looking) }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
         await withTaskGroup(of: (Int, Result<[MediaPlaybackSource], Error>).self) { group in
-            for (index, server) in servers.enumerated() {
+            for (index, lookup) in lookups.enumerated() {
                 group.addTask {
-                    do { return (index, .success(try await library.playbackSources(for: title, on: server))) }
-                    catch { return (index, .failure(error)) }
-                }
-            }
-            if provider != nil {
-                let index = servers.count
-                group.addTask {
-                    do { return (index, .success(try await library.providerSources(for: title))) }
-                    catch { return (index, .failure(error)) }
+                    do {
+                        switch lookup {
+                        case .server(let server):
+                            return (index, .success(try await library.playbackSources(for: title, on: server)))
+                        case .provider:
+                            return (index, .success(try await library.providerSources(for: title)))
+                        }
+                    } catch { return (index, .failure(error)) }
                 }
             }
             for await (index, answer) in group {
