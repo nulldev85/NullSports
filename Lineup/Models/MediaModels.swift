@@ -946,7 +946,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
 
     /// The server's ranking, to put beside a stream: its stars, then its score.
     var rankLabel: String? {
-        let ranked = score.map { "RANK " + ($0 >= 0 ? "+" : "") + $0.formatted() }
+        let ranked = score.map { "SCORE " + ($0 >= 0 ? "+" : "") + $0.formatted() }
         let parts = [stars, ranked].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }

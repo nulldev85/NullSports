@@ -210,26 +210,26 @@ final class MultiServerTests: XCTestCase {
             """#.utf8))
         XCTAssertEqual(nzb.score, 66359)
         XCTAssertNil(nzb.stars)
-        XCTAssertEqual(nzb.rankLabel, "RANK +" + 66359.formatted())
+        XCTAssertEqual(nzb.rankLabel, "SCORE +" + 66359.formatted())
 
         let aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"b","Name":"   4K ⚡\n  〈Web-dl〉\n  ★★★★☆\n✎  Mutiny · 2026\nᴅᴠ ʜᴅʀ ᴛ₁ ₂₄₅","aiostreams":{"addon":"Torrentio"}}
             """#.utf8))
         XCTAssertEqual(aio.stars, "★★★★☆")
         XCTAssertEqual(aio.score, 245, "The score standing alone, not the tier's ₁")
-        XCTAssertEqual(aio.rankLabel, "★★★★☆ RANK +245")
+        XCTAssertEqual(aio.rankLabel, "★★★★☆ SCORE +245")
 
         let negative = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"c","Name":"1080P ⏳\n  ★★\nʜᴅʀ -₁₂","aiostreams":{"addon":"Comet"}}
             """#.utf8))
         XCTAssertEqual(negative.score, -12)
-        XCTAssertEqual(negative.rankLabel, "★★ RANK -12")
+        XCTAssertEqual(negative.rankLabel, "★★ SCORE -12")
 
         let lowest = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"d","Name":"720P ⏳\n  ☆☆☆☆☆\nʜᴅʀ -₄₀","aiostreams":{"addon":"Comet"}}
             """#.utf8))
         XCTAssertEqual(lowest.stars, "☆☆☆☆☆", "The lowest stream's empty stars are still its ranking")
-        XCTAssertEqual(lowest.rankLabel, "☆☆☆☆☆ RANK -40")
+        XCTAssertEqual(lowest.rankLabel, "☆☆☆☆☆ SCORE -40")
     }
 
     // An AIOStreams stream plays from its own address, as the server would
