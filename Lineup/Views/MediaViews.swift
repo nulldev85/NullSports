@@ -3372,7 +3372,7 @@ private struct MediaSourcePicker: View {
     private var board: some View {
         MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
                          loading: loading, error: error, filter: $providerFilter,
-                         serverLabel: { serverLabel(for: $0) }, choose: { selectedSource = $0 })
+                         choose: { selectedSource = $0 })
     }
 
     /// What the list is for: an episode as its show, number and name, a film
@@ -3547,11 +3547,6 @@ private struct MediaSourcePicker: View {
         }
     }
 
-    /// Which server a stream comes from, once there is more than one it could.
-    /// The IPTV provider's copies need no name: their section says VOD.
-    private func serverLabel(for source: MediaPlaybackSource) -> String? {
-        media.profiles.count > 1 && source.directURL == nil ? source.serverName : nil
-    }
 }
 
 /// The chip draws its own selection and its own focus, so a remote moving across
@@ -3659,57 +3654,35 @@ private struct MediaStreamHeading {
     let backdrop: URL?
 }
 
-/// The resolution a stream is listed under, or VOD for the IPTV provider's
-/// own copy. Sections come in the order of their best stream, so a server
-/// that ranks a 1080p remux above a 4K web copy keeps it first.
-private enum MediaStreamTier: Hashable {
-    case vod, uhd, fullHD, hd, other
+/// One part of the stream list: the IPTV provider's copies, or one server's
+/// streams, ranked by that server's score, highest first.
+private struct MediaStreamSection: Identifiable {
+    let title: String
+    let sources: [MediaPlaybackSource]
+    var id: String { title }
 
-    init(_ source: MediaPlaybackSource) {
-        if source.directURL != nil { self = .vod; return }
-        switch source.quality {
-        case "4K": self = .uhd
-        case "1440p", "1080p": self = .fullHD
-        case "720p": self = .hd
-        default: self = .other
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .vod: "VOD"
-        case .uhd: "4K Ultra HD"
-        case .fullHD: "1080p Full HD"
-        case .hd: "720p HD"
-        case .other: "Other"
-        }
-    }
-
-    struct Section: Identifiable {
-        let tier: MediaStreamTier
-        let sources: [MediaPlaybackSource]
-        var id: MediaStreamTier { tier }
-    }
-
-    /// By resolution, in the order the list first reaches each, with the
-    /// IPTV provider's copies ahead of them all: they play straight from it.
-    static func sections(of sources: [MediaPlaybackSource]) -> [Section] {
-        var order: [MediaStreamTier] = []
-        var grouped: [MediaStreamTier: [MediaPlaybackSource]] = [:]
+    /// By where each stream comes from -- VOD first, then the servers in the
+    /// order they answered -- and each ranked by its own server's score.
+    /// Scores are never compared across servers: StreamNZB's run to the tens
+    /// of thousands and AIOStreams' to the hundreds, so a list mixing them
+    /// ranks nothing; it only puts one server above the other.
+    static func sections(of sources: [MediaPlaybackSource]) -> [MediaStreamSection] {
+        var order: [String] = []
+        var grouped: [String: [MediaPlaybackSource]] = [:]
         for source in sources {
-            let tier = MediaStreamTier(source)
-            if grouped[tier] == nil { order.append(tier) }
-            grouped[tier, default: []].append(source)
+            if grouped[source.group] == nil { order.append(source.group) }
+            grouped[source.group, default: []].append(source)
         }
-        return (order.filter { $0 == .vod } + order.filter { $0 != .vod })
-            .map { Section(tier: $0, sources: grouped[$0] ?? []) }
+        return (order.filter { $0 == "VOD" } + order.filter { $0 != "VOD" }).map { group in
+            MediaStreamSection(title: group, sources: MediaPlaybackSource.ranked(grouped[group] ?? []))
+        }
     }
 }
 
 /// The stream list as it is drawn: the title it is for, a tab for each place
-/// that was asked, and what they found -- by resolution, each row leading
-/// with what a stream is chosen by. Everything comes from the picker, which
-/// does the asking; nothing here goes to a server.
+/// that was asked, and what they found -- each server's streams ranked by its
+/// score, each row leading with what a stream is chosen by. Everything comes
+/// from the picker, which does the asking; nothing here goes to a server.
 private struct MediaStreamBoard: View {
     let heading: MediaStreamHeading
     let statuses: [StreamServerStatus]
@@ -3717,7 +3690,6 @@ private struct MediaStreamBoard: View {
     let loading: Bool
     let error: String?
     @Binding var filter: String?
-    let serverLabel: (MediaPlaybackSource) -> String?
     let choose: (MediaPlaybackSource) -> Void
 
     private typealias Style = MediaStreamStyle
@@ -3810,7 +3782,7 @@ private struct MediaStreamBoard: View {
         if shown.isEmpty {
             emptyState
         } else {
-            let sections = MediaStreamTier.sections(of: shown)
+            let sections = MediaStreamSection.sections(of: shown)
             LazyVStack(alignment: .leading, spacing: Style.rowSpacing) {
                 ForEach(sections) { section in
                     if sections.count > 1 {
@@ -3825,9 +3797,9 @@ private struct MediaStreamBoard: View {
         }
     }
 
-    private func sectionHeader(_ section: MediaStreamTier.Section, first: Bool) -> some View {
+    private func sectionHeader(_ section: MediaStreamSection, first: Bool) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(section.tier.title.uppercased())
+            Text(section.title.uppercased())
                 .font(.inter(Style.sectionSize, .heavy)).tracking(Style.eyebrowTracking)
             Spacer()
             Text("\(section.sources.count)")
@@ -3840,7 +3812,7 @@ private struct MediaStreamBoard: View {
 
     @ViewBuilder
     private func row(_ source: MediaPlaybackSource) -> some View {
-        let label = MediaStreamRow(source: source, server: filter == nil ? serverLabel(source) : nil)
+        let label = MediaStreamRow(source: source)
         #if os(tvOS)
         TVSelectable(scale: LineupStyle.cardLift, fillRadius: Style.rowRadius, action: { choose(source) }) {
             label
@@ -4042,8 +4014,6 @@ private struct MediaStreamTab: View {
 /// under that, and its size on the right, where every row's lines up.
 private struct MediaStreamRow: View {
     let source: MediaPlaybackSource
-    /// The server it is from, said when the list mixes servers.
-    var server: String?
 
     private typealias Style = MediaStreamStyle
 
@@ -4128,13 +4098,13 @@ private struct MediaStreamRow: View {
     }
 
     /// What a stream is chosen by beyond what it is: the server's ranking,
-    /// where it lines up down the list, whether it plays at once, and the
-    /// server, when the list mixes servers. The add-on and indexer that found
-    /// it are left out: they say nothing about which to pick.
+    /// which the list is in order of, and whether it plays at once. Its
+    /// server is the section it is listed under. The add-on and indexer that
+    /// found it are left out: they say nothing about which to pick.
     @ViewBuilder
     private var origin: some View {
         let rank = source.rankLabel
-        if rank != nil || source.isInstant || server != nil {
+        if rank != nil || source.isInstant {
             HStack(spacing: Style.markGap) {
                 if let rank {
                     Text(rank).tracking(1.2)
@@ -4149,13 +4119,6 @@ private struct MediaStreamRow: View {
                     }
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
                     .fixedSize()
-                }
-                if let server {
-                    HStack(spacing: 4) {
-                        Image(systemName: "server.rack")
-                        Text(server.uppercased()).tracking(1.2)
-                    }
-                    .lineLimit(1)
                 }
             }
             .font(.inter(Style.markSize, .heavy))
