@@ -3272,8 +3272,9 @@ private struct MediaSourcePicker: View {
     /// list so a server that added nothing says why.
     @State private var serverStatus: [StreamServerStatus] = []
 
-    // Sources in the order the server ranked their best result, so the chip
-    // row reads the same way the list below it does.
+    // One tab per server, and one for the IPTV provider's VOD, in the order
+    // their streams are listed, so the tab row reads the same way the list
+    // below it does.
     private var providers: [String] {
         var seen: Set<String> = []
         return sources.map(\.group).filter { seen.insert($0).inserted }
@@ -3343,8 +3344,8 @@ private struct MediaSourcePicker: View {
                         .mediaFocusAnchor()
                 } else {
                     VStack(spacing: 0) {
-                        // Results arrive interleaved from every source the server
-                        // reports, and a viewer who trusts one wants only its rows.
+                        // A tab for each server's results and one for VOD: a
+                        // viewer who trusts one source wants only its rows.
                         if providers.count > 1 {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {

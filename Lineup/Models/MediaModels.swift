@@ -886,12 +886,14 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         remux?.providerInfo?.source ?? aiostreams?.addon ?? displayLines.first ?? "Media Server"
     }
 
-    /// The chip a stream is listed under in the stream list: the add-on a
-    /// Remux server names, as one server can carry several, and otherwise the
-    /// server itself. Without this, a server that names no add-on had its
-    /// streams split by the first line of their names -- by quality.
+    /// The tab a stream is listed under in the stream list: the server it
+    /// came from, or VOD for the IPTV provider's own copy. Each server's
+    /// results together, whatever add-on found them; grouped by add-on, a
+    /// server that names none had its streams split by the first line of
+    /// their names -- by quality.
     var group: String {
-        remux?.providerInfo?.source ?? serverName ?? provider
+        if directURL != nil { return "VOD" }
+        return serverName ?? provider
     }
 
     var releaseName: String {

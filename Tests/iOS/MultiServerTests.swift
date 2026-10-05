@@ -170,16 +170,17 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(first.sourceID, "source-1")
     }
 
-    // A Remux server names the add-on behind each stream, and its chips are
-    // those add-ons. AIOStreams names its add-on elsewhere, and its streams'
-    // first line is their quality -- so its chip is the server.
-    func testAServersStreamsAreListedUnderItsAddonOrItsName() throws {
+    // Each server's streams are one tab, whatever add-on found them, and the
+    // IPTV provider's are another. AIOStreams' first line is a stream's
+    // quality, which is how its streams used to be split.
+    func testEachServersStreamsAreOneTabAndTheProvidersAnother() throws {
         let decoder = JSONDecoder()
         var remux = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"a","Name":"StreamNZB\n4K","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}
             """#.utf8))
         remux.serverName = "Null"
-        XCTAssertEqual(remux.group, "StreamNZB")
+        XCTAssertEqual(remux.group, "Null")
+        XCTAssertEqual(remux.provider, "StreamNZB", "The row still says which add-on found it")
 
         var aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
             {"Id":"b","Name":"4K ⚡\nMutiny.2026.2160p.WEB-DL","aiostreams":{"addon":"Torrentio","cached":true}}
@@ -193,6 +194,11 @@ final class MultiServerTests: XCTestCase {
             """#.utf8))
         XCTAssertNil(odd.aiostreams?.addon, "An extension that will not read loses only itself")
         XCTAssertEqual(odd.group, "1080P ⚡", "With no server known, the old label stays")
+
+        var vod = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"movie-1","Name":"Mutiny"}"#.utf8))
+        vod.serverName = "null"
+        vod.directURL = URL(string: "http://tv.example:8080/movie/user/pass/1.mkv")
+        XCTAssertEqual(vod.group, "VOD")
     }
 
     func testAnItemsServerSurvivesTheLaunchCache() throws {
