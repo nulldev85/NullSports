@@ -4534,10 +4534,76 @@ private struct AccountRow: View {
     }
 }
 
+/// How a multiview session arranges its two pictures. The last one chosen is
+/// remembered for the next session.
+private enum MultiviewLayout: String {
+    /// Two pictures the same size, side by side.
+    case sideBySide
+    /// One large picture with a smaller one beside it.
+    case bigAndSmall
+
+    var title: String {
+        switch self {
+        case .sideBySide: "Side by Side"
+        case .bigAndSmall: "Big + Small"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .sideBySide: "rectangle.split.2x1"
+        case .bigAndSmall: "pip"
+        }
+    }
+
+    var other: MultiviewLayout { self == .sideBySide ? .bigAndSmall : .sideBySide }
+}
+
+/// The session's two players, made once and kept for as long as it runs.
+///
+/// Nothing here is published, deliberately: each picture watches its own
+/// player, so a stream reporting its progress redraws that picture and not
+/// the arrangement around it.
+@MainActor
+private final class MultiviewPlayers: ObservableObject {
+    let tiles = [VLCPlaybackController(), VLCPlaybackController()]
+}
+
+/// A game whose stream failed everywhere, waiting for a channel to be chosen.
+private struct MultiviewChannelChoice: Identifiable {
+    let tile: Int
+    let game: SportsGame
+    var id: String { "\(tile)|\(game.id)" }
+}
+
+/// Two games at once.
+///
+/// Both players are made when the session starts and kept until it ends.
+/// Every change of arrangement -- side by side, big and small, a swap, full
+/// screen and back -- moves and scales the two pictures and never touches the
+/// players, so neither stream stops, buffers or loses its place.
+///
+/// Sound follows the picture with focus and crossfades as focus moves. When
+/// focus leaves both for a moment -- a menu, a sheet -- the sound stays where
+/// it was rather than going quiet.
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var focusedPane: Int?
-    @State private var expandedPane: Int?
+    @EnvironmentObject private var library: SportsLibrary
+    @StateObject private var players = MultiviewPlayers()
+    @AppStorage("Lineup.multiviewLayout") private var storedLayout = MultiviewLayout.sideBySide.rawValue
+    @FocusState private var focusedTile: Int?
+    /// The picture whose sound is playing.
+    @State private var audibleTile = 0
+    /// In Big + Small, which picture is the big one.
+    @State private var bigTile = 0
+    /// A picture filling the screen, with the other still playing, unseen.
+    @State private var fullScreenTile: Int?
+    /// Names and the guide to the remote, shown for a few seconds after
+    /// anything changes and then cleared off the pictures.
+    @State private var chromeVisible = true
+    @State private var chromeTask: Task<Void, Never>?
+    @State private var choosingChannel: MultiviewChannelChoice?
+    @State private var chosenTitles: [Int: String] = [:]
     let primary: XtreamStream
     let secondary: XtreamStream
     let primaryURLs: [URL]
@@ -4545,111 +4611,451 @@ private struct MultiviewView: View {
     let primaryGame: SportsGame?
     let secondaryGame: SportsGame?
 
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if let expandedPane {
-                MultiviewPane(
-                    stream: expandedPane == 0 ? primary : secondary,
-                    game: expandedPane == 0 ? primaryGame : secondaryGame,
-                    urls: expandedPane == 0 ? primaryURLs : secondaryURLs,
-                    audible: true,
-                    expanded: true,
-                    onExpand: {}
-                )
-            } else {
-                HStack(spacing: 2) {
-                    MultiviewPane(stream: primary, game: primaryGame, urls: primaryURLs,
-                                  audible: focusedPane == 0, expanded: false) {
-                        expandedPane = 0
-                    }
-                    .focusable().focused($focusedPane, equals: 0).focusEffectDisabled()
+    private var layout: MultiviewLayout { MultiviewLayout(rawValue: storedLayout) ?? .sideBySide }
+    private var arrangement: Animation { .spring(response: 0.5, dampingFraction: 0.88) }
 
-                    MultiviewPane(stream: secondary, game: secondaryGame, urls: secondaryURLs,
-                                  audible: focusedPane == 1, expanded: false) {
-                        expandedPane = 1
-                    }
-                    .focusable().focused($focusedPane, equals: 1).focusEffectDisabled()
+    var body: some View {
+        GeometryReader { proxy in
+            let screen = proxy.size
+            ZStack {
+                (fullScreenTile == nil ? LineupStyle.background : Color.black)
+                ForEach(0..<2, id: \.self) { index in
+                    tile(index, screen: screen)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
+                if fullScreenTile == nil {
+                    controls
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 52)
+                        .transition(.opacity)
+                } else {
+                    fullScreenHint
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 56)
+                        .opacity(chromeVisible ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(width: screen.width, height: screen.height)
+        }
+        .ignoresSafeArea()
+        .onAppear(perform: begin)
+        .onDisappear {
+            chromeTask?.cancel()
+            players.tiles.forEach { $0.stop() }
+        }
+        .onChange(of: focusedTile) { _, tile in
+            showChrome()
+            // Focus in the bar below leaves the sound where it was.
+            guard let tile, tile != audibleTile else { return }
+            listen(to: tile)
+        }
+        .onPlayPauseCommand { switchLayout() }
+        .onExitCommand(perform: back)
+        .sheet(item: $choosingChannel) { choice in
+            ManualGameChannelPicker(game: choice.game) { chosen in
+                library.saveGameSelection(chosen, for: choice.game)
+                choosingChannel = nil
+                chosenTitles[choice.tile] = chosen.name
+                players.tiles[choice.tile].start(urls: library.playbackURLs(for: chosen),
+                                                 muted: audibleTile != choice.tile, channelID: chosen.id)
             }
         }
-        .onAppear { focusedPane = 0 }
-        .onExitCommand {
-            if expandedPane != nil { expandedPane = nil }
-            else { dismiss() }
+    }
+
+    private func tile(_ index: Int, screen: CGSize) -> some View {
+        let frame = tileFrame(index, screen: screen)
+        let shown = fullScreenTile == nil || fullScreenTile == index
+        let controller = players.tiles[index]
+        return MultiviewTile(controller: controller,
+                             game: currentGame(index),
+                             fallbackTitle: chosenTitles[index] ?? stream(index).name,
+                             renderSize: screen,
+                             size: frame.size,
+                             audible: audibleTile == index,
+                             fullScreen: fullScreenTile == index,
+                             showsLabel: chromeVisible)
+            .contentShape(Rectangle())
+            // Only a picture on screen can hold focus: the one behind a full
+            // screen picture keeps playing, but is out of the way.
+            .focusable(shown)
+            .focused($focusedTile, equals: index)
+            .focusEffectDisabled()
+            .onTapGesture { select(index) }
+            .onMoveCommand(perform: flip(from: index))
+            .contextMenu { menu(for: index) }
+            .position(x: frame.midX, y: frame.midY)
+            .opacity(shown ? 1 : 0)
+            .zIndex(zIndex(index))
+    }
+
+    /// Left and right flip between the two games while one fills the screen.
+    /// Otherwise there is no handler, and focus moves between the pictures on
+    /// its own.
+    private func flip(from index: Int) -> ((MoveCommandDirection) -> Void)? {
+        guard fullScreenTile == index else { return nil }
+        return { direction in
+            if direction == .left || direction == .right { showFullScreen(1 - index) }
+        }
+    }
+
+    /// Held on a picture: the arrangement, the stream, and the way out.
+    @ViewBuilder
+    private func menu(for index: Int) -> some View {
+        if fullScreenTile == nil {
+            Button(layout.other.title, systemImage: layout.other.symbol) { switchLayout() }
+                .lineupFlatButton()
+            if layout == .bigAndSmall {
+                Button("Swap Screens", systemImage: "arrow.left.arrow.right") { swapPictures() }
+                    .lineupFlatButton()
+            }
+            Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) }
+                .lineupFlatButton()
+        } else {
+            Button("Back to Multiview", systemImage: "arrow.down.right.and.arrow.up.left") { leaveFullScreen() }
+                .lineupFlatButton()
+        }
+        Button("Retry Stream", systemImage: "arrow.clockwise") { players.tiles[index].retry() }
+            .lineupFlatButton()
+        if let game = currentGame(index), players.tiles[index].failover != nil {
+            Button("Choose Another Channel", systemImage: "list.bullet") {
+                choosingChannel = MultiviewChannelChoice(tile: index, game: game)
+            }
+            .lineupFlatButton()
+        }
+        Button("Exit Multiview", systemImage: "xmark", role: .destructive) { dismiss() }
+            .lineupFlatButton()
+    }
+
+    // MARK: Arrangement
+
+    /// Where a picture sits. A picture hidden behind a full screen one keeps
+    /// its own place, so coming back is the same move in reverse.
+    private func tileFrame(_ index: Int, screen: CGSize) -> CGRect {
+        if fullScreenTile == index { return CGRect(origin: .zero, size: screen) }
+        // Inside tvOS's safe area, which a television's overscan can trim
+        // past, and centred in the space above the control bar.
+        let margin: CGFloat = 90
+        let gap: CGFloat = 24
+        let middle = 60 + (screen.height - 60 - 170) / 2
+        switch layout {
+        case .sideBySide:
+            let width = (screen.width - margin * 2 - gap) / 2
+            let height = width * 9 / 16
+            return CGRect(x: margin + CGFloat(index) * (width + gap), y: middle - height / 2,
+                          width: width, height: height)
+        case .bigAndSmall:
+            let available = screen.width - margin * 2 - gap
+            let bigWidth = (available * 0.72).rounded()
+            let bigHeight = bigWidth * 9 / 16
+            let top = middle - bigHeight / 2
+            if index == bigTile {
+                return CGRect(x: margin, y: top, width: bigWidth, height: bigHeight)
+            }
+            // Level with the middle of the big picture.
+            let smallWidth = available - bigWidth
+            let smallHeight = smallWidth * 9 / 16
+            return CGRect(x: margin + bigWidth + gap, y: top + (bigHeight - smallHeight) / 2,
+                          width: smallWidth, height: smallHeight)
+        }
+    }
+
+    /// The full screen picture over everything. In Big + Small the big one
+    /// passes over the small one, so a swap reads as the small picture
+    /// coming forward.
+    private func zIndex(_ index: Int) -> Double {
+        if fullScreenTile == index { return 2 }
+        if layout == .bigAndSmall { return index == bigTile ? 1 : 0 }
+        return index == audibleTile ? 1 : 0
+    }
+
+    // MARK: Actions
+
+    private func begin() {
+        for index in 0..<2 {
+            let controller = players.tiles[index]
+            if let game = index == 0 ? primaryGame : secondaryGame {
+                configureGameFailover(controller, game: game, library: library) {
+                    choosingChannel = MultiviewChannelChoice(tile: index, game: game)
+                }
+            }
+        }
+        // The second picture starts silent and at zero, so its sound has
+        // somewhere to fade up from.
+        players.tiles[1].fadeAudio(audible: false, over: 0)
+        players.tiles[0].start(urls: primaryURLs, muted: false, channelID: primary.id)
+        players.tiles[1].start(urls: secondaryURLs, muted: true, channelID: secondary.id)
+        audibleTile = 0
+        bigTile = 0
+        Task { @MainActor in
+            await Task.yield()
+            focusedTile = 0
+        }
+        showChrome()
+    }
+
+    /// Selecting a picture: a stream that failed is tried again; in Big +
+    /// Small the small picture comes forward; otherwise the picture fills the
+    /// screen.
+    private func select(_ index: Int) {
+        let controller = players.tiles[index]
+        if controller.error != nil {
+            controller.retry()
+            return
+        }
+        if fullScreenTile != nil { return }
+        if layout == .bigAndSmall && index != bigTile {
+            swapPictures()
+        } else {
+            showFullScreen(index)
+        }
+    }
+
+    private func swapPictures() {
+        withAnimation(arrangement) { bigTile = 1 - bigTile }
+        showChrome()
+    }
+
+    private func choose(_ option: MultiviewLayout) {
+        guard option != layout else { return }
+        switchLayout()
+    }
+
+    private func switchLayout() {
+        guard fullScreenTile == nil else { return }
+        withAnimation(arrangement) {
+            // The game being listened to is the one that becomes big.
+            if layout == .sideBySide { bigTile = audibleTile }
+            storedLayout = layout.other.rawValue
+        }
+        showChrome()
+    }
+
+    private func showFullScreen(_ index: Int) {
+        withAnimation(arrangement) { fullScreenTile = index }
+        if focusedTile != index {
+            // Focus can only land once the picture is on screen to take it.
+            Task { @MainActor in
+                await Task.yield()
+                focusedTile = index
+            }
+        }
+        showChrome()
+    }
+
+    private func leaveFullScreen() {
+        withAnimation(arrangement) { fullScreenTile = nil }
+        showChrome()
+    }
+
+    private func back() {
+        if fullScreenTile != nil { leaveFullScreen() } else { dismiss() }
+    }
+
+    /// Crossfade to a picture's sound: one fades down as the other comes up.
+    private func listen(to index: Int) {
+        audibleTile = index
+        players.tiles[index].fadeAudio(audible: true)
+        players.tiles[1 - index].fadeAudio(audible: false)
+    }
+
+    private func showChrome() {
+        withAnimation(.easeOut(duration: 0.25)) { chromeVisible = true }
+        chromeTask?.cancel()
+        chromeTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            withAnimation(.easeInOut(duration: 0.5)) { chromeVisible = false }
+        }
+    }
+
+    // MARK: Labels
+
+    private func stream(_ index: Int) -> XtreamStream { index == 0 ? primary : secondary }
+
+    /// The game as the schedule has it now, so its score stays current while
+    /// the session runs.
+    private func currentGame(_ index: Int) -> SportsGame? {
+        guard let game = index == 0 ? primaryGame : secondaryGame else { return nil }
+        return library.games(for: nil).first { $0.id == game.id } ?? game
+    }
+
+    /// The bar under the pictures: the two layouts, the arrangement and the
+    /// way out. Down from either picture reaches it, and up goes back.
+    private var controls: some View {
+        VStack(spacing: 14) {
+            Label("Move between the games to switch the sound", systemImage: "speaker.wave.2.fill")
+                .font(.inter(15, .medium))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                .opacity(chromeVisible ? 1 : 0)
+            HStack(spacing: 14) {
+                ForEach([MultiviewLayout.sideBySide, .bigAndSmall], id: \.self) { option in
+                    TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                                 action: { choose(option) }) {
+                        MultiviewControlLabel(title: option.title, symbol: option.symbol,
+                                              selected: layout == option)
+                    }
+                }
+                Rectangle().fill(LineupStyle.line).frame(width: 1, height: 34).padding(.horizontal, 6)
+                if layout == .bigAndSmall {
+                    TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                                 action: { swapPictures() }) {
+                        MultiviewControlLabel(title: "Swap", symbol: "arrow.left.arrow.right")
+                    }
+                }
+                // The game being listened to, which is the outlined one.
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                             action: { showFullScreen(audibleTile) }) {
+                    MultiviewControlLabel(title: "Full Screen", symbol: "arrow.up.left.and.arrow.down.right")
+                }
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                             action: { dismiss() }) {
+                    MultiviewControlLabel(title: "Exit", symbol: "xmark")
+                }
+            }
+            .lineupFocusRegion()
+        }
+    }
+
+    /// Words only, not controls: a game filling the screen has nothing on
+    /// top of it to select.
+    private var fullScreenHint: some View {
+        HStack(spacing: 26) {
+            Label("Other game", systemImage: "arrow.left.and.right")
+            Label("Back to multiview", systemImage: "arrow.uturn.backward")
+        }
+        .font(.inter(16, .semibold))
+        .foregroundStyle(.white.opacity(0.9))
+        .shadow(color: .black.opacity(0.85), radius: 8, y: 2)
+    }
+}
+
+/// One picture in a multiview session.
+///
+/// The video is drawn at the size of the whole screen and scaled to the size
+/// it is shown at, so moving between a small place, a large one and the
+/// full screen never resizes what VLC draws into -- the move is a transform,
+/// and the picture plays straight through it.
+private struct MultiviewTile: View {
+    @ObservedObject var controller: VLCPlaybackController
+    let game: SportsGame?
+    let fallbackTitle: String
+    let renderSize: CGSize
+    let size: CGSize
+    let audible: Bool
+    let fullScreen: Bool
+    let showsLabel: Bool
+
+    var body: some View {
+        let radius: CGFloat = fullScreen ? 0 : 14
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ScaledVLCVideoSurface(player: controller.player, renderSize: renderSize)
+            .frame(width: size.width, height: size.height)
+            .overlay { MultiviewStatus(controller: controller) }
+            .overlay(alignment: .bottomLeading) { label }
+            .clipShape(shape)
+            // The picture with the sound wears the edge; it is also the one
+            // with focus whenever focus is on a picture at all.
+            .overlay {
+                shape.strokeBorder(Color.white.opacity(audible && !fullScreen ? 0.92 : (fullScreen ? 0 : 0.1)),
+                                   lineWidth: audible && !fullScreen ? 3 : 1)
+            }
+            .shadow(color: .black.opacity(audible && !fullScreen ? 0.55 : 0), radius: 26, y: 12)
+            .animation(.easeOut(duration: 0.2), value: audible)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title + (audible ? ", playing sound" : ""))
+    }
+
+    private var title: String {
+        guard let game else { return controller.activeChannelName ?? fallbackTitle }
+        return liveHeadline(game)
+    }
+
+    /// The channel, under a game's score.
+    private var detail: String? {
+        guard game != nil else { return nil }
+        return controller.activeChannelName ?? fallbackTitle
+    }
+
+    private var label: some View {
+        HStack(spacing: 12) {
+            Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 24)
+                .opacity(audible ? 1 : 0.6)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.inter(19, .semibold)).lineLimit(1)
+                if let detail {
+                    Text(detail).font(.inter(14, .medium)).opacity(0.7).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 18).padding(.top, 28).padding(.bottom, 14)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
+        }
+        .opacity(showsLabel ? 1 : 0)
+    }
+}
+
+/// A picture's own trouble, said on the picture. Nothing in it takes focus:
+/// selecting the picture retries a stream that failed, and holding it offers
+/// the rest.
+private struct MultiviewStatus: View {
+    @ObservedObject var controller: VLCPlaybackController
+
+    var body: some View {
+        if controller.error != nil {
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 26, weight: .semibold))
+                Text("Stream unavailable").font(.inter(18, .semibold))
+                Text("Select to retry  ·  Hold for more").font(.inter(14)).opacity(0.72)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 22).padding(.vertical, 18)
+            .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if controller.reconnecting {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Reconnecting…").font(.inter(15, .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(18)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if let notice = controller.failoverNotice {
+            Text(notice).font(.inter(15, .medium)).foregroundStyle(.white)
+                .padding(14)
+                .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else if !controller.isPlaying {
+            ProgressView()
         }
     }
 }
 
-private struct MultiviewPane: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @StateObject private var controller = VLCPlaybackController()
-    @State private var choosingGame: SportsGame?
-    @State private var chosenTitle: String?
-    let stream: XtreamStream
-    let game: SportsGame?
-    let urls: [URL]
-    let audible: Bool
-    let expanded: Bool
-    let onExpand: () -> Void
+/// A control in the multiview bar, in the same dress as the player's own.
+private struct MultiviewControlLabel: View {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    let title: String
+    let symbol: String
+    /// The layout in use, which carries a check.
+    var selected = false
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
-            if urls.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "exclamationmark.triangle").font(.title2)
-                    Text("Stream unavailable").foregroundColor(LineupStyle.mediaText).font(.inter(.headline))
-                }
-                .foregroundStyle(LineupStyle.mediaText).frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            HStack(spacing: 10) {
-                Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                Text(controller.activeChannelName ?? chosenTitle ?? stream.name)
-                    .foregroundColor(LineupStyle.mediaText).font(.inter(.callout, .semibold)).lineLimit(1)
-                Spacer()
-                if !expanded { Text("SELECT TO EXPAND").foregroundColor(LineupStyle.mediaText).font(.inter(.caption2, .bold)).tracking(1.1) }
-            }
-            .foregroundStyle(LineupStyle.mediaText)
-            .padding(.horizontal, 18).frame(height: 50)
-            .background(Color.black.opacity(0.56))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
-        .overlay {
-            if !expanded {
-                RoundedRectangle(cornerRadius: 0, style: .continuous)
-                    .stroke(audible ? LineupStyle.mediaAccent.opacity(0.92) : LineupStyle.mediaAccent.opacity(0.18), lineWidth: audible ? 3 : 1)
+        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+        HStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold)).frame(width: 22)
+            Text(title).font(.inter(18, .semibold)).fixedSize()
+            if selected {
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy))
             }
         }
-        .scaleEffect(!expanded && audible ? 1.012 : 1)
-        .shadow(color: !expanded && audible ? LineupStyle.mediaAccent.opacity(0.16) : .clear, radius: 18)
-        .animation(.easeOut(duration: 0.18), value: audible)
-        .contentShape(Rectangle()).onTapGesture(perform: onExpand)
-        .contextMenu {
-            Button("Retry Stream", systemImage: "arrow.clockwise") {
-                controller.retry()
-            }
-        }
-        .sheet(item: $choosingGame) { game in
-            ManualGameChannelPicker(game: game) { chosen in
-                library.saveGameSelection(chosen, for: game)
-                choosingGame = nil
-                chosenTitle = chosen.name
-                controller.start(urls: library.playbackURLs(for: chosen), muted: !audible,
-                                 channelID: chosen.id)
-            }
-        }
-        .onAppear {
-            if let game {
-                configureGameFailover(controller, game: game, library: library) { choosingGame = game }
-            }
-            controller.start(urls: urls, muted: !audible, channelID: stream.id)
-        }
-        .onChange(of: audible) { _, value in controller.setMuted(!value) }
-        .onDisappear { controller.stop() }
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(.horizontal, 18).frame(height: 52)
+        .background(selected ? LineupStyle.raised : LineupStyle.surface.opacity(0.88), in: shape)
+        .overlay(shape.strokeBorder(selected ? LineupStyle.lightPurple.opacity(0.5) : LineupStyle.line,
+                                    lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .lineupShadow(.resting)
     }
 }
 
@@ -4743,11 +5149,19 @@ struct PlayerView: View {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
-                             channelID: channelID)
+                             channelID: channelID, isLive: isLive)
             revealControls(focus: true)
         }
         .onDisappear { reportProgress(force: true); hideControlsTask?.cancel(); controller.stop() }
         .onChange(of: controller.elapsed) { _, _ in reportProgress() }
+        // A film or an episode played to its end is saved as watched and the
+        // player closes, as it would on the remote's Menu button.
+        .onChange(of: controller.finished) { _, finished in
+            guard finished else { return }
+            reportProgress(force: true)
+            controller.stop()
+            dismiss()
+        }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -5110,6 +5524,14 @@ private struct TVPlayerMenuLabel: View {
     private var pausedByUser = false
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
+    /// A channel, or a film or an episode. A channel that stops is
+    /// reconnected at the live edge. A recorded title that stops is reopened
+    /// where it was, and one that reaches its end has finished, not failed.
+    private var isLive = true
+    /// Where to put a recorded title back once its stream has reopened.
+    private var reopenPosition: TimeInterval?
+    /// A recorded title played to its end. The player closes on it.
+    @Published private(set) var finished = false
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
@@ -5124,6 +5546,11 @@ private struct TVPlayerMenuLabel: View {
     private var pendingWorkingChannelID: Int?
     private var failoverState = StreamFailoverState()
     private var noticeTask: Task<Void, Never>?
+    /// The level the sound is held at between fades. The playback monitor
+    /// keeps it there: a reconnect can build a fresh audio output, and a
+    /// picture meant to be quiet must not come back at full volume.
+    private var targetVolume: Int32 = 100
+    private var fadeTask: Task<Void, Never>?
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var selectedSubtitleTitle: String {
@@ -5148,10 +5575,12 @@ private struct TVPlayerMenuLabel: View {
     }
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
-               channelID: Int? = nil, resetFailover: Bool = true) {
+               channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true) {
         stop()
         self.urls = Array(urls.reversed())
         self.muted = muted
+        self.isLive = isLive
+        finished = false
         currentChannelID = channelID
         if resetFailover {
             failoverState.reset()
@@ -5178,15 +5607,47 @@ private struct TVPlayerMenuLabel: View {
         player.stop()
         resetSubtitles()
         let media = VLCMedia(url: urls[urlIndex])
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
+        if isLive {
+            media.addOption(":network-caching=5000")
+            media.addOption(":live-caching=5000")
+        } else {
+            // A film or an episode starts on two seconds of buffer, not a
+            // channel's five: a media server's file arrives faster than it
+            // plays, so every second asked for here was a second of waiting
+            // before the picture. A drop is carried by the reopen below, not
+            // by a deep buffer.
+            media.addOption(":network-caching=2000")
+            // Opened at its place -- where it was left off, or where it was
+            // when it dropped -- rather than at its beginning and then moved,
+            // which buffered it twice.
+            if let place = openingPlace { media.addOption(":start-time=\(place)") }
+        }
         media.addOption(":http-reconnect=true")
         player.media = media
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+        health = freshHealth()
         retryAt = nil
         setMuted(muted)
+        player.audio?.volume = targetVolume
         player.play()
         setMuted(muted)
+        player.audio?.volume = targetVolume
+    }
+
+    /// Where a recorded title's stream is opened: back where it was after a
+    /// drop, or where it was left off.
+    private var openingPlace: TimeInterval? {
+        if let reopenPosition { return reopenPosition }
+        guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
+            return nil
+        }
+        return requestedInitialPosition
+    }
+
+    /// Whether a stream asked to open at a place did. The first frames land on
+    /// the keyframe before it, so close counts; a stream that ignored the
+    /// request starts at its beginning instead, and is moved.
+    private func opened(at place: TimeInterval, time: TimeInterval) -> Bool {
+        abs(time - place) <= 15
     }
 
     /// Position has to keep updating while paused too, so the bar still reads
@@ -5194,15 +5655,39 @@ private struct TVPlayerMenuLabel: View {
     private func updateProgress() {
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 { duration = length }
+        let time = Double(player.time.intValue) / 1000
+        if let reopenPosition {
+            // Until the reopened stream is back where it was, its clock reads
+            // from nothing, and showing or saving that would lose the
+            // viewer's place. The last good position stands in meanwhile.
+            // Only the reopened stream is judged: until it is playing, the
+            // stopped one is still the player's media.
+            guard retryAt == nil, player.isPlaying, length > 0, time > 0 else { return }
+            let target = min(max(reopenPosition, 0), max(duration - 1, 0))
+            if opened(at: target, time: time) {
+                elapsed = time
+            } else {
+                player.position = Float(target / duration)
+                elapsed = target
+            }
+            self.reopenPosition = nil
+            return
+        }
         if duration > 0, !appliedInitialPosition, let requestedInitialPosition,
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
+            // The place it was left off holds the bar until the picture is
+            // there, rather than a zero that jumps.
+            guard player.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
             let target = min(max(requestedInitialPosition, 0), duration - 1)
-            player.position = Float(target / duration)
-            elapsed = target
+            if opened(at: target, time: time) {
+                elapsed = time
+            } else {
+                player.position = Float(target / duration)
+                elapsed = target
+            }
             appliedInitialPosition = true
             return
         }
-        let time = Double(player.time.intValue) / 1000
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
 
@@ -5217,13 +5702,14 @@ private struct TVPlayerMenuLabel: View {
     }
 
     private func checkPlayback() {
+        holdAudioLevel()
         updateProgress()
         refreshSubtitleTracks()
         refreshStreamTracks()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
-            health = LivePlaybackHealth(now: now)
+            health = freshHealth()
             return
         }
         if let retryAt {
@@ -5231,7 +5717,13 @@ private struct TVPlayerMenuLabel: View {
             return
         }
         let failed = player.state == .error || player.state == .ended || player.state == .stopped
-        player.audio?.isMuted = muted
+        // A film or an episode that stops at its end has finished. The same
+        // stop anywhere earlier is a dropped stream, reopened below.
+        if !isLive, failed, reopenPosition == nil, duration > 0,
+           elapsed >= duration - 15 || player.position >= 0.99 {
+            finish()
+            return
+        }
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
             time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
         if health.isStable(now: now) {
@@ -5249,6 +5741,11 @@ private struct TVPlayerMenuLabel: View {
         }
         guard recover else { return }
         player.stop()
+        // A recorded title goes back to where it was, not to its beginning:
+        // reconnecting a film used to start it over.
+        if !isLive, reopenPosition == nil, elapsed > 0 {
+            reopenPosition = max(0, elapsed - 2)
+        }
         guard let delay = retries.nextDelay() else {
             if switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
@@ -5285,8 +5782,58 @@ private struct TVPlayerMenuLabel: View {
         isMuted = muted
         player.audio?.isMuted = muted
     }
+
+    /// Bring this picture's sound in or out over a moment instead of cutting
+    /// it, so moving between two pictures crossfades between their sound.
+    /// A quiet picture ends muted as well as at zero, which is the state the
+    /// playback monitor then holds it in.
+    func fadeAudio(audible: Bool, over duration: Double = 0.35) {
+        fadeTask?.cancel()
+        fadeTask = nil
+        let target: Int32 = audible ? 100 : 0
+        targetVolume = target
+        if audible && muted {
+            // Up from silence, never from wherever the level was left.
+            player.audio?.volume = 0
+            setMuted(false)
+        }
+        let start = muted ? 0 : max(0, player.audio?.volume ?? target)
+        guard duration > 0, start != target else {
+            player.audio?.volume = target
+            if !audible { setMuted(true) }
+            return
+        }
+        let steps = max(1, Int(duration * 50))
+        fadeTask = Task { [weak self] in
+            for step in 1...steps {
+                do { try await Task.sleep(for: .seconds(duration / Double(steps))) } catch { return }
+                guard let self else { return }
+                // Eased at both ends, so the change has no audible corner.
+                let t = Double(step) / Double(steps)
+                let eased = t * t * (3 - 2 * t)
+                self.player.audio?.volume = Int32((Double(start) + Double(target - start) * eased).rounded())
+            }
+            guard let self, !Task.isCancelled else { return }
+            if !audible { self.setMuted(true) }
+            self.fadeTask = nil
+        }
+    }
+
+    /// Every tick, and before anything else the monitor does: mute and level
+    /// are held where they were last set rather than trusted to survive a
+    /// reconnect, which is how a quiet picture used to leak sound.
+    private func holdAudioLevel() {
+        player.audio?.isMuted = muted
+        guard fadeTask == nil, let audio = player.audio, audio.volume != targetVolume else { return }
+        audio.volume = targetVolume
+    }
     func toggleMute() { setMuted(!muted) }
-    func retry() { start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID) }
+    func retry() {
+        let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
+        // Asked for before the stream opens, so it opens there.
+        start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
+              channelID: currentChannelID, isLive: isLive)
+    }
     func goLive() {
         guard !urls.isEmpty else { return }
         start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID)
@@ -5295,7 +5842,7 @@ private struct TVPlayerMenuLabel: View {
         pausedByUser.toggle()
         if pausedByUser { player.pause() }
         else {
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            health = freshHealth()
             if retryAt == nil { player.play() }
         }
         isPlaying = player.isPlaying
@@ -5366,7 +5913,10 @@ private struct TVPlayerMenuLabel: View {
     func stop() {
         monitor?.cancel()
         monitor = nil
+        fadeTask?.cancel()
+        fadeTask = nil
         retryAt = nil
+        reopenPosition = nil
         pendingWorkingChannelID = nil
         urls = []
         pausedByUser = false
@@ -5378,6 +5928,25 @@ private struct TVPlayerMenuLabel: View {
         resetSubtitles()
         player.stop()
         player.media = nil
+    }
+
+    /// A channel's picture standing still for twelve seconds means the feed is
+    /// gone. A film on a slow link can buffer for longer and come back by
+    /// itself, and reopening it costs the buffer it was filling.
+    private func freshHealth() -> LivePlaybackHealth {
+        LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+    }
+
+    /// The end of a film or an episode: the monitor stops, and the position
+    /// reads as the end, so it is saved as watched.
+    private func finish() {
+        monitor?.cancel()
+        monitor = nil
+        retryAt = nil
+        reconnecting = false
+        isPlaying = false
+        elapsed = duration
+        finished = true
     }
 }
 
@@ -5422,4 +5991,54 @@ private struct VLCVideoSurface: UIViewRepresentable {
     let player: VLCMediaPlayer
     func makeUIView(context: Context) -> UIView { let view = UIView(); view.backgroundColor = .black; player.drawable = view; return view }
     func updateUIView(_ uiView: UIView, context: Context) { if player.drawable == nil { player.drawable = uiView } }
+}
+
+/// A video surface that VLC draws into at one fixed size, scaled to fit
+/// whatever size it is shown at.
+///
+/// Resizing the view VLC draws into makes it rebuild its output, which is a
+/// hitch in the picture. Here the drawn-into view keeps its size and only its
+/// transform changes, so a picture can grow, shrink and move while it plays.
+private struct ScaledVLCVideoSurface: UIViewRepresentable {
+    let player: VLCMediaPlayer
+    let renderSize: CGSize
+
+    func makeUIView(context: Context) -> ScaledVideoContainer {
+        let view = ScaledVideoContainer()
+        view.renderSize = renderSize
+        player.drawable = view.surface
+        return view
+    }
+
+    func updateUIView(_ view: ScaledVideoContainer, context: Context) {
+        view.renderSize = renderSize
+        if player.drawable == nil { player.drawable = view.surface }
+    }
+}
+
+private final class ScaledVideoContainer: UIView {
+    let surface = UIView()
+    var renderSize: CGSize = .zero {
+        didSet { if renderSize != oldValue { setNeedsLayout() } }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        clipsToBounds = true
+        surface.backgroundColor = .black
+        addSubview(surface)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let drawn = renderSize.width > 0 && renderSize.height > 0 ? renderSize : bounds.size
+        guard drawn.width > 0, drawn.height > 0 else { return }
+        let scale = min(bounds.width / drawn.width, bounds.height / drawn.height)
+        if surface.bounds.size != drawn { surface.bounds = CGRect(origin: .zero, size: drawn) }
+        surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        surface.transform = CGAffineTransform(scaleX: scale, y: scale)
+    }
 }

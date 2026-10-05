@@ -72,7 +72,15 @@ final class MobilePlaybackController: ObservableObject {
     /// A channel runs at the live edge and is buffered for a link that may
     /// wobble; a title is a file on a server that will be scrubbed through.
     /// The two want opposite buffers, so the caller says which this is.
+    ///
+    /// They want opposite recoveries too. A channel that stops is reconnected
+    /// at the live edge. A title that stops is reopened where it was, and one
+    /// that reaches its end has finished, not failed.
     var isLive = true
+    /// Where to put a title back once its stream has reopened.
+    private var reopenPosition: TimeInterval?
+    /// A title played to its end. The player closes on it.
+    @Published private(set) var finished = false
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
@@ -224,25 +232,74 @@ final class MobilePlaybackController: ObservableObject {
     /// publish and the player shows live chrome instead of a scrubber.
     private func sampleProgress() {
         guard !isScrubbing else { return }
+        let sampled: MobilePlaybackProgress?
         switch engine {
         case .system:
             let item = systemPlayer.currentItem
             let duration = item?.duration.seconds ?? .nan
             let position = systemPlayer.currentTime().seconds
-            guard duration.isFinite, duration > 0, position.isFinite else { progress = nil; return }
-            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+            sampled = duration.isFinite && duration > 0 && position.isFinite
+                ? MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration) : nil
         case .vlc:
             let lengthMs = player.media?.length.intValue ?? 0
-            guard lengthMs > 0 else { progress = nil; return }
             let duration = Double(lengthMs) / 1000
             let position = Double(player.time.intValue) / 1000
-            progress = MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration)
+            sampled = lengthMs > 0
+                ? MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration) : nil
         }
+        if let reopenPosition {
+            // Until the reopened stream is back where it was, its clock reads
+            // from the beginning, and showing or saving that would lose the
+            // viewer's place. The last good position stands in meanwhile.
+            let playing = engine == .vlc ? player.isPlaying : systemPlayer.timeControlStatus == .playing
+            guard retryAt == nil, playing, let sampled else { return }
+            // VLC was opened there; only a stream that would not start there
+            // is moved, which would buffer it a second time.
+            if engine == .vlc {
+                guard sampled.position > 0 else { return }
+                if Self.opened(at: reopenPosition, position: sampled.position) {
+                    progress = sampled
+                    self.reopenPosition = nil
+                    return
+                }
+            }
+            progress = MobilePlaybackProgress(position: min(reopenPosition, sampled.duration),
+                                              duration: sampled.duration)
+            self.reopenPosition = nil
+            seek(to: reopenPosition)
+            return
+        }
+        progress = sampled
         if !appliedInitialPosition, let requestedInitialPosition, let progress,
            requestedInitialPosition >= 10, requestedInitialPosition < progress.duration - 30 {
+            if engine == .vlc {
+                guard player.isPlaying, progress.position > 0 else { return }
+                if Self.opened(at: requestedInitialPosition, position: progress.position) {
+                    appliedInitialPosition = true
+                    return
+                }
+            }
             appliedInitialPosition = true
             seek(to: requestedInitialPosition)
         }
+    }
+
+    /// Where a title's stream is opened: back where it was after a drop, or
+    /// where it was left off. VLC starts there itself; AVPlayer is moved
+    /// there once it is ready.
+    private var openingPlace: TimeInterval? {
+        if let reopenPosition { return reopenPosition }
+        guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
+            return nil
+        }
+        return requestedInitialPosition
+    }
+
+    /// Whether a stream asked to open at a place did. The first frames land
+    /// on the keyframe before it, so close counts; a stream that ignored the
+    /// request starts at its beginning instead.
+    private static func opened(at place: TimeInterval, position: TimeInterval) -> Bool {
+        abs(position - place) <= 15
     }
 
     /// Hold the sampled position still while a finger is on the scrubber, so
@@ -393,6 +450,8 @@ final class MobilePlaybackController: ObservableObject {
         stop()
         requestedInitialPosition = initialPosition
         appliedInitialPosition = false
+        reopenPosition = nil
+        finished = false
         error = nil
         originalURLs = urls
         if let channelID { currentChannelID = channelID }
@@ -478,9 +537,16 @@ final class MobilePlaybackController: ObservableObject {
                 // resumes, with a fresh baseline, on return to the foreground.
                 guard !self.inBackground else { continue }
                 let now = ProcessInfo.processInfo.systemUptime
+                let stopped = self.player.state == .error || self.player.state == .ended || self.player.state == .stopped
+                // A title that stops at its end has finished. The same stop
+                // anywhere earlier is a dropped stream, reopened in place.
+                if stopped, self.reachedEnd(vlcPosition: self.player.position) {
+                    self.finish()
+                    continue
+                }
                 let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
                     time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
-                    failed: self.player.state == .error || self.player.state == .ended || self.player.state == .stopped)
+                    failed: stopped)
                 if self.health.isStable(now: now) {
                     self.retries.reset()
                     self.confirmWorkingChannel()
@@ -537,6 +603,9 @@ final class MobilePlaybackController: ObservableObject {
             // number to move if either complaint comes back.
             media.addOption(":network-caching=3000")
             media.addOption(":file-caching=3000")
+            // Opened at its place rather than at its beginning and then
+            // moved, which buffered it twice before the first frame.
+            if let place = openingPlace { media.addOption(":start-time=\(place)") }
         }
         media.addOption(":http-reconnect=true")
         player.media = media
@@ -546,7 +615,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openSystem(_ url: URL) {
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         let item = AVPlayerItem(url: url)
         systemPlayer.replaceCurrentItem(with: item)
 
@@ -591,10 +660,14 @@ final class MobilePlaybackController: ObservableObject {
                                                      object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.systemEngineFailed() }
         })
-        // A live playlist that ends is a dropped feed, not a finished programme.
+        // A live playlist that ends is a dropped feed, not a finished programme;
+        // a title that ends has finished.
         systemNotifications.append(center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                      object: item, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.systemEngineFailed() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isLive { self.systemEngineFailed() } else { self.finish() }
+            }
         })
 
         diag.record("openSystem item created; videoView=\(videoView == nil ? "nil" : "present")")
@@ -642,7 +715,7 @@ final class MobilePlaybackController: ObservableObject {
         waitingForVideo = false
         waitingSince = nil
         started = Date()
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         player.play()
         UIApplication.shared.isIdleTimerDisabled = true
     }
@@ -657,7 +730,7 @@ final class MobilePlaybackController: ObservableObject {
             case .system: systemPlayer.pause()
             }
         } else {
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
             switch engine {
             case .vlc:
                 if waitingForVideo { startWhenVideoIsReady() }
@@ -682,6 +755,11 @@ final class MobilePlaybackController: ObservableObject {
         player.stop()
         systemPlayer.pause()
         isPlaying = false
+        // A title goes back to where it was, not to its beginning:
+        // reconnecting a film used to start it over.
+        if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 {
+            reopenPosition = max(0, position - 2)
+        }
         guard let delay = retries.nextDelay(), !originalURLs.isEmpty else {
             // This channel's own URLs are spent — including the HLS-then-VLC
             // fallback, which happens inside `candidates` before ever reaching
@@ -861,7 +939,7 @@ final class MobilePlaybackController: ObservableObject {
         case .keepPlaying:
             suspended = false
             started = Date()
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
             switch engine {
             case .vlc:
                 if waitingForVideo {
@@ -902,6 +980,25 @@ final class MobilePlaybackController: ObservableObject {
     /// teardown. Neither one stops the stream any more on its own.
     func suspend() { handleScenePhase(active: false) }
     func resume() { handleScenePhase(active: true) }
+
+    /// Whether a title that stopped did so at its end.
+    private func reachedEnd(vlcPosition: Float) -> Bool {
+        guard !isLive, reopenPosition == nil, let progress, progress.duration > 0 else { return false }
+        return progress.position >= progress.duration - 15 || vlcPosition >= 0.99
+    }
+
+    /// The end of a title: the position reads as the end, so it is saved as
+    /// watched, and the player is told to close.
+    private func finish() {
+        guard !isLive, !finished else { return }
+        monitor?.cancel()
+        monitor = nil
+        retryAt = nil
+        isPlaying = false
+        loading = false
+        if let progress { self.progress = MobilePlaybackProgress(position: progress.duration, duration: progress.duration) }
+        finished = true
+    }
 
     // MARK: - Teardown
 

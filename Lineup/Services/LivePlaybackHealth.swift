@@ -9,10 +9,15 @@ struct LivePlaybackHealth {
     private var lastFrames: Int?
     private var hadVideo = false
     private var missingVideoSince: TimeInterval?
+    /// How long a picture may stand still before the stream counts as lost.
+    /// Twelve seconds for a channel, where the remedy is to reconnect; a film
+    /// on a slow link can buffer longer than that and still recover by itself.
+    private let stallLimit: TimeInterval
 
-    init(now: TimeInterval) {
+    init(now: TimeInterval, stallLimit: TimeInterval = 12) {
         started = now
         lastProgress = now
+        self.stallLimit = stallLimit
     }
 
     mutating func observe(now: TimeInterval, playing: Bool, video: Bool,
@@ -32,8 +37,8 @@ struct LivePlaybackHealth {
             if now - lastProgress > 3 { healthySince = nil }
             if !video && hadVideo && missingVideoSince == nil { missingVideoSince = now }
         }
-        if let missingVideoSince, now - missingVideoSince >= 12 { return true }
-        return hadVideo ? now - lastProgress >= 12 : now - started >= 30
+        if let missingVideoSince, now - missingVideoSince >= stallLimit { return true }
+        return hadVideo ? now - lastProgress >= stallLimit : now - started >= max(30, stallLimit)
     }
 
     func isStable(now: TimeInterval) -> Bool {

@@ -30,6 +30,11 @@ enum LivePlaybackHealthChecks {
         for second in 1...40 { precondition(!sample(second, frames: 0), "Clock fallback supports unavailable frame statistics") }
         health = LivePlaybackHealth(now: 0)
         for second in 1...40 { precondition(!sample(second, frames: second * 30, time: -1), "Video frames support an unavailable media clock") }
+        // A film buffering on a slow link is given longer than a channel.
+        health = LivePlaybackHealth(now: 0, stallLimit: 30)
+        precondition(!sample(1, frames: 30))
+        for second in 2...30 { precondition(!sample(second, frames: 30), "A film may buffer past a channel's limit") }
+        precondition(sample(31, frames: 30), "A film that never resumes still recovers")
         var retry = LivePlaybackRetry()
         for expected in [TimeInterval(1), 2, 4, 8, 15, 30] { precondition(retry.nextDelay() == expected) }
         precondition(retry.nextDelay() == nil, "Failed feeds must not reconnect forever")

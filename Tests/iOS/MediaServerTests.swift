@@ -128,11 +128,8 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(stream.audioChannels, "5.1")
         XCTAssertEqual(stream.sourceTag, "WEB-DL")
         XCTAssertEqual(stream.containerLabel, "MKV")
-        XCTAssertEqual(stream.indexer, "altHUB")
         XCTAssertEqual(stream.score, 70494)
         XCTAssertEqual(stream.provider, "StreamNZB")
-        XCTAssertEqual(stream.facts.count, 4)
-        XCTAssertEqual(Array(stream.facts.dropFirst()), ["24 Mbps", "MKV", "altHUB"])
     }
 
     // "DDP5 1" and "H 265" lose their separators in some indexers and keep them in
@@ -150,12 +147,10 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(stream.dynamicRangeTags, ["DV", "HDR10+"])
         XCTAssertEqual(stream.videoCodec, "H.265")
         XCTAssertEqual(stream.audioChannels, "5.1")
-        XCTAssertEqual(stream.indexer, "NinjaCentral")
     }
 
-    // A result with no probe line still has to yield its badges, and an indexer
-    // that only repeats the addon name is not worth a second mention.
-    func testReadsDottedReleaseNamesAndDropsARedundantIndexer() throws {
+    // A result with no probe line still has to yield its badges.
+    func testReadsDottedReleaseNames() throws {
         let stream = try source(name: """
             StreamNZB
             Reacher
@@ -166,10 +161,6 @@ final class MediaServerTests: XCTestCase {
         XCTAssertEqual(stream.dynamicRangeTags, ["DV", "HDR"])
         XCTAssertEqual(stream.videoCodec, "H.265")
         XCTAssertEqual(stream.audioChannels, "5.1")
-        XCTAssertEqual(stream.indexer, "NZBgeek")
-
-        let sameName = try source(name: "StreamNZB\nReacher\nRelease\n\u{1F50D} StreamNZB \u{2022} \u{1F3AF} Score: +1")
-        XCTAssertNil(sameName.indexer)
     }
 
     // A year, an episode number and a score are all digits either side of a

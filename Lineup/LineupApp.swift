@@ -50,6 +50,7 @@ struct LineupApp: App {
                 .onReceive(library.$gamesByLeague) { games in
                     reminders.updateGames(games.values.flatMap { $0 })
                 }
+                .task { await media.prepareProviderVOD() }
         }
     }
 }
