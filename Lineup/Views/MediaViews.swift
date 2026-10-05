@@ -3695,9 +3695,6 @@ private struct MediaStreamBoard: View {
 
     private typealias Style = MediaStreamStyle
 
-    /// Held, not watched: only the backdrop redraws as the list scrolls.
-    @State private var scroll = MediaStreamScroll()
-
     private var visible: [MediaPlaybackSource] {
         guard let filter else { return sources }
         return sources.filter { $0.group == filter }
@@ -3718,22 +3715,10 @@ private struct MediaStreamBoard: View {
             .padding(.horizontal, Style.sideInset)
             .frame(maxWidth: .infinity)
             .padding(.bottom, Style.bottomInset)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(key: MediaStreamScrollKey.self,
-                                           value: geometry.frame(in: .named(MediaStreamScrollKey.space)).minY)
-                }
-            }
+            // Part of what scrolls, so it leaves with the title and the rows
+            // below the first screen sit on a plain background.
+            .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop) }
         }
-        .coordinateSpace(name: MediaStreamScrollKey.space)
-        .onPreferenceChange(MediaStreamScrollKey.self) { top in
-            // In steps, and no further than the backdrop is still showing:
-            // the picture fades once, not on every pixel of every scroll.
-            let scrolled = min(max(0, -top), Style.backdropFade)
-            let stepped = (scrolled / 8).rounded() * 8
-            if scroll.offset != stepped { scroll.offset = stepped }
-        }
-        .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop, scroll: scroll) }
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
     }
@@ -3930,26 +3915,11 @@ private struct MediaStreamBoard: View {
     }
 }
 
-/// How far the stream list has scrolled, read by its backdrop alone.
-private final class MediaStreamScroll: ObservableObject {
-    @Published var offset: CGFloat = 0
-}
-
-private struct MediaStreamScrollKey: PreferenceKey {
-    static let space = "streamBoard"
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 /// The title's own wide picture behind the top of the list, fading into the
 /// background well before the first row, so it sets the scene without
-/// sitting behind anything that has to be read. It leaves as the list
-/// scrolls, so the rows below the first screen sit on a plain background.
+/// sitting behind anything that has to be read.
 private struct MediaStreamBackdrop: View {
     let url: URL?
-    @ObservedObject var scroll: MediaStreamScroll
-
-    private var shown: CGFloat { 1 - min(scroll.offset / MediaStreamStyle.backdropFade, 1) }
 
     var body: some View {
         Color.clear
@@ -3976,8 +3946,6 @@ private struct MediaStreamBackdrop: View {
                 LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
                                startPoint: .leading, endPoint: .trailing)
             }
-            .opacity(shown)
-            .offset(y: -scroll.offset * 0.3)
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -4231,7 +4199,6 @@ private enum MediaStreamStyle {
     static let noticeTop: CGFloat = 70
     static let separator = "  ·  "
     static let summaryLines = 1
-    static let backdropFade: CGFloat = 420
     #else
     static let boardWidth: CGFloat = .infinity
     static let sideInset: CGFloat = 16
@@ -4282,7 +4249,6 @@ private enum MediaStreamStyle {
     static let noticeTop: CGFloat = 40
     static let separator = " · "
     static let summaryLines = 2
-    static let backdropFade: CGFloat = 240
     #endif
 }
 
