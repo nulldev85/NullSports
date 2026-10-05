@@ -935,9 +935,11 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     /// The stars AIOStreams' formatter draws for a stream -- its score
-    /// against the best stream it found -- exactly as it drew them.
+    /// against the best stream it found -- exactly as it drew them. The
+    /// lowest-ranked streams get a row of empty ones, which still says so.
     var stars: String? {
-        guard aiostreams != nil, let name, let range = name.range(of: "★+[☆⯪]*", options: .regularExpression)
+        guard aiostreams != nil, let name,
+              let range = name.range(of: "★[★☆⯪]*|[☆⯪]{5}", options: .regularExpression)
         else { return nil }
         return String(name[range])
     }

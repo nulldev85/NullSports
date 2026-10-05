@@ -224,6 +224,12 @@ final class MultiServerTests: XCTestCase {
             """#.utf8))
         XCTAssertEqual(negative.score, -12)
         XCTAssertEqual(negative.rankLabel, "★★ RANK -12")
+
+        let lowest = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"d","Name":"720P ⏳\n  ☆☆☆☆☆\nʜᴅʀ -₄₀","aiostreams":{"addon":"Comet"}}
+            """#.utf8))
+        XCTAssertEqual(lowest.stars, "☆☆☆☆☆", "The lowest stream's empty stars are still its ranking")
+        XCTAssertEqual(lowest.rankLabel, "☆☆☆☆☆ RANK -40")
     }
 
     // An AIOStreams stream plays from its own address, as the server would
