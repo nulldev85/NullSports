@@ -531,10 +531,18 @@ private struct TVMediaServersHome: View {
                 MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
             }
         }
-        .overlay(alignment: .topTrailing) {
-            TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
-                Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
-                    .modifier(MediaChromeSurface(radius: 12))
+        .overlay(alignment: .top) {
+            // The button sits in a row the width of the screen, and the row is
+            // what focus is guided into: pressing up from any shelf reaches the
+            // options. On its own in the corner, over the preview, it could be
+            // reached only from beneath it, so removing a shelf looked gone.
+            HStack {
+                Spacer()
+                TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
+                    Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
+                        .modifier(MediaChromeSurface(radius: 12))
+                        .accessibilityLabel("Library Options")
+                }
             }
             .padding(.trailing, 54).padding(.top, 18)
             .lineupFocusRegion()
@@ -802,6 +810,14 @@ private struct MediaCatalogsScreen: View {
                             Label("See All", systemImage: "chevron.right")
                                 .font(.inter(14, .semibold))
                         }
+                    }
+                    // Holding Select on a shelf's See All offers to take the
+                    // shelf away, without going up to the options for it.
+                    .contextMenu {
+                        Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+                            media.removeShelf(catalog)
+                        }
+                        .lineupFlatButton()
                     }
                     #else
                     NavigationLink(value: catalog.root) {
