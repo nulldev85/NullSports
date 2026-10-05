@@ -23,6 +23,13 @@ struct CompiledPattern: @unchecked Sendable {
                                             withTemplate: template)
     }
 
+    /// The text of the last match's first capture group.
+    func lastCapture(in text: String) -> String? {
+        guard let match = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+              match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
     /// Where the first match is, as `range(of:options: .regularExpression)`
     /// would say.
     func firstRange(in text: String) -> Range<String.Index>? {

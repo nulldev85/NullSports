@@ -4100,16 +4100,24 @@ private struct MediaStreamRow: View {
         return source.containerLabel.map { $0 + " file" } ?? "Stream"
     }
 
-    /// Where it is from: the add-on that found it and its indexer, and the
+    /// Where it is from: the server's ranking first, where it lines up down
+    /// the list, then the add-on that found it and its indexer, and the
     /// server, when the list mixes servers.
     private var origin: some View {
         HStack(spacing: Style.markGap) {
+            if let rank = source.rankLabel {
+                Text(rank).tracking(1.2)
+                    .font(.interDigits(Style.markSize + 1, .heavy))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.9))
+                    .fixedSize()
+            }
             if source.isInstant {
                 HStack(spacing: 4) {
                     Image(systemName: "bolt.fill")
                     Text("INSTANT").tracking(1.2)
                 }
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
+                .fixedSize()
             }
             Text(originText).tracking(1.2).lineLimit(1)
         }

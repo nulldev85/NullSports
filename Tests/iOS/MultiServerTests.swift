@@ -201,6 +201,31 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(vod.group, "VOD")
     }
 
+    // StreamNZB writes its score in words; AIOStreams' formatter draws stars
+    // and writes its score in small digits. Both are the server's ranking.
+    func testAStreamsRankingIsReadHoweverItsServerWritesIt() throws {
+        let decoder = JSONDecoder()
+        let nzb = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"a","Name":"StreamNZB\nMutiny\nMutiny.2026.2160p.WEB-DL\n🔍 NZBgeek • 🎯 Score: +66359","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}
+            """#.utf8))
+        XCTAssertEqual(nzb.score, 66359)
+        XCTAssertNil(nzb.stars)
+        XCTAssertEqual(nzb.rankLabel, "RANK +" + 66359.formatted())
+
+        let aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"b","Name":"   4K ⚡\n  〈Web-dl〉\n  ★★★★☆\n✎  Mutiny · 2026\nᴅᴠ ʜᴅʀ ᴛ₁ ₂₄₅","aiostreams":{"addon":"Torrentio"}}
+            """#.utf8))
+        XCTAssertEqual(aio.stars, "★★★★☆")
+        XCTAssertEqual(aio.score, 245, "The score standing alone, not the tier's ₁")
+        XCTAssertEqual(aio.rankLabel, "★★★★☆ RANK +245")
+
+        let negative = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"c","Name":"1080P ⏳\n  ★★\nʜᴅʀ -₁₂","aiostreams":{"addon":"Comet"}}
+            """#.utf8))
+        XCTAssertEqual(negative.score, -12)
+        XCTAssertEqual(negative.rankLabel, "★★ RANK -12")
+    }
+
     // An AIOStreams stream plays from its own address, as the server would
     // only redirect there; any other server's path is its own business.
     func testOnlyAnAIOStreamsStreamPlaysFromItsOwnAddress() throws {

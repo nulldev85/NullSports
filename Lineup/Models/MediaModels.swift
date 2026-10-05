@@ -920,13 +920,41 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// than after being fetched. Only AIOStreams says.
     var isInstant: Bool { aiostreams?.cached == true }
 
+    /// The score the server ranked the stream by: StreamNZB's "Score: +68648",
+    /// or the one AIOStreams' formatter writes in small digits at the end of
+    /// a line ("ᴅᴠ ʜᴅʀ ₂₄₅").
     var score: Int? {
         let text = [name, remux?.providerInfo?.filename, remux?.providerInfo?.description]
             .compactMap { $0 }.joined(separator: " ")
-        guard let match = text.range(of: #"(?i)score[: ]+([+-]?\d+)"#, options: .regularExpression) else { return nil }
-        let value = text[match].replacingOccurrences(of: #"(?i)score[: ]+"#, with: "", options: .regularExpression)
-        return Int(value)
+        if let match = text.range(of: #"(?i)score[: ]+([+-]?\d+)"#, options: .regularExpression) {
+            let value = text[match].replacingOccurrences(of: #"(?i)score[: ]+"#, with: "", options: .regularExpression)
+            return Int(value)
+        }
+        guard aiostreams != nil, let name, let small = Self.smallScore.lastCapture(in: name) else { return nil }
+        return Int(String(small.map { Self.smallDigits[$0] ?? $0 }))
     }
+
+    /// The stars AIOStreams' formatter draws for a stream -- its score
+    /// against the best stream it found -- exactly as it drew them.
+    var stars: String? {
+        guard aiostreams != nil, let name, let range = name.range(of: "★+[☆⯪]*", options: .regularExpression)
+        else { return nil }
+        return String(name[range])
+    }
+
+    /// The server's ranking, to put beside a stream: its stars, then its score.
+    var rankLabel: String? {
+        let ranked = score.map { "RANK " + ($0 >= 0 ? "+" : "") + $0.formatted() }
+        let parts = [stars, ranked].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    // Standing alone, after a space: a tier's number written the same way
+    // ("ᴛ₁") sits against its letter, and is not the score.
+    private static let smallScore = CompiledPattern(#"(?:^|\s)([-₋]?[₀₁₂₃₄₅₆₇₈₉]+)(?=\s|$)"#)
+    private static let smallDigits: [Character: Character] = [
+        "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "₋": "-"
+    ]
 
     // A release name and the server's own probe line describe the same stream in
     // different words: one says "H 265", the other "hevc". Reading both means a
