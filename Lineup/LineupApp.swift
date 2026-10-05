@@ -16,6 +16,7 @@ struct LineupApp: App {
         retireRemovedThemes()
         #if os(tvOS)
         applyLineupTabBarTheme()
+        PlaybackJournal.shared.note("App opened")
         #endif
     }
 
@@ -51,6 +52,20 @@ struct LineupApp: App {
                     reminders.updateGames(games.values.flatMap { $0 })
                 }
                 .task { await media.prepareProviderVOD() }
+                #if os(tvOS)
+                // "It stopped and went back to the menu" is often the screen
+                // saver, Home or the television sleeping rather than the
+                // player, so the playback log says when the app left the
+                // front and came back.
+                .onChange(of: scenePhase) { _, phase in
+                    switch phase {
+                    case .active: PlaybackJournal.shared.note("App back in front")
+                    case .inactive: PlaybackJournal.shared.note("App covered: the screen saver, or the TV's own menus")
+                    case .background: PlaybackJournal.shared.note("App sent to the background: Home, or the TV went to sleep")
+                    @unknown default: break
+                    }
+                }
+                #endif
         }
     }
 }

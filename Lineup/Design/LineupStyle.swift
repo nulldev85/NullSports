@@ -441,8 +441,18 @@ extension View {
     ///
     /// Apply it below whatever holds state worth keeping -- the selected tab
     /// sits above this, so switching a theme does not also move the viewer.
+    ///
+    /// The television has one palette whatever is stored, so there is nothing
+    /// there to redraw -- and the stored choice reaches it from the phone
+    /// through iCloud, where re-identifying a tab tore down whatever it was
+    /// showing, a film playing full screen included.
+    @ViewBuilder
     func lineupThemeScope(_ theme: String) -> some View {
+        #if os(tvOS)
+        self
+        #else
         id(theme)
+        #endif
     }
 
     /// A region the remote can land in as a whole.

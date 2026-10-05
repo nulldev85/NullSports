@@ -4031,6 +4031,8 @@ struct AccountView: View {
                             symbol: "point.3.connected.trianglepath.dotted") { MatchDiagnosticsView() }
                 AccountTile(title: "Launch timing", detail: "Where the last start spent its time",
                             symbol: "speedometer") { TVStartupTraceView() }
+                AccountTile(title: "Playback log", detail: "What the player did, and why it stopped",
+                            symbol: "list.bullet.rectangle.portrait") { TVPlaybackJournalView() }
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -4442,6 +4444,71 @@ private struct TVStartupTraceView: View {
     }
 }
 
+/// What the player did, newest first, on the television itself: the trail a
+/// film that stopped on its own leaves behind, read without a device log.
+private struct TVPlaybackJournalView: View {
+    @ObservedObject private var journal = PlaybackJournal.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .firstTextBaseline, spacing: 24) {
+                ScreenHeading(title: "Playback log", detail: "What the player did and why it stopped, newest first")
+                Spacer()
+                Button("Clear") { journal.clear() }
+                    .lineupButtonStyle()
+                    .disabled(journal.entries.isEmpty)
+            }
+            if journal.entries.isEmpty {
+                Text("Nothing has played since the log was cleared.")
+                    .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(journal.days) { day in
+                        Text(day.name.uppercased())
+                            .font(.inter(13, .bold)).tracking(2.2)
+                            .foregroundStyle(LineupStyle.secondary)
+                            .padding(.top, 18)
+                        ForEach(Array(day.entries.enumerated()), id: \.offset) { _, entry in
+                            TVPlaybackJournalRow(entry: entry)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 120).padding(.vertical, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background)
+    }
+}
+
+/// One thing the player did: the time, then what.
+private struct TVPlaybackJournalRow: View {
+    @FocusState private var focused: Bool
+    let entry: PlaybackJournal.Entry
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(alignment: .firstTextBaseline, spacing: 24) {
+            Text(PlaybackJournal.time(of: entry))
+                .font(.interDigits(19, .semibold))
+                .foregroundStyle(LineupStyle.secondary)
+            Text(entry.text)
+                .font(.inter(21))
+                .foregroundStyle(LineupStyle.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .background(LineupStyle.surface, in: shape)
+        .lineupFocusLayer(focused, in: shape)
+        .contentShape(shape)
+        .focusable().focused($focused).focusEffectDisabled()
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Why each game matched the channel it did. A game that opens the wrong feed
 /// should be able to name the rule that chose it, without a device log.
 private struct MatchDiagnosticsView: View {
@@ -4771,6 +4838,11 @@ private struct MultiviewView: View {
     // MARK: Actions
 
     private func begin() {
+        PlaybackJournal.shared.note("Split screen: " + primary.name + " and " + secondary.name)
+        // Both are being watched: each holds the screen saver off while it
+        // plays, and notes what it does under its channel's name.
+        players.tiles[0].watched = .splitScreen(primary.name)
+        players.tiles[1].watched = .splitScreen(secondary.name)
         for index in 0..<2 {
             let controller = players.tiles[index]
             if let game = index == 0 ? primaryGame : secondaryGame {
@@ -4848,7 +4920,12 @@ private struct MultiviewView: View {
     }
 
     private func back() {
-        if fullScreenTile != nil { leaveFullScreen() } else { dismiss() }
+        if fullScreenTile != nil {
+            leaveFullScreen()
+        } else {
+            PlaybackJournal.shared.note("Split screen closed: Back pressed")
+            dismiss()
+        }
     }
 
     /// Crossfade to a picture's sound: one fades down as the other comes up.
@@ -5093,6 +5170,10 @@ struct PlayerView: View {
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
     @State private var lastReportedPosition: TimeInterval = 0
+    /// The player is closing because the viewer or the film said so. Any other
+    /// way of going -- the screens around it torn down -- is noted in the log
+    /// as such, because that is the one nobody asked for.
+    @State private var closing = false
 
     var body: some View {
         ZStack {
@@ -5143,24 +5224,41 @@ struct PlayerView: View {
             }
         }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
-        .onExitCommand { reportProgress(force: true); controller.stop(); dismiss() }
+        // Back clears the controls first, as Apple's own player does, and
+        // closes the player from there. One press used to end the film even
+        // when it was only meant to clear the screen.
+        .onExitCommand {
+            if controlsVisible && controller.error == nil {
+                hideControls()
+            } else {
+                close(because: "Back pressed")
+            }
+        }
         .onAppear {
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
+            controller.watched = .fullScreen
+            PlaybackJournal.shared.note(openingNote)
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                              channelID: channelID, isLive: isLive)
             revealControls(focus: true)
         }
-        .onDisappear { reportProgress(force: true); hideControlsTask?.cancel(); controller.stop() }
+        .onDisappear {
+            if !closing {
+                PlaybackJournal.shared.note("Closed by the app, not by Back or the end of the title"
+                    + (isLive ? "" : " (at \(PlaybackJournal.clock(controller.elapsed)))"))
+            }
+            reportProgress(force: true)
+            hideControlsTask?.cancel()
+            controller.stop()
+        }
         .onChange(of: controller.elapsed) { _, _ in reportProgress() }
         // A film or an episode played to its end is saved as watched and the
         // player closes, as it would on the remote's Menu button.
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
-            reportProgress(force: true)
-            controller.stop()
-            dismiss()
+            close(because: "Reached the end")
         }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
@@ -5175,6 +5273,34 @@ struct PlayerView: View {
             Task { @MainActor in await Task.yield(); focusedControl = .playPause }
         }
         scheduleAutoHide()
+    }
+
+    /// The controls cleared at once, with focus handed to the picture so the
+    /// next press has somewhere to land, as when they time out.
+    private func hideControls() {
+        hideControlsTask?.cancel()
+        controlsVisible = false
+        Task { @MainActor in
+            await Task.yield()
+            surfaceFocused = true
+        }
+    }
+
+    private func close(because reason: String) {
+        closing = true
+        PlaybackJournal.shared.note("Closed: " + reason
+            + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
+        reportProgress(force: true)
+        controller.stop()
+        dismiss()
+    }
+
+    /// The log's first line for this title.
+    private var openingNote: String {
+        if isLive { return "Watching " + (chosenTitle ?? title) }
+        let name = synopsis?.title ?? title
+        guard let initialPosition, initialPosition >= 10 else { return "Playing " + name + " from the beginning" }
+        return "Playing " + name + " from " + PlaybackJournal.clock(initialPosition)
     }
 
     private func keepControlsVisible() { controlsVisible = true; scheduleAutoHide() }
@@ -5551,6 +5677,37 @@ private struct TVPlayerMenuLabel: View {
     /// picture meant to be quiet must not come back at full volume.
     private var targetVolume: Int32 = 100
     private var fadeTask: Task<Void, Never>?
+    /// Set for a player that is being watched -- full screen, or one of split
+    /// screen's two -- rather than previewed. Such a player holds the screen
+    /// saver off while it plays and notes what it does in the playback log;
+    /// a preview playing in a corner does neither.
+    var watched: Watched?
+    enum Watched {
+        case fullScreen
+        /// One of split screen's pictures, named in the log by its game.
+        case splitScreen(String)
+    }
+    /// The tracks the viewer chose. A reconnect opens the file afresh and VLC
+    /// goes back to its default tracks, so these are put back once the
+    /// reopened file lists them.
+    private var chosenAudioTrack: Int?
+    private var chosenVideoTrack: Int?
+    private var chosenSubtitleIndex: Int32?
+    /// What the log last said the stream was doing, so it notes changes
+    /// rather than ticks.
+    private var loggedCondition: String?
+    /// Whether this stream has shown a picture since it was opened, which is
+    /// what tells a stall from a stream that never started.
+    private var sawPicture = false
+    /// Inside `start`, whose own `stop` is no reason to let the screen saver
+    /// in for the moment before the stream opens again.
+    private var restarting = false
+
+    deinit {
+        // A player let go without being stopped gives up its hold too.
+        let id = ObjectIdentifier(self)
+        Task { @MainActor in TVScreenAwake.release(id) }
+    }
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     var selectedSubtitleTitle: String {
@@ -5575,12 +5732,20 @@ private struct TVPlayerMenuLabel: View {
     }
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
-               channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true) {
+               channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true,
+               keepTrackChoices: Bool = false) {
+        restarting = true
         stop()
+        restarting = false
         self.urls = Array(urls.reversed())
         self.muted = muted
         self.isLive = isLive
         finished = false
+        if !keepTrackChoices {
+            chosenAudioTrack = nil
+            chosenVideoTrack = nil
+            chosenSubtitleIndex = nil
+        }
         currentChannelID = channelID
         if resetFailover {
             failoverState.reset()
@@ -5593,6 +5758,7 @@ private struct TVPlayerMenuLabel: View {
         urlIndex = 0
         error = nil
         guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
+        holdScreenAwake()
         openCurrent()
         monitor = Task { [weak self] in
             while !Task.isCancelled {
@@ -5606,22 +5772,27 @@ private struct TVPlayerMenuLabel: View {
     private func openCurrent() {
         player.stop()
         resetSubtitles()
+        sawPicture = false
+        loggedCondition = nil
         let media = VLCMedia(url: urls[urlIndex])
+        // Five seconds of buffer, for a film as for a channel. Two got a film
+        // started a moment sooner, but a remux fetched from a debrid service
+        // or a news server arrives unevenly, and VLC drops whatever sound is
+        // late when its buffer runs dry: the sound cut out while the picture
+        // carried on.
+        media.addOption(":network-caching=5000")
         if isLive {
-            media.addOption(":network-caching=5000")
             media.addOption(":live-caching=5000")
-        } else {
-            // A film or an episode starts on two seconds of buffer, not a
-            // channel's five: a media server's file arrives faster than it
-            // plays, so every second asked for here was a second of waiting
-            // before the picture. A drop is carried by the reopen below, not
-            // by a deep buffer.
-            media.addOption(":network-caching=2000")
+        } else if let place = openingPlace {
             // Opened at its place -- where it was left off, or where it was
             // when it dropped -- rather than at its beginning and then moved,
             // which buffered it twice.
-            if let place = openingPlace { media.addOption(":start-time=\(place)") }
+            media.addOption(":start-time=\(place)")
         }
+        let transport = urls.count > 1 ? " over " + urls[urlIndex].pathExtension.uppercased() : ""
+        let place = isLive ? nil : openingPlace
+        log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream" + transport
+            + (place.map { " at " + PlaybackJournal.clock($0) } ?? ""))
         media.addOption(":http-reconnect=true")
         player.media = media
         health = freshHealth()
@@ -5688,6 +5859,11 @@ private struct TVPlayerMenuLabel: View {
             appliedInitialPosition = true
             return
         }
+        // A stream that has dropped reads its clock as nothing. The place it
+        // was playing stands until it plays again, so neither the bar, nor
+        // the place saved, nor the place it is reopened at is lost with it:
+        // reopening "where it was" from a zero started films over.
+        if time <= 0, !player.isPlaying, elapsed > 0 { return }
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
 
@@ -5706,6 +5882,9 @@ private struct TVPlayerMenuLabel: View {
         updateProgress()
         refreshSubtitleTracks()
         refreshStreamTracks()
+        restoreTrackChoices()
+        holdScreenAwake()
+        noteCondition()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
@@ -5721,6 +5900,7 @@ private struct TVPlayerMenuLabel: View {
         // stop anywhere earlier is a dropped stream, reopened below.
         if !isLive, failed, reopenPosition == nil, duration > 0,
            elapsed >= duration - 15 || player.position >= 0.99 {
+            log("Reached the end at \(PlaybackJournal.clock(elapsed)) of \(PlaybackJournal.clock(duration))")
             finish()
             return
         }
@@ -5736,10 +5916,14 @@ private struct TVPlayerMenuLabel: View {
         isPlaying = player.isPlaying
         if player.isPlaying && player.hasVideoOut {
             reconnecting = false
+            sawPicture = true
             let height = Int(player.videoSize.height)
             if height > 0 { videoHeight = height }
         }
         guard recover else { return }
+        let reason = failed ? "VLC reported the stream " + Self.describe(player.state)
+            : sawPicture ? "The picture stood still for \(isLive ? 12 : 30) seconds"
+            : "No picture came within 30 seconds"
         player.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
@@ -5747,11 +5931,15 @@ private struct TVPlayerMenuLabel: View {
             reopenPosition = max(0, elapsed - 2)
         }
         guard let delay = retries.nextDelay() else {
+            log(reason + ". Gave up after \(retries.attempts) tries")
             if switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
             reconnecting = false
+            holdScreenAwake()
             return
         }
+        log(reason + (isLive || elapsed <= 0 ? "" : " at " + PlaybackJournal.clock(elapsed))
+            + ". Reconnecting in \(Int(delay)) s (try \(retries.attempts))")
         // Retry the current transport once, then try the channel's alternatives.
         if retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
         reconnecting = true
@@ -5763,6 +5951,7 @@ private struct TVPlayerMenuLabel: View {
         while let next = failoverState.next(from: failover.plan(), current: currentChannelID) {
             let nextURLs = failover.urls(next.streamID)
             guard !nextURLs.isEmpty else { continue }
+            log("Switching to another channel: " + next.name)
             start(urls: nextURLs, muted: muted, channelID: next.streamID, resetFailover: false)
             activeChannelName = next.name
             pendingWorkingChannelID = next.streamID
@@ -5822,21 +6011,34 @@ private struct TVPlayerMenuLabel: View {
     /// Every tick, and before anything else the monitor does: mute and level
     /// are held where they were last set rather than trusted to survive a
     /// reconnect, which is how a quiet picture used to leak sound.
+    ///
+    /// Only what differs is written. VLC's audio output on Apple TV mutes by
+    /// stopping its audio unit and unmutes by starting it again, so writing
+    /// the same mute twice a second -- while paused too -- kept restarting
+    /// the sound under a playing picture.
     private func holdAudioLevel() {
-        player.audio?.isMuted = muted
-        guard fadeTask == nil, let audio = player.audio, audio.volume != targetVolume else { return }
+        guard let audio = player.audio else { return }
+        if audio.isMuted != muted { audio.isMuted = muted }
+        guard fadeTask == nil, audio.volume != targetVolume else { return }
         audio.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
     func retry() {
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
+        log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
         start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
-              channelID: currentChannelID, isLive: isLive)
+              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true)
     }
+    /// A channel reconnects at its live edge; a film or an episode starts over
+    /// from its beginning -- and stays a film. Restart used to reopen it as a
+    /// channel, which took away its ending: a drop or the real end then
+    /// started it over again.
     func goLive() {
         guard !urls.isEmpty else { return }
-        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID)
+        log(isLive ? "Go Live chosen" : "Restart chosen")
+        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive,
+              keepTrackChoices: true)
     }
     func togglePlayback() {
         pausedByUser.toggle()
@@ -5846,11 +6048,13 @@ private struct TVPlayerMenuLabel: View {
             if retryAt == nil { player.play() }
         }
         isPlaying = player.isPlaying
+        holdScreenAwake()
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
         player.currentVideoSubTitleIndex = Int32(track.engineIndex ?? -1)
         selectedSubtitleID = track.id
+        chosenSubtitleIndex = Int32(track.engineIndex ?? -1)
     }
 
     /// VLCKit discovers tracks only after the container starts parsing. The
@@ -5880,11 +6084,31 @@ private struct TVPlayerMenuLabel: View {
     func selectAudioTrack(_ track: PlaybackStreamTrack) {
         player.currentAudioTrackIndex = Int32(track.id)
         selectedAudioTrackID = track.id
+        chosenAudioTrack = track.id
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
         player.currentVideoTrackIndex = Int32(track.id)
         selectedVideoTrackID = track.id
+        chosenVideoTrack = track.id
+    }
+
+    /// The viewer's tracks put back on a reopened file, once it lists them:
+    /// the same file numbers its tracks the same way.
+    private func restoreTrackChoices() {
+        if let chosen = chosenAudioTrack, audioTracks.contains(where: { $0.id == chosen }),
+           Int(player.currentAudioTrackIndex) != chosen {
+            player.currentAudioTrackIndex = Int32(chosen)
+            log("Put the chosen audio track back")
+        }
+        if let chosen = chosenVideoTrack, videoTracks.contains(where: { $0.id == chosen }),
+           Int(player.currentVideoTrackIndex) != chosen {
+            player.currentVideoTrackIndex = Int32(chosen)
+        }
+        if let chosen = chosenSubtitleIndex, player.currentVideoSubTitleIndex != chosen,
+           chosen < 0 || subtitleTracks.contains(where: { $0.engineIndex == Int(chosen) }) {
+            player.currentVideoSubTitleIndex = chosen
+        }
     }
 
     /// The file's audio and video streams, read on the same cadence as its
@@ -5928,6 +6152,7 @@ private struct TVPlayerMenuLabel: View {
         resetSubtitles()
         player.stop()
         player.media = nil
+        if !restarting { holdScreenAwake() }
     }
 
     /// A channel's picture standing still for twelve seconds means the feed is
@@ -5947,6 +6172,83 @@ private struct TVPlayerMenuLabel: View {
         isPlaying = false
         elapsed = duration
         finished = true
+        holdScreenAwake()
+    }
+
+    // MARK: The screen saver and the log
+
+    /// The screen saver stays away while a watched title plays, as it would
+    /// with Apple's own player, and comes back once it is paused, stopped or
+    /// given up on. VLC leaves this to the app, and the app had not done it:
+    /// a film left alone for the screen saver's few minutes was covered by
+    /// it, and the television then went to sleep and the film with it.
+    private func holdScreenAwake() {
+        let holds = watched != nil && !urls.isEmpty && !pausedByUser && error == nil && !finished
+        TVScreenAwake.hold(holds, for: self)
+    }
+
+    /// What the stream is doing, noted when it changes.
+    private func noteCondition() {
+        guard watched != nil else { return }
+        let condition: String?
+        switch player.state {
+        case .playing where player.hasVideoOut: condition = "Playing"
+        case .paused: condition = pausedByUser ? "Paused" : nil
+        case .ended, .error, .stopped: condition = retryAt == nil ? "Stream " + Self.describe(player.state) : nil
+        default: condition = nil
+        }
+        guard let condition, condition != loggedCondition else { return }
+        loggedCondition = condition
+        let place = !isLive && elapsed > 0 ? " at " + PlaybackJournal.clock(elapsed) : ""
+        log(condition + place)
+    }
+
+    private func log(_ text: String) {
+        switch watched {
+        case .fullScreen: PlaybackJournal.shared.note(text)
+        case .splitScreen(let name): PlaybackJournal.shared.note(name + ": " + text)
+        case nil: break
+        }
+    }
+
+    private static func describe(_ state: VLCMediaPlayerState) -> String {
+        switch state {
+        case .ended: "ended"
+        case .error: "failed"
+        case .stopped: "stopped"
+        case .opening: "opening"
+        case .buffering: "buffering"
+        case .playing: "playing"
+        case .paused: "paused"
+        case .esAdded: "listing its tracks"
+        @unknown default: "in an unknown state"
+        }
+    }
+}
+
+/// Holds the screen saver off while any watched player is playing: full
+/// screen, or either of split screen's pictures. tvOS has one switch for the
+/// whole app, so each player holds or releases its own claim on it.
+@MainActor private enum TVScreenAwake {
+    private static var holders: Set<ObjectIdentifier> = []
+
+    static func hold(_ holds: Bool, for owner: AnyObject) {
+        let id = ObjectIdentifier(owner)
+        let changed = holds ? holders.insert(id).inserted : holders.remove(id) != nil
+        guard changed else { return }
+        apply()
+    }
+
+    static func release(_ id: ObjectIdentifier) {
+        guard holders.remove(id) != nil else { return }
+        apply()
+    }
+
+    private static func apply() {
+        let awake = !holders.isEmpty
+        guard UIApplication.shared.isIdleTimerDisabled != awake else { return }
+        UIApplication.shared.isIdleTimerDisabled = awake
+        PlaybackJournal.shared.note(awake ? "Screen saver held off while playing" : "Screen saver allowed again")
     }
 }
 
