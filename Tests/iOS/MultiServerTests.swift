@@ -226,6 +226,33 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(library.favoriteMedia.first?.serverID, second.id)
     }
 
+    // An episode in Continue Watching opens its show's page, at the episode
+    // the viewer is on -- the show on its own server, not the other's.
+    func testAContinueWatchingEpisodeOpensItsShowWhereTheViewerWas() throws {
+        let (library, first, second, cleanup) = try makeLibrary()
+        defer { cleanup() }
+        let watching = MediaItem(id: "s2e4", name: "Four", type: "Episode", overview: nil, productionYear: nil,
+                                 primaryImageAspectRatio: nil, childCount: nil, runTimeTicks: 30_000_000_000,
+                                 indexNumber: 4, parentIndexNumber: 2, seriesName: "Severance",
+                                 seriesID: "show", serverID: first.id)
+        library.trackPlayback(of: watching, position: 600, duration: 3_000)
+
+        let show = try XCTUnwrap(library.series(of: watching))
+        XCTAssertEqual(show.id, "show")
+        XCTAssertEqual(show.type, "Series")
+        XCTAssertEqual(show.name, "Severance")
+        XCTAssertEqual(show.serverID, first.id)
+        XCTAssertEqual(library.continueWatchingEpisode(in: show)?.id, "s2e4")
+        XCTAssertEqual(library.continueWatchingEpisode(in: show)?.parentIndexNumber, 2)
+
+        let sameIDElsewhere = MediaItem(id: "show", name: "Severance", type: "Series", overview: nil,
+                                        productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                        serverID: second.id)
+        XCTAssertNil(library.continueWatchingEpisode(in: sameIDElsewhere))
+        XCTAssertNil(library.series(of: episode("e", show: "No ID", season: 1, number: 1)),
+                     "An episode that names no show keeps going to its streams")
+    }
+
     // A record saved before items carried their server still knows it.
     func testOlderRecordsAreGivenTheServerTheyWereSavedUnder() throws {
         let suite = "MultiServerTests.\(UUID())"

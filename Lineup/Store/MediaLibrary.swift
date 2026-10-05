@@ -1053,6 +1053,24 @@ final class MediaLibrary: ObservableObject {
     /// A detail page gets the server's authoritative next episode while it is
     /// already loading. Remember it so every poster for that series shows the
     /// same useful position when the viewer returns to Library.
+    /// The show an episode belongs to, as an item its page can be opened
+    /// from. Nil when the episode does not say which show.
+    func series(of episode: MediaItem) -> MediaItem? {
+        guard episode.type == "Episode", let seriesID = episode.seriesID, !seriesID.isEmpty else { return nil }
+        return MediaItem(id: seriesID, name: episode.seriesName ?? episode.name, type: "Series", overview: nil,
+                         productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                         serverID: serverID(of: episode))
+    }
+
+    /// The episode of a show that Continue Watching has the viewer on, for
+    /// the show's page to open at.
+    func continueWatchingEpisode(in series: MediaItem) -> MediaItem? {
+        guard let server = serverID(of: series) else { return nil }
+        return continueWatching.first { record in
+            record.profileID == server && record.item.type == "Episode" && record.item.seriesID == series.id
+        }?.item
+    }
+
     func rememberNextUp(_ episode: MediaItem) {
         guard episode.type == "Episode", let profileID = serverID(of: episode) else { return }
         let key = Self.seriesKey(for: episode)

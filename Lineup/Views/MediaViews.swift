@@ -775,7 +775,7 @@ private struct MediaCatalogsScreen: View {
     @ViewBuilder
     private var libraryShelves: some View {
         if !continueWatching.isEmpty {
-            localShelf(title: "Continue Watching", items: continueWatching.map(\.item))
+            localShelf(title: "Continue Watching", items: continueWatching.map(\.item), opensPages: true)
         }
         if !favoriteTitles.isEmpty {
             localShelf(title: "Favorites", items: favoriteTitles)
@@ -928,7 +928,11 @@ private struct MediaCatalogsScreen: View {
     /// Local rows use the same cards, spacing and focus regions as server
     /// shelves. They should look like part of the Library, not a utility panel
     /// bolted above it.
-    private func localShelf(title: String, items: [MediaItem]) -> some View {
+    ///
+    /// Continue Watching opens pages rather than streams: a film's own, and an
+    /// episode's show's, at that episode's season. If the app has the viewer
+    /// on the wrong episode, the right one is a choice away on that page.
+    private func localShelf(title: String, items: [MediaItem], opensPages: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(sectionTitleFont)
@@ -944,15 +948,15 @@ private struct MediaCatalogsScreen: View {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
                     ForEach(items, id: \.libraryKey) { trackedItem in
                         Group {
-                            if trackedItem.opensPage {
+                            if let page = pageItem(for: trackedItem, opensPages: opensPages) {
                                 #if os(tvOS)
-                                TVSelectable(drawsFocusChrome: false, action: { pushed = trackedItem },
+                                TVSelectable(drawsFocusChrome: false, action: { pushed = page },
                                              onFocusChange: { focused in preview(trackedItem, when: focused) }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
                                 .contextMenu { continueWatchingAction(for: trackedItem) }
                                 #else
-                                NavigationLink(value: trackedItem) {
+                                NavigationLink(value: page) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
                                 .lineupFlatButton()
@@ -977,14 +981,17 @@ private struct MediaCatalogsScreen: View {
         }
     }
 
-    @ViewBuilder
+    /// The page a local row's card opens, or nil for a card that goes
+    /// straight to its streams. An episode with no show to name keeps going
+    /// to its streams: there is no page to open it at.
+    private func pageItem(for item: MediaItem, opensPages: Bool) -> MediaItem? {
+        guard opensPages else { return item.opensPage ? item : nil }
+        if item.type == "Episode" { return media.series(of: item) }
+        return item.opensPage || item.isPlayable ? item : nil
+    }
+
     private func continueWatchingAction(for item: MediaItem) -> some View {
-        if media.isInContinueWatching(item) {
-            Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
-                media.removeFromContinueWatching(item)
-            }
-            .lineupFlatButton()
-        }
+        MediaCardActions(item: item)
     }
 
     /// The field lives here rather than on the shelf screen. tvOS draws its own
@@ -1254,7 +1261,9 @@ private struct MediaBrowseDestination: View {
     let item: MediaItem
 
     var body: some View {
-        if item.hasDetailPage {
+        // Anything that plays has a page when it is opened on purpose -- a
+        // server's "Video" from Continue Watching as much as a "Movie".
+        if item.hasDetailPage || item.isPlayable {
             MediaDetailScreen(item: item)
         } else {
             MediaFolderScreen(folder: item)
@@ -2309,9 +2318,13 @@ private struct MediaDetailScreen: View {
             }
             seasons = seasonList
             let up = await media.nextUp(in: item)
-            nextUp = up
             if let up { media.rememberNextUp(up) }
-            await loadSeason(seasonList.first { $0.indexNumber == up?.parentIndexNumber } ?? seasonList[0])
+            // Where Continue Watching has the viewer -- an episode part-watched
+            // on this device first, then the server's next one -- and the
+            // season it is in, so a show opened from there opens where they
+            // were, with every other episode a choice away.
+            nextUp = media.continueWatchingEpisode(in: subject) ?? up
+            await loadSeason(seasonList.first { $0.indexNumber == nextUp?.parentIndexNumber } ?? seasonList[0])
             pageReady = true
         } catch {
             self.error = error.localizedDescription
@@ -2569,8 +2582,18 @@ private struct MediaPlayableCard: View {
     private func choose() {
         if let playMedia { playMedia(item) } else { choosingSource = true }
     }
-    @ViewBuilder
-    private var libraryActions: some View {
+
+    private var libraryActions: some View { MediaCardActions(item: item) }
+}
+
+/// What a long press on a Library card offers: leaving Continue Watching,
+/// and for an episode, watched and favorite. One list, whether the card opens
+/// a page or the streams.
+private struct MediaCardActions: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let item: MediaItem
+
+    var body: some View {
         if media.isInContinueWatching(item) {
             Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
                 media.removeFromContinueWatching(item)
