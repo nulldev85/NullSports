@@ -942,6 +942,28 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         return String(name[range])
     }
 
+    /// A server's streams, highest score first, as the server itself ranks
+    /// them. Scores are only ever compared within one server's list.
+    ///
+    /// A stream with no score keeps its place among the others without one,
+    /// after every scored stream -- except from AIOStreams, whose formatter
+    /// writes no score when it is nought: there, an unwritten score among
+    /// written ones ranks as zero, between the positive and the negative.
+    static func ranked(_ sources: [MediaPlaybackSource]) -> [MediaPlaybackSource] {
+        guard sources.contains(where: { $0.score != nil }) else { return sources }
+        func rank(_ source: MediaPlaybackSource) -> Int? {
+            source.score ?? (source.aiostreams != nil ? 0 : nil)
+        }
+        return sources.enumerated().sorted { left, right in
+            switch (rank(left.element), rank(right.element)) {
+            case let (a?, b?): a != b ? a > b : left.offset < right.offset
+            case (.some, nil): true
+            case (nil, .some): false
+            case (nil, nil): left.offset < right.offset
+            }
+        }.map(\.element)
+    }
+
     /// The server's ranking, to put beside a stream: its stars, then its score.
     var rankLabel: String? {
         let ranked = score.map { "SCORE " + ($0 >= 0 ? "+" : "") + $0.formatted() }

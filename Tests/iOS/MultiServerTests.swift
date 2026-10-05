@@ -232,6 +232,31 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(lowest.rankLabel, "☆☆☆☆☆ SCORE -40")
     }
 
+    // A server's streams are listed by its own score, highest first, however
+    // they arrived. An AIOStreams stream with no score written ranks as nought
+    // among scored ones, and a server that scores nothing keeps its order.
+    func testAServersStreamsAreRankedByItsScoreHighestFirst() throws {
+        func stream(_ id: String, _ name: String, aio: Bool = false) throws -> MediaPlaybackSource {
+            var object: [String: Any] = ["Id": id, "Name": name]
+            if aio { object["aiostreams"] = ["addon": "Torrentio"] }
+            return try JSONDecoder().decode(MediaPlaybackSource.self,
+                                            from: JSONSerialization.data(withJSONObject: object))
+        }
+        let nzb = try [stream("a", "🔍 altHUB • 🎯 Score: +120"), stream("b", "🔍 NZBgeek • 🎯 Score: +66359"),
+                       stream("c", "🔍 altHUB • 🎯 Score: -4"), stream("d", "🔍 altHUB • 🎯 Score: +900")]
+        XCTAssertEqual(MediaPlaybackSource.ranked(nzb).map(\.sourceID), ["b", "d", "a", "c"])
+
+        let aio = try [stream("e", "1080P ⏳\n  ☆☆☆☆☆\nʜᴅʀ -₁₂", aio: true),
+                       stream("f", "   4K ⚡\n  ★★★★★", aio: true),
+                       stream("g", "   4K ⚡\n  ★★★★☆\nᴅᴠ ₂₄₅", aio: true)]
+        XCTAssertEqual(MediaPlaybackSource.ranked(aio).map(\.sourceID), ["g", "f", "e"],
+                       "An unwritten score is nought: below a positive one, above a negative one")
+
+        let plain = try [stream("h", "Movie 1080p"), stream("i", "Movie 2160p")]
+        XCTAssertEqual(MediaPlaybackSource.ranked(plain).map(\.sourceID), ["h", "i"],
+                       "Nothing to rank by: the server's own order")
+    }
+
     // An AIOStreams stream plays from its own address, as the server would
     // only redirect there; any other server's path is its own business.
     func testOnlyAnAIOStreamsStreamPlaysFromItsOwnAddress() throws {
