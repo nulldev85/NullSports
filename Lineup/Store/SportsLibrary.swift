@@ -100,8 +100,8 @@ final class SportsLibrary: ObservableObject {
 
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
-    private let profilesKey = Self.storedProfilesKey
-    private let activeKey = Self.storedActiveKey
+    private let profilesKey = SportsLibrary.storedProfilesKey
+    private let activeKey = SportsLibrary.storedActiveKey
     nonisolated private static let storedProfilesKey = "NullSports.profiles"
     nonisolated private static let storedActiveKey = "NullSports.activeProfile"
 

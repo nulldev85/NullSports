@@ -108,7 +108,7 @@ final class ProviderVOD {
     /// How many films and shows the provider's list holds, once it has been
     /// read: how wide a search came up empty.
     var counts: (films: Int, shows: Int)? {
-        loaded.map { ($0.catalog.films.count, $0.catalog.shows.count) }
+        loaded.map { (films: $0.catalog.films.count, shows: $0.catalog.shows.count) }
     }
 
     /// The catalog and its index: kept in memory, read from the device when
@@ -123,7 +123,7 @@ final class ProviderVOD {
         if let loading { return try await loading.value }
         let profileID = provider.profile.id
         let client = provider.client
-        let task = Task.detached(priority: .userInitiated) { () throws -> (catalog: Catalog, index: Index) in
+        let task = Task.detached(priority: .userInitiated) { () async throws -> (catalog: Catalog, index: Index) in
             if let saved = Self.readCache(profileID: profileID) { return (saved, Index(saved)) }
             let fresh = try await Self.fetch(client, profileID: profileID)
             Self.writeCache(fresh)
@@ -179,7 +179,7 @@ final class ProviderVOD {
         let profileID = provider.profile.id
         let client = provider.client
         refreshing = Task { [weak self] in
-            let fresh = try? await Task.detached(priority: .utility) { () throws -> (catalog: Catalog, index: Index) in
+            let fresh = try? await Task.detached(priority: .utility) { () async throws -> (catalog: Catalog, index: Index) in
                 let fresh = try await Self.fetch(client, profileID: profileID)
                 Self.writeCache(fresh)
                 return (fresh, Index(fresh))
