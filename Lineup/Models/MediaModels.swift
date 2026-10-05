@@ -1016,6 +1016,8 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         if condensed.contains("webrip") { return "WEBRip" }
         if condensed.contains("hdtv") { return "HDTV" }
         if condensed.contains("dvdrip") { return "DVD" }
+        // A release that says only "WEB", as in "2160p.WEB.H265".
+        if descriptorText.range(of: #"\bweb\b"#, options: .regularExpression) != nil { return "WEB" }
         return nil
     }
 

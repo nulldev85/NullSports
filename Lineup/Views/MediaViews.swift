@@ -3695,6 +3695,9 @@ private struct MediaStreamBoard: View {
 
     private typealias Style = MediaStreamStyle
 
+    /// Held, not watched: only the backdrop redraws as the list scrolls.
+    @State private var scroll = MediaStreamScroll()
+
     private var visible: [MediaPlaybackSource] {
         guard let filter else { return sources }
         return sources.filter { $0.group == filter }
@@ -3715,8 +3718,22 @@ private struct MediaStreamBoard: View {
             .padding(.horizontal, Style.sideInset)
             .frame(maxWidth: .infinity)
             .padding(.bottom, Style.bottomInset)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: MediaStreamScrollKey.self,
+                                           value: geometry.frame(in: .named(MediaStreamScrollKey.space)).minY)
+                }
+            }
         }
-        .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop) }
+        .coordinateSpace(name: MediaStreamScrollKey.space)
+        .onPreferenceChange(MediaStreamScrollKey.self) { top in
+            // In steps, and no further than the backdrop is still showing:
+            // the picture fades once, not on every pixel of every scroll.
+            let scrolled = min(max(0, -top), Style.backdropFade)
+            let stepped = (scrolled / 8).rounded() * 8
+            if scroll.offset != stepped { scroll.offset = stepped }
+        }
+        .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop, scroll: scroll) }
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
     }
@@ -3913,11 +3930,26 @@ private struct MediaStreamBoard: View {
     }
 }
 
+/// How far the stream list has scrolled, read by its backdrop alone.
+private final class MediaStreamScroll: ObservableObject {
+    @Published var offset: CGFloat = 0
+}
+
+private struct MediaStreamScrollKey: PreferenceKey {
+    static let space = "streamBoard"
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 /// The title's own wide picture behind the top of the list, fading into the
 /// background well before the first row, so it sets the scene without
-/// sitting behind anything that has to be read.
+/// sitting behind anything that has to be read. It leaves as the list
+/// scrolls, so the rows below the first screen sit on a plain background.
 private struct MediaStreamBackdrop: View {
     let url: URL?
+    @ObservedObject var scroll: MediaStreamScroll
+
+    private var shown: CGFloat { 1 - min(scroll.offset / MediaStreamStyle.backdropFade, 1) }
 
     var body: some View {
         Color.clear
@@ -3944,6 +3976,8 @@ private struct MediaStreamBackdrop: View {
                 LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
                                startPoint: .leading, endPoint: .trailing)
             }
+            .opacity(shown)
+            .offset(y: -scroll.offset * 0.3)
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -4020,15 +4054,27 @@ private struct MediaStreamRow: View {
             VStack(alignment: .leading, spacing: Style.lineGap) {
                 Text(summary)
                     .font(.inter(Style.summarySize, .semibold))
-                    .lineLimit(1)
+                    .lineLimit(Style.summaryLines)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(source.releaseName)
                     .font(.inter(Style.releaseSize))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                     .lineLimit(1).truncationMode(.middle)
+                #if !os(tvOS)
+                // A phone is too narrow for a column of sizes beside the
+                // text, so they are a line of their own.
+                if let measures = measuresLine {
+                    Text(measures)
+                        .font(.interDigits(Style.rateSize, .semibold))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
+                }
+                #endif
                 origin
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            #if os(tvOS)
             measures
+            #endif
         }
         .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4077,7 +4123,7 @@ private struct MediaStreamRow: View {
         } else if !audio.isEmpty {
             parts.append(audio)
         }
-        if !parts.isEmpty { return parts.joined(separator: "  ·  ") }
+        if !parts.isEmpty { return parts.joined(separator: Style.separator) }
         if source.directURL != nil { return "Your IPTV provider's copy" }
         return source.containerLabel.map { $0 + " file" } ?? "Stream"
     }
@@ -4104,7 +4150,12 @@ private struct MediaStreamRow: View {
         var parts = [source.provider]
         if let indexer = source.indexer { parts.append(indexer) }
         if let server { parts.append("from " + server) }
-        return parts.joined(separator: "  ·  ").uppercased()
+        return parts.joined(separator: Style.separator).uppercased()
+    }
+
+    private var measuresLine: String? {
+        let parts = [source.formattedSize, source.formattedBitrate].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: Style.separator)
     }
 
     /// Size over bitrate, right-aligned, so the column of them can be read
@@ -4178,6 +4229,9 @@ private enum MediaStreamStyle {
     static let noticeTitleSize: CGFloat = 28
     static let noticeSymbolSize: CGFloat = 44
     static let noticeTop: CGFloat = 70
+    static let separator = "  ·  "
+    static let summaryLines = 1
+    static let backdropFade: CGFloat = 420
     #else
     static let boardWidth: CGFloat = .infinity
     static let sideInset: CGFloat = 16
@@ -4226,6 +4280,9 @@ private enum MediaStreamStyle {
     static let noticeTitleSize: CGFloat = 17
     static let noticeSymbolSize: CGFloat = 30
     static let noticeTop: CGFloat = 40
+    static let separator = " · "
+    static let summaryLines = 2
+    static let backdropFade: CGFloat = 240
     #endif
 }
 
