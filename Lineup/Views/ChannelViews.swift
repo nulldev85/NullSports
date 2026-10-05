@@ -4622,11 +4622,18 @@ private struct MultiviewView: View {
                 ForEach(0..<2, id: \.self) { index in
                     tile(index, screen: screen)
                 }
-                MultiviewGuide(items: guideItems)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 48)
-                    .opacity(chromeVisible ? 1 : 0)
-                    .allowsHitTesting(false)
+                if fullScreenTile == nil {
+                    controls
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 52)
+                        .transition(.opacity)
+                } else {
+                    fullScreenHint
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 56)
+                        .opacity(chromeVisible ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: screen.width, height: screen.height)
         }
@@ -4637,9 +4644,10 @@ private struct MultiviewView: View {
             players.tiles.forEach { $0.stop() }
         }
         .onChange(of: focusedTile) { _, tile in
-            guard let tile else { return }
-            if tile != audibleTile { listen(to: tile) }
             showChrome()
+            // Focus in the bar below leaves the sound where it was.
+            guard let tile, tile != audibleTile else { return }
+            listen(to: tile)
         }
         .onPlayPauseCommand { switchLayout() }
         .onExitCommand(perform: back)
@@ -4697,7 +4705,7 @@ private struct MultiviewView: View {
             Button(layout.other.title, systemImage: layout.other.symbol) { switchLayout() }
                 .lineupFlatButton()
             if layout == .bigAndSmall {
-                Button("Swap Screens", systemImage: "arrow.left.arrow.right") { swap() }
+                Button("Swap Screens", systemImage: "arrow.left.arrow.right") { swapPictures() }
                     .lineupFlatButton()
             }
             Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) }
@@ -4724,20 +4732,22 @@ private struct MultiviewView: View {
     /// its own place, so coming back is the same move in reverse.
     private func tileFrame(_ index: Int, screen: CGSize) -> CGRect {
         if fullScreenTile == index { return CGRect(origin: .zero, size: screen) }
-        // Clear of the edge a television's overscan can trim.
-        let margin: CGFloat = 64
+        // Inside tvOS's safe area, which a television's overscan can trim
+        // past, and centred in the space above the control bar.
+        let margin: CGFloat = 90
         let gap: CGFloat = 24
+        let middle = 60 + (screen.height - 60 - 170) / 2
         switch layout {
         case .sideBySide:
             let width = (screen.width - margin * 2 - gap) / 2
             let height = width * 9 / 16
-            return CGRect(x: margin + CGFloat(index) * (width + gap), y: (screen.height - height) / 2,
+            return CGRect(x: margin + CGFloat(index) * (width + gap), y: middle - height / 2,
                           width: width, height: height)
         case .bigAndSmall:
             let available = screen.width - margin * 2 - gap
             let bigWidth = (available * 0.72).rounded()
             let bigHeight = bigWidth * 9 / 16
-            let top = (screen.height - bigHeight) / 2
+            let top = middle - bigHeight / 2
             if index == bigTile {
                 return CGRect(x: margin, y: top, width: bigWidth, height: bigHeight)
             }
@@ -4794,15 +4804,20 @@ private struct MultiviewView: View {
         }
         if fullScreenTile != nil { return }
         if layout == .bigAndSmall && index != bigTile {
-            swap()
+            swapPictures()
         } else {
             showFullScreen(index)
         }
     }
 
-    private func swap() {
+    private func swapPictures() {
         withAnimation(arrangement) { bigTile = 1 - bigTile }
         showChrome()
+    }
+
+    private func choose(_ option: MultiviewLayout) {
+        guard option != layout else { return }
+        switchLayout()
     }
 
     private func switchLayout() {
@@ -4863,22 +4878,53 @@ private struct MultiviewView: View {
         return library.games(for: nil).first { $0.id == game.id } ?? game
     }
 
-    /// What the remote does from here, for the strip along the bottom.
-    private var guideItems: [MultiviewGuide.Item] {
-        if fullScreenTile != nil {
-            return [.init(symbol: "arrow.left.and.right", text: "Other game"),
-                    .init(symbol: "arrow.uturn.backward", text: "Back to multiview")]
+    /// The bar under the pictures: the two layouts, the arrangement and the
+    /// way out. Down from either picture reaches it, and up goes back.
+    private var controls: some View {
+        VStack(spacing: 14) {
+            Label("Move between the games to switch the sound", systemImage: "speaker.wave.2.fill")
+                .font(.inter(15, .medium))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                .opacity(chromeVisible ? 1 : 0)
+            HStack(spacing: 14) {
+                ForEach([MultiviewLayout.sideBySide, .bigAndSmall], id: \.self) { option in
+                    TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                                 action: { choose(option) }) {
+                        MultiviewControlLabel(title: option.title, symbol: option.symbol,
+                                              selected: layout == option)
+                    }
+                }
+                Rectangle().fill(LineupStyle.line).frame(width: 1, height: 34).padding(.horizontal, 6)
+                if layout == .bigAndSmall {
+                    TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                                 action: { swapPictures() }) {
+                        MultiviewControlLabel(title: "Swap", symbol: "arrow.left.arrow.right")
+                    }
+                }
+                // The game being listened to, which is the outlined one.
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                             action: { showFullScreen(audibleTile) }) {
+                    MultiviewControlLabel(title: "Full Screen", symbol: "arrow.up.left.and.arrow.down.right")
+                }
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                             action: { dismiss() }) {
+                    MultiviewControlLabel(title: "Exit", symbol: "xmark")
+                }
+            }
+            .lineupFocusRegion()
         }
-        let selectText: String
-        if layout == .bigAndSmall, let focusedTile, focusedTile != bigTile {
-            selectText = "Make big"
-        } else {
-            selectText = "Full screen"
+    }
+
+    /// Words only, not controls: a game filling the screen has nothing on
+    /// top of it to select.
+    private var fullScreenHint: some View {
+        HStack(spacing: 26) {
+            Label("Other game", systemImage: "arrow.left.and.right")
+            Label("Back to multiview", systemImage: "arrow.uturn.backward")
         }
-        return [.init(symbol: "arrow.left.and.right", text: "Switch sound"),
-                .init(symbol: "smallcircle.filled.circle", text: selectText),
-                .init(symbol: "playpause.fill", text: layout.other.title),
-                .init(symbol: "arrow.uturn.backward", text: "Exit")]
+        .font(.inter(16, .semibold))
+        .foregroundStyle(.white.opacity(0.9))
+        .shadow(color: .black.opacity(0.85), radius: 8, y: 2)
     }
 }
 
@@ -4986,29 +5032,30 @@ private struct MultiviewStatus: View {
     }
 }
 
-/// What the remote does, in a strip along the bottom of a multiview session.
-private struct MultiviewGuide: View {
-    struct Item: Identifiable {
-        let symbol: String
-        let text: String
-        var id: String { text }
-    }
-
-    let items: [Item]
+/// A control in the multiview bar, in the same dress as the player's own.
+private struct MultiviewControlLabel: View {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    let title: String
+    let symbol: String
+    /// The layout in use, which carries a check.
+    var selected = false
 
     var body: some View {
-        HStack(spacing: 28) {
-            ForEach(items) { item in
-                HStack(spacing: 9) {
-                    Image(systemName: item.symbol).font(.system(size: 15, weight: .semibold))
-                    Text(item.text).font(.inter(15, .semibold))
-                }
+        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+        HStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold)).frame(width: 22)
+            Text(title).font(.inter(18, .semibold)).fixedSize()
+            if selected {
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy))
             }
         }
-        .foregroundStyle(.white.opacity(0.92))
-        .padding(.horizontal, 28).frame(height: 52)
-        .background(Color.black.opacity(0.62), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .foregroundStyle(LineupStyle.lightPurple)
+        .padding(.horizontal, 18).frame(height: 52)
+        .background(selected ? LineupStyle.raised : LineupStyle.surface.opacity(0.88), in: shape)
+        .overlay(shape.strokeBorder(selected ? LineupStyle.lightPurple.opacity(0.5) : LineupStyle.line,
+                                    lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .lineupShadow(.resting)
     }
 }
 
