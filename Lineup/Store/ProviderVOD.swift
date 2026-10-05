@@ -156,6 +156,9 @@ final class ProviderVOD {
     private var loading: Task<(catalog: Catalog, index: Index), Error>?
     private var refreshing: Task<Void, Never>?
     private var episodeLists: [String: (episodes: [XtreamEpisode], storedAt: Date)] = [:]
+    /// Shows whose episodes are being asked for, so a title page getting
+    /// them ready and the stream list wanting them make one request.
+    private var episodeLoads: [String: Task<[XtreamEpisode], Error>] = [:]
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -206,7 +209,7 @@ final class ProviderVOD {
         let client = provider.client
         let task = Task.detached(priority: .userInitiated) { () async throws -> (catalog: Catalog, index: Index) in
             if let saved = Self.readCache(profileID: profileID) { return saved }
-            if let earlier = Self.readEarlierCache(profileID: profileID) { return Self.prepared(earlier) }
+            if let earlier = Self.readEarlierCache(profileID: profileID) { return Self.kept(earlier) }
             return Self.prepared(try await Self.fetch(client, profileID: profileID))
         }
         loading = task
@@ -234,9 +237,9 @@ final class ProviderVOD {
 
     /// Start reading the catalog without waiting for it, so the first title
     /// played does not wait on the whole list. Only from the device, when
-    /// asked: at launch, a list that has never been read is left for the
-    /// Library to ask for, rather than downloaded for someone who may never
-    /// open it.
+    /// asked: at the launch of an app with no media server, a list that has
+    /// never been read is left for the Library to ask for, rather than
+    /// downloaded for someone who may never open it.
     func prefetch(onlyFromDevice: Bool = false) {
         guard let provider, loaded == nil, loading == nil else { return }
         if onlyFromDevice, !Self.hasCache(profileID: provider.profile.id) { return }
@@ -251,7 +254,12 @@ final class ProviderVOD {
         if let kept = episodeLists[key], Date().timeIntervalSince(kept.storedAt) < 30 * 60 {
             return kept.episodes
         }
-        let episodes = try await provider.client.seriesInfo(seriesID: show.seriesID).episodes
+        if let pending = episodeLoads[key] { return try await pending.value }
+        let client = provider.client
+        let load = Task { try await client.seriesInfo(seriesID: show.seriesID).episodes }
+        episodeLoads[key] = load
+        defer { if episodeLoads[key] == load { episodeLoads[key] = nil } }
+        let episodes = try await load.value
         episodeLists[key] = (episodes, Date())
         return episodes
     }
@@ -264,6 +272,8 @@ final class ProviderVOD {
         refreshing = nil
         loaded = nil
         episodeLists.removeAll()
+        episodeLoads.values.forEach { $0.cancel() }
+        episodeLoads.removeAll()
     }
 
     private func refresh(_ provider: (profile: XtreamProfile, client: XtreamClient)) {
@@ -311,23 +321,91 @@ final class ProviderVOD {
     /// cleaned and filed here, once; the copy kept on the device carries the
     /// result, so a launch reads it back rather than working it out again.
     nonisolated private static func prepared(_ catalog: Catalog) -> (catalog: Catalog, index: Index) {
-        let filmFilings = catalog.films.map { ProviderTitle.filings(for: $0.name) }
-        let showFilings = catalog.shows.map { ProviderTitle.filings(for: $0.name) }
-        // Written after the list is handed back: nothing waits on the disk.
-        Task.detached(priority: .utility) {
-            Self.writeCache(catalog, filmFilings: filmFilings, showFilings: showFilings)
-        }
-        return (catalog, Index(catalog, filmFilings: filmFilings, showFilings: showFilings))
+        kept(ProviderVODFile.Contents(catalog: catalog,
+                                      filmFilings: catalog.films.map { ProviderTitle.filings(for: $0.name) },
+                                      showFilings: catalog.shows.map { ProviderTitle.filings(for: $0.name) }))
     }
 
-    /// The catalog as kept on the device: short keys, and every title's
-    /// filings already worked out. Reading it back is a plain decode, with
-    /// none of the guessing a panel's own answer needs and none of the name
-    /// cleaning -- which, for a list of tens of thousands, was most of the
-    /// wait before a title's streams could be looked for.
-    private struct Stored: Codable {
-        static let currentVersion = 2
+    /// A filed list, written down for the next launch after it is handed
+    /// back: nothing waits on the disk.
+    nonisolated private static func kept(_ contents: ProviderVODFile.Contents) -> (catalog: Catalog, index: Index) {
+        Task.detached(priority: .utility) { Self.writeCache(contents) }
+        return indexed(contents)
+    }
 
+    nonisolated private static func indexed(_ contents: ProviderVODFile.Contents) -> (catalog: Catalog, index: Index) {
+        (contents.catalog, Index(contents.catalog, filmFilings: contents.filmFilings,
+                                 showFilings: contents.showFilings))
+    }
+
+    nonisolated private static var cachesDirectory: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    }
+
+    nonisolated static func cacheURL(profileID: UUID) -> URL? {
+        cachesDirectory?.appendingPathComponent("Lineup-provider-vod-v3-\(profileID.uuidString).txt")
+    }
+
+    /// Where the previous builds kept the list, as JSON.
+    nonisolated static func earlierCacheURL(profileID: UUID) -> URL? {
+        cachesDirectory?.appendingPathComponent("Lineup-provider-vod-v2-\(profileID.uuidString).json")
+    }
+
+    /// Where the first builds kept it, in the panel's own keys. No longer
+    /// read: only removed.
+    nonisolated static func firstCacheURL(profileID: UUID) -> URL? {
+        cachesDirectory?.appendingPathComponent("Lineup-provider-vod-\(profileID.uuidString).json")
+    }
+
+    nonisolated private static func hasCache(profileID: UUID) -> Bool {
+        [cacheURL(profileID: profileID), earlierCacheURL(profileID: profileID)].contains { url in
+            url.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        }
+    }
+
+    nonisolated static func readCache(profileID: UUID) -> (catalog: Catalog, index: Index)? {
+        guard let url = cacheURL(profileID: profileID),
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let contents = ProviderVODFile.decode(data, profileID: profileID) else { return nil }
+        return indexed(contents)
+    }
+
+    nonisolated static func writeCache(_ contents: ProviderVODFile.Contents) {
+        guard let url = cacheURL(profileID: contents.catalog.profileID) else { return }
+        try? ProviderVODFile.encode(contents).write(to: url, options: .atomic)
+    }
+
+    /// The list as the previous builds kept it: read once, so updating the
+    /// app does not mean downloading the whole list again, then kept in the
+    /// new form and removed -- with the first builds' copy, if one is still
+    /// about.
+    nonisolated static func readEarlierCache(profileID: UUID) -> ProviderVODFile.Contents? {
+        if let first = firstCacheURL(profileID: profileID) { try? FileManager.default.removeItem(at: first) }
+        guard let url = earlierCacheURL(profileID: profileID), let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        try? FileManager.default.removeItem(at: url)
+        guard let saved = try? JSONDecoder().decode(Earlier.self, from: data),
+              saved.version == 2, saved.profileID == profileID else { return nil }
+        let films = saved.films.map { film in
+            XtreamVODStream(streamID: film.i, name: film.n, icon: film.p, categoryID: film.c,
+                            containerExtension: film.x, rating: film.r, tmdbID: film.t, year: film.y)
+        }
+        let shows = saved.shows.map { show in
+            XtreamSeries(seriesID: show.i, name: show.n, cover: show.p, plot: show.o, genre: show.g,
+                         rating: show.r, backdrop: show.b, categoryID: show.c, tmdbID: show.t, year: show.y)
+        }
+        let catalog = Catalog(profileID: profileID, films: films, shows: shows,
+                              filmCategories: saved.filmCategories, showCategories: saved.showCategories,
+                              fetchedAt: saved.fetchedAt)
+        return ProviderVODFile.Contents(
+            catalog: catalog,
+            filmFilings: saved.films.map { film in film.f.map { ProviderTitle.Filed(key: $0.k, year: $0.y) } },
+            showFilings: saved.shows.map { show in show.f.map { ProviderTitle.Filed(key: $0.k, year: $0.y) } })
+    }
+
+    /// The previous builds' copy: short keys, and each title's filings.
+    private struct Earlier: Decodable {
         let version: Int
         let profileID: UUID
         let fetchedAt: Date
@@ -336,12 +414,12 @@ final class ProviderVOD {
         let filmCategories: [XtreamCategory]
         let showCategories: [XtreamCategory]
 
-        struct Filing: Codable {
+        struct Filing: Decodable {
             let k: String
             let y: Int?
         }
 
-        struct Film: Codable {
+        struct Film: Decodable {
             let i: Int
             let n: String
             let p: String?
@@ -353,7 +431,7 @@ final class ProviderVOD {
             let f: [Filing]
         }
 
-        struct Show: Codable {
+        struct Show: Decodable {
             let i: Int
             let n: String
             let p: String?
@@ -366,93 +444,6 @@ final class ProviderVOD {
             let y: Int?
             let f: [Filing]
         }
-    }
-
-    nonisolated private static var cachesDirectory: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-    }
-
-    nonisolated static func cacheURL(profileID: UUID) -> URL? {
-        cachesDirectory?.appendingPathComponent("Lineup-provider-vod-v2-\(profileID.uuidString).json")
-    }
-
-    /// Where the first builds kept the list, in the panel's own keys.
-    nonisolated static func earlierCacheURL(profileID: UUID) -> URL? {
-        cachesDirectory?.appendingPathComponent("Lineup-provider-vod-\(profileID.uuidString).json")
-    }
-
-    nonisolated private static func hasCache(profileID: UUID) -> Bool {
-        [cacheURL(profileID: profileID), earlierCacheURL(profileID: profileID)].contains { url in
-            url.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-        }
-    }
-
-    nonisolated static func readCache(profileID: UUID) -> (catalog: Catalog, index: Index)? {
-        guard let url = cacheURL(profileID: profileID), let data = try? Data(contentsOf: url),
-              let saved = try? JSONDecoder().decode(Stored.self, from: data),
-              saved.version == Stored.currentVersion, saved.profileID == profileID else { return nil }
-        let films = saved.films.map { film in
-            XtreamVODStream(streamID: film.i, name: film.n, icon: film.p, categoryID: film.c,
-                            containerExtension: film.x, rating: film.r, tmdbID: film.t, year: film.y)
-        }
-        let shows = saved.shows.map { show in
-            XtreamSeries(seriesID: show.i, name: show.n, cover: show.p, plot: show.o, genre: show.g,
-                         rating: show.r, backdrop: show.b, categoryID: show.c, tmdbID: show.t, year: show.y)
-        }
-        let catalog = Catalog(profileID: profileID, films: films, shows: shows,
-                              filmCategories: saved.filmCategories, showCategories: saved.showCategories,
-                              fetchedAt: saved.fetchedAt)
-        let filmFilings = saved.films.map { film in film.f.map { ProviderTitle.Filed(key: $0.k, year: $0.y) } }
-        let showFilings = saved.shows.map { show in show.f.map { ProviderTitle.Filed(key: $0.k, year: $0.y) } }
-        return (catalog, Index(catalog, filmFilings: filmFilings, showFilings: showFilings))
-    }
-
-    nonisolated static func writeCache(_ catalog: Catalog, filmFilings: [[ProviderTitle.Filed]],
-                                               showFilings: [[ProviderTitle.Filed]]) {
-        func stored(_ filings: [ProviderTitle.Filed]) -> [Stored.Filing] {
-            filings.map { Stored.Filing(k: $0.key, y: $0.year) }
-        }
-        let films = zip(catalog.films, filmFilings).map { film, filings in
-            Stored.Film(i: film.streamID, n: film.name, p: film.icon, c: film.categoryID,
-                        x: film.containerExtension, r: film.rating, t: film.tmdbID, y: film.year,
-                        f: stored(filings))
-        }
-        let shows = zip(catalog.shows, showFilings).map { show, filings in
-            Stored.Show(i: show.seriesID, n: show.name, p: show.cover, o: show.plot, g: show.genre,
-                        r: show.rating, b: show.backdrop, c: show.categoryID, t: show.tmdbID, y: show.year,
-                        f: stored(filings))
-        }
-        let saved = Stored(version: Stored.currentVersion, profileID: catalog.profileID,
-                           fetchedAt: catalog.fetchedAt, films: films, shows: shows,
-                           filmCategories: catalog.filmCategories, showCategories: catalog.showCategories)
-        guard let url = cacheURL(profileID: catalog.profileID),
-              let data = try? JSONEncoder().encode(saved) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    /// The list as the first builds kept it: read once, so updating the app
-    /// does not mean downloading the whole list again, then kept in the new
-    /// form and removed. A copy from before categories were kept is not
-    /// read -- without them there would be no shelves to offer until the
-    /// next refresh.
-    nonisolated static func readEarlierCache(profileID: UUID) -> Catalog? {
-        struct Earlier: Decodable {
-            let profileID: UUID
-            let films: [XtreamVODStream]
-            let shows: [XtreamSeries]
-            let filmCategories: [XtreamCategory]
-            let showCategories: [XtreamCategory]
-            let fetchedAt: Date
-        }
-        guard let url = earlierCacheURL(profileID: profileID), let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        try? FileManager.default.removeItem(at: url)
-        guard let saved = try? JSONDecoder().decode(Earlier.self, from: data),
-              saved.profileID == profileID else { return nil }
-        return Catalog(profileID: profileID, films: saved.films, shows: saved.shows,
-                       filmCategories: saved.filmCategories, showCategories: saved.showCategories,
-                       fetchedAt: saved.fetchedAt)
     }
 
     // MARK: - The provider's titles as Library items

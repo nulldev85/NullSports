@@ -207,20 +207,22 @@ final class XtreamVODTests: XCTestCase {
                             categoryID: "23", containerExtension: "mkv", rating: 8.3, tmdbID: "693134", year: 2024),
             XtreamVODStream(streamID: 2, name: "Blade Runner 2049", categoryID: "24")
         ], shows: [XtreamSeries(seriesID: 9, name: "Dune: Prophecy", cover: "https://img/prophecy.jpg",
-                                plot: "Sisters", genre: "Drama", rating: 7.1, backdrop: "https://img/wide.jpg",
-                                categoryID: "5", tmdbID: "90228", year: 2024)],
-           filmCategories: [XtreamCategory(categoryID: "23", categoryName: "New")],
+                                plot: "Two sisters.\nA\ttab, a \\ and\r\nmore lines.", genre: "Drama",
+                                rating: 7.1, backdrop: "https://img/wide.jpg", categoryID: "5", tmdbID: "90228",
+                                year: 2024)],
+           filmCategories: [XtreamCategory(categoryID: "23", categoryName: "New\tReleases")],
            showCategories: [XtreamCategory(categoryID: "5", categoryName: "Drama")],
-           fetchedAt: Date(timeIntervalSince1970: 1_700_000_000))
+           fetchedAt: Date(timeIntervalSinceReferenceDate: 721_692_800.25))
         let url = try XCTUnwrap(ProviderVOD.cacheURL(profileID: provider))
         defer { try? FileManager.default.removeItem(at: url) }
 
-        ProviderVOD.writeCache(catalog, filmFilings: catalog.films.map { ProviderTitle.filings(for: $0.name) },
-                               showFilings: catalog.shows.map { ProviderTitle.filings(for: $0.name) })
+        ProviderVOD.writeCache(ProviderVODFile.Contents(
+            catalog: catalog, filmFilings: catalog.films.map { ProviderTitle.filings(for: $0.name) },
+            showFilings: catalog.shows.map { ProviderTitle.filings(for: $0.name) }))
         let read = try XCTUnwrap(ProviderVOD.readCache(profileID: provider))
 
         XCTAssertEqual(read.catalog.films, catalog.films)
-        XCTAssertEqual(read.catalog.shows, catalog.shows)
+        XCTAssertEqual(read.catalog.shows, catalog.shows, "A plot's line breaks, tabs and backslashes survive")
         XCTAssertEqual(read.catalog.filmCategories, catalog.filmCategories)
         XCTAssertEqual(read.catalog.showCategories, catalog.showCategories)
         XCTAssertEqual(read.catalog.fetchedAt, catalog.fetchedAt)
@@ -236,28 +238,55 @@ final class XtreamVODTests: XCTestCase {
         XCTAssertNil(ProviderVOD.readCache(profileID: UUID()), "Another provider's copy is not this one's")
     }
 
+    // A file this build did not write reads as nothing, to be downloaded
+    // afresh; a line that will not read loses only itself.
+    func testOnlyAListThisBuildWroteReadsBackAndABadLineLosesOnlyItself() throws {
+        let provider = UUID()
+        let header = "lineup-provider-vod\t3\t\(provider.uuidString)\t721692800\n"
+        let lines = header + "f\tnot-a-number\tBroken\t\t\t\t\t\t\t\n"
+            + "f\t7\tArrival\t\t\tmp4\t\t329865\t2016\tarrival\t2016\n"
+            + "x\ta kind a later build writes\n"
+        let contents = try XCTUnwrap(ProviderVODFile.decode(Data(lines.utf8), profileID: provider))
+        XCTAssertEqual(contents.catalog.films.map(\.streamID), [7])
+        XCTAssertEqual(contents.catalog.films.first?.containerExtension, "mp4")
+        XCTAssertEqual(contents.catalog.films.first?.tmdbID, "329865")
+        XCTAssertNil(contents.catalog.films.first?.icon, "An empty field is no value")
+        XCTAssertEqual(contents.filmFilings, [[ProviderTitle.Filed(key: "arrival", year: 2016)]])
+
+        XCTAssertNil(ProviderVODFile.decode(Data(lines.utf8), profileID: UUID()))
+        XCTAssertNil(ProviderVODFile.decode(Data(lines.replacingOccurrences(of: "\t3\t", with: "\t9\t").utf8),
+                                            profileID: provider))
+        XCTAssertNil(ProviderVODFile.decode(Data(#"{"version":2}"#.utf8), profileID: provider))
+        XCTAssertNil(ProviderVODFile.decode(Data(), profileID: provider))
+    }
+
     // Updating the app does not mean downloading the whole list again: the
-    // copy the earlier builds kept is read once and removed. One from before
-    // categories were kept is not, or there would be no shelves to offer.
-    func testTheListAnEarlierBuildKeptIsReadOnceAndRemoved() throws {
+    // copy the previous builds kept is read once, filings and all, and
+    // removed -- with the first builds' copy, which is no longer read.
+    func testTheListThePreviousBuildsKeptIsReadOnceAndRemoved() throws {
         let provider = UUID()
         let url = try XCTUnwrap(ProviderVOD.earlierCacheURL(profileID: provider))
-        defer { try? FileManager.default.removeItem(at: url) }
-        let films = #"[{"stream_id":1,"name":"Dune (2021)","tmdb":"438631","year":2021,"container_extension":"mkv"}]"#
-
-        let kept = #"{"profileID":"\#(provider.uuidString)","films":\#(films),"shows":[],"#
-            + #""filmCategories":[{"category_id":"23","category_name":"New"}],"showCategories":[],"#
-            + #""fetchedAt":721692800}"#
+        let first = try XCTUnwrap(ProviderVOD.firstCacheURL(profileID: provider))
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: first)
+        }
+        let kept = #"{"version":2,"profileID":"\#(provider.uuidString)","fetchedAt":721692800,"#
+            + #""films":[{"i":1,"n":"Dune (2021)","x":"mkv","t":"438631","y":2021,"f":[{"k":"dune","y":2021}]}],"#
+            + #""shows":[],"filmCategories":[{"category_id":"23","category_name":"New"}],"showCategories":[]}"#
         try Data(kept.utf8).write(to: url)
-        let earlier = try XCTUnwrap(ProviderVOD.readEarlierCache(profileID: provider))
-        XCTAssertEqual(earlier.films.map(\.streamID), [1])
-        XCTAssertEqual(earlier.films.first?.tmdbID, "438631")
-        XCTAssertEqual(earlier.filmCategories.map(\.categoryID), ["23"])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Read once, then removed")
+        try Data("[]".utf8).write(to: first)
 
-        try Data(#"{"profileID":"\#(provider.uuidString)","films":\#(films),"shows":[],"fetchedAt":721692800}"#.utf8)
-            .write(to: url)
-        XCTAssertNil(ProviderVOD.readEarlierCache(profileID: provider), "No categories: download afresh")
+        let earlier = try XCTUnwrap(ProviderVOD.readEarlierCache(profileID: provider))
+        XCTAssertEqual(earlier.catalog.films.map(\.streamID), [1])
+        XCTAssertEqual(earlier.catalog.films.first?.tmdbID, "438631")
+        XCTAssertEqual(earlier.catalog.filmCategories.map(\.categoryID), ["23"])
+        XCTAssertEqual(earlier.filmFilings, [[ProviderTitle.Filed(key: "dune", year: 2021)]])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Read once, then removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+
+        try Data(kept.replacingOccurrences(of: #""version":2"#, with: #""version":1"#).utf8).write(to: url)
+        XCTAssertNil(ProviderVOD.readEarlierCache(profileID: provider), "Not a layout this build knows")
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 

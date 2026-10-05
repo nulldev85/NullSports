@@ -2290,6 +2290,9 @@ private struct MediaDetailScreen: View {
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
         watched = media.isWatched(loaded ?? item)
         let detailedItem = subject
+        // While the viewer reads the page, so its VOD copies are waiting when
+        // they choose to play.
+        media.prepareProviderLookup(for: detailedItem)
         #if os(tvOS)
         // Build the complete first frame before focus enters the page. The
         // artwork is decoded once, rather than popping in through AsyncImage.
@@ -3378,8 +3381,9 @@ private struct MediaSourcePicker: View {
 
     /// Every connected server is asked at once: the title's own server about
     /// the title, each other server about its own copy of it. Streams are
-    /// listed as they arrive -- the title's own server's first, the others in
-    /// the order they were added -- rather than held for the slowest server.
+    /// listed as they arrive -- the IPTV provider's first, then the title's
+    /// own server's, then the others in the order they were added -- rather
+    /// than held for the slowest server.
     @MainActor
     private func loadSources() async {
         loading = true
@@ -3388,13 +3392,15 @@ private struct MediaSourcePicker: View {
         providerFilter = nil
         let library = media
         let title = item
-        // Every server, each about its own copy, and the IPTV provider. The
-        // provider is asked last about a server's title and first about its
-        // own, so a title's own streams always lead the list.
+        // Every server, each about its own copy, and the IPTV provider ahead
+        // of them all: its copies are in hand at once and play straight from
+        // it. The title's own place -- its server, or the provider for one of
+        // the provider's own titles -- failing is the screen's error.
         var lookups = library.streamServers(for: title).map { StreamLookup.server($0) }
+        var ownIndex = 0
         if let provider = library.streamProvider(for: title) {
-            let lookup = StreamLookup.provider(id: provider.id, name: provider.name)
-            if title.isProviderTitle { lookups.insert(lookup, at: 0) } else { lookups.append(lookup) }
+            lookups.insert(.provider(id: provider.id, name: provider.name), at: 0)
+            if !title.isProviderTitle, lookups.count > 1 { ownIndex = 1 }
         }
         pendingServers = lookups.count
         let providerWait = library.providerVOD.waitNote
@@ -3424,10 +3430,10 @@ private struct MediaSourcePicker: View {
                 case .success(let streams):
                     found[index] = streams
                     serverStatus[index].phase = .found(streams.count)
-                // The title's own server failing is the error for the screen.
-                // Any server's outcome is said in its line at the top.
+                // The title's own place failing is the error for the screen.
+                // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
-                    if index == 0 { failure = problem }
+                    if index == ownIndex { failure = problem }
                     if let miss = problem as? MediaLibrary.StreamLookupError {
                         serverStatus[index].phase = .notOnServer(tried: miss.tried)
                     } else if !MediaLibrary.isCancellation(problem) {
@@ -3526,9 +3532,9 @@ private struct MediaSourcePicker: View {
     }
 
     /// Which server a stream comes from, once there is more than one it could.
-    /// The IPTV provider is always named: it is never the only place.
+    /// The IPTV provider's copies need no name: their section says VOD.
     private func serverLabel(for source: MediaPlaybackSource) -> String? {
-        media.profiles.count > 1 || source.directURL != nil ? source.serverName : nil
+        media.profiles.count > 1 && source.directURL == nil ? source.serverName : nil
     }
 }
 
@@ -3637,13 +3643,14 @@ private struct MediaStreamHeading {
     let backdrop: URL?
 }
 
-/// The resolution a stream is listed under. Sections come in the order of
-/// their best stream, so a server that ranks a 1080p remux above a 4K web
-/// copy keeps it first.
+/// The resolution a stream is listed under, or VOD for the IPTV provider's
+/// own copy. Sections come in the order of their best stream, so a server
+/// that ranks a 1080p remux above a 4K web copy keeps it first.
 private enum MediaStreamTier: Hashable {
-    case uhd, fullHD, hd, other
+    case vod, uhd, fullHD, hd, other
 
     init(_ source: MediaPlaybackSource) {
+        if source.directURL != nil { self = .vod; return }
         switch source.quality {
         case "4K": self = .uhd
         case "1440p", "1080p": self = .fullHD
@@ -3654,6 +3661,7 @@ private enum MediaStreamTier: Hashable {
 
     var title: String {
         switch self {
+        case .vod: "VOD"
         case .uhd: "4K Ultra HD"
         case .fullHD: "1080p Full HD"
         case .hd: "720p HD"
@@ -3667,6 +3675,8 @@ private enum MediaStreamTier: Hashable {
         var id: MediaStreamTier { tier }
     }
 
+    /// By resolution, in the order the list first reaches each, with the
+    /// IPTV provider's copies ahead of them all: they play straight from it.
     static func sections(of sources: [MediaPlaybackSource]) -> [Section] {
         var order: [MediaStreamTier] = []
         var grouped: [MediaStreamTier: [MediaPlaybackSource]] = [:]
@@ -3675,7 +3685,8 @@ private enum MediaStreamTier: Hashable {
             if grouped[tier] == nil { order.append(tier) }
             grouped[tier, default: []].append(source)
         }
-        return order.map { Section(tier: $0, sources: grouped[$0] ?? []) }
+        return (order.filter { $0 == .vod } + order.filter { $0 != .vod })
+            .map { Section(tier: $0, sources: grouped[$0] ?? []) }
     }
 }
 
@@ -4060,7 +4071,7 @@ private struct MediaStreamRow: View {
     /// Resolution, large, with the dynamic range under it.
     private var tile: some View {
         VStack(spacing: Style.tileGap) {
-            Text(source.quality ?? "SD")
+            Text(source.quality ?? (source.directURL != nil ? "VOD" : "SD"))
                 .font(.interDigits(Style.tileSize, .heavy))
                 .lineLimit(1).minimumScaleFactor(0.7)
             if let range = dynamicRange {

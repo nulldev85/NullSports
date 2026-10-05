@@ -2072,10 +2072,21 @@ final class MediaLibrary: ObservableObject {
                 throw StreamLookupError.notOnServer(tried: Self.providerMiss(for: show, among: catalog.shows.count,
                                                                              kind: "shows"))
             }
+            // Each show's episodes are a round trip to the panel, so every
+            // match is asked at once rather than one after another.
+            let matched = Array(shows.prefix(4))
+            let vod = providerVOD
+            let lists = await withTaskGroup(of: (Int, [XtreamEpisode]).self) { group -> [Int: [XtreamEpisode]] in
+                for (position, series) in matched.enumerated() {
+                    group.addTask { (position, (try? await vod.episodes(of: series)) ?? []) }
+                }
+                var lists: [Int: [XtreamEpisode]] = [:]
+                for await (position, episodes) in group { lists[position] = episodes }
+                return lists
+            }
             var sources: [MediaPlaybackSource] = []
-            for series in shows.prefix(4) {
-                guard let episodes = try? await providerVOD.episodes(of: series) else { continue }
-                for episode in episodes where episode.season == season && episode.episodeNumber == number {
+            for (position, series) in matched.enumerated() {
+                for episode in lists[position] ?? [] where episode.season == season && episode.episodeNumber == number {
                     guard let url = provider.client.episodeURL(for: episode) else { continue }
                     sources.append(Self.providerSource(id: "series-\(series.seriesID)-\(episode.id)",
                         title: series.name + " · " + episode.title, container: episode.containerExtension,
@@ -2224,12 +2235,30 @@ final class MediaLibrary: ObservableObject {
         return detailed
     }
 
-    /// Read the IPTV provider's film and show list back into memory once the
-    /// app has opened, so the first title's streams do not wait on it. A
-    /// moment after launch, so it does not compete with what is drawn first.
+    /// Have the IPTV provider's film and show list in memory from launch, so
+    /// a title's VOD copies are the first streams it lists rather than the
+    /// last. Read off the main thread as soon as the app opens; downloaded
+    /// when the device has no copy, once the Library has a server to look
+    /// titles up on.
     func prepareProviderVOD() async {
-        try? await Task.sleep(for: .seconds(3))
-        providerVOD.prefetch(onlyFromDevice: true)
+        providerVOD.prefetch(onlyFromDevice: profiles.isEmpty)
+    }
+
+    /// Get the provider ready to answer for a title whose page is open, so
+    /// choosing to play it finds the VOD copies waiting: its list read, and
+    /// for a show, the episodes of each of the provider's shows that are it.
+    func prepareProviderLookup(for item: MediaItem) {
+        guard providerVOD.profile != nil, !item.isProviderTitle,
+              item.type == "Movie" || item.type == "Series" else { return }
+        let vod = providerVOD
+        Task {
+            guard let loaded = try? await vod.catalog(), item.type == "Series" else { return }
+            await withTaskGroup(of: Void.self) { group in
+                for show in loaded.index.shows(for: item, in: loaded.catalog).prefix(4) {
+                    group.addTask { _ = try? await vod.episodes(of: show) }
+                }
+            }
+        }
     }
 
     /// The provider's chosen categories as shelves, once its list is in hand.
