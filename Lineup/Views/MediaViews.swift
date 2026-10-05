@@ -3299,7 +3299,7 @@ private struct StreamServerStatus: Identifiable {
         switch phase {
         case .looking, .preparing: .looking
         case .found(let count): .count(count)
-        case .notOnServer: .none
+        case .notOnServer: .missing
         case .failed: .failed
         }
     }
@@ -3955,7 +3955,7 @@ private struct MediaStreamTab: View {
     enum Mark: Equatable {
         case count(Int)
         case looking
-        case none
+        case missing
         case failed
     }
 
@@ -3983,7 +3983,7 @@ private struct MediaStreamTab: View {
 
     /// A place that found nothing stays a tab -- it says why when chosen --
     /// but steps back from the ones with streams.
-    private var quiet: Bool { mark == .none || mark == .failed }
+    private var quiet: Bool { mark == .missing || mark == .failed }
 
     @ViewBuilder
     private var markView: some View {
@@ -3995,7 +3995,7 @@ private struct MediaStreamTab: View {
                 .tint(active ? LineupStyle.background : LineupStyle.lightPurple)
                 .scaleEffect(Style.tabSpinnerScale)
                 .frame(width: Style.tabSpinner, height: Style.tabSpinner)
-        case .none:
+        case .missing:
             Text("—").font(.inter(Style.tabCountSize, .bold)).opacity(0.5)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
@@ -4089,13 +4089,13 @@ private struct MediaStreamRow: View {
             if source.isInstant {
                 HStack(spacing: 4) {
                     Image(systemName: "bolt.fill")
-                    Text("INSTANT")
+                    Text("INSTANT").tracking(1.2)
                 }
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
             }
-            Text(originText).lineLimit(1)
+            Text(originText).tracking(1.2).lineLimit(1)
         }
-        .font(.inter(Style.markSize, .heavy)).tracking(1.2)
+        .font(.inter(Style.markSize, .heavy))
         .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
     }
 
