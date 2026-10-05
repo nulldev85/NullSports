@@ -1,0 +1,15 @@
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test1All]' started.
+2026-10-05 10:23:34.928216+0000 StreamHarnessUITests-Runner[6584:24897] [Common] Snapshot request 0x600000c23270 complete with error: <NSError: 0x600000c39d10; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+2026-10-05 10:23:34.937942+0000 StreamHarnessUITests-Runner[6584:24897] [Common] Snapshot request 0x600000c3b9f0 complete with error: <NSError: 0x600000c3be70; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test1All]' passed (60.026 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test2Partial]' started.
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test2Partial]' passed (13.119 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test3Waiting]' started.
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test3Waiting]' passed (10.988 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test4Matt]' started.
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test4Matt]' passed (12.628 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test5Missing]' started.
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test5Missing]' passed (14.611 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test6Episode]' started.
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test6Episode]' passed (12.587 seconds).
+** TEST SUCCEEDED **

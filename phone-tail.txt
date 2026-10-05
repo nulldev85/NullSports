@@ -1,0 +1,200 @@
+
+RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app (in target 'LineupiOS' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app
+
+Validate /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app (in target 'LineupiOS' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-validationUtility /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app (in target 'LineupiOS' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /usr/bin/touch -c /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/Lineup.app
+
+ProcessInfoPlistFile /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Info.plist /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/empty-StreamHarnessiOSUITests.plist (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-infoPlistUtility /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/empty-StreamHarnessiOSUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Info.plist
+
+Ld /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/StreamHarnessiOSUITests normal (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L/Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator -L/Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -filelist /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests.swiftmodule @/Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests-linker-args.resp -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -o /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/StreamHarnessiOSUITests
+
+CopySwiftLibs /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/StreamHarnessiOSUITests --scan-folder /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Frameworks --scan-folder /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/PlugIns --scan-folder /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/SystemExtensions --scan-folder /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Extensions --platform iphonesimulator --toolchain /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.PNFL54/Metal.xctoolchain --toolchain /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.PNFL54/Metal.xctoolchain --module-name StreamHarnessiOSUITests --sdk-root /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.nulldev85.StreamHarnessiOSUITests --output /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/StreamHarnessiOSUITests --dependency-file /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests_dependency_info.dat --stringsdata-file /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests.SwiftFileList --metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/StreamHarnessiOSUITests.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/StreamHarnessiOSUITests.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/Objects-normal/arm64/StreamHarnessiOSUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-10-05 10:27:09.344 appintentsmetadataprocessor[15782:48340] Starting appintentsmetadataprocessor export
+2026-10-05 10:27:09.345 appintentsmetadataprocessor[15782:48340] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Info.plist --temp-dir-path /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/ssu --bundle-id com.nulldev85.StreamHarnessiOSUITests --product-path /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest --extracted-metadata-path /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Metadata.appintents --metadata-file-list /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Intermediates.noindex/Lineup.build/Debug-iphonesimulator/StreamHarnessiOSUITests.build/StreamHarnessiOSUITests.DependencyMetadataFileList --source-file /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Info.plist --archive-ssu-assets
+2026-10-05 10:27:09.362 appintentsnltrainingprocessor[15783:48341] Parsing options for appintentsnltrainingprocessor
+2026-10-05 10:27:09.363 appintentsnltrainingprocessor[15783:48341] Starting AppIntents SSU YAML Generation
+2026-10-05 10:27:09.363 appintentsnltrainingprocessor[15783:48341] No AppShortcuts found - Skipping.
+
+MkDir /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /bin/mkdir -p /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app
+
+CopyAndPreserveArchs /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/StreamHarnessiOSUITests-Runner (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/StreamHarnessiOSUITests-Runner -extract arm64
+
+CopyPlistFile /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Info.plist /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME StreamHarnessiOSUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.nulldev85.StreamHarnessiOSUITests.xctrunner --macro-expansion TESTPRODUCTNAME StreamHarnessiOSUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.nulldev85.StreamHarnessiOSUITests --copy-value UIDeviceFamily /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest/Info.plist --outdir /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app -- /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PkgInfo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCUnit.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCUIAutomation.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCTestSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCTestCore.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCTest.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks/Testing.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/Frameworks
+
+RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest
+
+Touch /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest (in target 'StreamHarnessiOSUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /usr/bin/touch -c /Users/runner/work/NullSports/NullSports/build-harness-ios/Build/Products/Debug-iphonesimulator/StreamHarnessiOSUITests-Runner.app/PlugIns/StreamHarnessiOSUITests.xctest
+
+2026-10-05 10:29:35.836673+0000 StreamHarnessiOSUITests-Runner[17399:54884] [Default] Running tests...
+objc[17399]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23E254a/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.4.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x106f00310) and /Library/Developer/CoreSimulator/Volumes/iOS_23E254a/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.4.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x10aeb4398). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+    t =      nans Interface orientation changed to Portrait
+Test Suite 'All tests' started at 2026-10-05 10:29:47.422.
+Test Suite 'StreamHarnessiOSUITests.xctest' started at 2026-10-05 10:29:47.424.
+Test Suite 'StreamHarnessiOSUITests' started at 2026-10-05 10:29:47.425.
+    t =      nans Suite Set Up
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test1All]' started.
+    t =     0.00s Start Test at 2026-10-05 10:29:47.433
+    t =     1.13s Set Up
+    t =     1.14s Open com.nulldev85.NullSports.iOS
+    t =     1.14s     Launch com.nulldev85.NullSports.iOS
+2026-10-05 10:29:54.988 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:29:54.994 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    18.46s         Setting up automation session
+    t =    25.83s Added attachment named 'phone-all-00'
+    t =    25.85s Swipe up Target Application 'com.nulldev85.NullSports.iOS'
+    t =    25.85s     Find the Target Application 'com.nulldev85.NullSports.iOS'
+    t =    26.23s     Check for interrupting elements affecting "Lineup" Application
+    t =    26.52s     Synthesize event
+    t =    28.78s Added attachment named 'phone-all-01-scrolled'
+    t =    28.78s Swipe up Target Application 'com.nulldev85.NullSports.iOS'
+    t =    28.78s     Find the Target Application 'com.nulldev85.NullSports.iOS'
+    t =    28.84s     Check for interrupting elements affecting "Lineup" Application
+    t =    28.92s     Synthesize event
+    t =    31.01s Added attachment named 'phone-all-02-end'
+    t =    31.01s Terminate com.nulldev85.NullSports.iOS:18149
+    t =    33.03s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test1All]' passed (33.917 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test2Partial]' started.
+    t =     0.00s Start Test at 2026-10-05 10:30:21.351
+    t =     0.11s Set Up
+2026-10-05 10:30:21.644 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:30:21.644 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.11s Open com.nulldev85.NullSports.iOS
+    t =     0.11s     Launch com.nulldev85.NullSports.iOS
+    t =     2.62s         Setting up automation session
+    t =     9.97s Added attachment named 'phone-partial-00'
+    t =     9.97s Terminate com.nulldev85.NullSports.iOS:18740
+    t =    11.99s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test2Partial]' passed (17.412 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test3Waiting]' started.
+    t =     0.00s Start Test at 2026-10-05 10:30:38.764
+    t =     0.03s Set Up
+    t =     0.03s Open com.nulldev85.NullSports.iOS
+    t =     0.03s     Launch com.nulldev85.NullSports.iOS
+2026-10-05 10:30:38.800 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:30:38.800 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.97s         Setting up automation session
+    t =     8.50s Added attachment named 'phone-waiting-00'
+    t =     8.51s Terminate com.nulldev85.NullSports.iOS:19223
+    t =    10.59s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test3Waiting]' passed (12.162 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test4Matt]' started.
+    t =     0.00s Start Test at 2026-10-05 10:30:50.926
+    t =     0.02s Set Up
+    t =     0.03s Open com.nulldev85.NullSports.iOS
+    t =     0.03s     Launch com.nulldev85.NullSports.iOS
+2026-10-05 10:30:50.973 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:30:50.973 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.22s         Setting up automation session
+    t =     8.83s Added attachment named 'phone-matt-00'
+    t =     8.83s Terminate com.nulldev85.NullSports.iOS:19969
+    t =    10.93s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test4Matt]' passed (13.002 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test5Missing]' started.
+    t =     0.00s Start Test at 2026-10-05 10:31:03.928
+    t =     0.03s Set Up
+    t =     0.03s Open com.nulldev85.NullSports.iOS
+    t =     0.03s     Launch com.nulldev85.NullSports.iOS
+2026-10-05 10:31:03.977 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:31:03.977 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.14s         Setting up automation session
+    t =     8.79s Added attachment named 'phone-vodmissing-00'
+    t =     8.80s Terminate com.nulldev85.NullSports.iOS:20714
+    t =    11.88s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test5Missing]' passed (22.087 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test6Episode]' started.
+    t =     0.00s Start Test at 2026-10-05 10:31:26.035
+    t =     0.40s Set Up
+    t =     0.41s Open com.nulldev85.NullSports.iOS
+    t =     0.41s     Launch com.nulldev85.NullSports.iOS
+2026-10-05 10:31:34.679 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:31:34.680 xcodebuild[12197:39228] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    31.02s         Setting up automation session
+    t =    37.78s Added attachment named 'phone-episode-00'
+    t =    37.78s Terminate com.nulldev85.NullSports.iOS:21210
+    t =    39.78s Tear Down
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test6Episode]' passed (40.316 seconds).
+Test Suite 'StreamHarnessiOSUITests' passed at 2026-10-05 10:32:06.349.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 138.895 (138.925) seconds
+Test Suite 'StreamHarnessiOSUITests.xctest' passed at 2026-10-05 10:32:06.352.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 138.895 (138.927) seconds
+Test Suite 'All tests' passed at 2026-10-05 10:32:06.353.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 138.895 (138.931) seconds
+2026-10-05 10:32:07.133 xcodebuild[12197:39228] [MT] IDETestOperationsObserverDebug: 297.595 elapsed -- Testing started completed.
+2026-10-05 10:32:07.133 xcodebuild[12197:39228] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-05 10:32:07.133 xcodebuild[12197:39228] [MT] IDETestOperationsObserverDebug: 297.595 sec, +297.595 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/runner/work/_temp/phone.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started

@@ -1,0 +1,200 @@
+    cd /Users/runner/work/NullSports/NullSports
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/StreamHarnessUITests-Runner -extract arm64
+
+CopyPlistFile /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Info.plist /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME StreamHarnessUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.nulldev85.StreamHarnessUITests.xctrunner --macro-expansion TESTPRODUCTNAME StreamHarnessUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.nulldev85.StreamHarnessUITests --copy-value UIDeviceFamily /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PlugIns/StreamHarnessUITests.xctest/Info.plist --outdir /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app -- /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PkgInfo /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCUnit.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCUIAutomation.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCTestSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCTestCore.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCTest.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/XCTest.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks/Testing.framework /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_26.6.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/Library/Frameworks/Testing.framework /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/Frameworks
+
+RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PlugIns/StreamHarnessUITests.xctest (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    builtin-RegisterExecutionPolicyException /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PlugIns/StreamHarnessUITests.xctest
+
+Touch /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PlugIns/StreamHarnessUITests.xctest (in target 'StreamHarnessUITests' from project 'Lineup')
+    cd /Users/runner/work/NullSports/NullSports
+    /usr/bin/touch -c /Users/runner/work/NullSports/NullSports/build-harness/Build/Products/Debug-appletvsimulator/StreamHarnessUITests-Runner.app/PlugIns/StreamHarnessUITests.xctest
+
+2026-10-05 10:23:30.189970+0000 StreamHarnessUITests-Runner[6584:24224] [Default] Running tests...
+Test Suite 'All tests' started at 2026-10-05 10:23:32.130.
+Test Suite 'StreamHarnessUITests.xctest' started at 2026-10-05 10:23:32.130.
+Test Suite 'StreamHarnessUITests' started at 2026-10-05 10:23:32.131.
+    t =      nans Suite Set Up
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test1All]' started.
+    t =     0.00s Start Test at 2026-10-05 10:23:32.135
+    t =     0.55s Set Up
+    t =     0.57s Open com.nulldev85.NullSports
+    t =     0.57s     Launch com.nulldev85.NullSports
+2026-10-05 10:23:33.281 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:23:33.281 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.97s         Setting up automation session
+2026-10-05 10:23:34.928216+0000 StreamHarnessUITests-Runner[6584:24897] [Common] Snapshot request 0x600000c23270 complete with error: <NSError: 0x600000c39d10; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+    NSLocalizedDescription = an error occurred during a scene snapshotting operation;
+}
+2026-10-05 10:23:34.937942+0000 StreamHarnessUITests-Runner[6584:24897] [Common] Snapshot request 0x600000c3b9f0 complete with error: <NSError: 0x600000c3be70; domain: FBSSceneSnapshotErrorDomain; code: 4; "an unrelated condition or state was not satisfied"> {
+    NSLocalizedDescription = an error occurred during a scene snapshotting operation;
+}
+    t =    10.56s Added attachment named 'tv-all-00'
+    t =    10.57s Pressing Down button
+    t =    12.47s Added attachment named 'tv-all-01-row1'
+    t =    12.47s Pressing Down button
+    t =    14.21s Added attachment named 'tv-all-02-row2'
+    t =    14.22s Pressing Down button
+    t =    15.83s Pressing Down button
+    t =    17.46s Pressing Down button
+    t =    19.22s Added attachment named 'tv-all-03-row5'
+    t =    19.22s Pressing Down button
+    t =    20.84s Pressing Down button
+    t =    22.46s Pressing Down button
+    t =    24.17s Added attachment named 'tv-all-04-deep'
+    t =    24.17s Pressing Down button
+    t =    25.80s Pressing Down button
+    t =    27.42s Pressing Down button
+    t =    29.14s Added attachment named 'tv-all-05-end'
+    t =    29.14s Pressing Up button
+    t =    30.75s Pressing Up button
+    t =    32.38s Pressing Up button
+    t =    33.99s Pressing Up button
+    t =    35.61s Pressing Up button
+    t =    37.24s Pressing Up button
+    t =    38.88s Pressing Up button
+    t =    40.51s Pressing Up button
+    t =    42.14s Pressing Up button
+    t =    43.76s Pressing Up button
+    t =    45.38s Pressing Up button
+    t =    47.13s Added attachment named 'tv-all-06-tabs'
+    t =    47.14s Pressing Right button
+    t =    48.92s Added attachment named 'tv-all-07-tab-null'
+    t =    48.92s Pressing Select button
+    t =    50.71s Added attachment named 'tv-all-08-null-chosen'
+    t =    50.71s Pressing Right button
+    t =    52.46s Added attachment named 'tv-all-09-tab-matt'
+    t =    52.46s Pressing Select button
+    t =    54.22s Added attachment named 'tv-all-10-matt-chosen'
+    t =    54.22s Pressing Right button
+    t =    55.98s Added attachment named 'tv-all-11-tab-vod'
+    t =    55.98s Pressing Select button
+    t =    57.76s Added attachment named 'tv-all-12-vod-chosen'
+    t =    57.76s Terminate com.nulldev85.NullSports:6927
+    t =    59.85s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test1All]' passed (60.026 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test2Partial]' started.
+    t =     0.00s Start Test at 2026-10-05 10:24:32.163
+    t =     0.04s Set Up
+    t =     0.04s Open com.nulldev85.NullSports
+    t =     0.04s     Launch com.nulldev85.NullSports
+2026-10-05 10:24:32.293 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:24:32.293 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.61s         Setting up automation session
+    t =     9.22s Added attachment named 'tv-partial-00'
+    t =     9.23s Pressing Down button
+    t =    10.98s Added attachment named 'tv-partial-01-row1'
+    t =    10.99s Terminate com.nulldev85.NullSports:9464
+    t =    13.08s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test2Partial]' passed (13.119 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test3Waiting]' started.
+    t =     0.00s Start Test at 2026-10-05 10:24:45.282
+    t =     0.03s Set Up
+    t =     0.03s Open com.nulldev85.NullSports
+    t =     0.03s     Launch com.nulldev85.NullSports
+2026-10-05 10:24:45.358 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:24:45.358 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.54s         Setting up automation session
+    t =     8.91s Added attachment named 'tv-waiting-00'
+    t =     8.91s Terminate com.nulldev85.NullSports:10011
+    t =    10.97s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test3Waiting]' passed (10.988 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test4Matt]' started.
+    t =     0.00s Start Test at 2026-10-05 10:24:56.270
+    t =     0.02s Set Up
+    t =     0.02s Open com.nulldev85.NullSports
+    t =     0.02s     Launch com.nulldev85.NullSports
+2026-10-05 10:24:56.296 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:24:56.296 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.28s         Setting up automation session
+    t =     8.76s Added attachment named 'tv-matt-00'
+    t =     8.76s Pressing Down button
+    t =    10.53s Added attachment named 'tv-matt-01-row1'
+    t =    10.53s Terminate com.nulldev85.NullSports:10402
+    t =    12.59s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test4Matt]' passed (12.628 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test5Missing]' started.
+    t =     0.00s Start Test at 2026-10-05 10:25:08.900
+    t =     0.04s Set Up
+    t =     0.04s Open com.nulldev85.NullSports
+    t =     0.04s     Launch com.nulldev85.NullSports
+2026-10-05 10:25:08.949 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:25:08.949 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.48s         Setting up automation session
+    t =     9.04s Added attachment named 'tv-vodmissing-00'
+    t =     9.05s Pressing Left button
+    t =    10.79s Added attachment named 'tv-vodmissing-01-all'
+    t =    10.79s Pressing Select button
+    t =    12.53s Added attachment named 'tv-vodmissing-02-all-chosen'
+    t =    12.53s Terminate com.nulldev85.NullSports:10888
+    t =    14.58s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test5Missing]' passed (14.611 seconds).
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test6Episode]' started.
+    t =     0.00s Start Test at 2026-10-05 10:25:23.511
+    t =     0.03s Set Up
+    t =     0.03s Open com.nulldev85.NullSports
+    t =     0.03s     Launch com.nulldev85.NullSports
+2026-10-05 10:25:23.556 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-10-05 10:25:23.556 xcodebuild[2898:12652] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     0.47s         Setting up automation session
+    t =     8.73s Added attachment named 'tv-episode-00'
+    t =     8.73s Pressing Down button
+    t =    10.46s Added attachment named 'tv-episode-01-row1'
+    t =    10.46s Terminate com.nulldev85.NullSports:11387
+    t =    12.56s Tear Down
+Test Case '-[StreamHarnessUITests.StreamHarnessUITests test6Episode]' passed (12.587 seconds).
+Test Suite 'StreamHarnessUITests' passed at 2026-10-05 10:25:36.098.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 123.958 (123.967) seconds
+Test Suite 'StreamHarnessUITests.xctest' passed at 2026-10-05 10:25:36.099.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 123.958 (123.968) seconds
+Test Suite 'All tests' passed at 2026-10-05 10:25:36.099.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 123.958 (123.969) seconds
+2026-10-05 10:25:36.551 xcodebuild[2898:12652] [MT] IDETestOperationsObserverDebug: 163.578 elapsed -- Testing started completed.
+2026-10-05 10:25:36.551 xcodebuild[2898:12652] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-05 10:25:36.551 xcodebuild[2898:12652] [MT] IDETestOperationsObserverDebug: 163.578 sec, +163.578 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/runner/work/_temp/tv.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started

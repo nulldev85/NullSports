@@ -1,0 +1,13 @@
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test1All]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test1All]' passed (33.917 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test2Partial]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test2Partial]' passed (17.412 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test3Waiting]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test3Waiting]' passed (12.162 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test4Matt]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test4Matt]' passed (13.002 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test5Missing]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test5Missing]' passed (22.087 seconds).
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test6Episode]' started.
+Test Case '-[StreamHarnessiOSUITests.StreamHarnessiOSUITests test6Episode]' passed (40.316 seconds).
+** TEST SUCCEEDED **
