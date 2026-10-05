@@ -1710,6 +1710,12 @@ final class MediaLibrary: ObservableObject {
     /// row uses portrait cards to stay aligned with movies, so use the parent
     /// show's poster there instead of stretching and cropping the still.
     func seriesPosterURL(for episode: MediaItem, width: Int = 600) -> URL? {
+        // A provider's episode gets its show's cover, from the list in hand.
+        if case .episode(let seriesID, _)? = ProviderItem(id: episode.id) {
+            guard let ready = providerVOD.ready,
+                  let cover = ready.index.show(seriesID: seriesID, in: ready.catalog)?.cover else { return nil }
+            return URL(string: cover)
+        }
         guard episode.type == "Episode", let seriesID = episode.seriesID,
               let profile = profile(for: episode) else { return nil }
         return try? client(for: profile).imageURL(itemID: seriesID, maxWidth: width)
@@ -2011,6 +2017,11 @@ final class MediaLibrary: ObservableObject {
         let (catalog, index) = try await providerVOD.catalog()
         // A provider's own film or episode plays itself first.
         if let place = ProviderItem(id: item.id) {
+            // Numbered by the provider it came from: another provider's same
+            // numbers are other titles.
+            guard item.serverID == provider.profile.id else {
+                throw StreamLookupError.notOnServer(tried: "It came from a provider you are no longer signed in to")
+            }
             return try await providerSources(for: place, item: item, catalog: catalog, index: index,
                                              provider: provider)
         }
@@ -2118,6 +2129,7 @@ final class MediaLibrary: ObservableObject {
     /// What is under one of the provider's places: a category's films or
     /// shows, a show's seasons, a season's episodes.
     private func providerChildren(of place: ProviderItem, provider: UUID) async throws -> [MediaItem] {
+        guard provider == providerVOD.profile?.id else { return [] }
         let (catalog, index) = try await providerVOD.catalog()
         switch place {
         case .filmCategory(let category):
@@ -2141,7 +2153,8 @@ final class MediaLibrary: ObservableObject {
     /// what its list entry leaves out; a show's list entry already says it
     /// all. Kept for ten minutes, like a server's: a focused poster asks.
     private func providerDetails(of item: MediaItem) async -> MediaItem {
-        guard let provider = item.serverID, let place = ProviderItem(id: item.id) else { return item }
+        guard let provider = item.serverID, provider == providerVOD.profile?.id,
+              let place = ProviderItem(id: item.id) else { return item }
         let key = provider.uuidString + "|" + item.id
         if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 { return cached.item }
         guard let loaded = try? await providerVOD.catalog() else { return item }
@@ -2183,7 +2196,11 @@ final class MediaLibrary: ObservableObject {
     func loadProviderShelves() async {
         guard let profile = providerVOD.profile else { providerShelves = []; return }
         let chosen = savedProviderShelfIDs(for: profile.id)
-        guard !chosen.isEmpty else { providerShelves = []; return }
+        // Another provider's shelves go at once: their titles are numbered
+        // as that provider's.
+        providerShelves.removeAll { $0.root.serverID != profile.id }
+        // Read even with nothing chosen, so what is drawn from the list -- an
+        // episode's show cover -- is drawn again once it is in hand.
         guard let loaded = try? await providerVOD.catalog() else { return }
         let (catalog, index) = loaded
         providerShelves = chosen.compactMap { id in
@@ -2279,6 +2296,7 @@ final class MediaLibrary: ObservableObject {
     /// next, as it is for a server's.
     private func advanceProviderEpisode(after episode: MediaItem, profileID: UUID) async {
         guard case .episode(let seriesID, let episodeID)? = ProviderItem(id: episode.id),
+              profileID == providerVOD.profile?.id,
               let loaded = try? await providerVOD.catalog(),
               let show = loaded.index.show(seriesID: seriesID, in: loaded.catalog),
               let episodes = try? await providerVOD.episodes(of: show),
