@@ -279,14 +279,70 @@ struct JellyfinClient: Sendable {
                 method: isPlayed ? "POST" : "DELETE"))
     }
 
-    func search(userID: String, query: String) async throws -> [MediaItem] {
+    /// What the server says about itself to anyone, signed in or not. Remux
+    /// and AIOStreams each say here which of them they are.
+    func publicInfo() async throws -> MediaServerPublicInfo {
+        try await send(try request(path: "system/info/public", timeout: 15))
+    }
+
+    /// Items by their ids, as a list.
+    ///
+    /// A list rather than one item route per id because a list is how a
+    /// server is asked about an item without being made to look up its
+    /// streams too: AIOStreams resolves streams for the item route and for no
+    /// list that leaves MediaSources out of its fields.
+    func items(userID: String, ids: [String]) async throws -> [MediaItem] {
+        guard !ids.isEmpty else { return [] }
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Ids", value: ids.joined(separator: ",")),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query, timeout: 30))
+        return response.items
+    }
+
+    /// Items holding any of these IMDb, TMDB or TVDB ids, keyed by provider:
+    /// Emby's AnyProviderIdEquals, which Remux answers from what it holds.
+    ///
+    /// A server without the filter ignores it and answers with whatever of
+    /// those types comes first, so what comes back is only ever a candidate.
+    func items(userID: String, providerIDs: [String: String], types: [String]) async throws -> [MediaItem] {
+        let names = ["imdb": "Imdb", "tmdb": "Tmdb", "tvdb": "Tvdb"]
+        let tokens = providerIDs.sorted { $0.key < $1.key }.compactMap { provider, value in
+            names[provider].map { "\($0).\(value)" }
+        }
+        guard !tokens.isEmpty else { return [] }
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "AnyProviderIdEquals", value: tokens.joined(separator: ",")),
+            URLQueryItem(name: "IncludeItemTypes", value: types.joined(separator: ",")),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+            URLQueryItem(name: "Limit", value: "20")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items", query: query, timeout: 30))
+        return response.items
+    }
+
+    /// Search by name. `types` narrows it to what is being looked for, which
+    /// a server that searches addons rather than a library answers faster:
+    /// it asks only the catalogs of those types.
+    func search(userID: String, query: String,
+                types: [String] = ["Movie", "Series", "Episode", "Video"]) async throws -> [MediaItem] {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return [] }
+        guard !value.isEmpty, !types.isEmpty else { return [] }
         let parameters = [
             URLQueryItem(name: "UserId", value: userID),
             URLQueryItem(name: "SearchTerm", value: value),
             URLQueryItem(name: "Recursive", value: "true"),
-            URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series,Episode,Video"),
+            URLQueryItem(name: "IncludeItemTypes", value: types.joined(separator: ",")),
             URLQueryItem(name: "Fields", value: Self.fields),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
             URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),

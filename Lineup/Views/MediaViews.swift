@@ -3121,7 +3121,8 @@ private struct StreamServerStatus: Identifiable {
     enum Phase {
         case looking
         case found(Int)
-        case notOnServer
+        /// Carries how the title was looked for there.
+        case notOnServer(tried: String)
         case failed(String)
     }
 
@@ -3136,6 +3137,12 @@ private struct StreamServerStatus: Identifiable {
         case .notOnServer: "Doesn't have this title"
         case .failed(let message): "Didn't answer · " + message
         }
+    }
+
+    /// How a server that has no copy of the title was asked for one.
+    var tried: String? {
+        if case .notOnServer(let tried) = phase { return tried }
+        return nil
     }
 
     var symbol: String {
@@ -3334,8 +3341,8 @@ private struct MediaSourcePicker: View {
                 // Any server's outcome is said in its line at the top.
                 case .failure(let problem):
                     if index == 0 { failure = problem }
-                    if problem is MediaLibrary.StreamLookupError {
-                        serverStatus[index].phase = .notOnServer
+                    if let miss = problem as? MediaLibrary.StreamLookupError {
+                        serverStatus[index].phase = .notOnServer(tried: miss.tried)
                     } else if !MediaLibrary.isCancellation(problem) {
                         serverStatus[index].phase = .failed(problem.localizedDescription)
                     }
@@ -3435,17 +3442,27 @@ private struct MediaSourcePicker: View {
     @ViewBuilder
     private var serverSummary: some View {
         if serverStatus.count > 1 {
-            HStack(spacing: 26) {
-                ForEach(serverStatus) { status in
-                    HStack(spacing: 8) {
-                        Image(systemName: status.symbol)
-                            .font(.system(size: summarySize, weight: .semibold))
-                            .opacity(status.isGood ? 0.9 : 0.55)
-                        Text(status.name).font(.inter(summarySize, .semibold))
-                        Text(status.detail).font(.inter(summarySize))
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 26) {
+                    ForEach(serverStatus) { status in
+                        HStack(spacing: 8) {
+                            Image(systemName: status.symbol)
+                                .font(.system(size: summarySize, weight: .semibold))
+                                .opacity(status.isGood ? 0.9 : 0.55)
+                            Text(status.name).font(.inter(summarySize, .semibold))
+                            Text(status.detail).font(.inter(summarySize))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                        }
+                        .lineLimit(1)
                     }
-                    .lineLimit(1)
+                }
+                // A server that found nothing says how it was asked, so a
+                // title it should have had shows what went looking for it.
+                ForEach(serverStatus.filter { $0.tried != nil }) { status in
+                    Text(status.name + " · " + (status.tried ?? ""))
+                        .font(.inter(summarySize - 2))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                        .lineLimit(2)
                 }
             }
             .foregroundStyle(LineupStyle.lightPurple)

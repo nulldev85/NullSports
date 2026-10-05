@@ -504,30 +504,41 @@ struct MediaCatalog: Codable, Identifiable, Hashable, Sendable {
 /// it is the same place in the same show.
 enum MediaTitleMatch {
     static func isSame(_ left: MediaItem, _ right: MediaItem) -> Bool {
-        guard left.type == right.type else { return false }
+        guard family(of: left.type) == family(of: right.type) else { return false }
         if left.type == "Episode" {
             guard let season = left.parentIndexNumber, let number = left.indexNumber,
                   season == right.parentIndexNumber, number == right.indexNumber,
                   let leftShow = left.seriesName, let rightShow = right.seriesName else { return false }
             return !normalized(leftShow).isEmpty && normalized(leftShow) == normalized(rightShow)
         }
-        // One shared id settles it. Two different ids from the same provider
-        // settle it the other way, whatever the names say: remakes share them.
+        // One shared id settles it.
         let leftIDs = providerIDs(of: left)
         let rightIDs = providerIDs(of: right)
-        var disagree = false
+        var conflicting: Set<String> = []
         for (provider, value) in leftIDs {
             guard let other = rightIDs[provider] else { continue }
             if other == value { return true }
-            disagree = true
+            conflicting.insert(provider)
         }
-        guard !disagree else { return false }
+        // Two IMDb ids settle it the other way, whatever the names say: IMDb
+        // gives every film and show its own, and remakes share their names.
+        // TMDB and TVDB ids are less sure -- a show's TMDB id stored as a
+        // film's, a TVDB movie id beside a series' -- so a difference there
+        // only asks the name and the year to agree exactly.
+        guard !conflicting.contains("imdb") else { return false }
         let name = normalized(left.name)
         guard !name.isEmpty, name == normalized(right.name) else { return false }
+        guard let leftYear = left.productionYear, let rightYear = right.productionYear else {
+            return conflicting.isEmpty
+        }
         // Providers disagree about a release year often enough -- a festival
         // premiere against a cinema release -- that one year apart still counts.
-        guard let leftYear = left.productionYear, let rightYear = right.productionYear else { return true }
-        return abs(leftYear - rightYear) <= 1
+        return abs(leftYear - rightYear) <= (conflicting.isEmpty ? 1 : 0)
+    }
+
+    /// A film is a film whether a server files it as a Movie or as a Video.
+    static func family(of type: String) -> String {
+        type == "Video" ? "Movie" : type
     }
 
     /// The keys a title is known by. Two results sharing any one of them are
@@ -546,21 +557,156 @@ enum MediaTitleMatch {
         return keys
     }
 
-    /// Only the providers every server spells the same way.
+    /// The IMDb, TMDB and TVDB ids, each written one way whichever server
+    /// wrote it: "tmdb:693134" and "693134" are the same TMDB id, and
+    /// "tt133093" the same IMDb id as "tt0133093".
     static func providerIDs(of item: MediaItem) -> [String: String] {
         var ids: [String: String] = [:]
         for (provider, value) in item.providerIDs ?? [:] {
             let name = provider.lowercased()
-            let id = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard ["imdb", "tmdb", "tvdb"].contains(name), !id.isEmpty else { continue }
+            guard let id = canonicalID(name, value) else { continue }
             ids[name] = id
         }
         return ids
     }
 
+    /// One provider's id the way IMDb, TMDB and TVDB themselves write it --
+    /// "tt" and at least seven digits for IMDb, the bare number for the
+    /// others -- or nil for any other provider, or a value that is no id.
+    static func canonicalID(_ provider: String, _ value: String) -> String? {
+        let provider = provider.lowercased()
+        guard ["imdb", "tmdb", "tvdb"].contains(provider) else { return nil }
+        var id = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for prefix in [provider + ":", provider + "-"] where id.hasPrefix(prefix) {
+            id.removeFirst(prefix.count)
+        }
+        if provider == "imdb", id.hasPrefix("tt") { id.removeFirst(2) }
+        guard !id.isEmpty, id.allSatisfy(\.isASCII), id.allSatisfy(\.isNumber),
+              let number = UInt64(id) else { return nil }
+        guard provider == "imdb" else { return String(number) }
+        let digits = String(number)
+        return "tt" + String(repeating: "0", count: max(0, 7 - digits.count)) + digits
+    }
+
+    /// What to search another server for to find a title: its name, then the
+    /// name as plain words, for a search that does not see past punctuation.
+    static func searchTerms(for name: String) -> [String] {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let words = withoutYear(trimmed)
+            .replacingOccurrences(of: "[’'`]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[^\\p{L}\\p{N}]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        guard !words.isEmpty, words.caseInsensitiveCompare(trimmed) != .orderedSame else { return [trimmed] }
+        return [trimmed, words]
+    }
+
     static func normalized(_ value: String) -> String {
-        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        withoutYear(value).replacingOccurrences(of: "&", with: " and ")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// "Dune (2021)" is "Dune": some servers put the year in the name.
+    private static func withoutYear(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\s*\\((19|20)\\d{2}\\)\\s*$", with: "", options: .regularExpression)
+    }
+}
+
+/// What a server is, as far as finding a title on it goes.
+///
+/// Remux and AIOStreams both speak Jellyfin's API without being Jellyfin, and
+/// each can be asked for a title by its IMDb, TMDB or TVDB id in a way
+/// Jellyfin itself cannot. Everything else about them is plain Jellyfin.
+enum MediaServerKind: Sendable, Equatable {
+    case jellyfin
+    case remux
+    case aiostreams
+}
+
+/// What a server says about itself to anyone, signed in or not -- here, only
+/// as far as telling which server it is.
+struct MediaServerPublicInfo: Decodable, Sendable {
+    let serverName: String?
+    let version: String?
+    /// Remux's own version, which only Remux sends.
+    let remuxVersion: String?
+    /// AIOStreams' extensions to the API, which only AIOStreams announces.
+    let aiostreams: Extensions?
+
+    struct Extensions: Decodable, Sendable {
+        let configureURL: String?
+        enum CodingKeys: String, CodingKey { case configureURL = "configureUrl" }
+    }
+
+    var kind: MediaServerKind {
+        if aiostreams != nil { return .aiostreams }
+        if remuxVersion != nil { return .remux }
+        return .jellyfin
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case serverName = "ServerName", version = "Version"
+        case remuxVersion = "RemuxVersion", aiostreams
+    }
+}
+
+/// The item id AIOStreams gives a title, made from the id its addons know the
+/// title by.
+///
+/// AIOStreams' Jellyfin server keeps no library. An item id is the title's
+/// IMDb, TMDB or TVDB id packed into sixteen bytes, unpacked on every request
+/// and answered from the addons, the way Stremio asks for a title's streams.
+/// So any title can be asked for directly, whether or not one of the
+/// configuration's catalogs lists it -- and its search only reaches catalogs
+/// that support search, which a configuration kept for its streams may not
+/// have at all.
+///
+/// The layout is AIOStreams' own, from packages/core/src/jellyfin/ids.ts: a
+/// marker byte, the kind and the id's provider, the media type, the number in
+/// six bytes, then the season and the episode, 0xffff where there is none.
+/// It is not a documented interface, so what comes back is still checked to
+/// be the same title; a server that lays its ids out differently one day
+/// simply answers with nothing, and the search by name is asked instead.
+enum AIOStreamsItemID {
+    enum Kind: UInt8 {
+        case movie = 1
+        case series = 2
+        case episode = 4
+    }
+
+    static func make(_ kind: Kind, provider: String, value: String,
+                     season: Int? = nil, episode: Int? = nil) -> String? {
+        let providerCode: UInt8
+        switch provider.lowercased() {
+        case "imdb": providerCode = 1
+        case "tmdb": providerCode = 2
+        case "tvdb": providerCode = 3
+        default: return nil
+        }
+        guard let id = MediaTitleMatch.canonicalID(provider, value) else { return nil }
+        let digits = provider.lowercased() == "imdb" ? String(id.dropFirst(2)) : id
+        guard let number = UInt64(digits), number <= 0xFFFF_FFFF_FFFF else { return nil }
+        var place: (season: UInt16, episode: UInt16) = (0xFFFF, 0xFFFF)
+        if kind == .episode {
+            guard let season, let episode, (0..<0xFFFF).contains(season),
+                  (0..<0xFFFF).contains(episode) else { return nil }
+            place = (UInt16(season), UInt16(episode))
+        }
+        var bytes = [UInt8](repeating: 0, count: 16)
+        bytes[0] = 0xA1
+        bytes[1] = kind.rawValue << 4 | providerCode
+        // A film is filed as a movie and a show as a series: what the addons
+        // answer to for an IMDb, TMDB or TVDB id.
+        bytes[2] = kind == .movie ? 1 : 2
+        for index in 0..<6 {
+            bytes[3 + index] = UInt8(truncatingIfNeeded: number >> UInt64(8 * (5 - index)))
+        }
+        bytes[9] = UInt8(place.season >> 8)
+        bytes[10] = UInt8(place.season & 0xFF)
+        bytes[11] = UInt8(place.episode >> 8)
+        bytes[12] = UInt8(place.episode & 0xFF)
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 }
 

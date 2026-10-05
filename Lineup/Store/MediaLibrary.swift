@@ -130,9 +130,11 @@ final class MediaLibrary: ObservableObject {
         let item: MediaItem?
         let storedAt: Date
     }
-    /// Each title's copy on each other server, once found -- or the finding
-    /// that a server has none -- so playing it again does not search again.
+    /// Each title's copy on each other server, once found, so playing it
+    /// again does not search again.
     private var counterparts: [String: CachedCounterpart] = [:]
+    /// Which kind of server each one is, as it said when first asked.
+    private var serverKinds: [UUID: MediaServerKind] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -309,6 +311,7 @@ final class MediaLibrary: ObservableObject {
             }
             try MediaKeychainStore.save(token: authentication.accessToken, profileID: profile.id)
             clients[profile.id] = nil
+            serverKinds[profile.id] = nil
             if let existing {
                 profiles[existing] = profile
             } else {
@@ -338,6 +341,7 @@ final class MediaLibrary: ObservableObject {
         for (key, task) in importTasks where key.hasPrefix(profile.id.uuidString) { task.cancel() }
         MediaKeychainStore.delete(profileID: profile.id)
         clients[profile.id] = nil
+        serverKinds[profile.id] = nil
         profiles.removeAll { $0.id == profile.id }
         servers[profile.id] = nil
         localPlayback.removeAll { $0.profileID == profile.id }
@@ -1707,9 +1711,17 @@ final class MediaLibrary: ObservableObject {
 
     /// Why another server added nothing to a title's streams.
     enum StreamLookupError: LocalizedError {
-        case notOnServer
+        /// It holds no copy of the title. Carries how the copy was looked
+        /// for, so the line that says so can say what was tried.
+        case notOnServer(tried: String)
 
         var errorDescription: String? { "Doesn't have this title" }
+
+        var tried: String {
+            switch self {
+            case .notOnServer(let tried): tried
+            }
+        }
     }
 
     /// One server's streams for a title, each marked with the server and the
@@ -1721,8 +1733,9 @@ final class MediaLibrary: ObservableObject {
         if serverID(of: item) == profile.id {
             target = item
         } else {
-            guard let copy = try await counterpart(of: item, on: profile) else {
-                throw StreamLookupError.notOnServer
+            var lookup = CounterpartLookup()
+            guard let copy = try await counterpart(of: item, on: profile, lookup: &lookup) else {
+                throw StreamLookupError.notOnServer(tried: lookup.summary)
             }
             target = copy
         }
@@ -1746,13 +1759,56 @@ final class MediaLibrary: ObservableObject {
                                                      mediaSourceID: source.sourceID)
     }
 
+    /// Which kind of server a profile is, asked of the server once a session.
+    /// A server that does not answer is taken for plain Jellyfin this time
+    /// and asked again next time.
+    func serverKind(of profile: MediaServerProfile) async -> MediaServerKind {
+        if let known = serverKinds[profile.id] { return known }
+        guard let info = try? await client(for: profile).publicInfo() else { return .jellyfin }
+        serverKinds[profile.id] = info.kind
+        return info.kind
+    }
+
+    /// How a title was looked for on another server, for the line that says
+    /// it was not found there: the ids asked about, the names searched for,
+    /// what came back, and the nearest of it.
+    struct CounterpartLookup: Sendable {
+        var askedIDs: [String] = []
+        var idFailure: String?
+        var searchedNames: [String] = []
+        var results = 0
+        var nearest: String?
+        /// Set when the show was found and the episode was not in it.
+        var missingEpisode: String?
+
+        var summary: String {
+            var parts: [String] = []
+            if !askedIDs.isEmpty {
+                parts.append("Asked for " + askedIDs.joined(separator: ", ")
+                             + (idFailure.map { " (\($0))" } ?? ""))
+            }
+            if !searchedNames.isEmpty {
+                let names = searchedNames.map { "“\($0)”" }.joined(separator: ", ")
+                let found = results == 0 ? "no results"
+                    : (results == 1 ? "1 result" : "\(results) results")
+                        + (nearest.map { ", nearest \($0)" } ?? "")
+                parts.append((parts.isEmpty ? "Searched " : "searched ") + names + ": " + found)
+            }
+            if let missingEpisode { parts.append(missingEpisode) }
+            return parts.isEmpty ? "Nothing to look it up by" : parts.joined(separator: " · ")
+        }
+    }
+
     /// The same title on another server, or nil when that server has none.
     ///
-    /// A film is found by searching the other server for its name and keeping
-    /// the result that is the same film by its IMDb, TMDB or TVDB id, or by
-    /// its name and year. An episode is found by finding its show that way,
-    /// then its season and number in that show.
-    func counterpart(of item: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+    /// Asked by id first wherever the server can be: AIOStreams for the item
+    /// the title's ids pack into, Remux for the item holding them. That is
+    /// exact, and needs no search to have found the title. Then by name, the
+    /// way any server can be asked, keeping the result that is the same title
+    /// by its IMDb, TMDB or TVDB id, or by its name and year. An episode is
+    /// the same season and number in the same show.
+    func counterpart(of item: MediaItem, on profile: MediaServerProfile,
+                     lookup: inout CounterpartLookup) async throws -> MediaItem? {
         let key = (serverID(of: item)?.uuidString ?? "") + "|" + item.id + ">" + profile.id.uuidString
         if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600,
            let copy = cached.item {
@@ -1760,9 +1816,9 @@ final class MediaLibrary: ObservableObject {
         }
         let found: MediaItem?
         if item.type == "Episode" {
-            found = try await counterpartEpisode(of: item, on: profile)
+            found = try await counterpartEpisode(of: item, on: profile, lookup: &lookup)
         } else {
-            found = try await counterpartTitle(of: item, on: profile)
+            found = try await counterpartTitle(of: item, on: profile, lookup: &lookup)
         }
         // Only a copy found is remembered. A miss is asked again next time:
         // a server that builds items on demand may simply not have finished.
@@ -1770,43 +1826,153 @@ final class MediaLibrary: ObservableObject {
         return found
     }
 
-    /// A film or a show on another server, opened there before it is used.
-    ///
-    /// Opening it is what makes it real on a server that builds items on
-    /// demand: Gelato answers a search with results that only become library
-    /// items -- with an id its other routes accept -- once an item route is
-    /// called with them. The opened item's id is the one to use from then on.
-    private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+    /// A film or a show on another server.
+    private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile,
+                                  lookup: inout CounterpartLookup) async throws -> MediaItem? {
         let source = try client(for: profile)
-        let found = try await source.search(userID: profile.userID, query: title.name)
-        guard let match = found.first(where: { MediaTitleMatch.isSame(title, $0) }) else { return nil }
+        let kind = await serverKind(of: profile)
+        if let found = await counterpartByID(of: title, on: profile, kind: kind, lookup: &lookup) {
+            return found
+        }
+        for term in MediaTitleMatch.searchTerms(for: title.name) {
+            lookup.searchedNames.append(term)
+            let found = try await source.search(userID: profile.userID, query: term, types: [title.type])
+            lookup.results += found.count
+            if let match = found.first(where: { MediaTitleMatch.isSame(title, $0) }) {
+                return await opened(match, on: profile, kind: kind)
+            }
+            if lookup.nearest == nil, let first = found.first { lookup.nearest = Self.described(first) }
+        }
+        return nil
+    }
+
+    /// A title asked for by its IMDb, TMDB and TVDB ids, on a server that can
+    /// be asked that way. A failure here is no answer rather than an error:
+    /// the search by name is still to come.
+    private func counterpartByID(of title: MediaItem, on profile: MediaServerProfile,
+                                 kind: MediaServerKind, lookup: inout CounterpartLookup) async -> MediaItem? {
+        let ids = MediaTitleMatch.providerIDs(of: title)
+        guard !ids.isEmpty, kind != .jellyfin, let source = try? client(for: profile) else { return nil }
+        let found: [MediaItem]
+        do {
+            switch kind {
+            case .aiostreams:
+                let packed = Self.aiostreamsIDs(of: ids, as: title.type == "Series" ? .series : .movie)
+                guard !packed.isEmpty else { return nil }
+                lookup.askedIDs += packed.map { $0.label }
+                found = try await source.items(userID: profile.userID, ids: packed.map { $0.id })
+            case .remux:
+                lookup.askedIDs += Self.providerOrder.compactMap { provider in
+                    ids[provider].map { Self.providerLabel(provider) + " " + $0 }
+                }
+                found = try await source.items(userID: profile.userID, providerIDs: ids, types: [title.type])
+            case .jellyfin:
+                return nil
+            }
+        } catch {
+            if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }
+            return nil
+        }
+        // A server that ignored the filter answered with whatever came first,
+        // so only what is the same title by its ids counts.
+        guard let match = found.first(where: { candidate in
+            let shared = MediaTitleMatch.providerIDs(of: candidate)
+            return ids.contains { shared[$0.key] == $0.value } && MediaTitleMatch.isSame(title, candidate)
+        }) else { return nil }
+        return match.servedBy(profile.id)
+    }
+
+    /// A match opened on its server before it is used, where opening means
+    /// something. Gelato answers a search with results that only become
+    /// library items -- with an id its other routes accept -- once an item
+    /// route is called with them, and the opened item's id is the one to use
+    /// from then on. AIOStreams' ids are the titles themselves, with nothing
+    /// to open, and its item route goes looking for streams.
+    private func opened(_ match: MediaItem, on profile: MediaServerProfile,
+                        kind: MediaServerKind) async -> MediaItem {
+        guard kind != .aiostreams, let source = try? client(for: profile) else {
+            return match.servedBy(profile.id)
+        }
         let opened = (try? await source.item(userID: profile.userID, itemID: match.id)) ?? match
         return opened.servedBy(profile.id)
     }
 
-    private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+    private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile,
+                                    lookup: inout CounterpartLookup) async throws -> MediaItem? {
         guard let season = episode.parentIndexNumber, let number = episode.indexNumber,
-              let showName = episode.seriesName, !showName.isEmpty else { return nil }
+              let showName = episode.seriesName, !showName.isEmpty else {
+            lookup.missingEpisode = "Its own server gives it no season and number"
+            return nil
+        }
         // The show as its own server describes it: its ids are what find it on
         // another server. A server that will not say still leaves its name.
         var show = MediaItem(id: episode.seriesID ?? "", name: showName, type: "Series",
                              overview: nil, productionYear: nil, primaryImageAspectRatio: nil,
                              childCount: nil, serverID: episode.serverID)
         if episode.seriesID != nil, let described = try? await details(of: show) { show = described }
-        guard let match = try await counterpartTitle(of: show, on: profile) else { return nil }
         let source = try client(for: profile)
+        let place = episode.episodeCode ?? "S\(season)E\(number)"
+        // AIOStreams packs an episode's id from its show's, so the episode is
+        // asked for directly.
+        if await serverKind(of: profile) == .aiostreams {
+            let packed = Self.aiostreamsIDs(of: MediaTitleMatch.providerIDs(of: show), as: .episode,
+                                            season: season, episode: number)
+            if !packed.isEmpty {
+                lookup.askedIDs += packed.map { $0.label + " " + place }
+                do {
+                    let found = try await source.items(userID: profile.userID, ids: packed.map { $0.id })
+                    if let match = found.first(where: {
+                        $0.type == "Episode" && $0.parentIndexNumber == season && $0.indexNumber == number
+                    }) {
+                        return match.servedBy(profile.id)
+                    }
+                } catch {
+                    if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }
+                }
+            }
+        }
+        guard let match = try await counterpartTitle(of: show, on: profile, lookup: &lookup) else { return nil }
         // A show a server has only just built from a search can be missing
         // its episodes for a moment while the server fetches them, so an
         // empty answer is asked again before it is believed.
         for attempt in 0..<3 {
             if attempt > 0 { try await Task.sleep(for: .seconds(Double(attempt) * 1.5)) }
             let episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
-            if let episode = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
-                return episode.servedBy(profile.id)
+            if let found = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
+                return found.servedBy(profile.id)
             }
-            if !episodes.isEmpty { return nil }
+            if !episodes.isEmpty { break }
         }
+        lookup.missingEpisode = "Has the show, not \(place)"
         return nil
+    }
+
+    private static let providerOrder = ["imdb", "tmdb", "tvdb"]
+
+    private static func providerLabel(_ provider: String) -> String {
+        switch provider {
+        case "imdb": "IMDb"
+        case "tmdb": "TMDB"
+        default: "TVDB"
+        }
+    }
+
+    /// The AIOStreams ids a title's provider ids pack into, IMDb's first:
+    /// every stream addon answers for an IMDb id, and not every one for the
+    /// others.
+    private static func aiostreamsIDs(of ids: [String: String], as kind: AIOStreamsItemID.Kind,
+                                      season: Int? = nil, episode: Int? = nil) -> [(id: String, label: String)] {
+        providerOrder.compactMap { provider -> (id: String, label: String)? in
+            guard let value = ids[provider],
+                  let id = AIOStreamsItemID.make(kind, provider: provider, value: value,
+                                                 season: season, episode: episode) else { return nil }
+            return (id, providerLabel(provider) + " " + value)
+        }
+    }
+
+    /// A result as the line about a title not found names it: "“Dune” (2021)".
+    private static func described(_ item: MediaItem) -> String {
+        "“\(item.name)”" + (item.productionYear.map { " (\($0))" } ?? "")
     }
 
     // MARK: - Plumbing
