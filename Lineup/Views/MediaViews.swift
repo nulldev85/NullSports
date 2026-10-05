@@ -3923,7 +3923,7 @@ private struct MediaStreamBackdrop: View {
 
     var body: some View {
         Color.clear
-            .frame(height: MediaStreamStyle.backdropHeight)
+            .frame(height: MediaStreamStyle.backdropHeight + MediaStreamStyle.backdropBleed)
             .frame(maxWidth: .infinity)
             .overlay {
                 LineupArtView(url: url, width: MediaStreamStyle.backdropWidth) { image in
@@ -3946,6 +3946,10 @@ private struct MediaStreamBackdrop: View {
                 LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
                                startPoint: .leading, endPoint: .trailing)
             }
+            // Up into the margin above the list -- the television's overscan,
+            // the phone's bar -- so the picture runs to the top edge rather
+            // than stopping a band short of it.
+            .padding(.top, -MediaStreamStyle.backdropBleed)
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -4154,6 +4158,7 @@ private enum MediaStreamStyle {
     static let sideInset: CGFloat = 0
     static let bottomInset: CGFloat = 60
     static let backdropHeight: CGFloat = 640
+    static let backdropBleed: CGFloat = 90
     static let backdropWidth: CGFloat = 1920
     static let headerTop: CGFloat = 36
     static let headerBottom: CGFloat = 30
@@ -4204,6 +4209,7 @@ private enum MediaStreamStyle {
     static let sideInset: CGFloat = 16
     static let bottomInset: CGFloat = 28
     static let backdropHeight: CGFloat = 300
+    static let backdropBleed: CGFloat = 240
     static let backdropWidth: CGFloat = 900
     static let headerTop: CGFloat = 8
     static let headerBottom: CGFloat = 16
