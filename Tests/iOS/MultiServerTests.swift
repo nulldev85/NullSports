@@ -48,6 +48,96 @@ final class MultiServerTests: XCTestCase {
         XCTAssertFalse(MediaTitleMatch.isSame(here, episode("z", show: "Jack Reacher", season: 2, number: 4)))
     }
 
+    // Remux writes "693134" where an addon wrote "tmdb:693134", and an IMDb id
+    // can arrive without its leading zero.
+    func testAnIDIsTheSameIDHoweverAServerWritesIt() {
+        let remux = movie("a", "The Matrix", year: 1999, ids: ["Tmdb": "603"])
+        let addon = movie("b", "Matrix, The", year: 1999, ids: ["Tmdb": "tmdb:603"])
+        XCTAssertTrue(MediaTitleMatch.isSame(remux, addon))
+        XCTAssertEqual(MediaTitleMatch.canonicalID("imdb", "tt133093"), "tt0133093")
+        XCTAssertEqual(MediaTitleMatch.canonicalID("Imdb", " TT0133093 "), "tt0133093")
+        XCTAssertEqual(MediaTitleMatch.canonicalID("imdb", "imdb:tt15239678"), "tt15239678")
+        XCTAssertEqual(MediaTitleMatch.canonicalID("tvdb", "tvdb:081189"), "81189")
+        XCTAssertNil(MediaTitleMatch.canonicalID("tmdb", "movie/603"))
+        XCTAssertNil(MediaTitleMatch.canonicalID("kitsu", "1376"))
+    }
+
+    // A show's TMDB id filed as a film's is a mistake, not a different title:
+    // the name and the exact year still find it. A year apart they do not.
+    func testADifferentTMDBIDLeavesTheNameAndExactYearToDecide() {
+        let here = movie("a", "Nosferatu", year: 2024, ids: ["Tmdb": "426063"])
+        XCTAssertTrue(MediaTitleMatch.isSame(here, movie("b", "Nosferatu", year: 2024, ids: ["Tmdb": "1"])))
+        XCTAssertFalse(MediaTitleMatch.isSame(here, movie("c", "Nosferatu", year: 2023, ids: ["Tmdb": "1"])))
+        XCTAssertFalse(MediaTitleMatch.isSame(here, movie("d", "Nosferatu", year: nil, ids: ["Tmdb": "1"])))
+    }
+
+    func testAFilmFiledAsAVideoIsStillTheFilm() {
+        let film = movie("a", "Arrival", year: 2016, ids: ["Imdb": "tt2543164"])
+        let video = MediaItem(id: "b", name: "Arrival", type: "Video", overview: nil, productionYear: 2016,
+                              primaryImageAspectRatio: nil, childCount: nil, providerIDs: ["Imdb": "tt2543164"])
+        XCTAssertTrue(MediaTitleMatch.isSame(film, video))
+        let show = MediaItem(id: "c", name: "Arrival", type: "Series", overview: nil, productionYear: 2016,
+                             primaryImageAspectRatio: nil, childCount: nil, providerIDs: ["Imdb": "tt2543164"])
+        XCTAssertFalse(MediaTitleMatch.isSame(film, show))
+    }
+
+    func testANameIsTheSameWithoutItsYearOrItsAmpersand() {
+        XCTAssertEqual(MediaTitleMatch.normalized("Dune (2021)"), MediaTitleMatch.normalized("Dune"))
+        XCTAssertEqual(MediaTitleMatch.normalized("Fast & Furious"), MediaTitleMatch.normalized("Fast and Furious"))
+        // A title that is a year keeps it.
+        XCTAssertEqual(MediaTitleMatch.normalized("1917"), "1917")
+    }
+
+    // A search that does not see past punctuation is asked again in plain words.
+    func testATitleIsSearchedForByItsNameThenItsWords() {
+        XCTAssertEqual(MediaTitleMatch.searchTerms(for: "Dune: Part Two"), ["Dune: Part Two", "Dune Part Two"])
+        XCTAssertEqual(MediaTitleMatch.searchTerms(for: "Schindler's List"), ["Schindler's List", "Schindlers List"])
+        XCTAssertEqual(MediaTitleMatch.searchTerms(for: "Arrival"), ["Arrival"])
+        XCTAssertEqual(MediaTitleMatch.searchTerms(for: "  "), [])
+    }
+
+    // MARK: Asking a server for a title by its ids
+
+    // Ids made by AIOStreams' own packing code (packages/core/src/jellyfin/ids.ts)
+    // from the same titles.
+    func testAnAIOStreamsIDIsTheTitlesOwnIDPacked() {
+        XCTAssertEqual(AIOStreamsItemID.make(.movie, provider: "imdb", value: "tt15239678"),
+                       "a11101000000e889feffffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.movie, provider: "Imdb", value: "tt133093"),
+                       "a111010000000207e5ffffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.movie, provider: "tmdb", value: "693134"),
+                       "a112010000000a938effffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.series, provider: "imdb", value: "tt0903747"),
+                       "a121020000000dca43ffffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.series, provider: "tmdb", value: "1396"),
+                       "a12202000000000574ffffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.series, provider: "tvdb", value: "81189"),
+                       "a12302000000013d25ffffffff000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.episode, provider: "imdb", value: "tt0903747", season: 1, episode: 1),
+                       "a141020000000dca4300010001000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.episode, provider: "tmdb", value: "1396", season: 2, episode: 3),
+                       "a1420200000000057400020003000000")
+        XCTAssertEqual(AIOStreamsItemID.make(.episode, provider: "imdb", value: "tt0903747", season: 0, episode: 12),
+                       "a141020000000dca430000000c000000")
+    }
+
+    func testOnlyAWholeIDPacks() {
+        XCTAssertNil(AIOStreamsItemID.make(.episode, provider: "imdb", value: "tt0903747"))
+        XCTAssertNil(AIOStreamsItemID.make(.movie, provider: "kitsu", value: "1376"))
+        XCTAssertNil(AIOStreamsItemID.make(.movie, provider: "imdb", value: "nm0000206"))
+    }
+
+    // Remux and AIOStreams each say which they are; anything else is Jellyfin.
+    func testAServerSaysWhichKindItIs() throws {
+        func kind(_ json: String) throws -> MediaServerKind {
+            try JSONDecoder().decode(MediaServerPublicInfo.self, from: Data(json.utf8)).kind
+        }
+        XCTAssertEqual(try kind(#"{"ServerName":"AIOStreams","Version":"10.11.0","aiostreams":{"logo":null,"configureUrl":"https://example.com/configure","features":{"versions":1}}}"#),
+                       .aiostreams)
+        XCTAssertEqual(try kind(#"{"ServerName":"Nullfin","Version":"10.11.0","RemuxVersion":"0.9.2","Id":"x"}"#), .remux)
+        XCTAssertEqual(try kind(#"{"ServerName":"Home","Version":"10.11.0","ProductName":"Jellyfin Server"}"#), .jellyfin)
+    }
+
     // How a search across servers lists a title both of them hold once.
     func testTwoServersCopiesOfATitleShareASearchKey() {
         let first = movie("a", "Dune: Part Two", year: 2024, ids: ["Imdb": "tt15239678"])
@@ -80,6 +170,85 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(first.sourceID, "source-1")
     }
 
+    // Each server's streams are one tab, whatever add-on found them, and the
+    // IPTV provider's are another. AIOStreams' first line is a stream's
+    // quality, which is how its streams used to be split.
+    func testEachServersStreamsAreOneTabAndTheProvidersAnother() throws {
+        let decoder = JSONDecoder()
+        var remux = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"a","Name":"StreamNZB\n4K","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}
+            """#.utf8))
+        remux.serverName = "Null"
+        XCTAssertEqual(remux.group, "Null")
+        XCTAssertEqual(remux.provider, "StreamNZB")
+
+        var aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"b","Name":"4K ⚡\nMutiny.2026.2160p.WEB-DL","aiostreams":{"addon":"Torrentio","cached":true}}
+            """#.utf8))
+        aio.serverName = "Matt"
+        XCTAssertEqual(aio.group, "Matt", "Not \"4K ⚡\": the first line is the quality")
+        XCTAssertEqual(aio.provider, "Torrentio")
+
+        let odd = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"c","Name":"1080P ⚡","aiostreams":"unexpected"}
+            """#.utf8))
+        XCTAssertNil(odd.aiostreams?.addon, "An extension that will not read loses only itself")
+        XCTAssertEqual(odd.group, "1080P ⚡", "With no server known, the old label stays")
+
+        var vod = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"movie-1","Name":"Mutiny"}"#.utf8))
+        vod.serverName = "null"
+        vod.directURL = URL(string: "http://tv.example:8080/movie/user/pass/1.mkv")
+        XCTAssertEqual(vod.group, "VOD")
+    }
+
+    // StreamNZB writes its score in words; AIOStreams' formatter draws stars
+    // and writes its score in small digits. Both are the server's ranking.
+    func testAStreamsRankingIsReadHoweverItsServerWritesIt() throws {
+        let decoder = JSONDecoder()
+        let nzb = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"a","Name":"StreamNZB\nMutiny\nMutiny.2026.2160p.WEB-DL\n🔍 NZBgeek • 🎯 Score: +66359","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}
+            """#.utf8))
+        XCTAssertEqual(nzb.score, 66359)
+        XCTAssertNil(nzb.stars)
+        XCTAssertEqual(nzb.rankLabel, "SCORE +" + 66359.formatted())
+
+        let aio = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"b","Name":"   4K ⚡\n  〈Web-dl〉\n  ★★★★☆\n✎  Mutiny · 2026\nᴅᴠ ʜᴅʀ ᴛ₁ ₂₄₅","aiostreams":{"addon":"Torrentio"}}
+            """#.utf8))
+        XCTAssertEqual(aio.stars, "★★★★☆")
+        XCTAssertEqual(aio.score, 245, "The score standing alone, not the tier's ₁")
+        XCTAssertEqual(aio.rankLabel, "★★★★☆ SCORE +245")
+
+        let negative = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"c","Name":"1080P ⏳\n  ★★\nʜᴅʀ -₁₂","aiostreams":{"addon":"Comet"}}
+            """#.utf8))
+        XCTAssertEqual(negative.score, -12)
+        XCTAssertEqual(negative.rankLabel, "★★ SCORE -12")
+
+        let lowest = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"d","Name":"720P ⏳\n  ☆☆☆☆☆\nʜᴅʀ -₄₀","aiostreams":{"addon":"Comet"}}
+            """#.utf8))
+        XCTAssertEqual(lowest.stars, "☆☆☆☆☆", "The lowest stream's empty stars are still its ranking")
+        XCTAssertEqual(lowest.rankLabel, "☆☆☆☆☆ SCORE -40")
+    }
+
+    // An AIOStreams stream plays from its own address, as the server would
+    // only redirect there; any other server's path is its own business.
+    func testOnlyAnAIOStreamsStreamPlaysFromItsOwnAddress() throws {
+        let decoder = JSONDecoder()
+        func source(_ json: String) throws -> MediaPlaybackSource {
+            try decoder.decode(MediaPlaybackSource.self, from: Data(json.utf8))
+        }
+        let aio = try source(#"{"Id":"b","Path":"https://cdn.example/Mutiny.mkv?token=x","aiostreams":{"addon":"Torrentio"}}"#)
+        XCTAssertEqual(MediaLibrary.ownAddress(of: aio)?.absoluteString, "https://cdn.example/Mutiny.mkv?token=x")
+        let remux = try source(#"{"Id":"a","Path":"/remux/source-1/Movie","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: remux))
+        let jellyfin = try source(#"{"Id":"c","Path":"https://lan.example/strm/film.mkv"}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: jellyfin), "Only AIOStreams' paths are known to be playable addresses")
+        let notAnAddress = try source(#"{"Id":"d","Path":"/videos/no-streams","aiostreams":{"addon":"Notice"}}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: notAnAddress))
+    }
+
     func testAnItemsServerSurvivesTheLaunchCache() throws {
         let server = UUID()
         let item = movie("a", "Film", year: 2020, server: server)
@@ -103,6 +272,33 @@ final class MultiServerTests: XCTestCase {
         XCTAssertTrue(library.isLocalFavorite(onSecond))
         XCTAssertFalse(library.isLocalFavorite(onFirst))
         XCTAssertEqual(library.favoriteMedia.first?.serverID, second.id)
+    }
+
+    // An episode in Continue Watching opens its show's page, at the episode
+    // the viewer is on -- the show on its own server, not the other's.
+    func testAContinueWatchingEpisodeOpensItsShowWhereTheViewerWas() throws {
+        let (library, first, second, cleanup) = try makeLibrary()
+        defer { cleanup() }
+        let watching = MediaItem(id: "s2e4", name: "Four", type: "Episode", overview: nil, productionYear: nil,
+                                 primaryImageAspectRatio: nil, childCount: nil, runTimeTicks: 30_000_000_000,
+                                 indexNumber: 4, parentIndexNumber: 2, seriesName: "Severance",
+                                 seriesID: "show", serverID: first.id)
+        library.trackPlayback(of: watching, position: 600, duration: 3_000)
+
+        let show = try XCTUnwrap(library.series(of: watching))
+        XCTAssertEqual(show.id, "show")
+        XCTAssertEqual(show.type, "Series")
+        XCTAssertEqual(show.name, "Severance")
+        XCTAssertEqual(show.serverID, first.id)
+        XCTAssertEqual(library.continueWatchingEpisode(in: show)?.id, "s2e4")
+        XCTAssertEqual(library.continueWatchingEpisode(in: show)?.parentIndexNumber, 2)
+
+        let sameIDElsewhere = MediaItem(id: "show", name: "Severance", type: "Series", overview: nil,
+                                        productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                        serverID: second.id)
+        XCTAssertNil(library.continueWatchingEpisode(in: sameIDElsewhere))
+        XCTAssertNil(library.series(of: episode("e", show: "No ID", season: 1, number: 1)),
+                     "An episode that names no show keeps going to its streams")
     }
 
     // A record saved before items carried their server still knows it.

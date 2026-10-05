@@ -27,6 +27,21 @@ struct XtreamCategory: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// In an extension, so the memberwise initializer stays.
+extension XtreamCategory {
+    /// Panels write a category's number as a string or as a number; either
+    /// reads as its digits. A category with no name is called by its number.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard let id = values.lenientString(.categoryID) else {
+            throw DecodingError.keyNotFound(CodingKeys.categoryID, DecodingError.Context(
+                codingPath: decoder.codingPath, debugDescription: "A category without a number"))
+        }
+        categoryID = id
+        categoryName = values.lenientString(.categoryName) ?? id
+    }
+}
+
 struct XtreamStream: Codable, Identifiable, Hashable, Sendable {
     let num: Int?
     let name: String

@@ -54,6 +54,8 @@ final class MediaLibrary: ObservableObject {
     /// MDBList shelves belong to the Library rather than to any one server:
     /// each list is matched against every server's titles together.
     @Published private(set) var mdbListShelves: [MediaCatalog] = []
+    /// Shelves of the IPTV provider's categories, as chosen.
+    @Published private(set) var providerShelves: [MediaCatalog] = []
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
     /// Catalogs switched on and waiting for their server to finish importing,
@@ -90,6 +92,7 @@ final class MediaLibrary: ObservableObject {
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
+    private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
     /// that is now the whole Library's.
@@ -130,12 +133,18 @@ final class MediaLibrary: ObservableObject {
         let item: MediaItem?
         let storedAt: Date
     }
-    /// Each title's copy on each other server, once found -- or the finding
-    /// that a server has none -- so playing it again does not search again.
+    /// Each title's copy on each other server, once found, so playing it
+    /// again does not search again.
     private var counterparts: [String: CachedCounterpart] = [:]
+    /// Which kind of server each one is, as it said when first asked.
+    private var serverKinds: [UUID: MediaServerKind] = [:]
+    /// The IPTV provider's films and shows: one more place a title's streams
+    /// can come from.
+    let providerVOD: ProviderVOD
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
@@ -174,7 +183,9 @@ final class MediaLibrary: ObservableObject {
 
     /// Every shelf: each server's, servers in the order they were added, then
     /// the MDBList shelves that draw on all of them.
-    var catalogs: [MediaCatalog] { profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves }
+    var catalogs: [MediaCatalog] {
+        profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+    }
 
     var addonGroups: [AddonCatalogGroup] { profiles.flatMap { servers[$0.id]?.addonGroups ?? [] } }
 
@@ -208,7 +219,10 @@ final class MediaLibrary: ObservableObject {
     /// A server's name, for showing beside what it offers -- but only when
     /// there is more than one server to tell apart.
     func serverName(of serverID: UUID?) -> String? {
-        guard profiles.count > 1, let serverID else { return nil }
+        guard let serverID else { return nil }
+        // The provider's shelves are always named: they sit among the servers'.
+        if let provider = providerVOD.profile, provider.id == serverID { return provider.name }
+        guard profiles.count > 1 else { return nil }
         return profiles.first { $0.id == serverID }?.name
     }
 
@@ -252,7 +266,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     var favoriteMedia: [MediaItem] {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         return localFavorites.filter { connected.contains($0.profileID) }
             .sorted { $0.addedAt > $1.addedAt }.map(\.item)
     }
@@ -309,6 +323,7 @@ final class MediaLibrary: ObservableObject {
             }
             try MediaKeychainStore.save(token: authentication.accessToken, profileID: profile.id)
             clients[profile.id] = nil
+            serverKinds[profile.id] = nil
             if let existing {
                 profiles[existing] = profile
             } else {
@@ -338,6 +353,7 @@ final class MediaLibrary: ObservableObject {
         for (key, task) in importTasks where key.hasPrefix(profile.id.uuidString) { task.cancel() }
         MediaKeychainStore.delete(profileID: profile.id)
         clients[profile.id] = nil
+        serverKinds[profile.id] = nil
         profiles.removeAll { $0.id == profile.id }
         servers[profile.id] = nil
         localPlayback.removeAll { $0.profileID == profile.id }
@@ -507,6 +523,9 @@ final class MediaLibrary: ObservableObject {
     // MARK: - Titles
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
+        if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
+            return try await providerChildren(of: place, provider: provider)
+        }
         if Self.isMDBListShelfID(parent.id) {
             return catalogs.first { $0.id == parent.id }?.items ?? []
         }
@@ -518,6 +537,9 @@ final class MediaLibrary: ObservableObject {
     // Seasons and episodes are numbered, not named: "Season 10" sorts before
     // "Season 2" by name. A season can also run long past the shelf's limit.
     func numberedChildren(of parent: MediaItem) async throws -> [MediaItem] {
+        if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
+            return try await providerChildren(of: place, provider: provider)
+        }
         guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
             parentID: parent.id, sortBy: "IndexNumber", limit: 500)
@@ -526,6 +548,7 @@ final class MediaLibrary: ObservableObject {
 
     /// The full record for an item. A shelf card carries only what a shelf needs.
     func details(of item: MediaItem) async throws -> MediaItem {
+        if ProviderItem(id: item.id) != nil { return await providerDetails(of: item) }
         guard let profile = profile(for: item) else { return item }
         let key = profile.id.uuidString + "|" + item.id
         if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 {
@@ -938,7 +961,7 @@ final class MediaLibrary: ObservableObject {
     }
 
     func clearLocalPlayback() {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         localPlayback.removeAll { connected.contains($0.profileID) }
         persistLocalPlayback()
     }
@@ -1030,6 +1053,24 @@ final class MediaLibrary: ObservableObject {
     /// A detail page gets the server's authoritative next episode while it is
     /// already loading. Remember it so every poster for that series shows the
     /// same useful position when the viewer returns to Library.
+    /// The show an episode belongs to, as an item its page can be opened
+    /// from. Nil when the episode does not say which show.
+    func series(of episode: MediaItem) -> MediaItem? {
+        guard episode.type == "Episode", let seriesID = episode.seriesID, !seriesID.isEmpty else { return nil }
+        return MediaItem(id: seriesID, name: episode.seriesName ?? episode.name, type: "Series", overview: nil,
+                         productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                         serverID: serverID(of: episode))
+    }
+
+    /// The episode of a show that Continue Watching has the viewer on, for
+    /// the show's page to open at.
+    func continueWatchingEpisode(in series: MediaItem) -> MediaItem? {
+        guard let server = serverID(of: series) else { return nil }
+        return continueWatching.first { record in
+            record.profileID == server && record.item.type == "Episode" && record.item.seriesID == series.id
+        }?.item
+    }
+
     func rememberNextUp(_ episode: MediaItem) {
         guard episode.type == "Episode", let profileID = serverID(of: episode) else { return }
         let key = Self.seriesKey(for: episode)
@@ -1066,6 +1107,10 @@ final class MediaLibrary: ObservableObject {
     }
 
     private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
+        if ProviderItem(id: episode.id) != nil {
+            await advanceProviderEpisode(after: episode, profileID: profileID)
+            return
+        }
         guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let tracked = episode.seriesID == nil
             ? ((try? await details(of: episode)) ?? episode)
@@ -1162,8 +1207,16 @@ final class MediaLibrary: ObservableObject {
         return "episode:" + episode.id
     }
 
+    /// Where a local record can belong: every connected server, and the IPTV
+    /// provider, whose titles are played and remembered the same way.
+    private var recordSources: Set<UUID> {
+        var sources = Set(profiles.map(\.id))
+        if let provider = providerVOD.profile?.id { sources.insert(provider) }
+        return sources
+    }
+
     private var playbackForConnectedServers: [LocalMediaPlayback] {
-        let connected = Set(profiles.map(\.id))
+        let connected = recordSources
         return localPlayback.filter { connected.contains($0.profileID) }
     }
 
@@ -1278,20 +1331,26 @@ final class MediaLibrary: ObservableObject {
 
     // MARK: - Search
 
-    /// Search every connected server, with what is already shelved as the
-    /// fallback.
+    /// What one server found for a search.
+    struct SearchGroup: Identifiable {
+        let serverID: UUID
+        let serverName: String
+        let items: [MediaItem]
+        var id: UUID { serverID }
+    }
+
+    /// Search every connected server at once, each server's results kept
+    /// together, servers in the order they were added.
     ///
-    /// The servers' own results come first, servers in the order they were
-    /// added, because those are titles the viewer actually holds. A title that
-    /// more than one server holds is listed once: its streams are gathered
-    /// from all of them when it is played. A server that fails still leaves
-    /// the others and the loaded shelves searchable, and only an empty result
-    /// raises the error.
-    func search(_ query: String) async throws -> [MediaItem] {
+    /// Kept apart rather than merged into one list: merged, a title both
+    /// servers hold showed only the first server's copy, and the second
+    /// server's results queued behind every one of the first's, which read as
+    /// the second server not being searched at all. A loaded shelf stays
+    /// searchable too, so a server that fails still answers from what is on
+    /// screen. Only an empty result raises the error.
+    func search(_ query: String) async throws -> [SearchGroup] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        // A loaded shelf stays searchable on its own; the servers expand
-        // beyond those first-page cards.
         let shelved = shelves.flatMap(\.items).filter {
             $0.hasDetailPage && $0.name.localizedStandardContains(term)
         }
@@ -1312,24 +1371,32 @@ final class MediaLibrary: ObservableObject {
             for await (index, answer) in group { answers[index] = answer }
             return answers
         }
-        var results: [MediaItem] = []
+        var groups: [SearchGroup] = []
         var serverError: Error?
-        for index in targets.indices {
+        for (index, (profile, _)) in targets.enumerated() {
+            var found: [MediaItem] = []
             switch answers[index] {
-            case .success(let found)?: results += found
+            case .success(let items)?: found = items
             case .failure(let error)?: if serverError == nil { serverError = error }
             case nil: break
             }
+            // Within a server a title is listed once, whichever of its search
+            // and its shelves found it.
+            var seen: Set<String> = []
+            let items = (found + shelved.filter { $0.serverID == profile.id }).filter { item in
+                let keys = [item.libraryKey] + MediaTitleMatch.keys(of: item)
+                guard !keys.contains(where: seen.contains) else { return false }
+                seen.formUnion(keys)
+                return true
+            }
+            if !items.isEmpty {
+                groups.append(SearchGroup(serverID: profile.id, serverName: profile.name, items: items))
+            }
         }
-        var seen: Set<String> = []
-        results = (results + shelved).filter { item in
-            let keys = [item.libraryKey] + MediaTitleMatch.keys(of: item)
-            guard !keys.contains(where: seen.contains) else { return false }
-            seen.formUnion(keys)
-            return true
-        }
-        if results.isEmpty, let serverError { throw serverError }
-        return results
+        // The IPTV provider's films and shows, after every server's.
+        if let provider = await providerSearchGroup(term) { groups.append(provider) }
+        if groups.isEmpty, let serverError { throw serverError }
+        return groups
     }
 
     // MARK: - Shelves
@@ -1340,6 +1407,7 @@ final class MediaLibrary: ObservableObject {
     /// asked for by name, and a row with a title and nothing under it can be
     /// seen, understood and removed; a choice that quietly does nothing cannot.
     func addShelf(_ root: MediaItem) async {
+        if ProviderItem(id: root.id) != nil { await addProviderShelf(root); return }
         guard let profile = profile(for: root) else { return }
         let shelfRoot = root.servedBy(profile.id)
         let shelfID = MediaCatalog.id(for: shelfRoot)
@@ -1358,7 +1426,11 @@ final class MediaLibrary: ObservableObject {
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
-        if Self.isMDBListShelfID(catalog.id) {
+        if ProviderItem(id: catalog.root.id) != nil, let provider = catalog.root.serverID {
+            providerShelves.removeAll { $0.id == catalog.id }
+            saveProviderShelfIDs(savedProviderShelfIDs(for: provider).filter { $0 != catalog.root.id },
+                                 for: provider)
+        } else if Self.isMDBListShelfID(catalog.id) {
             mdbListShelves.removeAll { $0.id == catalog.id }
             saveMDBListShelfIDs(savedMDBListShelfIDs().filter { "mdblist:\($0)" != catalog.id })
             persistMDBListSnapshot()
@@ -1656,6 +1728,12 @@ final class MediaLibrary: ObservableObject {
     /// row uses portrait cards to stay aligned with movies, so use the parent
     /// show's poster there instead of stretching and cropping the still.
     func seriesPosterURL(for episode: MediaItem, width: Int = 600) -> URL? {
+        // A provider's episode gets its show's cover, from the list in hand.
+        if case .episode(let seriesID, _)? = ProviderItem(id: episode.id) {
+            guard let ready = providerVOD.ready,
+                  let cover = ready.index.show(seriesID: seriesID, in: ready.catalog)?.cover else { return nil }
+            return URL(string: cover)
+        }
         guard episode.type == "Episode", let seriesID = episode.seriesID,
               let profile = profile(for: episode) else { return nil }
         return try? client(for: profile).imageURL(itemID: seriesID, maxWidth: width)
@@ -1688,21 +1766,44 @@ final class MediaLibrary: ObservableObject {
     /// Only a film or an episode goes looking elsewhere. Those are what another
     /// server can be asked about by name; anything else is its own server's.
     func streamServers(for item: MediaItem) -> [MediaServerProfile] {
+        // A provider's title has no server of its own; each is asked about its
+        // own copy, the way it is for another server's title.
+        if ProviderItem(id: item.id) != nil {
+            return item.type == "Movie" || item.type == "Episode" ? profiles : []
+        }
         guard let home = profile(for: item) else { return [] }
         guard item.type == "Movie" || item.type == "Episode" else { return [home] }
         return [home] + profiles.filter { $0.id != home.id }
     }
 
+    /// Why another server added nothing to a title's streams.
+    enum StreamLookupError: LocalizedError {
+        /// It holds no copy of the title. Carries how the copy was looked
+        /// for, so the line that says so can say what was tried.
+        case notOnServer(tried: String)
+
+        var errorDescription: String? { "Doesn't have this title" }
+
+        var tried: String {
+            switch self {
+            case .notOnServer(let tried): tried
+            }
+        }
+    }
+
     /// One server's streams for a title, each marked with the server and the
     /// item it plays from. The title's own server is asked about the item
-    /// itself; another server about its own copy, and it has nothing to offer
-    /// when it holds none.
+    /// itself; another server about its own copy, and it throws
+    /// `StreamLookupError.notOnServer` when it holds none.
     func playbackSources(for item: MediaItem, on profile: MediaServerProfile) async throws -> [MediaPlaybackSource] {
         let target: MediaItem
         if serverID(of: item) == profile.id {
             target = item
         } else {
-            guard let copy = try await counterpart(of: item, on: profile) else { return [] }
+            var lookup = CounterpartLookup()
+            guard let copy = try await counterpart(of: item, on: profile, lookup: &lookup) else {
+                throw StreamLookupError.notOnServer(tried: lookup.summary)
+            }
             target = copy
         }
         return try await client(for: profile).playbackInfo(itemID: target.id).mediaSources
@@ -1717,53 +1818,595 @@ final class MediaLibrary: ObservableObject {
     }
 
     /// Where a stream plays from: the server that offered it, as its copy of
-    /// the title.
+    /// the title, or the provider's own address for one of its films.
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
+        if let direct = source.directURL { return direct }
+        // AIOStreams gives each stream's own address as its path, and its
+        // stream route only looks the stream up again and redirects there:
+        // going straight to it saves a round trip to the server on every start.
+        if let own = Self.ownAddress(of: source) { return own }
         let offering = source.serverID.flatMap { id in profiles.first { $0.id == id } }
         guard let profile = offering ?? profile(for: item) else { return nil }
         return try? client(for: profile).playbackURL(itemID: source.itemID ?? item.id,
                                                      mediaSourceID: source.sourceID)
     }
 
+    /// An AIOStreams stream's own address: its path, when that is a web
+    /// address. A path on any other server is the server's own business --
+    /// a file on its disk, or a route of its own.
+    nonisolated static func ownAddress(of source: MediaPlaybackSource) -> URL? {
+        guard source.aiostreams != nil, let path = source.path, let url = URL(string: path),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              url.host != nil else { return nil }
+        return url
+    }
+
+    /// Which kind of server a profile is, asked of the server once a session.
+    /// A server that does not answer is taken for plain Jellyfin this time
+    /// and asked again next time.
+    func serverKind(of profile: MediaServerProfile) async -> MediaServerKind {
+        if let known = serverKinds[profile.id] { return known }
+        guard let info = try? await client(for: profile).publicInfo() else { return .jellyfin }
+        serverKinds[profile.id] = info.kind
+        return info.kind
+    }
+
+    /// How a title was looked for on another server, for the line that says
+    /// it was not found there: the ids asked about, the names searched for,
+    /// what came back, and the nearest of it.
+    struct CounterpartLookup: Sendable {
+        var askedIDs: [String] = []
+        var idFailure: String?
+        var searchedNames: [String] = []
+        var results = 0
+        var nearest: String?
+        /// Set when the show was found and the episode was not in it.
+        var missingEpisode: String?
+
+        var summary: String {
+            var parts: [String] = []
+            if !askedIDs.isEmpty {
+                parts.append("Asked for " + askedIDs.joined(separator: ", ")
+                             + (idFailure.map { " (\($0))" } ?? ""))
+            }
+            if !searchedNames.isEmpty {
+                let names = searchedNames.map { "“\($0)”" }.joined(separator: ", ")
+                let found = results == 0 ? "no results"
+                    : (results == 1 ? "1 result" : "\(results) results")
+                        + (nearest.map { ", nearest \($0)" } ?? "")
+                parts.append((parts.isEmpty ? "Searched " : "searched ") + names + ": " + found)
+            }
+            if let missingEpisode { parts.append(missingEpisode) }
+            return parts.isEmpty ? "Nothing to look it up by" : parts.joined(separator: " · ")
+        }
+    }
+
     /// The same title on another server, or nil when that server has none.
     ///
-    /// A film is found by searching the other server for its name and keeping
-    /// the result that is the same film by its IMDb, TMDB or TVDB id, or by
-    /// its name and year. An episode is found by finding its show that way,
-    /// then its season and number in that show.
-    func counterpart(of item: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+    /// Asked by id first wherever the server can be: AIOStreams for the item
+    /// the title's ids pack into, Remux for the item holding them. That is
+    /// exact, and needs no search to have found the title. Then by name, the
+    /// way any server can be asked, keeping the result that is the same title
+    /// by its IMDb, TMDB or TVDB id, or by its name and year. An episode is
+    /// the same season and number in the same show.
+    func counterpart(of item: MediaItem, on profile: MediaServerProfile,
+                     lookup: inout CounterpartLookup) async throws -> MediaItem? {
         let key = (serverID(of: item)?.uuidString ?? "") + "|" + item.id + ">" + profile.id.uuidString
-        if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600 {
-            return cached.item
+        if let cached = counterparts[key], Date().timeIntervalSince(cached.storedAt) < 600,
+           let copy = cached.item {
+            return copy
         }
         let found: MediaItem?
         if item.type == "Episode" {
-            found = try await counterpartEpisode(of: item, on: profile)
+            found = try await counterpartEpisode(of: item, on: profile, lookup: &lookup)
         } else {
-            found = try await counterpartTitle(of: item, on: profile)
+            found = try await counterpartTitle(of: item, on: profile, lookup: &lookup)
         }
-        counterparts[key] = CachedCounterpart(item: found, storedAt: Date())
+        // Only a copy found is remembered. A miss is asked again next time:
+        // a server that builds items on demand may simply not have finished.
+        if let found { counterparts[key] = CachedCounterpart(item: found, storedAt: Date()) }
         return found
     }
 
-    private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
-        let found = try await client(for: profile).search(userID: profile.userID, query: title.name)
-        return found.first { MediaTitleMatch.isSame(title, $0) }?.servedBy(profile.id)
+    /// A film or a show on another server.
+    private func counterpartTitle(of title: MediaItem, on profile: MediaServerProfile,
+                                  lookup: inout CounterpartLookup) async throws -> MediaItem? {
+        let source = try client(for: profile)
+        let kind = await serverKind(of: profile)
+        if let found = await counterpartByID(of: title, on: profile, kind: kind, lookup: &lookup) {
+            return found
+        }
+        for term in MediaTitleMatch.searchTerms(for: title.name) {
+            lookup.searchedNames.append(term)
+            let found = try await source.search(userID: profile.userID, query: term, types: [title.type])
+            lookup.results += found.count
+            if let match = found.first(where: { MediaTitleMatch.isSame(title, $0) }) {
+                return await opened(match, on: profile, kind: kind)
+            }
+            if lookup.nearest == nil, let first = found.first { lookup.nearest = Self.described(first) }
+        }
+        return nil
     }
 
-    private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile) async throws -> MediaItem? {
+    /// A title asked for by its IMDb, TMDB and TVDB ids, on a server that can
+    /// be asked that way. A failure here is no answer rather than an error:
+    /// the search by name is still to come.
+    private func counterpartByID(of title: MediaItem, on profile: MediaServerProfile,
+                                 kind: MediaServerKind, lookup: inout CounterpartLookup) async -> MediaItem? {
+        let ids = MediaTitleMatch.providerIDs(of: title)
+        guard !ids.isEmpty, kind != .jellyfin, let source = try? client(for: profile) else { return nil }
+        let found: [MediaItem]
+        do {
+            switch kind {
+            case .aiostreams:
+                let packed = Self.aiostreamsIDs(of: ids, as: title.type == "Series" ? .series : .movie)
+                guard !packed.isEmpty else { return nil }
+                lookup.askedIDs += packed.map { $0.label }
+                found = try await source.items(userID: profile.userID, ids: packed.map { $0.id })
+            case .remux:
+                lookup.askedIDs += Self.providerOrder.compactMap { provider in
+                    ids[provider].map { Self.providerLabel(provider) + " " + $0 }
+                }
+                found = try await source.items(userID: profile.userID, providerIDs: ids, types: [title.type])
+            case .jellyfin:
+                return nil
+            }
+        } catch {
+            if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }
+            return nil
+        }
+        // A server that ignored the filter answered with whatever came first,
+        // so only what is the same title by its ids counts.
+        guard let match = found.first(where: { candidate in
+            let shared = MediaTitleMatch.providerIDs(of: candidate)
+            return ids.contains { shared[$0.key] == $0.value } && MediaTitleMatch.isSame(title, candidate)
+        }) else { return nil }
+        return match.servedBy(profile.id)
+    }
+
+    /// A match opened on its server before it is used, where opening means
+    /// something. Gelato answers a search with results that only become
+    /// library items -- with an id its other routes accept -- once an item
+    /// route is called with them, and the opened item's id is the one to use
+    /// from then on. AIOStreams' ids are the titles themselves, with nothing
+    /// to open, and its item route goes looking for streams.
+    private func opened(_ match: MediaItem, on profile: MediaServerProfile,
+                        kind: MediaServerKind) async -> MediaItem {
+        guard kind != .aiostreams, let source = try? client(for: profile) else {
+            return match.servedBy(profile.id)
+        }
+        let opened = (try? await source.item(userID: profile.userID, itemID: match.id)) ?? match
+        return opened.servedBy(profile.id)
+    }
+
+    private func counterpartEpisode(of episode: MediaItem, on profile: MediaServerProfile,
+                                    lookup: inout CounterpartLookup) async throws -> MediaItem? {
         guard let season = episode.parentIndexNumber, let number = episode.indexNumber,
-              let showName = episode.seriesName, !showName.isEmpty else { return nil }
+              let showName = episode.seriesName, !showName.isEmpty else {
+            lookup.missingEpisode = "Its own server gives it no season and number"
+            return nil
+        }
         // The show as its own server describes it: its ids are what find it on
         // another server. A server that will not say still leaves its name.
         var show = MediaItem(id: episode.seriesID ?? "", name: showName, type: "Series",
                              overview: nil, productionYear: nil, primaryImageAspectRatio: nil,
                              childCount: nil, serverID: episode.serverID)
         if episode.seriesID != nil, let described = try? await details(of: show) { show = described }
-        guard let match = try await counterpartTitle(of: show, on: profile) else { return nil }
-        let episodes = try await client(for: profile).episodes(userID: profile.userID, seriesID: match.id)
-        return episodes.first { $0.parentIndexNumber == season && $0.indexNumber == number }?
-            .servedBy(profile.id)
+        let source = try client(for: profile)
+        let place = episode.episodeCode ?? "S\(season)E\(number)"
+        // AIOStreams packs an episode's id from its show's, so the episode is
+        // asked for directly.
+        if await serverKind(of: profile) == .aiostreams {
+            let packed = Self.aiostreamsIDs(of: MediaTitleMatch.providerIDs(of: show), as: .episode,
+                                            season: season, episode: number)
+            if !packed.isEmpty {
+                lookup.askedIDs += packed.map { $0.label + " " + place }
+                do {
+                    let found = try await source.items(userID: profile.userID, ids: packed.map { $0.id })
+                    if let match = found.first(where: {
+                        $0.type == "Episode" && $0.parentIndexNumber == season && $0.indexNumber == number
+                    }) {
+                        return match.servedBy(profile.id)
+                    }
+                } catch {
+                    if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }
+                }
+            }
+        }
+        guard let match = try await counterpartTitle(of: show, on: profile, lookup: &lookup) else { return nil }
+        // A show a server has only just built from a search can be missing
+        // its episodes for a moment while the server fetches them, so an
+        // empty answer is asked again before it is believed.
+        for attempt in 0..<3 {
+            if attempt > 0 { try await Task.sleep(for: .seconds(Double(attempt) * 1.5)) }
+            let episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            if let found = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
+                return found.servedBy(profile.id)
+            }
+            if !episodes.isEmpty { break }
+        }
+        lookup.missingEpisode = "Has the show, not \(place)"
+        return nil
+    }
+
+    // MARK: - The IPTV provider's films and shows
+
+    /// The IPTV provider, as one more place to look for a film's or an
+    /// episode's streams, when one is signed in.
+    func streamProvider(for item: MediaItem) -> (id: UUID, name: String)? {
+        guard item.type == "Movie" || item.type == "Episode",
+              let profile = providerVOD.provider?.profile else { return nil }
+        return (profile.id, profile.name)
+    }
+
+    /// The provider's streams for a title: each of its films that is this
+    /// film, or this episode in each of its shows that is this show, played
+    /// from the provider directly.
+    func providerSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
+        guard let provider = providerVOD.provider else {
+            throw StreamLookupError.notOnServer(tried: "No IPTV provider is signed in")
+        }
+        let (catalog, index) = try await providerVOD.catalog()
+        // A provider's own film or episode plays itself first.
+        if let place = ProviderItem(id: item.id) {
+            // Numbered by the provider it came from: another provider's same
+            // numbers are other titles.
+            guard item.serverID == provider.profile.id else {
+                throw StreamLookupError.notOnServer(tried: "It came from a provider you are no longer signed in to")
+            }
+            return try await providerSources(for: place, item: item, catalog: catalog, index: index,
+                                             provider: provider)
+        }
+        if item.type == "Episode" {
+            guard let season = item.parentIndexNumber, let number = item.indexNumber,
+                  let showName = item.seriesName, !showName.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: "Its own server gives it no season and number")
+            }
+            // The show as its own server describes it, for its TMDB id.
+            var show = MediaItem(id: item.seriesID ?? "", name: showName, type: "Series",
+                                 overview: nil, productionYear: nil, primaryImageAspectRatio: nil,
+                                 childCount: nil, serverID: item.serverID)
+            if item.seriesID != nil, let described = try? await details(of: show) { show = described }
+            let shows = index.shows(for: show, in: catalog)
+            guard !shows.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: Self.providerMiss(for: show, among: catalog.shows.count,
+                                                                             kind: "shows"))
+            }
+            // Each show's episodes are a round trip to the panel, so every
+            // match is asked at once rather than one after another.
+            let matched = Array(shows.prefix(4))
+            let vod = providerVOD
+            let lists = await withTaskGroup(of: (Int, [XtreamEpisode]).self) { group -> [Int: [XtreamEpisode]] in
+                for (position, series) in matched.enumerated() {
+                    group.addTask { (position, (try? await vod.episodes(of: series)) ?? []) }
+                }
+                var lists: [Int: [XtreamEpisode]] = [:]
+                for await (position, episodes) in group { lists[position] = episodes }
+                return lists
+            }
+            var sources: [MediaPlaybackSource] = []
+            for (position, series) in matched.enumerated() {
+                for episode in lists[position] ?? [] where episode.season == season && episode.episodeNumber == number {
+                    guard let url = provider.client.episodeURL(for: episode) else { continue }
+                    sources.append(Self.providerSource(id: "series-\(series.seriesID)-\(episode.id)",
+                        title: series.name + " · " + episode.title, container: episode.containerExtension,
+                        url: url, provider: provider.profile))
+                }
+            }
+            guard !sources.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: "Has the show, not "
+                    + (item.episodeCode ?? "S\(season)E\(number)"))
+            }
+            return sources
+        }
+        let films = index.films(for: item, in: catalog)
+        let sources = films.compactMap { film -> MediaPlaybackSource? in
+            guard let url = provider.client.movieURL(for: film) else { return nil }
+            return Self.providerSource(id: "movie-\(film.streamID)", title: film.name,
+                                       container: film.containerExtension, url: url, provider: provider.profile)
+        }
+        guard !sources.isEmpty else {
+            throw StreamLookupError.notOnServer(tried: Self.providerMiss(for: item, among: catalog.films.count,
+                                                                         kind: "films"))
+        }
+        return sources
+    }
+
+    /// The streams of one of the provider's own titles: the title itself, and
+    /// for a film, every other copy the provider lists of it.
+    private func providerSources(for place: ProviderItem, item: MediaItem, catalog: ProviderVOD.Catalog,
+                                 index: ProviderVOD.Index,
+                                 provider: (profile: XtreamProfile, client: XtreamClient))
+        async throws -> [MediaPlaybackSource] {
+        switch place {
+        case .film(let streamID):
+            guard let film = index.film(streamID: streamID, in: catalog) else {
+                throw StreamLookupError.notOnServer(tried: "The provider no longer lists it")
+            }
+            let copies = [film] + index.films(for: item, in: catalog).filter { $0.streamID != streamID }
+            return copies.compactMap { copy -> MediaPlaybackSource? in
+                guard let url = provider.client.movieURL(for: copy) else { return nil }
+                return Self.providerSource(id: "movie-\(copy.streamID)", title: copy.name,
+                                           container: copy.containerExtension, url: url, provider: provider.profile)
+            }
+        case .episode(let seriesID, let episodeID):
+            guard let show = index.show(seriesID: seriesID, in: catalog),
+                  let episode = try await providerVOD.episodes(of: show).first(where: { $0.id == episodeID }),
+                  let url = provider.client.episodeURL(for: episode) else {
+                throw StreamLookupError.notOnServer(tried: "The provider no longer lists it")
+            }
+            return [Self.providerSource(id: "series-\(seriesID)-\(episode.id)",
+                                        title: show.name + " · " + episode.title,
+                                        container: episode.containerExtension, url: url,
+                                        provider: provider.profile)]
+        default:
+            return []
+        }
+    }
+
+    /// A provider's film or episode as a stream in the list: its own name as
+    /// the release, "IPTV" as where it comes from, the provider as its server.
+    private static func providerSource(id: String, title: String, container: String?, url: URL,
+                                       provider: XtreamProfile) -> MediaPlaybackSource {
+        var source = MediaPlaybackSource(
+            sourceID: id, name: title, path: nil, container: container, size: nil, bitrate: nil,
+            remux: MediaPlaybackSource.RemuxInfo(providerInfo: MediaPlaybackSource.ProviderInfo(
+                source: "IPTV", filename: title, description: nil)))
+        source.serverID = provider.id
+        source.serverName = provider.name
+        source.directURL = url
+        return source
+    }
+
+    /// What the provider's list was searched for, for the line that says it
+    /// has nothing: "Searched 41,203 films for TMDB 693134 and “Dune: Part Two”".
+    private static func providerMiss(for title: MediaItem, among count: Int, kind: String) -> String {
+        var wanted: [String] = []
+        if let tmdb = MediaTitleMatch.providerIDs(of: title)["tmdb"] { wanted.append("TMDB " + tmdb) }
+        wanted.append("“\(title.name)”" + (title.productionYear.map { " (\($0))" } ?? ""))
+        return "Searched \(count.formatted()) \(kind) for " + wanted.joined(separator: " and ")
+    }
+
+    // MARK: - The IPTV provider's titles in the Library
+
+    /// What is under one of the provider's places: a category's films or
+    /// shows, a show's seasons, a season's episodes.
+    private func providerChildren(of place: ProviderItem, provider: UUID) async throws -> [MediaItem] {
+        guard provider == providerVOD.profile?.id else { return [] }
+        let (catalog, index) = try await providerVOD.catalog()
+        switch place {
+        case .filmCategory(let category):
+            return index.films(inCategory: category, in: catalog).map { ProviderVOD.item(for: $0, provider: provider) }
+        case .seriesCategory(let category):
+            return index.shows(inCategory: category, in: catalog).map { ProviderVOD.item(for: $0, provider: provider) }
+        case .series(let seriesID):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return [] }
+            let episodes = try await providerVOD.episodes(of: show)
+            return ProviderVOD.seasons(of: show, episodes: episodes, provider: provider)
+        case .season(let seriesID, let number):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return [] }
+            return try await providerVOD.episodes(of: show).filter { $0.season == number }
+                .map { ProviderVOD.item(for: $0, of: show, provider: provider) }
+        case .film, .episode:
+            return []
+        }
+    }
+
+    /// A provider's title in full. A film is asked about (get_vod_info) for
+    /// what its list entry leaves out; a show's list entry already says it
+    /// all. Kept for ten minutes, like a server's: a focused poster asks.
+    private func providerDetails(of item: MediaItem) async -> MediaItem {
+        guard let provider = item.serverID, provider == providerVOD.profile?.id,
+              let place = ProviderItem(id: item.id) else { return item }
+        let key = provider.uuidString + "|" + item.id
+        if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 { return cached.item }
+        guard let loaded = try? await providerVOD.catalog() else { return item }
+        let (catalog, index) = loaded
+        var detailed = item
+        switch place {
+        case .film(let streamID):
+            guard let film = index.film(streamID: streamID, in: catalog) else { return item }
+            let base = ProviderVOD.item(for: film, provider: provider)
+            let info = try? await providerVOD.provider?.client.vodInfo(streamID: streamID)
+            let cast: [String] = info?.cast.map(ProviderVOD.list(in:)) ?? []
+            var people: [MediaPerson] = cast.prefix(12).map {
+                MediaPerson(personID: nil, name: $0, role: nil, type: "Actor", primaryImageTag: nil)
+            }
+            if let director = info?.director {
+                people.append(MediaPerson(personID: nil, name: director, role: nil, type: "Director",
+                                          primaryImageTag: nil))
+            }
+            detailed = MediaItem(id: base.id, name: base.name, type: base.type, overview: info?.plot,
+                                 productionYear: base.productionYear ?? XtreamVOD.year(in: info?.releaseDate),
+                                 primaryImageAspectRatio: nil, childCount: nil,
+                                 genres: info?.genre.map(ProviderVOD.list(in:)),
+                                 communityRating: base.communityRating,
+                                 runTimeTicks: info?.durationSeconds.map { Int64($0) * 10_000_000 },
+                                 people: people.isEmpty ? nil : people,
+                                 providerIDs: (film.tmdbID ?? info?.tmdbID).map { ["Tmdb": $0] },
+                                 posterURL: base.posterURL, backdropURL: info?.backdrop, serverID: provider)
+        case .series(let seriesID):
+            guard let show = index.show(seriesID: seriesID, in: catalog) else { return item }
+            detailed = ProviderVOD.item(for: show, provider: provider)
+        default:
+            return item
+        }
+        detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
+        return detailed
+    }
+
+    /// Have the IPTV provider's film and show list in memory from launch, so
+    /// a title's VOD copies are the first streams it lists rather than the
+    /// last. Read off the main thread as soon as the app opens; downloaded
+    /// when the device has no copy, once the Library has a server to look
+    /// titles up on.
+    func prepareProviderVOD() async {
+        providerVOD.prefetch(onlyFromDevice: profiles.isEmpty)
+    }
+
+    /// Get the provider ready to answer for a title whose page is open, so
+    /// choosing to play it finds the VOD copies waiting: its list read, and
+    /// for a show, the episodes of each of the provider's shows that are it.
+    func prepareProviderLookup(for item: MediaItem) {
+        guard providerVOD.profile != nil, !item.isProviderTitle,
+              item.type == "Movie" || item.type == "Series" else { return }
+        let vod = providerVOD
+        Task {
+            guard let loaded = try? await vod.catalog(), item.type == "Series" else { return }
+            await withTaskGroup(of: Void.self) { group in
+                for show in loaded.index.shows(for: item, in: loaded.catalog).prefix(4) {
+                    group.addTask { _ = try? await vod.episodes(of: show) }
+                }
+            }
+        }
+    }
+
+    /// The provider's chosen categories as shelves, once its list is in hand.
+    func loadProviderShelves() async {
+        guard let profile = providerVOD.profile else { providerShelves = []; return }
+        let chosen = savedProviderShelfIDs(for: profile.id)
+        // Another provider's shelves go at once: their titles are numbered
+        // as that provider's.
+        providerShelves.removeAll { $0.root.serverID != profile.id }
+        // Read even with nothing chosen, so what is drawn from the list -- an
+        // episode's show cover -- is drawn again once it is in hand.
+        guard let loaded = try? await providerVOD.catalog() else { return }
+        let (catalog, index) = loaded
+        providerShelves = chosen.compactMap { id in
+            providerShelf(id, catalog: catalog, index: index, provider: profile.id)
+        }
+    }
+
+    /// The first forty of a category, in the provider's own order. See All
+    /// opens the rest.
+    private func providerShelf(_ rootID: String, catalog: ProviderVOD.Catalog, index: ProviderVOD.Index,
+                               provider: UUID) -> MediaCatalog? {
+        switch ProviderItem(id: rootID) {
+        case .filmCategory(let category)?:
+            guard let group = catalog.filmCategories.first(where: { $0.categoryID == category }) else { return nil }
+            let films = index.films(inCategory: category, in: catalog)
+            return MediaCatalog(root: ProviderVOD.shelfRoot(for: group, films: true, count: films.count,
+                                                            provider: provider),
+                                items: films.prefix(40).map { ProviderVOD.item(for: $0, provider: provider) })
+        case .seriesCategory(let category)?:
+            guard let group = catalog.showCategories.first(where: { $0.categoryID == category }) else { return nil }
+            let shows = index.shows(inCategory: category, in: catalog)
+            return MediaCatalog(root: ProviderVOD.shelfRoot(for: group, films: false, count: shows.count,
+                                                            provider: provider),
+                                items: shows.prefix(40).map { ProviderVOD.item(for: $0, provider: provider) })
+        default:
+            return nil
+        }
+    }
+
+    /// The provider's categories not yet on a shelf, films first, each with
+    /// how many titles it holds. Empty until the provider's list is in hand.
+    var availableProviderShelves: (films: [MediaItem], shows: [MediaItem]) {
+        guard let profile = providerVOD.profile, let ready = providerVOD.ready else { return ([], []) }
+        let (catalog, index) = ready
+        let shelved = Set(providerShelves.map(\.root.id))
+        let films = catalog.filmCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: true,
+                                  count: index.films(inCategory: group.categoryID, in: catalog).count,
+                                  provider: profile.id)
+        }
+        let shows = catalog.showCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: false,
+                                  count: index.shows(inCategory: group.categoryID, in: catalog).count,
+                                  provider: profile.id)
+        }
+        return (films.filter { !shelved.contains($0.id) && ($0.childCount ?? 0) > 0 },
+                shows.filter { !shelved.contains($0.id) && ($0.childCount ?? 0) > 0 })
+    }
+
+    /// Read the provider's list for the shelf picker, and redraw it once read.
+    func loadProviderCatalog() async {
+        guard providerVOD.profile != nil, providerVOD.ready == nil else { return }
+        _ = try? await providerVOD.catalog()
+        objectWillChange.send()
+    }
+
+    func addProviderShelf(_ root: MediaItem) async {
+        guard let provider = root.serverID, ProviderItem(id: root.id) != nil else { return }
+        var chosen = savedProviderShelfIDs(for: provider)
+        guard !chosen.contains(root.id) else { return }
+        chosen.append(root.id)
+        saveProviderShelfIDs(chosen, for: provider)
+        await loadProviderShelves()
+    }
+
+    /// The provider's shelves, chosen per provider: another provider's
+    /// categories are numbered differently.
+    private func savedProviderShelfIDs(for provider: UUID) -> [String] {
+        guard let data = defaults.data(forKey: providerShelvesKey),
+              let saved = try? JSONDecoder().decode([String: [String]].self, from: data) else { return [] }
+        return saved[provider.uuidString] ?? []
+    }
+
+    private func saveProviderShelfIDs(_ ids: [String], for provider: UUID) {
+        var saved = (defaults.data(forKey: providerShelvesKey))
+            .flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:]
+        saved[provider.uuidString] = ids.isEmpty ? nil : ids
+        defaults.set(try? JSONEncoder().encode(saved), forKey: providerShelvesKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// The provider's films and shows whose names hold a search, as one group.
+    private func providerSearchGroup(_ term: String) async -> SearchGroup? {
+        guard let profile = providerVOD.profile,
+              let loaded = try? await providerVOD.catalog() else { return nil }
+        let found = loaded.index.search(term, in: loaded.catalog)
+        let items = found.films.map { ProviderVOD.item(for: $0, provider: profile.id) }
+            + found.shows.map { ProviderVOD.item(for: $0, provider: profile.id) }
+        return items.isEmpty ? nil : SearchGroup(serverID: profile.id, serverName: profile.name, items: items)
+    }
+
+    /// When a provider's episode is watched, the next one in its show is up
+    /// next, as it is for a server's.
+    private func advanceProviderEpisode(after episode: MediaItem, profileID: UUID) async {
+        guard case .episode(let seriesID, let episodeID)? = ProviderItem(id: episode.id),
+              profileID == providerVOD.profile?.id,
+              let loaded = try? await providerVOD.catalog(),
+              let show = loaded.index.show(seriesID: seriesID, in: loaded.catalog),
+              let episodes = try? await providerVOD.episodes(of: show),
+              let position = episodes.firstIndex(where: { $0.id == episodeID }) else { return }
+        let key = Self.seriesKey(for: episode)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true && Self.seriesKey(for: record.item) == key
+        }
+        if position + 1 < episodes.count {
+            queueAsUpNext(ProviderVOD.item(for: episodes[position + 1], of: show, provider: profileID),
+                          explicitlyUnwatched: false)
+        }
+        persistLocalPlayback()
+    }
+
+    private static let providerOrder = ["imdb", "tmdb", "tvdb"]
+
+    private static func providerLabel(_ provider: String) -> String {
+        switch provider {
+        case "imdb": "IMDb"
+        case "tmdb": "TMDB"
+        default: "TVDB"
+        }
+    }
+
+    /// The AIOStreams ids a title's provider ids pack into, IMDb's first:
+    /// every stream addon answers for an IMDb id, and not every one for the
+    /// others.
+    private static func aiostreamsIDs(of ids: [String: String], as kind: AIOStreamsItemID.Kind,
+                                      season: Int? = nil, episode: Int? = nil) -> [(id: String, label: String)] {
+        providerOrder.compactMap { provider -> (id: String, label: String)? in
+            guard let value = ids[provider],
+                  let id = AIOStreamsItemID.make(kind, provider: provider, value: value,
+                                                 season: season, episode: episode) else { return nil }
+            return (id, providerLabel(provider) + " " + value)
+        }
+    }
+
+    /// A result as the line about a title not found names it: "“Dune” (2021)".
+    private static func described(_ item: MediaItem) -> String {
+        "“\(item.name)”" + (item.productionYear.map { " (\($0))" } ?? "")
     }
 
     // MARK: - Plumbing
@@ -1852,7 +2495,7 @@ final class MediaLibrary: ObservableObject {
 
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
         let selections = savedShelves()
-        if let saved = selections[profileID.uuidString] {
+        if let saved = selections[profileID.uuidString], !saved.isEmpty {
             return saved.compactMap { id in roots.first { $0.id == id } }
         }
 
@@ -1864,7 +2507,11 @@ final class MediaLibrary: ObservableObject {
             let name = root.name.lowercased()
             return name.contains("trending") && (name.contains("series") || name.contains("show") || name.contains("tv"))
         }
-        let defaults = [movie, series].compactMap { $0 }
+        var defaults = [movie, series].compactMap { $0 }
+        // A server with nothing named trending still shows its own first
+        // libraries: added beside another server, it must not be invisible in
+        // the Library until someone goes looking for Add Shelf.
+        if defaults.isEmpty { defaults = Array(roots.prefix(2)) }
         saveShelfIDs(defaults.map(\.id), profileID: profileID)
         return defaults
     }
