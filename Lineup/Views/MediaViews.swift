@@ -112,7 +112,12 @@ struct MediaServersView: View {
             // leaving the tab mid-load used to cancel it and leave the tab
             // stuck on its spinner. The store owns the load and decides whether
             // one is needed; appearing only asks.
-            .onAppear { media.loadShelvesIfNeeded() }
+            .onAppear {
+                media.loadShelvesIfNeeded()
+                // The IPTV provider's list is read ahead, so the first title
+                // played does not wait on all of it.
+                media.providerVOD.prefetch()
+            }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
@@ -3370,14 +3375,25 @@ private struct MediaSourcePicker: View {
         let library = media
         let title = item
         let servers = library.streamServers(for: title)
-        pendingServers = servers.count
+        // The IPTV provider is asked too, after every server, about its own
+        // copy of a film or an episode.
+        let provider = library.streamProvider(for: title)
+        pendingServers = servers.count + (provider == nil ? 0 : 1)
         serverStatus = servers.map { StreamServerStatus(id: $0.id, name: $0.name, phase: .looking) }
+            + (provider.map { [StreamServerStatus(id: $0.id, name: $0.name, phase: .looking)] } ?? [])
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
         await withTaskGroup(of: (Int, Result<[MediaPlaybackSource], Error>).self) { group in
             for (index, server) in servers.enumerated() {
                 group.addTask {
                     do { return (index, .success(try await library.playbackSources(for: title, on: server))) }
+                    catch { return (index, .failure(error)) }
+                }
+            }
+            if provider != nil {
+                let index = servers.count
+                group.addTask {
+                    do { return (index, .success(try await library.providerSources(for: title))) }
                     catch { return (index, .failure(error)) }
                 }
             }
@@ -3530,8 +3546,9 @@ private struct MediaSourcePicker: View {
     }
 
     /// Which server a stream comes from, once there is more than one it could.
+    /// The IPTV provider is always named: it is never the only place.
     private func serverLabel(for source: MediaPlaybackSource) -> String? {
-        media.profiles.count > 1 ? source.serverName : nil
+        media.profiles.count > 1 || source.directURL != nil ? source.serverName : nil
     }
 
     private func providerChip(title: String, count: Int, provider: String?) -> some View {

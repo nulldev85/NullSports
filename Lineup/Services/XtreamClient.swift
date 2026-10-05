@@ -105,10 +105,67 @@ struct XtreamClient {
         return .fresh(XtreamPayload(value: programs, digest: fresh, bytes: data.count))
     }
 
+    // MARK: - Video library
+
+    /// Every film the provider has. On a large provider that is tens of
+    /// thousands of entries and several megabytes, so it gets longer than a
+    /// channel list does.
+    func vodStreams() async throws -> [XtreamVODStream] {
+        try Self.decodeList(try await payload(action: "get_vod_streams", timeout: 90))
+    }
+
+    /// Every show the provider has.
+    func series() async throws -> [XtreamSeries] {
+        try Self.decodeList(try await payload(action: "get_series", timeout: 90))
+    }
+
+    /// One show's episodes, season by season.
+    func seriesInfo(seriesID: Int) async throws -> XtreamSeriesInfo {
+        let data = try await payload(action: "get_series_info",
+            extra: [URLQueryItem(name: "series_id", value: String(seriesID))], timeout: 30)
+        do { return try JSONDecoder().decode(XtreamSeriesInfo.self, from: data) }
+        catch { throw XtreamError.invalidResponse }
+    }
+
+    func vodCategories() async throws -> [XtreamCategory] {
+        try Self.decodeList(try await payload(action: "get_vod_categories"))
+    }
+
+    func seriesCategories() async throws -> [XtreamCategory] {
+        try Self.decodeList(try await payload(action: "get_series_categories"))
+    }
+
+    /// Where a film plays from: `/movie/<user>/<password>/<id>.<extension>`.
+    func movieURL(for film: XtreamVODStream) -> URL? {
+        mediaURL(kind: "movie", id: String(film.streamID), container: film.containerExtension)
+    }
+
+    /// Where an episode plays from: `/series/<user>/<password>/<id>.<extension>`.
+    func episodeURL(for episode: XtreamEpisode) -> URL? {
+        mediaURL(kind: "series", id: episode.id, container: episode.containerExtension)
+    }
+
+    private func mediaURL(kind: String, id: String, container: String?) -> URL? {
+        guard let base = normalizedBaseURL else { return nil }
+        let ext = container?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return base.appendingPathComponent(kind)
+            .appendingPathComponent(profile.username)
+            .appendingPathComponent(password)
+            .appendingPathComponent(ext.isEmpty ? id : "\(id).\(ext)")
+    }
+
+    /// A list whose entries are read one at a time, so an entry that will not
+    /// read is dropped rather than failing the list.
+    private static func decodeList<T: Decodable & Sendable>(_ data: Data) throws -> [T] {
+        do { return try JSONDecoder().decode([Lenient<T>].self, from: data).compactMap(\.value) }
+        catch { throw XtreamError.invalidResponse }
+    }
+
     /// The bytes an action answers with, before anything has been made of
     /// them. Both request paths go through here so the digest is taken of
     /// exactly what arrived.
-    private func payload(action: String?) async throws -> Data {
+    private func payload(action: String?, extra: [URLQueryItem] = [],
+                         timeout: TimeInterval = 20) async throws -> Data {
         guard let base = normalizedBaseURL,
               var components = URLComponents(url: base.appendingPathComponent("player_api.php"), resolvingAgainstBaseURL: false)
         else { throw XtreamError.invalidServer }
@@ -117,11 +174,11 @@ struct XtreamClient {
             URLQueryItem(name: "password", value: password)
         ]
         if let action { items.append(URLQueryItem(name: "action", value: action)) }
-        components.queryItems = items
+        components.queryItems = items + extra
         guard let url = components.url else { throw XtreamError.invalidServer }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

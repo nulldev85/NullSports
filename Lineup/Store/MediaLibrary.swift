@@ -135,9 +135,13 @@ final class MediaLibrary: ObservableObject {
     private var counterparts: [String: CachedCounterpart] = [:]
     /// Which kind of server each one is, as it said when first asked.
     private var serverKinds: [UUID: MediaServerKind] = [:]
+    /// The IPTV provider's films and shows: one more place a title's streams
+    /// can come from.
+    let providerVOD: ProviderVOD
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
@@ -1751,8 +1755,9 @@ final class MediaLibrary: ObservableObject {
     }
 
     /// Where a stream plays from: the server that offered it, as its copy of
-    /// the title.
+    /// the title, or the provider's own address for one of its films.
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
+        if let direct = source.directURL { return direct }
         let offering = source.serverID.flatMap { id in profiles.first { $0.id == id } }
         guard let profile = offering ?? profile(for: item) else { return nil }
         return try? client(for: profile).playbackURL(itemID: source.itemID ?? item.id,
@@ -1945,6 +1950,91 @@ final class MediaLibrary: ObservableObject {
         }
         lookup.missingEpisode = "Has the show, not \(place)"
         return nil
+    }
+
+    // MARK: - The IPTV provider's films and shows
+
+    /// The IPTV provider, as one more place to look for a film's or an
+    /// episode's streams, when one is signed in.
+    func streamProvider(for item: MediaItem) -> (id: UUID, name: String)? {
+        guard item.type == "Movie" || item.type == "Episode",
+              let profile = providerVOD.provider?.profile else { return nil }
+        return (profile.id, profile.name)
+    }
+
+    /// The provider's streams for a title: each of its films that is this
+    /// film, or this episode in each of its shows that is this show, played
+    /// from the provider directly.
+    func providerSources(for item: MediaItem) async throws -> [MediaPlaybackSource] {
+        guard let provider = providerVOD.provider else {
+            throw StreamLookupError.notOnServer(tried: "No IPTV provider is signed in")
+        }
+        let (catalog, index) = try await providerVOD.catalog()
+        if item.type == "Episode" {
+            guard let season = item.parentIndexNumber, let number = item.indexNumber,
+                  let showName = item.seriesName, !showName.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: "Its own server gives it no season and number")
+            }
+            // The show as its own server describes it, for its TMDB id.
+            var show = MediaItem(id: item.seriesID ?? "", name: showName, type: "Series",
+                                 overview: nil, productionYear: nil, primaryImageAspectRatio: nil,
+                                 childCount: nil, serverID: item.serverID)
+            if item.seriesID != nil, let described = try? await details(of: show) { show = described }
+            let shows = index.shows(for: show, in: catalog)
+            guard !shows.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: Self.providerMiss(for: show, among: catalog.shows.count,
+                                                                             kind: "shows"))
+            }
+            var sources: [MediaPlaybackSource] = []
+            for series in shows.prefix(4) {
+                guard let episodes = try? await providerVOD.episodes(of: series) else { continue }
+                for episode in episodes where episode.season == season && episode.episodeNumber == number {
+                    guard let url = provider.client.episodeURL(for: episode) else { continue }
+                    sources.append(Self.providerSource(id: "series-\(series.seriesID)-\(episode.id)",
+                        title: series.name + " · " + episode.title, container: episode.containerExtension,
+                        url: url, provider: provider.profile))
+                }
+            }
+            guard !sources.isEmpty else {
+                throw StreamLookupError.notOnServer(tried: "Has the show, not "
+                    + (item.episodeCode ?? "S\(season)E\(number)"))
+            }
+            return sources
+        }
+        let films = index.films(for: item, in: catalog)
+        let sources = films.compactMap { film -> MediaPlaybackSource? in
+            guard let url = provider.client.movieURL(for: film) else { return nil }
+            return Self.providerSource(id: "movie-\(film.streamID)", title: film.name,
+                                       container: film.containerExtension, url: url, provider: provider.profile)
+        }
+        guard !sources.isEmpty else {
+            throw StreamLookupError.notOnServer(tried: Self.providerMiss(for: item, among: catalog.films.count,
+                                                                         kind: "films"))
+        }
+        return sources
+    }
+
+    /// A provider's film or episode as a stream in the list: its own name as
+    /// the release, "IPTV" as where it comes from, the provider as its server.
+    private static func providerSource(id: String, title: String, container: String?, url: URL,
+                                       provider: XtreamProfile) -> MediaPlaybackSource {
+        var source = MediaPlaybackSource(
+            sourceID: id, name: title, path: nil, container: container, size: nil, bitrate: nil,
+            remux: MediaPlaybackSource.RemuxInfo(providerInfo: MediaPlaybackSource.ProviderInfo(
+                source: "IPTV", filename: title, description: nil)))
+        source.serverID = provider.id
+        source.serverName = provider.name
+        source.directURL = url
+        return source
+    }
+
+    /// What the provider's list was searched for, for the line that says it
+    /// has nothing: "Searched 41,203 films for TMDB 693134 and “Dune: Part Two”".
+    private static func providerMiss(for title: MediaItem, among count: Int, kind: String) -> String {
+        var wanted: [String] = []
+        if let tmdb = MediaTitleMatch.providerIDs(of: title)["tmdb"] { wanted.append("TMDB " + tmdb) }
+        wanted.append("“\(title.name)”" + (title.productionYear.map { " (\($0))" } ?? ""))
+        return "Searched \(count.formatted()) \(kind) for " + wanted.joined(separator: " and ")
     }
 
     private static let providerOrder = ["imdb", "tmdb", "tvdb"]

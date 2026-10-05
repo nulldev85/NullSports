@@ -100,8 +100,19 @@ final class SportsLibrary: ObservableObject {
 
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
-    private let profilesKey = "NullSports.profiles"
-    private let activeKey = "NullSports.activeProfile"
+    private let profilesKey = Self.storedProfilesKey
+    private let activeKey = Self.storedActiveKey
+    nonisolated private static let storedProfilesKey = "NullSports.profiles"
+    nonisolated private static let storedActiveKey = "NullSports.activeProfile"
+
+    /// The provider in use, as saved -- for the Library, which plays the same
+    /// provider's films and shows without holding this store.
+    nonisolated static func storedActiveProfile(in defaults: UserDefaults) -> XtreamProfile? {
+        guard let data = defaults.data(forKey: storedProfilesKey),
+              let saved = try? JSONDecoder().decode([XtreamProfile].self, from: data) else { return nil }
+        let activeID = defaults.string(forKey: storedActiveKey).flatMap(UUID.init(uuidString:))
+        return saved.first { $0.id == activeID } ?? saved.first
+    }
     private let favoritesKey = "NullSports.favoriteStreams"
     private let teamPreferencesKey = "NullSports.teamChannelPreferences"
     private let gameChannelSelectionsKey = "NullSports.gameChannelSelections"

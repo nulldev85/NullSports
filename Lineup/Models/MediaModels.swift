@@ -825,6 +825,9 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     var serverID: UUID? = nil
     var serverName: String? = nil
     var itemID: String? = nil
+    /// Where a stream that no media server serves plays from: the IPTV
+    /// provider's own address for a film or an episode.
+    var directURL: URL? = nil
 
     /// Unique across servers, which can number their streams alike.
     var id: String { (serverID?.uuidString ?? "") + "|" + sourceID }
