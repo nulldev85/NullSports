@@ -49,7 +49,10 @@ struct MobilePlayerView: View {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
                     Button("Retry", systemImage: "arrow.clockwise") {
-                        controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
+                        // A title picks up where it was when it stopped, not
+                        // where it was when the player opened.
+                        controller.start(urls: urls, initialPosition: isLive ? nil
+                            : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition))
                     }
                         .buttonStyle(.borderedProminent)
                 }.padding(32)
@@ -189,6 +192,12 @@ struct MobilePlayerView: View {
             hideControlsTask?.cancel()
         }
         .onChange(of: controller.progress) { _, _ in reportProgress() }
+        // A title played to its end is saved as watched and the player closes.
+        .onChange(of: controller.finished) { _, finished in
+            guard finished else { return }
+            reportProgress(force: true)
+            exit()
+        }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
         // whether this transition touches playback at all.
         .onChange(of: scenePhase) { _, phase in

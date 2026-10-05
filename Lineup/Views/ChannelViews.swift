@@ -5149,11 +5149,19 @@ struct PlayerView: View {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
-                             channelID: channelID)
+                             channelID: channelID, isLive: isLive)
             revealControls(focus: true)
         }
         .onDisappear { reportProgress(force: true); hideControlsTask?.cancel(); controller.stop() }
         .onChange(of: controller.elapsed) { _, _ in reportProgress() }
+        // A film or an episode played to its end is saved as watched and the
+        // player closes, as it would on the remote's Menu button.
+        .onChange(of: controller.finished) { _, finished in
+            guard finished else { return }
+            reportProgress(force: true)
+            controller.stop()
+            dismiss()
+        }
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -5516,6 +5524,14 @@ private struct TVPlayerMenuLabel: View {
     private var pausedByUser = false
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
+    /// A channel, or a film or an episode. A channel that stops is
+    /// reconnected at the live edge. A recorded title that stops is reopened
+    /// where it was, and one that reaches its end has finished, not failed.
+    private var isLive = true
+    /// Where to put a recorded title back once its stream has reopened.
+    private var reopenPosition: TimeInterval?
+    /// A recorded title played to its end. The player closes on it.
+    @Published private(set) var finished = false
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
@@ -5559,10 +5575,12 @@ private struct TVPlayerMenuLabel: View {
     }
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
-               channelID: Int? = nil, resetFailover: Bool = true) {
+               channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true) {
         stop()
         self.urls = Array(urls.reversed())
         self.muted = muted
+        self.isLive = isLive
+        finished = false
         currentChannelID = channelID
         if resetFailover {
             failoverState.reset()
@@ -5593,7 +5611,7 @@ private struct TVPlayerMenuLabel: View {
         media.addOption(":live-caching=5000")
         media.addOption(":http-reconnect=true")
         player.media = media
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+        health = freshHealth()
         retryAt = nil
         setMuted(muted)
         player.audio?.volume = targetVolume
@@ -5607,6 +5625,20 @@ private struct TVPlayerMenuLabel: View {
     private func updateProgress() {
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 { duration = length }
+        if let reopenPosition {
+            // Until the reopened stream is back where it was, its clock reads
+            // from the beginning, and showing or saving that would lose the
+            // viewer's place. The last good position stands in meanwhile.
+            // Only the reopened stream is moved: until it is playing, the
+            // stopped one is still the player's media, and moving that does
+            // nothing.
+            guard retryAt == nil, player.isPlaying, length > 0 else { return }
+            let target = min(max(reopenPosition, 0), max(duration - 1, 0))
+            player.position = Float(target / duration)
+            elapsed = target
+            self.reopenPosition = nil
+            return
+        }
         if duration > 0, !appliedInitialPosition, let requestedInitialPosition,
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
             let target = min(max(requestedInitialPosition, 0), duration - 1)
@@ -5637,7 +5669,7 @@ private struct TVPlayerMenuLabel: View {
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard UIApplication.shared.applicationState == .active else {
-            health = LivePlaybackHealth(now: now)
+            health = freshHealth()
             return
         }
         if let retryAt {
@@ -5645,6 +5677,13 @@ private struct TVPlayerMenuLabel: View {
             return
         }
         let failed = player.state == .error || player.state == .ended || player.state == .stopped
+        // A film or an episode that stops at its end has finished. The same
+        // stop anywhere earlier is a dropped stream, reopened below.
+        if !isLive, failed, reopenPosition == nil, duration > 0,
+           elapsed >= duration - 15 || player.position >= 0.99 {
+            finish()
+            return
+        }
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
             time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
         if health.isStable(now: now) {
@@ -5662,6 +5701,11 @@ private struct TVPlayerMenuLabel: View {
         }
         guard recover else { return }
         player.stop()
+        // A recorded title goes back to where it was, not to its beginning:
+        // reconnecting a film used to start it over.
+        if !isLive, reopenPosition == nil, elapsed > 0 {
+            reopenPosition = max(0, elapsed - 2)
+        }
         guard let delay = retries.nextDelay() else {
             if switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
@@ -5744,7 +5788,11 @@ private struct TVPlayerMenuLabel: View {
         audio.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
-    func retry() { start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID) }
+    func retry() {
+        let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
+        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive)
+        reopenPosition = place
+    }
     func goLive() {
         guard !urls.isEmpty else { return }
         start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID)
@@ -5753,7 +5801,7 @@ private struct TVPlayerMenuLabel: View {
         pausedByUser.toggle()
         if pausedByUser { player.pause() }
         else {
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
+            health = freshHealth()
             if retryAt == nil { player.play() }
         }
         isPlaying = player.isPlaying
@@ -5827,6 +5875,7 @@ private struct TVPlayerMenuLabel: View {
         fadeTask?.cancel()
         fadeTask = nil
         retryAt = nil
+        reopenPosition = nil
         pendingWorkingChannelID = nil
         urls = []
         pausedByUser = false
@@ -5838,6 +5887,25 @@ private struct TVPlayerMenuLabel: View {
         resetSubtitles()
         player.stop()
         player.media = nil
+    }
+
+    /// A channel's picture standing still for twelve seconds means the feed is
+    /// gone. A film on a slow link can buffer for longer and come back by
+    /// itself, and reopening it costs the buffer it was filling.
+    private func freshHealth() -> LivePlaybackHealth {
+        LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+    }
+
+    /// The end of a film or an episode: the monitor stops, and the position
+    /// reads as the end, so it is saved as watched.
+    private func finish() {
+        monitor?.cancel()
+        monitor = nil
+        retryAt = nil
+        reconnecting = false
+        isPlaying = false
+        elapsed = duration
+        finished = true
     }
 }
 

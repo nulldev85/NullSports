@@ -3,14 +3,56 @@ import SwiftUI
 import UIKit
 #endif
 
+/// A title somebody chose to play.
+struct MediaPlayRequest: Identifiable {
+    let item: MediaItem
+    let id = UUID()
+}
+
+/// Opens a title's streams from the Library tab itself, rather than from the
+/// poster that was chosen.
+///
+/// The stream list, and the player it opens, live as long as whatever
+/// presented them, and a poster in a row is a poor owner. The rows are lazy
+/// and let go of a poster that moves out of reach, and Continue Watching
+/// reorders itself as a title plays and drops an episode the moment it counts
+/// as watched -- three or four minutes before its end. Each of those took the
+/// player with it, mid-episode. The tab outlives all of that.
+struct MediaPlayAction {
+    let play: (MediaItem) -> Void
+    func callAsFunction(_ item: MediaItem) { play(item) }
+}
+
+private struct MediaPlayActionKey: EnvironmentKey {
+    static let defaultValue: MediaPlayAction? = nil
+}
+
+extension EnvironmentValues {
+    var playMedia: MediaPlayAction? {
+        get { self[MediaPlayActionKey.self] }
+        set { self[MediaPlayActionKey.self] = newValue }
+    }
+}
+
 struct MediaServersView: View {
     @EnvironmentObject private var media: MediaLibrary
     @State private var addingServer = false
     @State private var choosingShelf = false
     @State private var clearingHistory = false
     @State private var searchingLibrary = false
+    @State private var playing: MediaPlayRequest?
 
     var body: some View {
+        stack
+            .environment(\.playMedia, MediaPlayAction { playing = MediaPlayRequest(item: $0) })
+            #if os(tvOS)
+            .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            #else
+            .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            #endif
+    }
+
+    private var stack: some View {
         NavigationStack {
             Group {
             #if os(tvOS)
@@ -2480,14 +2522,17 @@ private struct MediaEpisodeCard: View {
 
 private struct MediaPlayableCard: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.playMedia) private var playMedia
     let item: MediaItem
     var shape: MediaArtShape = .poster
     var onFocusChange: ((Bool) -> Void)? = nil
+    /// Only for a card shown outside the Library tab, which has no tab to
+    /// hand the title to.
     @State private var choosingSource = false
 
     var body: some View {
         #if os(tvOS)
-        TVSelectable(drawsFocusChrome: false, action: { choosingSource = true }, onFocusChange: onFocusChange) {
+        TVSelectable(drawsFocusChrome: false, action: choose, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
             .contextMenu { libraryActions }
@@ -2495,13 +2540,18 @@ private struct MediaPlayableCard: View {
                 MediaSourcePicker(item: item)
             }
         #else
-        Button { choosingSource = true } label: { MediaItemCard(item: item, shape: shape) }
+        Button(action: choose) { MediaItemCard(item: item, shape: shape) }
             .lineupFlatButton()
             .contextMenu { libraryActions }
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #endif
+    }
+
+    /// The Library tab opens the streams, so the player outlives this card.
+    private func choose() {
+        if let playMedia { playMedia(item) } else { choosingSource = true }
     }
     @ViewBuilder
     private var libraryActions: some View {
