@@ -201,6 +201,23 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(vod.group, "VOD")
     }
 
+    // An AIOStreams stream plays from its own address, as the server would
+    // only redirect there; any other server's path is its own business.
+    func testOnlyAnAIOStreamsStreamPlaysFromItsOwnAddress() throws {
+        let decoder = JSONDecoder()
+        func source(_ json: String) throws -> MediaPlaybackSource {
+            try decoder.decode(MediaPlaybackSource.self, from: Data(json.utf8))
+        }
+        let aio = try source(#"{"Id":"b","Path":"https://cdn.example/Mutiny.mkv?token=x","aiostreams":{"addon":"Torrentio"}}"#)
+        XCTAssertEqual(MediaLibrary.ownAddress(of: aio)?.absoluteString, "https://cdn.example/Mutiny.mkv?token=x")
+        let remux = try source(#"{"Id":"a","Path":"/remux/source-1/Movie","Remux":{"ProviderInfo":{"source":"StreamNZB"}}}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: remux))
+        let jellyfin = try source(#"{"Id":"c","Path":"https://lan.example/strm/film.mkv"}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: jellyfin), "Only AIOStreams' paths are known to be playable addresses")
+        let notAnAddress = try source(#"{"Id":"d","Path":"/videos/no-streams","aiostreams":{"addon":"Notice"}}"#)
+        XCTAssertNil(MediaLibrary.ownAddress(of: notAnAddress))
+    }
+
     func testAnItemsServerSurvivesTheLaunchCache() throws {
         let server = UUID()
         let item = movie("a", "Film", year: 2020, server: server)

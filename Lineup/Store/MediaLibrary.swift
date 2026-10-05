@@ -1821,10 +1821,24 @@ final class MediaLibrary: ObservableObject {
     /// the title, or the provider's own address for one of its films.
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
         if let direct = source.directURL { return direct }
+        // AIOStreams gives each stream's own address as its path, and its
+        // stream route only looks the stream up again and redirects there:
+        // going straight to it saves a round trip to the server on every start.
+        if let own = Self.ownAddress(of: source) { return own }
         let offering = source.serverID.flatMap { id in profiles.first { $0.id == id } }
         guard let profile = offering ?? profile(for: item) else { return nil }
         return try? client(for: profile).playbackURL(itemID: source.itemID ?? item.id,
                                                      mediaSourceID: source.sourceID)
+    }
+
+    /// An AIOStreams stream's own address: its path, when that is a web
+    /// address. A path on any other server is the server's own business --
+    /// a file on its disk, or a route of its own.
+    nonisolated static func ownAddress(of source: MediaPlaybackSource) -> URL? {
+        guard source.aiostreams != nil, let path = source.path, let url = URL(string: path),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              url.host != nil else { return nil }
+        return url
     }
 
     /// Which kind of server a profile is, asked of the server once a session.

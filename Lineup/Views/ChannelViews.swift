@@ -5607,8 +5607,21 @@ private struct TVPlayerMenuLabel: View {
         player.stop()
         resetSubtitles()
         let media = VLCMedia(url: urls[urlIndex])
-        media.addOption(":network-caching=5000")
-        media.addOption(":live-caching=5000")
+        if isLive {
+            media.addOption(":network-caching=5000")
+            media.addOption(":live-caching=5000")
+        } else {
+            // A film or an episode starts on two seconds of buffer, not a
+            // channel's five: a media server's file arrives faster than it
+            // plays, so every second asked for here was a second of waiting
+            // before the picture. A drop is carried by the reopen below, not
+            // by a deep buffer.
+            media.addOption(":network-caching=2000")
+            // Opened at its place -- where it was left off, or where it was
+            // when it dropped -- rather than at its beginning and then moved,
+            // which buffered it twice.
+            if let place = openingPlace { media.addOption(":start-time=\(place)") }
+        }
         media.addOption(":http-reconnect=true")
         player.media = media
         health = freshHealth()
@@ -5620,34 +5633,61 @@ private struct TVPlayerMenuLabel: View {
         player.audio?.volume = targetVolume
     }
 
+    /// Where a recorded title's stream is opened: back where it was after a
+    /// drop, or where it was left off.
+    private var openingPlace: TimeInterval? {
+        if let reopenPosition { return reopenPosition }
+        guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
+            return nil
+        }
+        return requestedInitialPosition
+    }
+
+    /// Whether a stream asked to open at a place did. The first frames land on
+    /// the keyframe before it, so close counts; a stream that ignored the
+    /// request starts at its beginning instead, and is moved.
+    private func opened(at place: TimeInterval, time: TimeInterval) -> Bool {
+        abs(time - place) <= 15
+    }
+
     /// Position has to keep updating while paused too, so the bar still reads
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 { duration = length }
+        let time = Double(player.time.intValue) / 1000
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
-            // from the beginning, and showing or saving that would lose the
+            // from nothing, and showing or saving that would lose the
             // viewer's place. The last good position stands in meanwhile.
-            // Only the reopened stream is moved: until it is playing, the
-            // stopped one is still the player's media, and moving that does
-            // nothing.
-            guard retryAt == nil, player.isPlaying, length > 0 else { return }
+            // Only the reopened stream is judged: until it is playing, the
+            // stopped one is still the player's media.
+            guard retryAt == nil, player.isPlaying, length > 0, time > 0 else { return }
             let target = min(max(reopenPosition, 0), max(duration - 1, 0))
-            player.position = Float(target / duration)
-            elapsed = target
+            if opened(at: target, time: time) {
+                elapsed = time
+            } else {
+                player.position = Float(target / duration)
+                elapsed = target
+            }
             self.reopenPosition = nil
             return
         }
         if duration > 0, !appliedInitialPosition, let requestedInitialPosition,
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
+            // The place it was left off holds the bar until the picture is
+            // there, rather than a zero that jumps.
+            guard player.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
             let target = min(max(requestedInitialPosition, 0), duration - 1)
-            player.position = Float(target / duration)
-            elapsed = target
+            if opened(at: target, time: time) {
+                elapsed = time
+            } else {
+                player.position = Float(target / duration)
+                elapsed = target
+            }
             appliedInitialPosition = true
             return
         }
-        let time = Double(player.time.intValue) / 1000
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
 
@@ -5790,8 +5830,9 @@ private struct TVPlayerMenuLabel: View {
     func toggleMute() { setMuted(!muted) }
     func retry() {
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
-        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive)
-        reopenPosition = place
+        // Asked for before the stream opens, so it opens there.
+        start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
+              channelID: currentChannelID, isLive: isLive)
     }
     func goLive() {
         guard !urls.isEmpty else { return }

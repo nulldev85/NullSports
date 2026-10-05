@@ -253,6 +253,16 @@ final class MobilePlaybackController: ObservableObject {
             // viewer's place. The last good position stands in meanwhile.
             let playing = engine == .vlc ? player.isPlaying : systemPlayer.timeControlStatus == .playing
             guard retryAt == nil, playing, let sampled else { return }
+            // VLC was opened there; only a stream that would not start there
+            // is moved, which would buffer it a second time.
+            if engine == .vlc {
+                guard sampled.position > 0 else { return }
+                if Self.opened(at: reopenPosition, position: sampled.position) {
+                    progress = sampled
+                    self.reopenPosition = nil
+                    return
+                }
+            }
             progress = MobilePlaybackProgress(position: min(reopenPosition, sampled.duration),
                                               duration: sampled.duration)
             self.reopenPosition = nil
@@ -262,9 +272,34 @@ final class MobilePlaybackController: ObservableObject {
         progress = sampled
         if !appliedInitialPosition, let requestedInitialPosition, let progress,
            requestedInitialPosition >= 10, requestedInitialPosition < progress.duration - 30 {
+            if engine == .vlc {
+                guard player.isPlaying, progress.position > 0 else { return }
+                if Self.opened(at: requestedInitialPosition, position: progress.position) {
+                    appliedInitialPosition = true
+                    return
+                }
+            }
             appliedInitialPosition = true
             seek(to: requestedInitialPosition)
         }
+    }
+
+    /// Where a title's stream is opened: back where it was after a drop, or
+    /// where it was left off. VLC starts there itself; AVPlayer is moved
+    /// there once it is ready.
+    private var openingPlace: TimeInterval? {
+        if let reopenPosition { return reopenPosition }
+        guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
+            return nil
+        }
+        return requestedInitialPosition
+    }
+
+    /// Whether a stream asked to open at a place did. The first frames land
+    /// on the keyframe before it, so close counts; a stream that ignored the
+    /// request starts at its beginning instead.
+    private static func opened(at place: TimeInterval, position: TimeInterval) -> Bool {
+        abs(position - place) <= 15
     }
 
     /// Hold the sampled position still while a finger is on the scrubber, so
@@ -568,6 +603,9 @@ final class MobilePlaybackController: ObservableObject {
             // number to move if either complaint comes back.
             media.addOption(":network-caching=3000")
             media.addOption(":file-caching=3000")
+            // Opened at its place rather than at its beginning and then
+            // moved, which buffered it twice before the first frame.
+            if let place = openingPlace { media.addOption(":start-time=\(place)") }
         }
         media.addOption(":http-reconnect=true")
         player.media = media
