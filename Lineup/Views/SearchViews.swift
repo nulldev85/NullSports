@@ -58,8 +58,10 @@ struct AppSearchView: View {
         .confirmationDialog(choice.map(choiceTitle) ?? "", isPresented: Binding(
             get: { choice != nil }, set: { if !$0 { choice = nil } }
         ), titleVisibility: .visible, presenting: choice) { hit in
+            // Only what is not on yet is asked about, so the channel is tuned
+            // for what it shows now rather than for the game.
             if let station = channel(of: hit) {
-                Button("Watch \(station.name) Now") { tune(station, game: game(of: hit)) }
+                Button("Watch \(station.name) Now") { tune(station, game: nil) }
             }
             Button("Cancel", role: .cancel) { }
         } message: { hit in
@@ -142,7 +144,13 @@ struct AppSearchView: View {
         case .airing(let program, let channel, _, _):
             if program.isLive { tune(channel, game: nil) } else { choice = hit }
         case .game(let game, let channel):
-            if game.isLive, let channel { tune(channel, game: game) } else { choice = hit }
+            // The channel the Live tab would play: one chosen for this game
+            // before, or the match it has checked; else the one the row names.
+            if game.isLive, let station = library.resolvedStream(for: game) ?? channel {
+                tune(station, game: game)
+            } else {
+                choice = hit
+            }
         }
     }
 
@@ -162,11 +170,6 @@ struct AppSearchView: View {
         case .channel(let channel, _, _): channel
         case .title, .vod: nil
         }
-    }
-
-    private func game(of hit: AppSearchHit) -> SportsGame? {
-        if case .game(let game, _) = hit.kind { return game }
-        return nil
     }
 
     private func choiceTitle(_ hit: AppSearchHit) -> String {
@@ -277,8 +280,7 @@ struct AppSearchView: View {
                 AppSearchWaiting(text: "Searching " + serverNames + "…")
                     .padding(.horizontal, Metrics.inset)
             } else {
-                AppSearchEmpty(title: "No \(kind.title.lowercased()) for “\(searchedTerm)”",
-                               detail: emptyDetail(kind))
+                AppSearchEmpty(title: emptyTitle(kind), detail: emptyDetail(kind))
             }
         } else {
             switch kind {
@@ -287,6 +289,15 @@ struct AppSearchView: View {
             case .live:
                 liveSections(hits)
             }
+        }
+    }
+
+    private func emptyTitle(_ kind: AppSearchCategory) -> String {
+        switch kind {
+        case .movies: "No movies for “\(searchedTerm)”"
+        case .shows: "No shows for “\(searchedTerm)”"
+        case .live: "Nothing on Live TV for “\(searchedTerm)”"
+        case .vod: "Nothing in VOD for “\(searchedTerm)”"
         }
     }
 
