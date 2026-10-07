@@ -675,7 +675,6 @@ private struct AppSearchPrompt: View {
         .frame(maxWidth: .infinity)
         .padding(.top, AppSearchMetrics.promptTop)
         .padding(.horizontal, AppSearchMetrics.inset)
-        .mediaFocusAnchor()
     }
 }
 
@@ -689,7 +688,6 @@ private struct AppSearchWaiting: View {
                 .foregroundStyle(LineupStyle.secondary)
         }
         .padding(.vertical, 8)
-        .mediaFocusAnchor()
     }
 }
 
@@ -712,7 +710,6 @@ private struct AppSearchEmpty: View {
         .frame(maxWidth: .infinity)
         .padding(.top, AppSearchMetrics.promptTop / 2)
         .padding(.horizontal, AppSearchMetrics.inset)
-        .mediaFocusAnchor()
     }
 }
 
