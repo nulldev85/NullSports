@@ -1352,7 +1352,7 @@ private struct MediaGridScreen: View {
 /// A series or a film opens to its own page; anything else is still a grid of
 /// what is inside it. All of it is registered under one item type, so the
 /// choice has to be made here rather than at the link.
-private struct MediaBrowseDestination: View {
+struct MediaBrowseDestination: View {
     let item: MediaItem
 
     var body: some View {
@@ -4392,7 +4392,7 @@ private struct BadgeFlow: Layout {
 /// An episode's primary image is a 16:9 still and a movie's is a portrait poster.
 /// Choosing per item is what left a shelf ragged, so a screen picks one shape
 /// from what it is showing and every card on it is cut to that shape.
-private enum MediaArtShape {
+enum MediaArtShape {
     case poster
     case still
 
@@ -4406,7 +4406,7 @@ private enum MediaArtShape {
     }
 }
 
-private struct MediaItemCard: View {
+struct MediaItemCard: View {
     @EnvironmentObject private var media: MediaLibrary
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused

@@ -1351,6 +1351,20 @@ final class MediaLibrary: ObservableObject {
     func search(_ query: String) async throws -> [SearchGroup] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
+        let servers = await searchServers(term)
+        var groups = servers.groups
+        // The IPTV provider's films and shows, after every server's.
+        if let provider = await providerSearchGroup(term) { groups.append(provider) }
+        if groups.isEmpty, let error = servers.error { throw error }
+        return groups
+    }
+
+    /// The media servers' answers alone, each server's kept together, with
+    /// the first error a server gave -- which matters only when none of them
+    /// found anything.
+    func searchServers(_ query: String) async -> (groups: [SearchGroup], error: Error?) {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return ([], nil) }
         let shelved = shelves.flatMap(\.items).filter {
             $0.hasDetailPage && $0.name.localizedStandardContains(term)
         }
@@ -1393,10 +1407,7 @@ final class MediaLibrary: ObservableObject {
                 groups.append(SearchGroup(serverID: profile.id, serverName: profile.name, items: items))
             }
         }
-        // The IPTV provider's films and shows, after every server's.
-        if let provider = await providerSearchGroup(term) { groups.append(provider) }
-        if groups.isEmpty, let serverError { throw serverError }
-        return groups
+        return (groups, serverError)
     }
 
     // MARK: - Shelves
@@ -2349,6 +2360,29 @@ final class MediaLibrary: ObservableObject {
         saved[provider.uuidString] = ids.isEmpty ? nil : ids
         defaults.set(try? JSONEncoder().encode(saved), forKey: providerShelvesKey)
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// The provider's films and shows whose names hold a search, films first,
+    /// each with the category the provider files it under -- which is where
+    /// it is on the provider's shelves.
+    func searchProviderVOD(_ term: String) async -> [(item: MediaItem, group: String?)] {
+        guard let profile = providerVOD.profile,
+              let loaded = try? await providerVOD.catalog() else { return [] }
+        let catalog = loaded.catalog
+        let found = loaded.index.search(term, in: catalog)
+        let filmGroups = Dictionary(catalog.filmCategories.map { ($0.categoryID, $0.categoryName) },
+                                    uniquingKeysWith: { first, _ in first })
+        let showGroups = Dictionary(catalog.showCategories.map { ($0.categoryID, $0.categoryName) },
+                                    uniquingKeysWith: { first, _ in first })
+        let films: [(item: MediaItem, group: String?)] = found.films.map { film in
+            (item: ProviderVOD.item(for: film, provider: profile.id),
+             group: film.categoryID.flatMap { filmGroups[$0] })
+        }
+        let shows: [(item: MediaItem, group: String?)] = found.shows.map { show in
+            (item: ProviderVOD.item(for: show, provider: profile.id),
+             group: show.categoryID.flatMap { showGroups[$0] })
+        }
+        return films + shows
     }
 
     /// The provider's films and shows whose names hold a search, as one group.
