@@ -31,6 +31,11 @@ struct MainView: View {
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
+            // Everything at once -- the Library, live TV, the guide and VOD --
+            // each result saying which of the other tabs it lives in.
+            AppSearchView { playing = $0 }
+                .lineupThemeScope(selectedTheme)
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
