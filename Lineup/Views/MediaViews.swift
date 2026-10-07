@@ -503,7 +503,12 @@ private struct TVMediaServersHome: View {
     @Binding var choosingShelf: Bool
     @Binding var searchingLibrary: Bool
     @State private var optionsVisible = false
+    @State private var removingShelf = false
     @State private var clearingHistory = false
+
+    /// Whether the shelves are on screen, with the Library's actions above
+    /// them; the corner button stands in for those actions everywhere else.
+    private var showsShelves: Bool { media.hasAnySource && !media.roots.isEmpty }
 
     var body: some View {
         Group {
@@ -528,47 +533,60 @@ private struct TVMediaServersHome: View {
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
+                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary,
+                                    actions: TVLibraryActions(
+                                        addShelf: { choosingShelf = true },
+                                        removeShelf: { removingShelf = true },
+                                        refresh: { Task { await media.reload() } },
+                                        more: { optionsVisible = true }))
             }
         }
         .overlay(alignment: .top) {
-            // The button sits in a row the width of the screen, and the row is
-            // what focus is guided into: pressing up from any shelf reaches the
-            // options. On its own in the corner, over the preview, it could be
-            // reached only from beneath it, so removing a shelf looked gone.
-            HStack {
-                Spacer()
-                TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
-                    Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
-                        .modifier(MediaChromeSurface(radius: 12))
-                        .accessibilityLabel("Library Options")
+            // Only where there are no shelves -- and so no row of actions
+            // above them -- for adding a server or refreshing.
+            if !showsShelves && media.hasAnySource {
+                HStack {
+                    Spacer()
+                    TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
+                        Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
+                            .modifier(MediaChromeSurface(radius: 12))
+                            .accessibilityLabel("Library Options")
+                    }
                 }
+                .padding(.trailing, 54).padding(.top, 18)
+                .lineupFocusRegion()
             }
-            .padding(.trailing, 54).padding(.top, 18)
-            .lineupFocusRegion()
-            .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
-                Button("Search", systemImage: "magnifyingglass") { searchingLibrary = true }
-                    .disabled(media.shelves.isEmpty)
-                Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                    .disabled(!media.hasAnySource)
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                    .disabled(media.isLoading || !media.hasAnySource)
-                Button("Add Server", systemImage: "plus") { addingServer = true }
-                ForEach(media.shelves) { shelf in
-                    Button("Remove " + media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
-                }
-                if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                    Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
-                }
-                Button("Cancel", role: .cancel) { }
+        }
+        .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
+            Button("Search the Library", systemImage: "magnifyingglass") { searchingLibrary = true }
+                .disabled(media.shelves.isEmpty)
+            Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
+                .disabled(!media.hasAnySource)
+            if !media.shelves.isEmpty {
+                Button("Remove a Shelf", systemImage: "minus.rectangle") { removingShelf = true }
             }
-            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                                titleVisibility: .visible) {
-                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes Continue Watching and local watched status from this Apple TV.")
+            Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
+                .disabled(media.isLoading || !media.hasAnySource)
+            Button("Add Server", systemImage: "plus") { addingServer = true }
+            if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+                Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
             }
+            Button("Cancel", role: .cancel) { }
+        }
+        .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
+            ForEach(media.shelves) { shelf in
+                Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Its titles stay on your server; only the shelf leaves the Library.")
+        }
+        .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
+                            titleVisibility: .visible) {
+            Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes Continue Watching and local watched status from this Apple TV.")
         }
         .background(
             ZStack {
@@ -577,6 +595,48 @@ private struct TVMediaServersHome: View {
                     center: .topTrailing, startRadius: 30, endRadius: 760)
             }.ignoresSafeArea()
         )
+    }
+}
+
+/// What the Library's row of actions does, handed down from the screen that
+/// owns the sheets and lists they open.
+struct TVLibraryActions {
+    let addShelf: () -> Void
+    let removeShelf: () -> Void
+    let refresh: () -> Void
+    let more: () -> Void
+}
+
+/// The Library's actions as a row of chips above the first shelf, where the
+/// remote reaches them by pressing up from any shelf.
+private struct TVLibraryActionRow: View {
+    let actions: TVLibraryActions
+    let canRemove: Bool
+
+    var body: some View {
+        HStack(spacing: 16) {
+            chip("Add Shelf", symbol: "plus.rectangle.on.rectangle", action: actions.addShelf)
+            if canRemove {
+                chip("Remove Shelf", symbol: "minus.rectangle", action: actions.removeShelf)
+            }
+            chip("Refresh", symbol: "arrow.clockwise", action: actions.refresh)
+            chip("More", symbol: "ellipsis", action: actions.more)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 54)
+        .padding(.vertical, 6)
+        // The whole width is one region, so focus moving up from a poster at
+        // either edge of a shelf comes into the row.
+        .lineupFocusRegion()
+    }
+
+    private func chip(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        TVSelectable(scale: LineupStyle.controlLift, action: action) {
+            MediaChromeLabel {
+                Label(title, systemImage: symbol)
+                    .font(.inter(15, .semibold))
+            }
+        }
     }
 }
 
@@ -637,6 +697,10 @@ private struct MediaCatalogsScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
+    #if os(tvOS)
+    /// The Library's own actions, drawn as a row above the first shelf.
+    var actions: TVLibraryActions? = nil
+    #endif
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
     // typing otherwise launches and cancels a network search for every letter.
@@ -708,8 +772,16 @@ private struct MediaCatalogsScreen: View {
             } else {
                 if catalogs.isEmpty && continueWatching.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
-                    ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
-                        description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                    VStack(spacing: 0) {
+                        #if os(tvOS)
+                        if let actions {
+                            TVLibraryActionRow(actions: actions, canRemove: false)
+                                .padding(.top, 40)
+                        }
+                        #endif
+                        ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                            description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                    }
                 } else {
                     #if os(tvOS)
                     ZStack(alignment: .top) {
@@ -717,6 +789,13 @@ private struct MediaCatalogsScreen: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                                 Color.clear.frame(height: tvPreviewHeight)
+                                // Directly above the first shelf, the width of
+                                // the screen: pressing up from any shelf lands
+                                // on it, where a button alone in the corner
+                                // over the preview could hardly be reached.
+                                if let actions {
+                                    TVLibraryActionRow(actions: actions, canRemove: !catalogs.isEmpty)
+                                }
                                 libraryShelves
                             }
                             .padding(.bottom, 44)
