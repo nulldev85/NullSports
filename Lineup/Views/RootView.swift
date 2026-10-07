@@ -82,6 +82,12 @@ struct MainView: View {
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
                 .tag(2)
+            // Everything at once -- the Library, live TV, the guide and VOD --
+            // each result saying which of the other tabs it lives in.
+            AppSearchView()
+                .lineupThemeScope(selectedTheme)
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(4)
             AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Account", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
