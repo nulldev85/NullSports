@@ -43,7 +43,41 @@ enum XtreamAnswer<Value: Sendable>: Sendable {
     }
 }
 
+/// How much of a download has arrived, for a refresh's percentage.
+struct XtreamDownloadUpdate: Sendable {
+    let received: Int64
+    /// The size the server gave, or nil when it did not say.
+    let expected: Int64?
+    /// The last word on a download: `received` is everything that came.
+    let finished: Bool
+}
+
+/// Hands back the task an async `data(for:delegate:)` call makes, so how much
+/// of it has arrived can be read while the call is still waiting.
+///
+/// Read from a clock rather than told about each chunk: a ninety-megabyte
+/// guide arrives in tens of thousands of chunks, and the download should not
+/// slow down to report on itself.
+private final class XtreamDownloadWatcher: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionTask?
+
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        lock.withLock { self.task = task }
+    }
+
+    var counts: (received: Int64, expected: Int64)? {
+        lock.withLock {
+            task.map { (received: $0.countOfBytesReceived, expected: $0.countOfBytesExpectedToReceive) }
+        }
+    }
+}
+
 struct XtreamClient {
+    /// Told how a download is going, on the main actor, a few times a second
+    /// and once more when it is done.
+    typealias DownloadProgress = @MainActor @Sendable (XtreamDownloadUpdate) -> Void
+
     let profile: XtreamProfile
     let password: String
 
@@ -57,8 +91,9 @@ struct XtreamClient {
 
     /// On a large provider this list is the bulk of a refresh, and decoding it
     /// only to find it unchanged was most of what a refresh did.
-    func streams(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[XtreamStream]> {
-        try await request(action: "get_live_streams", ifChangedFrom: digest)
+    func streams(ifChangedFrom digest: String?,
+                 progress: DownloadProgress? = nil) async throws -> XtreamAnswer<[XtreamStream]> {
+        try await request(action: "get_live_streams", ifChangedFrom: digest, progress: progress)
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
@@ -81,7 +116,8 @@ struct XtreamClient {
     /// keeps whatever the last parse kept. That is exactly what the app did
     /// before when it found the guide unchanged, and nothing reads past the
     /// hour of history the Guide draws.
-    func programsToday(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[String: [CurrentProgram]]> {
+    func programsToday(ifChangedFrom digest: String?,
+                       progress: DownloadProgress? = nil) async throws -> XtreamAnswer<[String: [CurrentProgram]]> {
         guard let base = normalizedBaseURL,
               var components = URLComponents(url: base.appendingPathComponent("xmltv.php"), resolvingAgainstBaseURL: false)
         else { throw XtreamError.invalidServer }
@@ -93,7 +129,7 @@ struct XtreamClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 45
         request.cachePolicy = .reloadRevalidatingCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.data(for: request, progress: progress)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw XtreamError.serverRejected
         }
@@ -175,7 +211,7 @@ struct XtreamClient {
     /// them. Both request paths go through here so the digest is taken of
     /// exactly what arrived.
     private func payload(action: String?, extra: [URLQueryItem] = [],
-                         timeout: TimeInterval = 20) async throws -> Data {
+                         timeout: TimeInterval = 20, progress: DownloadProgress? = nil) async throws -> Data {
         guard let base = normalizedBaseURL,
               var components = URLComponents(url: base.appendingPathComponent("player_api.php"), resolvingAgainstBaseURL: false)
         else { throw XtreamError.invalidServer }
@@ -190,11 +226,42 @@ struct XtreamClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.data(for: request, progress: progress)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw XtreamError.serverRejected
         }
         return data
+    }
+
+    /// What a request answers with, reporting to `progress`, when there is
+    /// one, how much has arrived as it arrives.
+    private static func data(for request: URLRequest, progress: DownloadProgress?) async throws -> (Data, URLResponse) {
+        guard let progress else { return try await URLSession.shared.data(for: request) }
+        let watcher = XtreamDownloadWatcher()
+        let ticker = Task.detached(priority: .utility) {
+            while !Task.isCancelled {
+                if let counts = watcher.counts {
+                    await progress(XtreamDownloadUpdate(received: counts.received,
+                                                        expected: counts.expected > 0 ? counts.expected : nil,
+                                                        finished: false))
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        let answer: (Data, URLResponse)
+        do {
+            answer = try await URLSession.shared.data(for: request, delegate: watcher)
+        } catch {
+            ticker.cancel()
+            throw error
+        }
+        // The ticker is stopped before the last word, so nothing it was
+        // about to say can arrive after it.
+        ticker.cancel()
+        await ticker.value
+        let received = watcher.counts?.received ?? Int64(answer.0.count)
+        await progress(XtreamDownloadUpdate(received: received, expected: received, finished: true))
+        return answer
     }
 
     private func request<T: Decodable>(action: String?) async throws -> T {
@@ -203,9 +270,9 @@ struct XtreamClient {
         catch { throw XtreamError.invalidResponse }
     }
 
-    private func request<T: Decodable & Sendable>(action: String?,
-                                                 ifChangedFrom digest: String?) async throws -> XtreamAnswer<T> {
-        let data = try await payload(action: action)
+    private func request<T: Decodable & Sendable>(action: String?, ifChangedFrom digest: String?,
+                                                 progress: DownloadProgress? = nil) async throws -> XtreamAnswer<T> {
+        let data = try await payload(action: action, progress: progress)
         let fresh = XtreamPayloadDigest.of(data)
         if let digest, digest == fresh { return .unchanged(bytes: data.count) }
         do {

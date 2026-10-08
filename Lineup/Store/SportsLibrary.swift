@@ -97,6 +97,9 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isGuideLoading = false
     @Published var errorMessage: String?
+    /// How far a refresh of the channel list, the guide and the matches has
+    /// got, for the "Refreshing Data" pop-up. Watched by the pop-up alone.
+    let refreshProgress = DataRefreshProgress()
 
     // Named for the app's old name on purpose: this is where existing installs
     // already keep their data, and renaming the key would hide it from them.
@@ -141,7 +144,14 @@ final class SportsLibrary: ObservableObject {
     private var scheduleDay: Date?
     private var bootstrapInFlight = false
     private var libraryRefreshInFlight = false
-    @Published private var channelMatchingWorkCount = 0
+    @Published private var channelMatchingWorkCount = 0 {
+        didSet {
+            // Matching a refresh sets off is part of it. Matching on its own
+            // -- after a score changed -- starts no refresh of its own.
+            if oldValue == 0, channelMatchingWorkCount > 0 { refreshProgress.start(.matching) }
+            if oldValue > 0, channelMatchingWorkCount == 0 { refreshProgress.finish(.matching) }
+        }
+    }
     private var cacheWriteTask: Task<Void, Never>?
     private var guideRefresh: Task<Void, Never>?
     /// Discards the answer from a promote pass that a newer one has overtaken.
@@ -589,7 +599,21 @@ final class SportsLibrary: ObservableObject {
         guard !libraryRefreshInFlight,
               let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
         libraryRefreshInFlight = true
-        defer { libraryRefreshInFlight = false }
+        defer {
+            libraryRefreshInFlight = false
+            refreshProgress.settle()
+        }
+        // Said in the pop-up when the app sets out to bring everything up to
+        // date. A top-up behind a game about to start runs every two minutes
+        // while it waits for that game's channel; announcing each of those
+        // would be a pop-up that never went away.
+        if invalidatesSession {
+            var steps: [DataRefreshProgress.Step] = [.matching]
+            if refreshChannels { steps.append(.channels) }
+            if forceGuide && !isGuideLoading { steps += [.guide, .guideReading] }
+            refreshProgress.plan(steps, profile: profile.id)
+            if channelMatchingWorkCount > 0 { refreshProgress.start(.matching) }
+        }
         if refreshChannels && invalidatesSession {
             channelsValidatedThisSession = false
             fastValidatedGameIDs = []
@@ -600,6 +624,9 @@ final class SportsLibrary: ObservableObject {
         let client = XtreamClient(profile: profile, password: password)
         if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         guard refreshChannels else { return }
+        refreshProgress.start(.channels)
+        defer { refreshProgress.finish(.channels) }
+        let progress = refreshProgress
         do {
             // nil back means the server sent the same bytes as last time, so
             // there is nothing to decode and nothing to compare -- which on a
@@ -611,9 +638,12 @@ final class SportsLibrary: ObservableObject {
                 async let loadedCategories = client.categories(
                     ifChangedFrom: LibraryCachePolicy.digest(categoriesDigest,
                                                              whenHolding: !categories.isEmpty))
+                // The list of channels is the bulk of this, and what the
+                // percentage follows; the categories are a few kilobytes.
                 async let loadedStreams = client.streams(
                     ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
-                                                             whenHolding: !streams.isEmpty))
+                                                             whenHolding: !streams.isEmpty),
+                    progress: { progress.download(.channels, $0) })
                 return try await (loadedCategories, loadedStreams)
             }
             let (freshCategories, freshStreams) = answers
@@ -684,10 +714,14 @@ final class SportsLibrary: ObservableObject {
     private func refreshGuide(client: XtreamClient, profileID: UUID) -> Task<Void, Never>? {
         guard !isGuideLoading else { return nil }
         isGuideLoading = true
+        refreshProgress.start(.guide)
+        let progress = refreshProgress
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
+                progress.finish(.guide)
+                progress.finish(.guideReading)
             }
             // Keep the last good guide and its timestamp when a refresh fails.
             // A thrown error and an unchanged guide are different answers: the
@@ -703,7 +737,14 @@ final class SportsLibrary: ObservableObject {
                 // XMLTV parse. Two very different costs, so the note below
                 // says which one was paid.
                 answer = try await trace.measure("fetch guide") {
-                    try await client.programsToday(ifChangedFrom: ask)
+                    try await client.programsToday(ifChangedFrom: ask, progress: { update in
+                        progress.download(.guide, update)
+                        // Once it has all arrived, what is left is reading it.
+                        if update.finished {
+                            progress.finish(.guide)
+                            progress.start(.guideReading)
+                        }
+                    })
                 }
             } catch { return }
             trace.note("guide downloaded",
@@ -720,6 +761,10 @@ final class SportsLibrary: ObservableObject {
                 guard self.activeProfile?.id == profileID else { return }
                 self.guideDigest = fresh.digest
                 if changed { self.programsByChannel = programs }
+                progress.finish(.guideReading)
+            } else {
+                // The same bytes as last time: there was nothing to read.
+                progress.skip(.guideReading)
             }
             self.guideUpdatedAt = Date()
             if changed {
