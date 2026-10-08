@@ -101,6 +101,9 @@ struct MainView: View {
         .toolbar(.visible, for: .tabBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
+        // Beside the tab bar, where the set's own notices appear, over every
+        // tab. A player covers it: they are all full-screen presentations.
+        .overlay(alignment: .topTrailing) { DataRefreshPopup() }
     }
 }
 #endif

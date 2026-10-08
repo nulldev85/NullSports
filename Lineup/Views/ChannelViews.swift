@@ -307,69 +307,6 @@ private struct LiveBoardHeading: View {
     }
 }
 
-/// Matches are unavailable while channels, guide or matching are in flight, so
-/// the board says so rather than showing every game as having no channel.
-private struct RefreshingStreamsLabel: View {
-    /// Where it is standing. In a heading it is a footnote beside other text;
-    /// alone in the middle of a dark screen it is the only thing there, and a
-    /// footnote sized for a heading reads as a fault rather than an answer.
-    enum Size { case inline, screen }
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-    @State private var pinging = false
-    var size: Size = .inline
-
-    private var isScreen: Bool { size == .screen }
-    private var dot: CGFloat { isScreen ? 9 : 7 }
-    private var type: CGFloat { isScreen ? 18 : 13 }
-
-    var body: some View {
-        HStack(spacing: isScreen ? 15 : 10) {
-            mark
-            // Monospaced, because the rest of the app reads a number that way
-            // and this is the set reporting on itself rather than talking.
-            Text("REFRESHING STREAMS")
-                // The one deliberate exception to Inter: on the screen this
-                // line is the app reporting on itself, and a monospaced cut is
-                // what makes it read that way. Inline, where it sits beside
-                // ordinary text, it matches everything else.
-                .font(isScreen ? .system(size: type, weight: .bold, design: .monospaced)
-                               : .inter(type, .bold))
-                .tracking(isScreen ? 3.5 : 2)
-        }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(isScreen ? 0.92 : 0.75))
-        // On the screen the dot carries the motion. Dimming the words as well
-        // was two things blinking out of step with each other.
-        .opacity(isScreen || reduceMotion || !dimmed ? 1 : 0.32)
-        .animation(reduceMotion || isScreen ? nil
-                   : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
-        .onAppear { dimmed = true; pinging = true }
-        .accessibilityLabel("Refreshing streams")
-    }
-
-    /// A ping rather than a blink: a ring leaves the dot and fades, which is
-    /// what looking for something looks like.
-    @ViewBuilder private var mark: some View {
-        if isScreen {
-            ZStack {
-                Circle().stroke(LineupStyle.live, lineWidth: 1.5)
-                    .frame(width: dot, height: dot)
-                    .scaleEffect(pinging && !reduceMotion ? 3.2 : 1)
-                    .opacity(pinging && !reduceMotion ? 0 : 0.85)
-                    .animation(reduceMotion ? nil
-                               : .easeOut(duration: 1.8).repeatForever(autoreverses: false),
-                               value: pinging)
-                Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
-                    .shadow(color: LineupStyle.live.opacity(0.6), radius: 7)
-            }
-            .frame(width: dot * 3.2, height: dot * 3.2)
-        } else {
-            Circle().fill(LineupStyle.live).frame(width: dot, height: dot)
-        }
-    }
-}
-
 /// A band of the theme's colour crossing the dark screen, over and over.
 ///
 /// The app's own mark is a line travelling across a guide, and so is the line
@@ -672,7 +609,7 @@ private struct LiveMonitor: View {
                     .transition(.opacity)
             } else {
                 LiveEmptySlate(isLoading: isScheduleLoading, isAvailable: isScheduleAvailable,
-                               errorMessage: scheduleErrorMessage, isPreparingStreams: isPreparingStreams)
+                               errorMessage: scheduleErrorMessage)
             }
             // Looking for channels is what this screen is for while nothing
             // plays, and the screen is where someone waiting is looking.
@@ -993,9 +930,8 @@ private struct LiveActionHint: View {
     let hint: LiveHint
 
     var body: some View {
-        if hint == .refreshing {
-            RefreshingStreamsLabel(size: .screen)
-        } else {
+        // While channels refresh, the pop-up at the top of the screen says so.
+        if hint != .refreshing {
             HStack(spacing: 10) {
                 Image(systemName: hint == .secondGame ? "rectangle.split.2x1.fill" : "play.fill")
                     .font(.system(size: 14, weight: .bold))
@@ -1016,7 +952,6 @@ private struct LiveEmptySlate: View {
     let isLoading: Bool
     let isAvailable: Bool
     let errorMessage: String?
-    let isPreparingStreams: Bool
 
     var body: some View {
         ZStack {
@@ -1035,9 +970,6 @@ private struct LiveEmptySlate: View {
                     .font(.inter(21)).foregroundStyle(LivePalette.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 680)
-                if isPreparingStreams {
-                    RefreshingStreamsLabel(size: .screen).padding(.top, 6)
-                }
             }
             .padding(48)
         }
@@ -2545,9 +2477,6 @@ struct GuideView: View {
                         searchActive: $searchActive,
                         query: $query,
                         multiviewTitle: multiviewPrimary?.name,
-                        isLoading: GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
-                                                            isLoading: library.isLoading,
-                                                            isGuideLoading: library.isGuideLoading),
                         now: guideNow,
                         onCancelMultiview: { multiviewPrimary = nil }
                     )
@@ -2844,7 +2773,6 @@ private struct GuideControlBar: View {
     @Binding var searchActive: Bool
     @Binding var query: String
     let multiviewTitle: String?
-    let isLoading: Bool
     let now: Date
     let onCancelMultiview: () -> Void
 
@@ -2869,13 +2797,6 @@ private struct GuideControlBar: View {
                 GuideTitleBlock(eyebrow: "GUIDE", title: title)
             }
             Spacer(minLength: 12)
-            if isLoading {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("UPDATING").font(.inter(13, .bold)).tracking(1.6)
-                }
-                .foregroundStyle(GuidePalette.secondary)
-            }
             Text("\(channelCount) CHANNELS")
                 .font(.inter(13, .bold)).tracking(1.6)
                 .foregroundStyle(GuidePalette.secondary)
@@ -4523,7 +4444,6 @@ private struct MatchDiagnosticsView: View {
             HStack(alignment: .firstTextBaseline, spacing: 24) {
                 ScreenHeading(title: "Channel matching", detail: "The rule that chose each game's channel")
                 Spacer()
-                if !library.automaticMatchingReady { RefreshingStreamsLabel() }
             }
             if games.isEmpty {
                 Text("No live or upcoming games to match.").foregroundColor(LineupStyle.lightPurple)
