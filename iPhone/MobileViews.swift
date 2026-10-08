@@ -44,6 +44,16 @@ struct MainView: View {
         // from outline to fill, with white providing the quiet emphasis.
         .tint(.white)
         .lineupTabBarBackground(LineupStyle.background)
+        // Over every tab while channels, the guide and the matches refresh.
+        // Never over a picture: the full-screen player covers it, and it
+        // stands aside while the inline player fills the screen.
+        .overlay(alignment: .top) {
+            if !inlinePlayerFullscreen {
+                DataRefreshPopup()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+            }
+        }
         .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
         .ignoresSafeArea(inlinePlayerFullscreen ? .all : [], edges: .all)

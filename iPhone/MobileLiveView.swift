@@ -349,18 +349,9 @@ struct MobileLiveView: View {
     /// connection all remain the same objects throughout the transition.
     private func slateList(_ slate: Slate) -> some View {
         ScrollView {
+            // A refresh of the channels is said in the pop-up at the top of the
+            // screen, not in a line of its own above the games.
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                switch LiveSyncBanner.choose(
-                    isInitialProviderSync: library.isInitialProviderSync,
-                    hasContent: library.hasRestoredCache,
-                    isScheduleLoading: library.isScheduleLoading,
-                    isLoading: library.isLoading,
-                    channelsAreSyncing: library.channelsAreSyncing) {
-                case .initialSync: InitialSyncBanner()
-                case .background: BackgroundRefreshBanner()
-                case .refreshing: RefreshingStreamsBanner()
-                case .none: EmptyView()
-                }
                 if let error = library.scheduleErrorMessage {
                     Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
@@ -692,60 +683,3 @@ private struct MobileLeagueLogo: View {
     }
 }
 
-/// Shown while channels, guide or matching are still in flight. Matching is what
-/// decides a game's channel, so it stays up until that settles — otherwise a game
-/// with no channel yet is indistinguishable from one with no channel at all.
-/// The one wait a viewer genuinely has to sit through: a provider with nothing
-/// cached. Names the stage and keeps moving, so it never reads as a freeze.
-private struct InitialSyncBanner: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView().controlSize(.regular)
-            Text("SETTING UP YOUR PROVIDER").font(.inter(10, .bold)).tracking(1.6)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
-            Text("Lineup is downloading your channel list and guide, then matching channels to today's games. This happens once — later launches open straight from the last sync.")
-                .font(.inter(.caption))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(LineupStyle.secondary)
-                .padding(.horizontal, 28)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Cache is already on screen and usable; this is only a footnote.
-private struct BackgroundRefreshBanner: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.mini)
-            Text("UPDATING IN BACKGROUND").font(.inter(10, .bold)).tracking(1.6)
-        }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .accessibilityLabel("Updating in the background. Everything on screen is usable.")
-    }
-}
-
-private struct RefreshingStreamsBanner: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(LineupStyle.live).frame(width: 6, height: 6)
-            Text("REFRESHING STREAMS").font(.inter(10, .bold)).tracking(1.6)
-        }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.75))
-        .opacity(reduceMotion || !dimmed ? 1 : 0.32)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dimmed)
-        .onAppear { dimmed = true }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .accessibilityLabel("Refreshing streams")
-    }
-}

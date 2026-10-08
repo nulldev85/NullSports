@@ -72,11 +72,6 @@ struct MobileGuideView: View {
                                     .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
-                        if GuideSyncStatus.isWaiting(hasListings: !library.programsByChannel.isEmpty,
-                                                       isLoading: library.isLoading,
-                                                       isGuideLoading: library.isGuideLoading) {
-                            ProgressView("Updating guide…").font(.inter(.caption)).padding(8)
-                        }
                         if channels.isEmpty {
                             ContentUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
