@@ -136,6 +136,16 @@ final class MediaLibrary: ObservableObject {
     /// Each title's copy on each other server, once found, so playing it
     /// again does not search again.
     private var counterparts: [String: CachedCounterpart] = [:]
+    /// A title's ratings and when they were found, kept across launches so
+    /// the hero has its scores from its first frame and MDBList is not asked
+    /// twice about one title. Nil until first read from disk.
+    private struct StoredRatings: Codable, Sendable {
+        let ratings: MediaRatings
+        let foundAt: Date
+    }
+    private var ratingsCache: [String: StoredRatings]?
+    private var ratingsLookups: [String: Task<MediaRatings, Never>] = [:]
+    private var ratingsSave: Task<Void, Never>?
     /// Which kind of server each one is, as it said when first asked.
     private var serverKinds: [UUID: MediaServerKind] = [:]
     /// The IPTV provider's films and shows: one more place a title's streams
@@ -608,6 +618,88 @@ final class MediaLibrary: ObservableObject {
     func metrics(for item: MediaItem) async -> [MediaMetric] {
         guard let profile = profile(for: item) else { return [] }
         return (try? await client(for: profile).itemMetrics(itemID: item.id)) ?? []
+    }
+
+    // MARK: - Ratings
+
+    /// IMDb, TMDB and Rotten Tomatoes for a film or show. The server's own
+    /// per-source scores come first, where it keeps them; MDBList fills in
+    /// what they leave out when the viewer has connected it; what the title
+    /// carries itself fills in the rest.
+    func ratings(for item: MediaItem) async -> MediaRatings {
+        let key = item.libraryKey
+        if let stored = storedRatings[key],
+           Date().timeIntervalSince(stored.foundAt) < Self.ratingsLifetime(of: stored.ratings) {
+            return stored.ratings
+        }
+        if let running = ratingsLookups[key] { return await running.value }
+        let lookup = Task { await self.lookUpRatings(for: item) }
+        ratingsLookups[key] = lookup
+        let found = await lookup.value
+        ratingsLookups[key] = nil
+        storedRatings[key] = StoredRatings(ratings: found, foundAt: Date())
+        saveRatingsSoon()
+        return found
+    }
+
+    /// The ratings already known for a title, without asking anyone: what a
+    /// hero draws in its first frame.
+    func knownRatings(for item: MediaItem) -> MediaRatings? {
+        storedRatings[item.libraryKey]?.ratings
+    }
+
+    private func lookUpRatings(for item: MediaItem) async -> MediaRatings {
+        var found = item.isProviderTitle ? MediaRatings() : MediaRatings(metrics: await metrics(for: item))
+        // MDBList knows films and shows, not seasons or episodes.
+        if !found.isComplete, item.type == "Movie" || item.type == "Series",
+           let apiKey = MDBListKeychainStore.apiKey() {
+            let ids = MediaTitleMatch.providerIDs(of: item)
+            if let listed = try? await MDBListClient(apiKey: apiKey)
+                .ratings(imdbID: ids["imdb"], tmdbID: ids["tmdb"], isShow: item.type == "Series") {
+                found = found.filling(from: listed)
+            }
+        }
+        return found.filling(from: MediaRatings(item: item))
+    }
+
+    /// A full set holds for days. One with a gap is asked about again sooner,
+    /// in case the gap was a source that did not answer.
+    private static func ratingsLifetime(of ratings: MediaRatings) -> TimeInterval {
+        ratings.isComplete ? 3 * 24 * 60 * 60 : 12 * 60 * 60
+    }
+
+    private var storedRatings: [String: StoredRatings] {
+        get {
+            if let ratingsCache { return ratingsCache }
+            let read = (try? Data(contentsOf: Self.ratingsURL))
+                .flatMap { try? JSONDecoder().decode([String: StoredRatings].self, from: $0) } ?? [:]
+            ratingsCache = read
+            return read
+        }
+        set { ratingsCache = newValue }
+    }
+
+    /// Written a moment after a lookup rather than at once, so a hero finding
+    /// ten titles' ratings writes the file once.
+    private func saveRatingsSoon() {
+        guard ratingsSave == nil else { return }
+        ratingsSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self else { return }
+            self.ratingsSave = nil
+            let monthAgo = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+            let kept = self.storedRatings.filter { $0.value.foundAt > monthAgo }
+            let url = Self.ratingsURL
+            Task.detached(priority: .utility) {
+                guard let data = try? JSONEncoder().encode(kept) else { return }
+                try? data.write(to: url, options: .atomic)
+            }
+        }
+    }
+
+    nonisolated private static var ratingsURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-ratings.json")
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {

@@ -23,7 +23,12 @@ struct MobileLiveView: View {
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
     @State private var scopingSelection: PendingSelection?
-    @State private var playback = MobilePlaybackController()
+    @StateObject private var playbackSlot = MobilePlaybackSlot()
+    /// A new selection gets a new controller; see `MobilePlaybackSlot`.
+    private var playback: MobilePlaybackController {
+        get { playbackSlot.controller }
+        nonmutating set { playbackSlot.controller = newValue }
+    }
     @Namespace private var selection
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
