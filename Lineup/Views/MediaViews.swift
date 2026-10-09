@@ -502,13 +502,42 @@ private struct TVMediaServersHome: View {
     @Binding var addingServer: Bool
     @Binding var choosingShelf: Bool
     @Binding var searchingLibrary: Bool
-    @State private var optionsVisible = false
     @State private var removingShelf = false
     @State private var clearingHistory = false
 
-    /// Whether the shelves are on screen, with the Library's actions above
-    /// them; the corner button stands in for those actions everywhere else.
+    /// Whether the shelves are on screen, with the Library's menu at the top
+    /// right of the artwork above them; elsewhere the menu sits at the top.
     private var showsShelves: Bool { media.hasAnySource && !media.roots.isEmpty }
+
+    /// Everything the Library's menu offers, in the order it lists it.
+    private var options: [TVLibraryOption] {
+        var options: [TVLibraryOption] = []
+        if !media.shelves.isEmpty {
+            options.append(TVLibraryOption(title: "Search the Library", symbol: "magnifyingglass") {
+                searchingLibrary = true
+            })
+        }
+        options.append(TVLibraryOption(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") {
+            choosingShelf = true
+        })
+        if !media.shelves.isEmpty {
+            options.append(TVLibraryOption(title: "Remove a Shelf", symbol: "minus.rectangle") {
+                removingShelf = true
+            })
+        }
+        if !media.isLoading {
+            options.append(TVLibraryOption(title: "Refresh", symbol: "arrow.clockwise") {
+                Task { await media.reload() }
+            })
+        }
+        options.append(TVLibraryOption(title: "Add Server", symbol: "plus") { addingServer = true })
+        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+            options.append(TVLibraryOption(title: "Clear Local Tracking", symbol: "trash", destructive: true) {
+                clearingHistory = true
+            })
+        }
+        return options
+    }
 
     var body: some View {
         Group {
@@ -534,44 +563,15 @@ private struct TVMediaServersHome: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary,
-                                    actions: TVLibraryActions(
-                                        addShelf: { choosingShelf = true },
-                                        removeShelf: { removingShelf = true },
-                                        refresh: { Task { await media.reload() } },
-                                        more: { optionsVisible = true }))
+                                    options: options)
             }
         }
         .overlay(alignment: .top) {
-            // Only where there are no shelves -- and so no row of actions
-            // above them -- for adding a server or refreshing.
+            // Only where there are no shelves to hang it above: while the
+            // libraries load, or when none are found.
             if !showsShelves && media.hasAnySource {
-                HStack {
-                    Spacer()
-                    TVSelectable(scale: LineupStyle.controlLift, action: { optionsVisible = true }) {
-                        Image(systemName: "ellipsis.circle").frame(width: 48, height: 48)
-                            .modifier(MediaChromeSurface(radius: 12))
-                            .accessibilityLabel("Library Options")
-                    }
-                }
-                .padding(.trailing, 54).padding(.top, 18)
-                .lineupFocusRegion()
+                TVLibraryMenuBar(options: options).padding(.top, 18)
             }
-        }
-        .confirmationDialog("Library Options", isPresented: $optionsVisible, titleVisibility: .visible) {
-            Button("Search the Library", systemImage: "magnifyingglass") { searchingLibrary = true }
-                .disabled(media.shelves.isEmpty)
-            Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                .disabled(!media.hasAnySource)
-            if !media.shelves.isEmpty {
-                Button("Remove a Shelf", systemImage: "minus.rectangle") { removingShelf = true }
-            }
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                .disabled(media.isLoading || !media.hasAnySource)
-            Button("Add Server", systemImage: "plus") { addingServer = true }
-            if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                Button("Clear Local Tracking", role: .destructive) { clearingHistory = true }
-            }
-            Button("Cancel", role: .cancel) { }
         }
         .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
             ForEach(media.shelves) { shelf in
@@ -598,44 +598,95 @@ private struct TVMediaServersHome: View {
     }
 }
 
-/// What the Library's row of actions does, handed down from the screen that
-/// owns the sheets and lists they open.
-struct TVLibraryActions {
-    let addShelf: () -> Void
-    let removeShelf: () -> Void
-    let refresh: () -> Void
-    let more: () -> Void
+/// One thing the Library's menu offers.
+struct TVLibraryOption: Identifiable {
+    let title: String
+    let symbol: String
+    var destructive = false
+    let action: () -> Void
+    var id: String { title }
 }
 
-/// The Library's actions as a row of chips above the first shelf, where the
-/// remote reaches them by pressing up from any shelf.
-private struct TVLibraryActionRow: View {
-    let actions: TVLibraryActions
-    let canRemove: Bool
+/// The Library's menu: one button at the right of the screen that drops a
+/// list of the Library's actions beneath it.
+///
+/// A row of chips across the top of the shelves scrolled up over the title
+/// being previewed and covered its overview. One button at the right keeps
+/// clear of the preview, which is drawn from the left, and the whole width
+/// is one focus region, so pressing up from anywhere on the first shelf
+/// still lands on it.
+private struct TVLibraryMenuBar: View {
+    let options: [TVLibraryOption]
+    @State private var open = false
+    /// Which parts of the menu hold focus. When none does, focus has gone
+    /// elsewhere and the list closes behind it.
+    @State private var focused: Set<String> = []
 
     var body: some View {
-        HStack(spacing: 16) {
-            chip("Add Shelf", symbol: "plus.rectangle.on.rectangle", action: actions.addShelf)
-            if canRemove {
-                chip("Remove Shelf", symbol: "minus.rectangle", action: actions.removeShelf)
-            }
-            chip("Refresh", symbol: "arrow.clockwise", action: actions.refresh)
-            chip("More", symbol: "ellipsis", action: actions.more)
+        HStack(spacing: 0) {
             Spacer(minLength: 0)
+            TVSelectable(scale: LineupStyle.controlLift, action: { open.toggle() },
+                         onFocusChange: { track("menu", $0) }) {
+                MediaChromeLabel {
+                    HStack(spacing: 10) {
+                        Image(systemName: "slider.horizontal.3")
+                        Text("Library")
+                        Image(systemName: open ? "chevron.up" : "chevron.down")
+                            .font(.inter(13, .bold))
+                    }
+                    .font(.inter(16, .semibold))
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if open {
+                    panel
+                        .alignmentGuide(.top) { $0[.top] - 48 }
+                        .transition(.opacity.combined(with: .offset(y: -8)))
+                }
+            }
         }
         .padding(.horizontal, 54)
-        .padding(.vertical, 6)
-        // The whole width is one region, so focus moving up from a poster at
-        // either edge of a shelf comes into the row.
         .lineupFocusRegion()
+        .onExitCommand(perform: open ? { open = false } : nil)
+        .animation(.easeOut(duration: 0.16), value: open)
     }
 
-    private func chip(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        TVSelectable(scale: LineupStyle.controlLift, action: action) {
-            MediaChromeLabel {
-                Label(title, systemImage: symbol)
-                    .font(.inter(15, .semibold))
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                TVSelectable(scale: 1.02, fillRadius: 10,
+                             action: { open = false; option.action() },
+                             onFocusChange: { track(option.id, $0) },
+                             requestInitialFocus: index == 0) {
+                    HStack(spacing: 14) {
+                        Image(systemName: option.symbol)
+                            .frame(width: 28)
+                        Text(option.title)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.inter(17, .semibold))
+                    .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
+                    .padding(.horizontal, 16)
+                    .frame(width: 340, height: 50)
+                }
             }
+        }
+        .padding(8)
+        .background(LineupStyle.surface.opacity(0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+        .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
+        .fixedSize()
+    }
+
+    /// Notes where focus is, and closes the list a moment after it has left
+    /// every part of the menu -- the moment covers focus passing from one
+    /// row to the next, which reports the old row losing it first.
+    private func track(_ id: String, _ isFocused: Bool) {
+        if isFocused { focused.insert(id) } else { focused.remove(id) }
+        guard open, focused.isEmpty else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            if focused.isEmpty { open = false }
         }
     }
 }
@@ -698,8 +749,8 @@ private struct MediaCatalogsScreen: View {
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
     #if os(tvOS)
-    /// The Library's own actions, drawn as a row above the first shelf.
-    var actions: TVLibraryActions? = nil
+    /// What the Library's menu offers, at the right above the shelves.
+    var options: [TVLibraryOption]? = nil
     #endif
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
@@ -774,9 +825,10 @@ private struct MediaCatalogsScreen: View {
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
                     VStack(spacing: 0) {
                         #if os(tvOS)
-                        if let actions {
-                            TVLibraryActionRow(actions: actions, canRemove: false)
+                        if let options {
+                            TVLibraryMenuBar(options: options)
                                 .padding(.top, 40)
+                                .zIndex(1)
                         }
                         #endif
                         ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
@@ -789,13 +841,18 @@ private struct MediaCatalogsScreen: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                                 Color.clear.frame(height: tvPreviewHeight)
-                                // Directly above the first shelf, the width of
-                                // the screen: pressing up from any shelf lands
-                                // on it, where a button alone in the corner
-                                // over the preview could hardly be reached.
-                                if let actions {
-                                    TVLibraryActionRow(actions: actions, canRemove: !catalogs.isEmpty)
-                                }
+                                    // At the top right of the preview, clear
+                                    // of its title and overview on the left,
+                                    // and moving with the shelves so it never
+                                    // sits over them. It takes no room of its
+                                    // own, and its list opens over the
+                                    // artwork beneath it.
+                                    .overlay(alignment: .top) {
+                                        if let options {
+                                            TVLibraryMenuBar(options: options).padding(.top, 100)
+                                        }
+                                    }
+                                    .zIndex(1)
                                 libraryShelves
                             }
                             .padding(.bottom, 44)
@@ -1778,6 +1835,11 @@ private struct MediaDetailScreen: View {
     @FocusState private var backFocused: Bool
     #endif
     @State private var choosingSeason = false
+    #if !os(tvOS)
+    /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
+    /// page through the hero's own view, which finds them itself.
+    @State private var pageRatings: MediaRatings?
+    #endif
 
     private var subject: MediaItem { detail ?? item }
 
@@ -1799,6 +1861,9 @@ private struct MediaDetailScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        #if !os(tvOS)
+        .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
+        #endif
         #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
@@ -1817,6 +1882,9 @@ private struct MediaDetailScreen: View {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
                     Text(subject.name).font(titleFont)
+                    if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
+                        MediaRatingChips(ratings: ratings)
+                    }
                     metaLine
                     actions
                     overview
@@ -1846,8 +1914,9 @@ private struct MediaDetailScreen: View {
             TVMediaCinematicBackdrop(item: subject)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    // Room for the ratings above the year and genres.
                     TVMediaLibraryPreview(item: subject)
-                        .frame(height: 400)
+                        .frame(height: 460)
                         .allowsHitTesting(false)
                     tvActions.padding(.horizontal, horizontalPadding)
                     episodesSection
@@ -1991,8 +2060,7 @@ private struct MediaDetailScreen: View {
     }
 
     private var metaParts: [String] {
-        [subject.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
-         subject.productionYear.map(String.init),
+        [subject.productionYear.map(String.init),
          // Worth saying on a film, where a server reports one; a series has no
          // single running time and leaves this out.
          subject.formattedRuntime,
@@ -2833,23 +2901,24 @@ private struct TVMediaCinematicBackdrop: View {
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem?
+    /// Each title's ratings once found. The hero moves on every few seconds
+    /// and comes back round, and a title it has shown keeps its chips.
+    @State private var ratings: [String: MediaRatings] = [:]
 
     var body: some View {
         Group {
             if let item {
                 VStack(alignment: .leading, spacing: 13) {
                     titleLockup(item)
+                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
+                        MediaRatingChips(ratings: shown)
+                    }
                     if !metadata(item).isEmpty {
-                        HStack(spacing: 8) {
-                            ForEach(metadata(item), id: \.self) { value in
-                                Text(value)
-                                    .font(.inter(14, .semibold))
-                                    .padding(.horizontal, 10).frame(height: 28)
-                                    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 7))
-                                    .overlay(RoundedRectangle(cornerRadius: 7)
-                                        .stroke(.white.opacity(0.16), lineWidth: 1))
-                            }
-                        }
+                        Text(metadata(item).joined(separator: "  ·  "))
+                            .font(.inter(19, .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
+                            .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
                     }
                     if let overview = item.overview, !overview.isEmpty {
                         Text(overview)
@@ -2870,6 +2939,11 @@ private struct TVMediaLibraryPreview: View {
             }
         }
         .animation(.easeInOut(duration: 0.24), value: item?.id)
+        .task(id: item?.libraryKey) {
+            guard let item else { return }
+            let found = await media.ratings(for: item)
+            ratings[item.libraryKey] = found
+        }
     }
 
     @ViewBuilder
@@ -2889,11 +2963,10 @@ private struct TVMediaLibraryPreview: View {
         .frame(width: 620, height: 105, alignment: .leading)
     }
 
+    /// The year, the genres and the running time, under the ratings.
     private func metadata(_ item: MediaItem) -> [String] {
-        [item.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
-         item.criticRating.flatMap { $0 > 0 ? String(format: "RT %.0f%%", $0) : nil },
-         item.productionYear.map(String.init),
-         item.genres?.prefix(3).joined(separator: " · "),
+        [item.productionYear.map(String.init),
+         item.genres?.prefix(3).joined(separator: ", "),
          item.formattedRuntime,
          item.officialRating]
             .compactMap { $0 }.filter { !$0.isEmpty }
@@ -2936,6 +3009,8 @@ private struct MediaLibraryHero: View {
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
     @State private var index = 0
+    /// Each title's ratings once found, so a slide shown again has its chips.
+    @State private var ratings: [String: MediaRatings] = [:]
 
     private var items: [MediaItem] {
         MediaHeroCatalogSelection.featuredItems(in: catalog)
@@ -2990,6 +3065,17 @@ private struct MediaLibraryHero: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.45)) { move(1) }
         }
+        // The title on screen, then the one after it, so the next slide
+        // arrives with its chips already found.
+        .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
+            for offset in [index, index + 1] where items.indices.contains(offset) {
+                let item = items[offset]
+                guard ratings[item.libraryKey] == nil else { continue }
+                let found = await media.ratings(for: item)
+                guard !Task.isCancelled else { return }
+                ratings[item.libraryKey] = found
+            }
+        }
     }
 
     private func heroSlide(item: MediaItem, loadsArtwork: Bool = true) -> some View {
@@ -3041,6 +3127,10 @@ private struct MediaLibraryHero: View {
                         .frame(width: readableWidth, alignment: .leading)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
 
+                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
+                        MediaRatingChips(ratings: shown)
+                    }
+
                     if !metadata(for: item).isEmpty {
                         Text(metadata(for: item).joined(separator: "  ·  "))
                             .font(.inter(metaSize, .semibold))
@@ -3087,11 +3177,11 @@ private struct MediaLibraryHero: View {
         #endif
     }
 
+    /// The year, the genres and the running time, under the ratings.
     private func metadata(for item: MediaItem) -> [String] {
-        [item.type == "Series" ? "SERIES" : item.type.uppercased(),
-         item.productionYear.map(String.init),
-         item.formattedRuntime,
-         item.communityRating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
+        [item.productionYear.map(String.init),
+         item.genres?.prefix(3).joined(separator: ", "),
+         item.formattedRuntime]
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
 
@@ -4387,6 +4477,70 @@ private struct BadgeFlow: Layout {
         if !line.indices.isEmpty { lines.append(line) }
         return lines
     }
+}
+
+/// IMDb, TMDB and Rotten Tomatoes as dark chips, each source named in its
+/// own colour the way the sites' own badges are.
+struct MediaRatingChips: View {
+    let ratings: MediaRatings
+
+    private typealias Metrics = MediaRatingMetrics
+
+    var body: some View {
+        HStack(spacing: Metrics.gap) {
+            if let imdb = ratings.imdb {
+                chip("IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb), tint: Metrics.imdb)
+            }
+            if let tmdb = ratings.tmdb {
+                chip("TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb), tint: Metrics.tmdb)
+            }
+            if let tomatoes = ratings.rottenTomatoes {
+                chip("RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%", tint: Metrics.rottenTomatoes)
+            }
+        }
+        .fixedSize()
+    }
+
+    private func chip(_ source: String, spoken: String, value: String, tint: Color) -> some View {
+        HStack(spacing: Metrics.inner) {
+            Text(source)
+                .font(.inter(Metrics.sourceSize, .heavy))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.interDigits(Metrics.valueSize, .bold))
+                .foregroundStyle(Color.white)
+        }
+        .padding(.horizontal, Metrics.padding)
+        .frame(height: Metrics.height)
+        .background(Metrics.fill, in: RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(spoken) \(value)")
+    }
+}
+
+private enum MediaRatingMetrics {
+    // The sites' own colours: IMDb's yellow, TMDB's blue, the Tomatometer's red.
+    static let imdb = Color(red: 0.96, green: 0.77, blue: 0.09)
+    static let tmdb = Color(red: 0.0, green: 0.71, blue: 0.89)
+    static let rottenTomatoes = Color(red: 0.98, green: 0.24, blue: 0.1)
+    static let fill = Color(red: 0.15, green: 0.16, blue: 0.19).opacity(0.9)
+    #if os(tvOS)
+    static let height: CGFloat = 42
+    static let padding: CGFloat = 15
+    static let gap: CGFloat = 12
+    static let inner: CGFloat = 10
+    static let sourceSize: CGFloat = 19
+    static let valueSize: CGFloat = 22
+    static let radius: CGFloat = 10
+    #else
+    static let height: CGFloat = 30
+    static let padding: CGFloat = 10
+    static let gap: CGFloat = 8
+    static let inner: CGFloat = 7
+    static let sourceSize: CGFloat = 13
+    static let valueSize: CGFloat = 15
+    static let radius: CGFloat = 8
+    #endif
 }
 
 /// An episode's primary image is a 16:9 still and a movie's is a portrait poster.

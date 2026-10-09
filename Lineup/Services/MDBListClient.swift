@@ -117,6 +117,22 @@ struct MDBListClient: Sendable {
         }
     }
 
+    /// A film's or show's scores from the sites MDBList follows, looked up by
+    /// its IMDb id or, failing that, its TMDB id.
+    func ratings(imdbID: String?, tmdbID: String?, isShow: Bool) async throws -> MediaRatings {
+        let kind = isShow ? "show" : "movie"
+        let path: String
+        if let imdbID, !imdbID.isEmpty {
+            path = "imdb/\(kind)/\(imdbID)"
+        } else if let tmdbID, !tmdbID.isEmpty {
+            path = "tmdb/\(kind)/\(tmdbID)"
+        } else {
+            return MediaRatings()
+        }
+        guard let object = try await get(path: path) as? [String: Any] else { throw MDBListError.invalidResponse }
+        return MediaRatings(mdbList: object["ratings"])
+    }
+
     private func get(path: String, query: [URLQueryItem] = []) async throws -> Any {
         guard !apiKey.isEmpty else { throw MDBListError.missingAPIKey }
         guard var parts = URLComponents(url: baseURL.appendingPathComponent(path),

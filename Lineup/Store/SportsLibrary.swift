@@ -83,7 +83,9 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var profiles: [XtreamProfile] = []
     @Published var activeProfile: XtreamProfile?
     @Published private(set) var categories: [XtreamCategory] = []
-    @Published private(set) var streams: [XtreamStream] = []
+    @Published private(set) var streams: [XtreamStream] = [] {
+        didSet { streamIndexCache = nil }
+    }
     @Published private(set) var professionalStreams: [XtreamStream] = []
     @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
     @Published private(set) var favoriteStreamOrder: [Int] = []
@@ -416,6 +418,7 @@ final class SportsLibrary: ObservableObject {
             let envelope = try await client.authenticate()
             guard envelope.userInfo?.auth == 1 else { throw XtreamClient.XtreamError.unauthorized }
             try KeychainStore.save(password: password, profileID: profile.id)
+            passwordCache = nil
             profiles.append(profile)
             // Additional providers are saved without interrupting the current one.
             let isFirstProfile = activeProfile == nil
@@ -1273,6 +1276,7 @@ final class SportsLibrary: ObservableObject {
                                                   programs: [String: [CurrentProgram]],
                                                   channels: [Int: ProfessionalChannelMatcher.PreparedChannel],
                                                   preparedGame: ProfessionalChannelMatcher.PreparedGame,
+                                                  foreign: Set<Int> = [],
                                                   now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
         for candidate in candidates {
@@ -1281,11 +1285,23 @@ final class SportsLibrary: ObservableObject {
                 channel: prepared, listings: programs[candidate.epgChannelID ?? ""] ?? [],
                 now: now) else { continue }
             if let current = best {
-                guard score > current.score || (score == current.score && candidate.id < current.stream.id) else { continue }
+                guard Self.ranksAhead((candidate.id, score), of: (current.stream.id, current.score),
+                                      foreign: foreign) else { continue }
             }
             best = (candidate, score)
         }
         return best?.stream
+    }
+
+    /// Which of two channels carrying a game is offered first: one in English
+    /// before one in another language whatever the evidence, then the stronger
+    /// evidence, then the provider's own order.
+    nonisolated static func ranksAhead(_ channel: (id: Int, score: Int), of other: (id: Int, score: Int),
+                                       foreign: Set<Int>) -> Bool {
+        let english = !foreign.contains(channel.id), otherEnglish = !foreign.contains(other.id)
+        if english != otherEnglish { return english }
+        if channel.score != other.score { return channel.score > other.score }
+        return channel.id < other.id
     }
 
     /// Match today's games to channels.
@@ -1371,6 +1387,11 @@ final class SportsLibrary: ObservableObject {
             // rather than once for each of sixty-six games.
             let preparedChannels = Self.preparedChannels(leagues.values.flatMap { $0 },
                                                          listings: preparedListings)
+            // Channels in another language, settled once for the pass: an
+            // English channel carrying the game comes before any of them.
+            let foreign = Set(leagues.values.flatMap { $0 }.filter { stream in
+                ChannelLanguage.isForeign(name: stream.name, category: categoryNames[stream.categoryID ?? ""] ?? "")
+            }.map(\.id))
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -1402,7 +1423,11 @@ final class SportsLibrary: ObservableObject {
                 // Worked out once for this game, not once per candidate.
                 let preparedGame = Self.prepared(game)
                 let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
-                let reused: (stream: XtreamStream, evidence: Int)? = DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
+                // A match in another language is not kept as it stands: it is
+                // looked for again, in case an English channel carries the game.
+                let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
+                let reused: (stream: XtreamStream, evidence: Int)? = !keptForeign
+                    && DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
                     currentSignature: signature, hasMatch: matches[game.id] != nil)
                     ? matches[game.id].flatMap { cached in
                         let key = cached.epgChannelID ?? ""
@@ -1418,7 +1443,7 @@ final class SportsLibrary: ObservableObject {
                 if reused == nil {
                     if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [],
                                                        programs: programs, channels: preparedChannels,
-                                                       preparedGame: preparedGame, now: now) {
+                                                       preparedGame: preparedGame, foreign: foreign, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
                         let key = stream.epgChannelID ?? ""
@@ -1733,7 +1758,19 @@ final class SportsLibrary: ObservableObject {
     }
 
     func stream(withID id: Int) -> XtreamStream? {
-        streams.first { $0.id == id }
+        streamIndex[id]
+    }
+
+    /// Each channel by its id, built the first time one is asked for after
+    /// the list changes. A provider can have tens of thousands of channels,
+    /// and finding one used to mean reading through all of them -- on the
+    /// main thread, while screens drew.
+    private var streamIndexCache: [Int: XtreamStream]?
+    private var streamIndex: [Int: XtreamStream] {
+        if let streamIndexCache { return streamIndexCache }
+        let built = Dictionary(streams.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        streamIndexCache = built
+        return built
     }
 
     /// Which sides of this game a preference can be saved for, home first.
@@ -1799,9 +1836,9 @@ final class SportsLibrary: ObservableObject {
     /// one refresh and returns in the next keeps its place, while never being
     /// playable from a stale entry in between.
     var recentStreams: [XtreamStream] {
-        let byID = Dictionary(grouping: streams, by: \.id).compactMapValues(\.first)
-        return RecentChannels.resolved(recentStreamOrder, available: Set(byID.keys))
-            .compactMap { byID[$0] }
+        // In the order they were watched, leaving out any the provider no
+        // longer has.
+        recentStreamOrder.compactMap { streamIndex[$0] }
     }
 
     func clearRecentChannels() {
@@ -1840,6 +1877,11 @@ final class SportsLibrary: ObservableObject {
         let listings = programsByChannel
         let now = Date()
         let preparedGame = Self.prepared(game)
+        let categoryNames = Dictionary(categories.map { ($0.categoryID, $0.categoryName) },
+                                       uniquingKeysWith: { first, _ in first })
+        let foreign = Set(streams(for: game.league).filter { stream in
+            ChannelLanguage.isForeign(name: stream.name, category: categoryNames[stream.categoryID ?? ""] ?? "")
+        }.map(\.id))
         let alternates = streams(for: game.league)
             .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
             .compactMap { stream -> (stream: XtreamStream, score: Int)? in
@@ -1853,9 +1895,7 @@ final class SportsLibrary: ObservableObject {
                                               channel: channel, listings: programs, now: now)
                     .map { (stream, $0) }
             }
-            .sorted {
-                $0.score == $1.score ? $0.stream.id < $1.stream.id : $0.score > $1.score
-            }
+            .sorted { Self.ranksAhead(($0.stream.id, $0.score), of: ($1.stream.id, $1.score), foreign: foreign) }
             .prefix(limit)
             .map { FailoverChannel(streamID: $0.stream.id, name: $0.stream.name, reason: .alternate) }
         return FailoverPlanner.plan(
@@ -1919,8 +1959,21 @@ final class SportsLibrary: ObservableObject {
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
-        guard let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return [] }
+        guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
+    }
+
+    /// The provider's password, read from the keychain once rather than on
+    /// every call. Stream addresses are built while screens draw -- the Live
+    /// tab's preview builds one on every redraw -- and each keychain read is
+    /// a round trip to another process on the main thread.
+    private var passwordCache: (profileID: UUID, password: String)?
+
+    private func password(for profile: XtreamProfile) -> String? {
+        if let passwordCache, passwordCache.profileID == profile.id { return passwordCache.password }
+        guard let password = KeychainStore.password(profileID: profile.id) else { return nil }
+        passwordCache = (profile.id, password)
+        return password
     }
 
     private func isExcluded(_ stream: XtreamStream, categoryName: String) -> Bool {
@@ -2005,6 +2058,7 @@ final class SportsLibrary: ObservableObject {
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
         let removingActive = activeProfile?.id == profile.id
         KeychainStore.delete(profileID: profile.id)
+        passwordCache = nil
         profiles.removeAll { $0.id == profile.id }
         profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)
         profileDefaults.removeObject(forKey: teamPreferencesKey + "." + profile.id.uuidString)

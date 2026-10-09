@@ -15,7 +15,12 @@ struct MobileGuideView: View {
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
     @State private var resetPosition = UUID()
-    @State private var playback = MobilePlaybackController()
+    @StateObject private var playbackSlot = MobilePlaybackSlot()
+    /// A new selection gets a new controller; see `MobilePlaybackSlot`.
+    private var playback: MobilePlaybackController {
+        get { playbackSlot.controller }
+        nonmutating set { playbackSlot.controller = newValue }
+    }
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
     @State private var reorderingFavorites = false

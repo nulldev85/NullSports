@@ -10,6 +10,43 @@ private func onMain(_ body: @escaping @MainActor () -> Void) {
     DispatchQueue.main.async { MainActor.assumeIsolated { body() } }
 }
 
+/// The audio session, switched on and off in order on one queue.
+///
+/// Switching it off waits for the sound to finish and can take a noticeable
+/// moment, so it is never done on the main thread -- it used to run there
+/// as the viewer left the Live tab. Switching it on waits for any switch-off
+/// still queued, so the two can never land out of order.
+enum MobileAudioSession {
+    private static let queue = DispatchQueue(label: "lineup.audio-session", qos: .userInitiated)
+
+    static func activate() throws {
+        try queue.sync {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback)
+            try session.setActive(true)
+        }
+    }
+
+    static func deactivate() {
+        queue.async {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+}
+
+/// Holds a screen's player, made once.
+///
+/// `@State` builds its initial value every time the view holding it is
+/// re-created, which for a tab is every time the tab bar's view redraws --
+/// and a player is a VLC instance and an AVPlayer, made and thrown away on
+/// the main thread each time. `@StateObject` makes its object once.
+@MainActor
+final class MobilePlaybackSlot: ObservableObject {
+    @Published var controller: MobilePlaybackController
+
+    init() { controller = MobilePlaybackController() }
+}
+
 /// One stream, one controller, two possible engines.
 ///
 /// `MobilePlaybackController` is the only playback object the iPhone views know
@@ -98,6 +135,9 @@ final class MobilePlaybackController: ObservableObject {
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     private var retryAt: TimeInterval?
+    /// Whether the AVPlayer item now open has shown a picture: past that, its
+    /// opening watchdog has nothing more to judge.
+    private var systemPictureSeen = false
 
     // AVPlayer engine state.
     private var systemObservers: [NSKeyValueObservation] = []
@@ -200,6 +240,9 @@ final class MobilePlaybackController: ObservableObject {
 
     deinit {
         lifecycleNotifications.forEach { NotificationCenter.default.removeObserver($0) }
+        // Its last release tears VLC down, which is not for the main thread:
+        // each new preview replaces the controller that showed the last one.
+        VLCPlayerDisposal.release(player)
     }
 
     /// "1080p", "720p", etc., derived from the source video track. Nil until the
@@ -464,8 +507,7 @@ final class MobilePlaybackController: ObservableObject {
         // transport stream stays queued behind it. Apple TV keeps its own order.
         candidates = MobileEngineSelection.ordered(urls)
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            try AVAudioSession.sharedInstance().setActive(true)
+            try MobileAudioSession.activate()
         } catch {
             self.error = "Audio could not start. Please try again."
             loading = false
@@ -478,8 +520,10 @@ final class MobilePlaybackController: ObservableObject {
                 guard let self else { return }
                 // Sampled before every other guard: the AVPlayer engine skips
                 // the rest of this loop, and a paused or backgrounded stream is
-                // exactly when some of these values matter. Observation only.
-                self.diag.update(snapshot: self.diagnosticsSnapshot)
+                // exactly when some of these values matter. Observation only,
+                // and only built while the diagnostics are on: the snapshot
+                // reads tracks from both engines and formats every value.
+                if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
                 self.sampleProgress()
                 if self.engine == .system,
                    self.systemPlayer.timeControlStatus == .playing,
@@ -501,12 +545,18 @@ final class MobilePlaybackController: ObservableObject {
                 // stream queued behind it is never tried. This deadline is the
                 // AVPlayer equivalent of the drawable timeout the VLC path has
                 // had since 0.17.4.
-                if self.engine == .system, self.error == nil {
+                // It judges an opening only. Once the item has shown a picture
+                // it has opened, and a size reading zero for a moment later on
+                // -- a rendition switch -- is not a dead endpoint; failing over
+                // then dropped a working stream and Picture in Picture with it.
+                if self.engine == .system, self.error == nil, !self.systemPictureSeen {
                     let item = self.systemPlayer.currentItem
+                    let isReady = item?.status == .readyToPlay
+                    let hasVideo = (item?.presentationSize.width ?? 0) > 0
+                    if isReady && hasVideo { self.systemPictureSeen = true }
                     let verdict = SystemEngineWatchdog.verdict(
                         elapsed: Date().timeIntervalSince(self.started),
-                        isReady: item?.status == .readyToPlay,
-                        hasVideo: (item?.presentationSize.width ?? 0) > 0)
+                        isReady: isReady, hasVideo: hasVideo)
                     if verdict == .failOver {
                         self.diag.record("watchdog: giving up on \(self.currentURL?.lastPathComponent ?? "—") after \(Int(Date().timeIntervalSince(self.started)))s, status=\(item?.status == .readyToPlay ? "ready" : "unready") size=\(Int(item?.presentationSize.width ?? 0))x\(Int(item?.presentationSize.height ?? 0))")
                         self.systemEngineFailed()
@@ -537,16 +587,25 @@ final class MobilePlaybackController: ObservableObject {
                 // resumes, with a fresh baseline, on return to the foreground.
                 guard !self.inBackground else { continue }
                 let now = ProcessInfo.processInfo.systemUptime
-                let stopped = self.player.state == .error || self.player.state == .ended || self.player.state == .stopped
+                // VLC finishes a stop on its own thread, so a stream reopened a
+                // moment ago can still read as stopped or ended while the new
+                // one starts. A channel has only stopped once it has played
+                // since it was opened, or once it has had long enough to.
+                let state = self.player.state
+                let stopped = state == .error
+                    || ((state == .ended || state == .stopped)
+                        && (!self.isLive || self.health.hasShownPicture || self.health.age(now: now) >= 8))
                 // A title that stops at its end has finished. The same stop
                 // anywhere earlier is a dropped stream, reopened in place.
                 if stopped, self.reachedEnd(vlcPosition: self.player.position) {
                     self.finish()
                     continue
                 }
+                // What has been read from the server tells a feed VLC is catching
+                // up on from one that has stopped coming.
                 let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
                     time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
-                    failed: stopped)
+                    bytes: self.player.media?.numberOfReadBytesOnInput, failed: stopped)
                 if self.health.isStable(now: now) {
                     self.retries.reset()
                     self.confirmWorkingChannel()
@@ -557,6 +616,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openNext() {
+        systemPictureSeen = false
         teardownSystemEngine()
         player.stop()
         resetSubtitles()
@@ -595,6 +655,9 @@ final class MobilePlaybackController: ObservableObject {
             // slower link.
             media.addOption(":network-caching=5000")
             media.addOption(":live-caching=5000")
+            // A broadcast can carry a second language -- Spanish, most often
+            // -- and VLC otherwise plays whichever track comes first.
+            media.addOption(":audio-language=en")
         } else {
             // Five seconds of buffer is five seconds refilled after every
             // seek, which made scrubbing feel like it had hung; one second
@@ -752,6 +815,12 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func scheduleRecovery(now: TimeInterval) {
+        // A channel the server closed while it played is opened again at once
+        // on the same address, as other players do; waiting, then trying the
+        // other address, turned a moment's drop into a long wait.
+        let droppedWhilePlaying = isLive && engine == .vlc && health.stall == .failed
+            && player.state != .error && health.hasShownPicture
+        let neverPlayed = !health.hasShownPicture
         player.stop()
         systemPlayer.pause()
         isPlaying = false
@@ -760,7 +829,7 @@ final class MobilePlaybackController: ObservableObject {
         if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 {
             reopenPosition = max(0, position - 2)
         }
-        guard let delay = retries.nextDelay(), !originalURLs.isEmpty else {
+        guard var delay = retries.nextDelay(), !originalURLs.isEmpty else {
             // This channel's own URLs are spent — including the HLS-then-VLC
             // fallback, which happens inside `candidates` before ever reaching
             // here. Only now is another channel worth trying.
@@ -770,11 +839,13 @@ final class MobilePlaybackController: ObservableObject {
             UIApplication.shared.isIdleTimerDisabled = false
             return
         }
+        if droppedWhilePlaying { delay = 0 }
         let ordered = MobileEngineSelection.ordered(originalURLs)
         let index = currentURL.flatMap { ordered.firstIndex(of: $0) } ?? 0
         // First attempt retries the same endpoint; later ones rotate, so a dead
-        // HLS endpoint ends up on the transport stream instead of looping.
-        let next = retries.attempts == 1 ? index : (index + 1) % ordered.count
+        // HLS endpoint ends up on the transport stream instead of looping. An
+        // endpoint that played and then dropped is kept: it works.
+        let next = retries.attempts == 1 || !neverPlayed ? index : (index + 1) % ordered.count
         candidates = [ordered[next]]
         loading = true
         retryAt = now + delay
@@ -938,6 +1009,9 @@ final class MobilePlaybackController: ObservableObject {
             suspended = false
         case .keepPlaying:
             suspended = false
+            // Nothing to resume once the session is over: playing an empty
+            // player only held the screen awake with nothing on it.
+            guard monitor != nil else { break }
             started = Date()
             health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
             switch engine {
@@ -1020,7 +1094,7 @@ final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         resetSubtitles()
         UIApplication.shared.isIdleTimerDisabled = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        MobileAudioSession.deactivate()
     }
 
     func shutdown() {
@@ -1043,6 +1117,10 @@ final class MobilePlaybackController: ObservableObject {
         // tab/session can start. Old dismantle callbacks only own their old player.
         videoView?.controller = nil
         videoView?.removePlayerLayer()
+        // At once, not later: the next screen's surface must never find this
+        // player still drawing into the old one. The slow parts of letting go
+        // -- the audio session, VLC's own teardown -- happen off the main
+        // thread instead.
         player.drawable = nil
         videoView = nil
     }
