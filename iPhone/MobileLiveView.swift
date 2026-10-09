@@ -648,15 +648,11 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
 /// status never blinks; only the light around it moves.
 struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
     private var red: Color { LineupStyle.liveDot }
 
     var body: some View {
         ZStack {
-            Circle().fill(red.opacity(0.3))
-                .frame(width: 10, height: 10)
-                .scaleEffect(reduceMotion ? 0.75 : (pulsing ? 1.05 : 0.68))
-                .opacity(reduceMotion ? 0.34 : (pulsing ? 0 : 0.5))
+            halo
             Circle()
                 .fill(RadialGradient(stops: [
                     .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
@@ -668,12 +664,30 @@ struct MobileLiveDot: View {
                 .shadow(color: red.opacity(0.48), radius: 2.5)
         }
         .frame(width: 8, height: 8)
-        .animation(reduceMotion ? nil
-            : .easeOut(duration: 1.8).repeatForever(autoreverses: false), value: pulsing)
         .accessibilityHidden(true)
-        .onAppear { pulsing = !reduceMotion }
-        .onDisappear { pulsing = false }
-        .onChange(of: reduceMotion) { _, reduced in pulsing = !reduced }
+    }
+
+    /// The halo keeps its own time: it grows and fades, then starts again.
+    ///
+    /// It was a repeating animation started as the dot appeared, and that
+    /// takes hold of anything else that changes at the same moment -- the
+    /// dot's place in its row included. Opening the Guide lays out and
+    /// reorders its rows just as their dots appear, so the dots slid to and
+    /// fro without end, in and out of the program cells that clip them, and
+    /// read as blinking until the rows were redrawn. A keyframe animator
+    /// animates only the halo's size and fade, and nothing it holds can move.
+    @ViewBuilder
+    private var halo: some View {
+        let ring = Circle().fill(red.opacity(0.3)).frame(width: 10, height: 10)
+        if reduceMotion {
+            ring.scaleEffect(0.75).opacity(0.34)
+        } else {
+            ring.keyframeAnimator(initialValue: 0.0, repeating: true) { ring, progress in
+                ring.scaleEffect(0.68 + 0.37 * progress).opacity(0.5 * (1 - progress))
+            } keyframes: { _ in
+                LinearKeyframe(1.0, duration: 1.8, timingCurve: .easeOut)
+            }
+        }
     }
 }
 
