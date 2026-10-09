@@ -1114,9 +1114,11 @@ final class MobilePlaybackController: ObservableObject {
         // tab/session can start. Old dismantle callbacks only own their old player.
         videoView?.controller = nil
         videoView?.removePlayerLayer()
-        // Detaching VLC's picture waits for the stop just asked for, and this
-        // runs as the viewer leaves the tab.
-        VLCPlayerDisposal.detach(player)
+        // At once, not later: the next screen's surface must never find this
+        // player still drawing into the old one. The slow parts of letting go
+        // -- the audio session, VLC's own teardown -- happen off the main
+        // thread instead.
+        player.drawable = nil
         videoView = nil
     }
 }
