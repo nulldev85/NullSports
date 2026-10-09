@@ -4,10 +4,10 @@ import Foundation
 enum LivePlaybackHealthChecks {
     static func main() {
         var health = LivePlaybackHealth(now: 0)
-        func sample(_ second: Int, frames: Int, time: Int32? = nil, playing: Bool = true,
+        func sample(_ second: Int, frames: Int, time: Int32? = nil, bytes: Int? = nil, playing: Bool = true,
                     video: Bool = true, failed: Bool = false) -> Bool {
             health.observe(now: Double(second), playing: playing, video: video,
-                time: time ?? Int32(second * 1000), frames: frames, failed: failed)
+                time: time ?? Int32(second * 1000), frames: frames, bytes: bytes, failed: failed)
         }
         for second in 1...120 { precondition(!sample(second, frames: second * 30)) }
         precondition(health.isStable(now: 120), "Stable playback replenishes recovery budget")
@@ -35,6 +35,30 @@ enum LivePlaybackHealthChecks {
         precondition(!sample(1, frames: 30))
         for second in 2...30 { precondition(!sample(second, frames: 30), "A film may buffer past a channel's limit") }
         precondition(sample(31, frames: 30), "A film that never resumes still recovers")
+        // A picture standing still while the stream keeps arriving is VLC
+        // rebuffering a late feed, not a lost one: it is given far longer.
+        health = LivePlaybackHealth(now: 0)
+        precondition(!health.hasShownPicture)
+        for second in 1...10 { precondition(!sample(second, frames: second * 30, bytes: second * 100_000)) }
+        precondition(health.hasShownPicture)
+        for second in 11...54 {
+            precondition(!sample(second, frames: 300, bytes: second * 100_000),
+                         "A frozen picture with data still arriving is not reconnected at twelve seconds")
+        }
+        precondition(sample(55, frames: 300, bytes: 55 * 100_000), "A picture frozen for 45 seconds recovers anyway")
+        precondition(health.stall == .frozenWhileArriving)
+        // Frozen with nothing arriving is lost after twelve seconds, as before.
+        health = LivePlaybackHealth(now: 0)
+        for second in 1...10 { precondition(!sample(second, frames: second * 30, bytes: second * 100_000)) }
+        for second in 11...21 { precondition(!sample(second, frames: 300, bytes: 1_000_000)) }
+        precondition(sample(22, frames: 300, bytes: 1_000_000), "A feed that stops arriving recovers in twelve seconds")
+        precondition(health.stall == .nothingArriving)
+        // The retries are earned back after half a minute of good playback.
+        health = LivePlaybackHealth(now: 0)
+        for second in 1...29 { _ = sample(second, frames: second * 30) }
+        precondition(!health.isStable(now: 29))
+        _ = sample(31, frames: 31 * 30)
+        precondition(health.isStable(now: 31), "Half a minute of playback earns the retries back")
         var retry = LivePlaybackRetry()
         for expected in [TimeInterval(1), 2, 4, 8, 15, 30] { precondition(retry.nextDelay() == expected) }
         precondition(retry.nextDelay() == nil, "Failed feeds must not reconnect forever")

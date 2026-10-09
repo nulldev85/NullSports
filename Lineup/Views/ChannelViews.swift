@@ -1920,16 +1920,20 @@ private struct PulsingLiveDot: View {
             if reduceMotion {
                 dot(opacity: 1)
             } else {
-                // Driven by the clock rather than by a repeating animation. A
-                // repeating animation also takes hold of any move the dot makes
-                // while it runs, which left it drifting across the screen after
-                // the panel holding it slid in.
-                TimelineView(.animation(minimumInterval: 1 / 20)) { context in
-                    let cycle = 2.2
-                    let phase = context.date.timeIntervalSinceReferenceDate
-                        .truncatingRemainder(dividingBy: cycle) / cycle
-                    dot(opacity: 1 - 0.55 * (1 - cos(phase * 2 * .pi)) / 2)
-                }
+                // Breathing from phase to phase, which the animation system
+                // runs. A clock redrew every dot on screen twenty times a
+                // second for as long as a game was on, and that was work the
+                // main thread had in hand when the viewer changed tabs. A
+                // repeating animation is no answer either: it takes hold of
+                // any move the dot makes while it runs, which left the dot
+                // drifting after the panel holding it slid in. A phase
+                // animator animates only what its phases change.
+                dot(opacity: 1)
+                    .phaseAnimator([false, true]) { dot, dimmed in
+                        dot.opacity(dimmed ? 0.45 : 1)
+                    } animation: { _ in
+                        .easeInOut(duration: 1.1)
+                    }
             }
         }
         .accessibilityHidden(true)
@@ -1946,7 +1950,6 @@ private struct PulsingLiveDot: View {
 private struct LiveTicker: View {
     let events: [SportsGame]
     @State private var displayedEvents: [SportsGame] = []
-    @State private var epoch = ProcessInfo.processInfo.systemUptime
     private let speed: Double = 54
     private let cardWidth: CGFloat = 620
     private let cardSpacing: CGFloat = 38
@@ -1967,17 +1970,25 @@ private struct LiveTicker: View {
                 .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .padding(.bottom, 5)
             GeometryReader { viewport in
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
-                    let distance = max(0, ProcessInfo.processInfo.systemUptime - epoch) * speed
-                    let cycle = cycleWidth(for: displayedEvents.count)
-                    let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
-                    HStack(spacing: loopSpacing) {
-                        ForEach(0..<copies, id: \.self) { _ in tickerContent }
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .offset(x: -CGFloat(distance.truncatingRemainder(dividingBy: Double(cycle))))
-                    .frame(width: viewport.size.width, height: viewport.size.height, alignment: .bottomLeading)
+                let cycle = cycleWidth(for: displayedEvents.count)
+                let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
+                HStack(spacing: loopSpacing) {
+                    ForEach(0..<copies, id: \.self) { _ in tickerContent }
                 }
+                .fixedSize(horizontal: true, vertical: false)
+                // The strip is built once and slid by the animation system.
+                // A clock used to rebuild every score in it sixty times a
+                // second for as long as a game was on, and the main thread
+                // was still busy with that when the viewer changed tabs. A
+                // new score changes the strip in place; only a game joining
+                // or leaving it starts the crawl again.
+                .keyframeAnimator(initialValue: 0.0, repeating: true) { strip, distance in
+                    strip.offset(x: -CGFloat(distance))
+                } keyframes: { _ in
+                    LinearKeyframe(Double(cycle), duration: Double(cycle) / speed)
+                }
+                .id(cycle)
+                .frame(width: viewport.size.width, height: viewport.size.height, alignment: .bottomLeading)
                 .clipped()
                 // Scores fade in and out at the ends rather than being cut
                 // off by the edge of the strip.
@@ -2000,20 +2011,7 @@ private struct LiveTicker: View {
 
     private func updateScores(_ updated: [SportsGame]) {
         guard updated != displayedEvents else { return }
-        if displayedEvents.map(\.id) != updated.map(\.id) {
-            let uptime = ProcessInfo.processInfo.systemUptime
-            let oldOffset = CGFloat(max(0, uptime - epoch) * speed)
-                .truncatingRemainder(dividingBy: cycleWidth(for: displayedEvents.count))
-            let stride = cardWidth + cardSpacing
-            let oldIndex = min(Int(oldOffset / stride), max(0, displayedEvents.count - 1))
-            var newOffset: CGFloat = 0
-            if displayedEvents.indices.contains(oldIndex),
-               let newIndex = updated.firstIndex(where: { $0.id == displayedEvents[oldIndex].id }) {
-                newOffset = CGFloat(newIndex) * stride + oldOffset - CGFloat(oldIndex) * stride
-            }
-            epoch = uptime - Double(newOffset) / speed
-        }
-        // Score/status changes update in place without resetting the scroll phase.
+        // Score and status changes update in place without restarting the crawl.
         displayedEvents = updated
     }
 
@@ -5627,6 +5625,9 @@ private struct TVPlayerMenuLabel: View {
         // A player let go without being stopped gives up its hold too.
         let id = ObjectIdentifier(self)
         Task { @MainActor in TVScreenAwake.release(id) }
+        // Its last release tears VLC down, which is not for the main thread:
+        // a preview is let go in the middle of the viewer changing tabs.
+        VLCPlayerDisposal.release(player)
     }
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
@@ -5679,7 +5680,20 @@ private struct TVPlayerMenuLabel: View {
         error = nil
         guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
         holdScreenAwake()
-        openCurrent()
+        // A player stopped a moment ago -- the preview, as its channel goes
+        // full screen -- is still closing its connection on VLC's own thread.
+        // An account allowed one connection at a time refuses a second one
+        // opened over it, or drops the first, and both read as a stream that
+        // failed. The new one waits until the old has had a second to go. A
+        // player reopening its own stream needs no wait: VLC finishes closing
+        // a player's last stream before it opens that player's next.
+        let now = ProcessInfo.processInfo.systemUptime
+        if let closed = Self.lastStreamClosed, closed.by != ObjectIdentifier(self), now - closed.at < 1 {
+            retryAt = closed.at + 1
+            health = freshHealth()
+        } else {
+            openCurrent()
+        }
         monitor = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
@@ -5815,7 +5829,15 @@ private struct TVPlayerMenuLabel: View {
             if now >= retryAt { openCurrent() }
             return
         }
-        let failed = player.state == .error || player.state == .ended || player.state == .stopped
+        // VLC finishes a stop on its own thread, so a stream reopened a moment
+        // ago can still read as stopped or ended while the new one starts.
+        // A channel has only stopped or ended once it has played since it was
+        // opened, or once it has had long enough to; before that it is judged
+        // by whether a picture comes at all.
+        let state = player.state
+        let failed = state == .error
+            || ((state == .ended || state == .stopped)
+                && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
         // A film or an episode that stops at its end has finished. The same
         // stop anywhere earlier is a dropped stream, reopened below.
         if !isLive, failed, reopenPosition == nil, duration > 0,
@@ -5824,8 +5846,11 @@ private struct TVPlayerMenuLabel: View {
             finish()
             return
         }
+        // What has been read from the server tells a feed VLC is catching up
+        // on from one that has stopped coming.
         let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
-            time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures, failed: failed)
+            time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures,
+            bytes: player.media?.numberOfReadBytesOnInput, failed: failed)
         if health.isStable(now: now) {
             retries.reset()
             if let id = pendingWorkingChannelID, id == currentChannelID {
@@ -5841,16 +5866,29 @@ private struct TVPlayerMenuLabel: View {
             if height > 0 { videoHeight = height }
         }
         guard recover else { return }
-        let reason = failed ? "VLC reported the stream " + Self.describe(player.state)
-            : sawPicture ? "The picture stood still for \(isLive ? 12 : 30) seconds"
-            : "No picture came within 30 seconds"
+        let reason: String
+        switch health.stall {
+        case .frozenWhileArriving:
+            reason = "The picture stood still for \(isLive ? 45 : 60) seconds while the stream kept arriving"
+        case .nothingArriving:
+            reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
+        case .neverPlayed:
+            reason = "No picture came within 30 seconds"
+        case .failed, nil:
+            reason = "VLC reported the stream " + Self.describe(state)
+        }
+        // A channel the server closed while it played is opened again at once
+        // on the same address, as other players do. Waiting, then trying the
+        // other address, turned a moment's drop into a long "Reconnecting".
+        let droppedWhilePlaying = isLive && health.stall == .failed && state != .error && health.hasShownPicture
+        let neverPlayed = !health.hasShownPicture
         player.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
         if !isLive, reopenPosition == nil, elapsed > 0 {
             reopenPosition = max(0, elapsed - 2)
         }
-        guard let delay = retries.nextDelay() else {
+        guard var delay = retries.nextDelay() else {
             log(reason + ". Gave up after \(retries.attempts) tries")
             if switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
@@ -5858,10 +5896,13 @@ private struct TVPlayerMenuLabel: View {
             holdScreenAwake()
             return
         }
+        if droppedWhilePlaying { delay = 0 }
         log(reason + (isLive || elapsed <= 0 ? "" : " at " + PlaybackJournal.clock(elapsed))
-            + ". Reconnecting in \(Int(delay)) s (try \(retries.attempts))")
-        // Retry the current transport once, then try the channel's alternatives.
-        if retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
+            + (delay == 0 ? ". Reconnecting now" : ". Reconnecting in \(Int(delay)) s")
+            + " (try \(retries.attempts))")
+        // An address that will not open twice is swapped for the channel's
+        // other one. An address that played and then dropped stays: it works.
+        if neverPlayed, retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
         reconnecting = true
         retryAt = now + delay
     }
@@ -6070,10 +6111,17 @@ private struct TVPlayerMenuLabel: View {
         duration = 0
         elapsed = 0
         resetSubtitles()
+        if player.media != nil {
+            Self.lastStreamClosed = (ProcessInfo.processInfo.systemUptime, ObjectIdentifier(self))
+        }
         player.stop()
         player.media = nil
         if !restarting { holdScreenAwake() }
     }
+
+    /// When a player last let a stream go, and which, for the next player
+    /// to open its own after.
+    private static var lastStreamClosed: (at: TimeInterval, by: ObjectIdentifier)?
 
     /// A channel's picture standing still for twelve seconds means the feed is
     /// gone. A film on a slow link can buffer for longer and come back by
