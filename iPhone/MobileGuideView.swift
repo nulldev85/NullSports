@@ -1,6 +1,25 @@
 import SwiftUI
 import UIKit
 
+/// What the Guide lists. One at a time: favorites, recently watched, every
+/// channel, or one category.
+///
+/// These were two switches and a category picker, and the switches narrowed
+/// whatever category was picked, so Favorites with a category ticked showed
+/// only the favorites in that category -- usually none -- and favorites
+/// showed in full only with All channels ticked as well.
+enum MobileGuideFilter: Hashable {
+    case favorites
+    case recents
+    case all
+    case category(String)
+
+    var categoryID: String? {
+        if case .category(let id) = self { return id }
+        return nil
+    }
+}
+
 struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
@@ -9,9 +28,8 @@ struct MobileGuideView: View {
     @State private var query = ""
     @State private var showsSearch = false
     @FocusState private var searchFocused: Bool
-    @State private var category: String?
-    @State private var favorites = false
-    @State private var recents = false
+    /// What the viewer picked; until they pick, `filter` decides.
+    @State private var chosenFilter: MobileGuideFilter?
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
     @State private var resetPosition = UUID()
@@ -36,9 +54,20 @@ struct MobileGuideView: View {
     private let logoWidth: CGFloat = 80
     private var cardHeight: CGFloat { rowHeight - 6 }
 
+    /// Favorites, until the viewer picks something else -- or every channel
+    /// while there are no favorites yet, or when picking for a game.
+    private var filter: MobileGuideFilter {
+        if let chosenFilter { return chosenFilter }
+        return game == nil && !library.favoriteStreamOrder.isEmpty ? .favorites : .all
+    }
+
+    /// A search looks through every channel, whatever the Guide is showing.
+    private var searching: Bool { !query.isEmpty }
+
     private var channels: [XtreamStream] {
-        let listed = library.guideStreams(categoryID: category, favoritesOnly: favorites,
-                                          query: query, recentsOnly: recents)
+        let listed = library.guideStreams(categoryID: searching ? nil : filter.categoryID,
+                                          favoritesOnly: !searching && filter == .favorites,
+                                          query: query, recentsOnly: !searching && filter == .recents)
         // Only when picking a channel for a game. The Guide's own ordering —
         // favorites, then the provider's order — is left exactly as it was.
         guard game != nil, let recommendedStreamID,
@@ -49,9 +78,13 @@ struct MobileGuideView: View {
     }
     private var title: String {
         if game != nil { return "Choose a channel" }
-        if favorites { return "Favorites" }
-        if recents { return "Recent" }
-        return library.categories.first { $0.id == category }?.categoryName ?? "Guide"
+        if searching { return "Search" }
+        switch filter {
+        case .favorites: return "Favorites"
+        case .recents: return "Recent"
+        case .all: return "Guide"
+        case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "Guide"
+        }
     }
 
     var body: some View {
@@ -77,7 +110,10 @@ struct MobileGuideView: View {
                                     .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
-                        if channels.isEmpty {
+                        if channels.isEmpty && filter == .favorites && !searching {
+                            ContentUnavailableView("No favorites", systemImage: "star",
+                                description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
+                        } else if channels.isEmpty {
                             ContentUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
                         } else if isActive {
@@ -172,17 +208,12 @@ struct MobileGuideView: View {
                             else { showsSearch = true }
                         }
                         Divider()
-                        Toggle("Favorites only", isOn: Binding(
-                            get: { favorites },
-                            set: { favorites = $0; if $0 { recents = false } }))
-                        Toggle("Recently watched", isOn: Binding(
-                            get: { recents },
-                            set: { recents = $0; if $0 { favorites = false } }))
-                        .disabled(library.recentStreams.isEmpty)
-                        Picker("Category", selection: $category) {
-                            Text("All channels").tag(nil as String?)
-                            ForEach(library.categories) { Text($0.categoryName).tag(Optional($0.id)) }
-                        }
+                        filterChoice("Favorites", .favorites)
+                        filterChoice("Recently watched", .recents)
+                            .disabled(library.recentStreams.isEmpty)
+                        Divider()
+                        filterChoice("All channels", .all)
+                        ForEach(library.categories) { filterChoice($0.categoryName, .category($0.id)) }
                         Divider()
                         Button("Refresh guide", systemImage: "arrow.clockwise") {
                             Task { await library.reload() }
@@ -229,6 +260,14 @@ struct MobileGuideView: View {
                     .preferredColorScheme(.dark)
             }
         }
+    }
+
+    /// One of the Guide's choices, ticked when it is the one shown. Picking
+    /// it replaces whatever was ticked; picking the ticked one again keeps it.
+    private func filterChoice(_ title: String, _ choice: MobileGuideFilter) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { filter == choice },
+            set: { if $0 { chosenFilter = choice } }))
     }
 
     private func selectChannel(_ stream: XtreamStream) {
@@ -405,7 +444,7 @@ struct MobileGuideView: View {
         .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
         .contextMenu {
             if library.isFavorite(stream) {
-                if favorites {
+                if filter == .favorites && !searching {
                     Button("Move up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
                         .disabled(!library.canMoveFavorite(stream, offset: -1))
                     Button("Move down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
