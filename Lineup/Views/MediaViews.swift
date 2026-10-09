@@ -1778,6 +1778,11 @@ private struct MediaDetailScreen: View {
     @FocusState private var backFocused: Bool
     #endif
     @State private var choosingSeason = false
+    #if !os(tvOS)
+    /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
+    /// page through the hero's own view, which finds them itself.
+    @State private var pageRatings: MediaRatings?
+    #endif
 
     private var subject: MediaItem { detail ?? item }
 
@@ -1799,6 +1804,9 @@ private struct MediaDetailScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        #if !os(tvOS)
+        .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
+        #endif
         #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
@@ -1817,6 +1825,9 @@ private struct MediaDetailScreen: View {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
                     Text(subject.name).font(titleFont)
+                    if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
+                        MediaRatingChips(ratings: ratings)
+                    }
                     metaLine
                     actions
                     overview
@@ -1846,8 +1857,9 @@ private struct MediaDetailScreen: View {
             TVMediaCinematicBackdrop(item: subject)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    // Room for the ratings above the year and genres.
                     TVMediaLibraryPreview(item: subject)
-                        .frame(height: 400)
+                        .frame(height: 460)
                         .allowsHitTesting(false)
                     tvActions.padding(.horizontal, horizontalPadding)
                     episodesSection
@@ -1991,8 +2003,7 @@ private struct MediaDetailScreen: View {
     }
 
     private var metaParts: [String] {
-        [subject.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
-         subject.productionYear.map(String.init),
+        [subject.productionYear.map(String.init),
          // Worth saying on a film, where a server reports one; a series has no
          // single running time and leaves this out.
          subject.formattedRuntime,
@@ -2833,23 +2844,24 @@ private struct TVMediaCinematicBackdrop: View {
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem?
+    /// Each title's ratings once found. The hero moves on every few seconds
+    /// and comes back round, and a title it has shown keeps its chips.
+    @State private var ratings: [String: MediaRatings] = [:]
 
     var body: some View {
         Group {
             if let item {
                 VStack(alignment: .leading, spacing: 13) {
                     titleLockup(item)
+                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
+                        MediaRatingChips(ratings: shown)
+                    }
                     if !metadata(item).isEmpty {
-                        HStack(spacing: 8) {
-                            ForEach(metadata(item), id: \.self) { value in
-                                Text(value)
-                                    .font(.inter(14, .semibold))
-                                    .padding(.horizontal, 10).frame(height: 28)
-                                    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 7))
-                                    .overlay(RoundedRectangle(cornerRadius: 7)
-                                        .stroke(.white.opacity(0.16), lineWidth: 1))
-                            }
-                        }
+                        Text(metadata(item).joined(separator: "  ·  "))
+                            .font(.inter(19, .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
+                            .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
                     }
                     if let overview = item.overview, !overview.isEmpty {
                         Text(overview)
@@ -2870,6 +2882,11 @@ private struct TVMediaLibraryPreview: View {
             }
         }
         .animation(.easeInOut(duration: 0.24), value: item?.id)
+        .task(id: item?.libraryKey) {
+            guard let item else { return }
+            let found = await media.ratings(for: item)
+            ratings[item.libraryKey] = found
+        }
     }
 
     @ViewBuilder
@@ -2889,11 +2906,10 @@ private struct TVMediaLibraryPreview: View {
         .frame(width: 620, height: 105, alignment: .leading)
     }
 
+    /// The year, the genres and the running time, under the ratings.
     private func metadata(_ item: MediaItem) -> [String] {
-        [item.communityRating.flatMap { $0 > 0 ? String(format: "IMDb %.1f", $0) : nil },
-         item.criticRating.flatMap { $0 > 0 ? String(format: "RT %.0f%%", $0) : nil },
-         item.productionYear.map(String.init),
-         item.genres?.prefix(3).joined(separator: " · "),
+        [item.productionYear.map(String.init),
+         item.genres?.prefix(3).joined(separator: ", "),
          item.formattedRuntime,
          item.officialRating]
             .compactMap { $0 }.filter { !$0.isEmpty }
@@ -2936,6 +2952,8 @@ private struct MediaLibraryHero: View {
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
     @State private var index = 0
+    /// Each title's ratings once found, so a slide shown again has its chips.
+    @State private var ratings: [String: MediaRatings] = [:]
 
     private var items: [MediaItem] {
         MediaHeroCatalogSelection.featuredItems(in: catalog)
@@ -2990,6 +3008,17 @@ private struct MediaLibraryHero: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.45)) { move(1) }
         }
+        // The title on screen, then the one after it, so the next slide
+        // arrives with its chips already found.
+        .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
+            for offset in [index, index + 1] where items.indices.contains(offset) {
+                let item = items[offset]
+                guard ratings[item.libraryKey] == nil else { continue }
+                let found = await media.ratings(for: item)
+                guard !Task.isCancelled else { return }
+                ratings[item.libraryKey] = found
+            }
+        }
     }
 
     private func heroSlide(item: MediaItem, loadsArtwork: Bool = true) -> some View {
@@ -3041,6 +3070,10 @@ private struct MediaLibraryHero: View {
                         .frame(width: readableWidth, alignment: .leading)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
 
+                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
+                        MediaRatingChips(ratings: shown)
+                    }
+
                     if !metadata(for: item).isEmpty {
                         Text(metadata(for: item).joined(separator: "  ·  "))
                             .font(.inter(metaSize, .semibold))
@@ -3087,11 +3120,11 @@ private struct MediaLibraryHero: View {
         #endif
     }
 
+    /// The year, the genres and the running time, under the ratings.
     private func metadata(for item: MediaItem) -> [String] {
-        [item.type == "Series" ? "SERIES" : item.type.uppercased(),
-         item.productionYear.map(String.init),
-         item.formattedRuntime,
-         item.communityRating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
+        [item.productionYear.map(String.init),
+         item.genres?.prefix(3).joined(separator: ", "),
+         item.formattedRuntime]
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
 
@@ -4387,6 +4420,70 @@ private struct BadgeFlow: Layout {
         if !line.indices.isEmpty { lines.append(line) }
         return lines
     }
+}
+
+/// IMDb, TMDB and Rotten Tomatoes as dark chips, each source named in its
+/// own colour the way the sites' own badges are.
+struct MediaRatingChips: View {
+    let ratings: MediaRatings
+
+    private typealias Metrics = MediaRatingMetrics
+
+    var body: some View {
+        HStack(spacing: Metrics.gap) {
+            if let imdb = ratings.imdb {
+                chip("IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb), tint: Metrics.imdb)
+            }
+            if let tmdb = ratings.tmdb {
+                chip("TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb), tint: Metrics.tmdb)
+            }
+            if let tomatoes = ratings.rottenTomatoes {
+                chip("RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%", tint: Metrics.rottenTomatoes)
+            }
+        }
+        .fixedSize()
+    }
+
+    private func chip(_ source: String, spoken: String, value: String, tint: Color) -> some View {
+        HStack(spacing: Metrics.inner) {
+            Text(source)
+                .font(.inter(Metrics.sourceSize, .heavy))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.interDigits(Metrics.valueSize, .bold))
+                .foregroundStyle(Color.white)
+        }
+        .padding(.horizontal, Metrics.padding)
+        .frame(height: Metrics.height)
+        .background(Metrics.fill, in: RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(spoken) \(value)")
+    }
+}
+
+private enum MediaRatingMetrics {
+    // The sites' own colours: IMDb's yellow, TMDB's blue, the Tomatometer's red.
+    static let imdb = Color(red: 0.96, green: 0.77, blue: 0.09)
+    static let tmdb = Color(red: 0.0, green: 0.71, blue: 0.89)
+    static let rottenTomatoes = Color(red: 0.98, green: 0.24, blue: 0.1)
+    static let fill = Color(red: 0.15, green: 0.16, blue: 0.19).opacity(0.9)
+    #if os(tvOS)
+    static let height: CGFloat = 42
+    static let padding: CGFloat = 15
+    static let gap: CGFloat = 12
+    static let inner: CGFloat = 10
+    static let sourceSize: CGFloat = 19
+    static let valueSize: CGFloat = 22
+    static let radius: CGFloat = 10
+    #else
+    static let height: CGFloat = 30
+    static let padding: CGFloat = 10
+    static let gap: CGFloat = 8
+    static let inner: CGFloat = 7
+    static let sourceSize: CGFloat = 13
+    static let valueSize: CGFloat = 15
+    static let radius: CGFloat = 8
+    #endif
 }
 
 /// An episode's primary image is a 16:9 still and a movie's is a portrait poster.
