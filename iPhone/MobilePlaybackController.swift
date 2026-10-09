@@ -655,6 +655,9 @@ final class MobilePlaybackController: ObservableObject {
             // slower link.
             media.addOption(":network-caching=5000")
             media.addOption(":live-caching=5000")
+            // A broadcast can carry a second language -- Spanish, most often
+            // -- and VLC otherwise plays whichever track comes first.
+            media.addOption(":audio-language=en")
         } else {
             // Five seconds of buffer is five seconds refilled after every
             // seek, which made scrubbing feel like it had hung; one second

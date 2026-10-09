@@ -5717,6 +5717,9 @@ private struct TVPlayerMenuLabel: View {
         media.addOption(":network-caching=5000")
         if isLive {
             media.addOption(":live-caching=5000")
+            // A broadcast can carry a second language -- Spanish, most often
+            // -- and VLC otherwise plays whichever track comes first.
+            media.addOption(":audio-language=en")
         } else if let place = openingPlace {
             // Opened at its place -- where it was left off, or where it was
             // when it dropped -- rather than at its beginning and then moved,
