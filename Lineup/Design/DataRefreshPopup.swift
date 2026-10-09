@@ -60,24 +60,30 @@ private struct DataRefreshCapsule: View {
 private struct DataRefreshSpinner: View {
     let fraction: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var turning = false
 
     var body: some View {
         let ring = DataRefreshMetrics.ring
+        let arc = Circle()
+            .trim(from: 0, to: reduceMotion ? max(0.03, fraction) : 0.3)
+            .stroke(AngularGradient(colors: [Color.white.opacity(0), Color.white],
+                                    center: .center,
+                                    startAngle: .degrees(0), endAngle: .degrees(108)),
+                    style: StrokeStyle(lineWidth: ring, lineCap: .round))
         ZStack {
             Circle().stroke(Color.white.opacity(0.16), lineWidth: ring)
-            Circle()
-                .trim(from: 0, to: reduceMotion ? max(0.03, fraction) : 0.3)
-                .stroke(AngularGradient(colors: [Color.white.opacity(0), Color.white],
-                                        center: .center,
-                                        startAngle: .degrees(0), endAngle: .degrees(108)),
-                        style: StrokeStyle(lineWidth: ring, lineCap: .round))
-                .rotationEffect(.degrees(reduceMotion ? -90 : (turning ? 360 : 0)))
-                .animation(reduceMotion ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false),
-                           value: turning)
+            if reduceMotion {
+                arc.rotationEffect(.degrees(-90))
+            } else {
+                // Its own turn, which nothing else that changes as the
+                // pop-up slides in or its text grows can be caught up in.
+                arc.keyframeAnimator(initialValue: 0.0, repeating: true) { arc, angle in
+                    arc.rotationEffect(.degrees(angle))
+                } keyframes: { _ in
+                    LinearKeyframe(360.0, duration: 0.9)
+                }
+            }
         }
         .padding(ring / 2)
-        .onAppear { turning = true }
     }
 }
 
