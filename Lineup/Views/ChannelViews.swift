@@ -5266,12 +5266,12 @@ struct PlayerView: View {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
             controller.watched = .fullScreen
+            // Nothing plays under full screen but its own player: two would
+            // be two sounds at once.
+            TVPreviewHandoff.stopPreviews(except: controller)
             if continuesPreview && controller.isOpen {
                 PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
             } else {
-                // Full screen with a stream of its own has no preview playing
-                // under it: two would be two sounds at once.
-                TVPreviewHandoff.stopPreviews(except: controller)
                 PlaybackJournal.shared.note(openingNote)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                                  channelID: channelID, isLive: isLive)
@@ -5339,6 +5339,9 @@ struct PlayerView: View {
         controller.watched = nil
         controller.failover = previewFailover
         controller.lentToFullScreen = false
+        // A preview that has gone meanwhile has nowhere to show the picture,
+        // and its sound would play on over whatever is there instead.
+        if !controller.isShownOutsideFullScreen { controller.stop() }
     }
 
     /// The log's first line for this title.
@@ -5776,6 +5779,8 @@ private struct TVPlayerMenuLabel: View {
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
     /// A stream has been opened and not stopped since.
     var isOpen: Bool { !urls.isEmpty }
+    /// Whether a preview is still there to show the picture.
+    var isShownOutsideFullScreen: Bool { hosts.contains { !$0.fullScreen } }
 
     func show(in host: VLCSurfaceHost) {
         host.owner = self
