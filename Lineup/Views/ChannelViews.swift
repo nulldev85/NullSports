@@ -6,8 +6,12 @@ struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
-    @State private var selectedStream: XtreamStream?
-    @State private var selectedGame: SportsGame?
+    /// What is full screen. One value carries the channel, the game and the
+    /// preview's player together: read from state of their own inside the
+    /// cover, the game and the player could come through as they were a
+    /// moment before -- no player, so full screen opened a second stream
+    /// while the preview's, lent to it, kept playing underneath.
+    @State private var fullScreen: TVFullScreenItem?
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewPrimaryGame: SportsGame?
     @State private var multiviewSession: MultiviewSession?
@@ -15,8 +19,6 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
-    /// The preview's player, while full screen has it.
-    @State private var fullScreenPreview: TVPreviewHandoff?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -62,14 +64,14 @@ struct LiveView: View {
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
             .background(LiveCanvas())
-            .fullScreenCover(item: $selectedStream, onDismiss: { fullScreenPreview = nil }) { stream in
+            .fullScreenCover(item: $fullScreen) { item in
                 PlayerView(
-                    urls: library.playbackURLs(for: stream),
-                    title: stream.name,
-                    program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
-                    game: selectedGame,
-                    channelID: stream.id,
-                    continuing: fullScreenPreview
+                    urls: library.playbackURLs(for: item.stream),
+                    title: item.stream.name,
+                    program: library.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
+                    game: item.game,
+                    channelID: item.stream.id,
+                    continuing: item.preview
                 )
             }
             .sheet(item: $manualChannelGame) { game in
@@ -143,9 +145,9 @@ struct LiveView: View {
                 // The preview's own player goes full screen, still playing,
                 // and the preview stays behind it to come back to.
                 playbackTransitionID = nil
-                fullScreenPreview = preview
-                selectedGame = game
-                presentWithoutAnimation { selectedStream = stream }
+                presentWithoutAnimation {
+                    fullScreen = TVFullScreenItem(stream: stream, game: game, preview: preview)
+                }
             } else if previewGameID == game.id {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
@@ -155,8 +157,7 @@ struct LiveView: View {
                     try? await Task.sleep(for: .milliseconds(180))
                     guard isActive, playbackTransitionID == transitionID else { return }
                     playbackTransitionID = nil
-                    selectedGame = game
-                    selectedStream = stream
+                    fullScreen = TVFullScreenItem(stream: stream, game: game)
                 }
             } else {
                 playbackTransitionID = nil
@@ -2437,7 +2438,9 @@ struct GuideView: View {
     @State private var favoritesOnly = true
     @State private var searchActive = false
     @State private var query = ""
-    @State private var selectedStream: XtreamStream?
+    /// What is full screen, with the preview's player when it carries on;
+    /// see the Live tab's.
+    @State private var fullScreen: TVFullScreenItem?
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
@@ -2452,8 +2455,6 @@ struct GuideView: View {
     /// so on the way back there is nothing left running to return to. This is
     /// what was pinned when it left, kept so it can be put back.
     @State private var resumeAfterFullscreen: GuideFocusItem?
-    /// The preview's player, while full screen has it.
-    @State private var fullScreenPreview: TVPreviewHandoff?
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -2599,12 +2600,12 @@ struct GuideView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())
-                .fullScreenCover(item: $selectedStream, onDismiss: resumePreview) { stream in
+                .fullScreenCover(item: $fullScreen, onDismiss: resumePreview) { item in
                     PlayerView(
-                        urls: library.playbackURLs(for: stream),
-                        title: stream.name,
-                        program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
-                        continuing: fullScreenPreview
+                        urls: library.playbackURLs(for: item.stream),
+                        title: item.stream.name,
+                        program: library.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
+                        continuing: item.preview
                     )
                 }
                 .fullScreenCover(item: $multiviewSession) { session in
@@ -2761,7 +2762,6 @@ struct GuideView: View {
     /// was carries on playing behind it and needs nothing put back.
     private func resumePreview() {
         previewHidden = false
-        fullScreenPreview = nil
         guard let resume = resumeAfterFullscreen else { return }
         resumeAfterFullscreen = nil
         pinnedPreviewItem = resume
@@ -2774,8 +2774,7 @@ struct GuideView: View {
                 // The preview's own player goes full screen, still playing,
                 // and the preview stays pinned behind it to come back to.
                 playbackTransitionID = nil
-                fullScreenPreview = preview
-                presentWithoutAnimation { selectedStream = stream }
+                presentWithoutAnimation { fullScreen = TVFullScreenItem(stream: stream, preview: preview) }
             } else if previewPlaybackStream?.id == stream.id {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
@@ -2790,7 +2789,7 @@ struct GuideView: View {
                     try? await Task.sleep(for: .milliseconds(180))
                     guard playbackTransitionID == transitionID else { return }
                     playbackTransitionID = nil
-                    selectedStream = stream
+                    fullScreen = TVFullScreenItem(stream: stream)
                 }
             } else {
                 playbackTransitionID = nil
@@ -5270,6 +5269,9 @@ struct PlayerView: View {
             if continuesPreview && controller.isOpen {
                 PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
             } else {
+                // Full screen with a stream of its own has no preview playing
+                // under it: two would be two sounds at once.
+                TVPreviewHandoff.stopPreviews(except: controller)
                 PlaybackJournal.shared.note(openingNote)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                                  channelID: channelID, isLive: isLive)
@@ -6493,6 +6495,15 @@ private final class VLCSurfaceHost: UIView {
     withTransaction(transaction, change)
 }
 
+/// What full screen opens on.
+private struct TVFullScreenItem: Identifiable {
+    let stream: XtreamStream
+    var game: SportsGame? = nil
+    /// The preview's player, to carry on with rather than open the channel.
+    var preview: TVPreviewHandoff? = nil
+    var id: Int { stream.id }
+}
+
 /// A preview's player, lent to full screen.
 ///
 /// Going full screen from a preview closed the preview's stream and opened
@@ -6519,6 +6530,16 @@ final class TVPreviewHandoff {
     @MainActor fileprivate static func previewing(_ channelID: Int, in controller: VLCPlaybackController) {
         previews.removeAll { $0.controller == nil || $0.controller === controller }
         previews.append(Entry(channelID: channelID, controller: controller))
+    }
+
+    /// Stops every preview but this player. A preview covered by full screen
+    /// opens again when it is uncovered.
+    @MainActor fileprivate static func stopPreviews(except kept: VLCPlaybackController) {
+        for entry in previews {
+            guard let controller = entry.controller, controller !== kept, controller.isOpen else { continue }
+            controller.lentToFullScreen = false
+            controller.stop()
+        }
     }
 
     /// The preview playing this channel, lent to full screen from now:
