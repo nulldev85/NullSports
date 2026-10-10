@@ -15,6 +15,8 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
+    /// The preview's player, while full screen has it.
+    @State private var fullScreenPreview: TVPreviewHandoff?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -60,13 +62,14 @@ struct LiveView: View {
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
             .background(LiveCanvas())
-            .fullScreenCover(item: $selectedStream) { stream in
+            .fullScreenCover(item: $selectedStream, onDismiss: { fullScreenPreview = nil }) { stream in
                 PlayerView(
                     urls: library.playbackURLs(for: stream),
                     title: stream.name,
                     program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
                     game: selectedGame,
-                    channelID: stream.id
+                    channelID: stream.id,
+                    continuing: fullScreenPreview
                 )
             }
             .sheet(item: $manualChannelGame) { game in
@@ -136,7 +139,14 @@ struct LiveView: View {
 
     private func play(_ game: SportsGame, on stream: XtreamStream, manuallySelected: Bool = false) {
         guard let primary = multiviewPrimary else {
-            if previewGameID == game.id {
+            if previewGameID == game.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
+                // The preview's own player goes full screen, still playing,
+                // and the preview stays behind it to come back to.
+                playbackTransitionID = nil
+                fullScreenPreview = preview
+                selectedGame = game
+                presentWithoutAnimation { selectedStream = stream }
+            } else if previewGameID == game.id {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
                 previewStream = nil
@@ -1880,12 +1890,15 @@ private struct LiveSelectedPreview: View {
     let urls: [URL]
 
     var body: some View {
-        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
         .onAppear {
+            // Back from full screen, where it played on: nothing to open.
+            guard !controller.isOpen else { return }
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
             controller.start(urls: urls, muted: false, channelID: stream.id)
+            TVPreviewHandoff.previewing(stream.id, in: controller)
         }
         .sheet(item: $choosingGame) { game in
             ManualGameChannelPicker(game: game) { chosen in
@@ -1894,7 +1907,7 @@ private struct LiveSelectedPreview: View {
                 controller.start(urls: library.playbackURLs(for: chosen), channelID: chosen.id)
             }
         }
-        .onDisappear { controller.stop() }
+        .onDisappear { if !controller.lentToFullScreen { controller.stop() } }
     }
 }
 /// A steady broadcast-red core with a slow halo around it. The core never
@@ -2439,9 +2452,13 @@ struct GuideView: View {
     /// so on the way back there is nothing left running to return to. This is
     /// what was pinned when it left, kept so it can be put back.
     @State private var resumeAfterFullscreen: GuideFocusItem?
+    /// The preview's player, while full screen has it.
+    @State private var fullScreenPreview: TVPreviewHandoff?
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
+    /// Where the remote is taking focus, and which rows exist to take it.
+    @State private var navigation = GuideNavigation()
     private var filtered: [XtreamStream] {
         library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
     }
@@ -2517,16 +2534,21 @@ struct GuideView: View {
                                                 onStartMultiview: { multiviewPrimary = stream },
                                                 onReorderFavorites: { reorderingFavorites = true },
                                                 onMoveFocus: { direction, focus in
-                                                    moveGuideFocus(direction, from: focus)
+                                                    moveGuideFocus(direction, from: focus, proxy: proxy)
                                                 },
                                                 onFocusProgram: { program in
-                                                    withAnimation(.easeOut(duration: 0.18)) {
-                                                        focusedGuideItem = GuideFocusItem(stream: stream, program: program)
-                                                        previewHidden = false
-                                                    }
+                                                    // Not animated: a transaction animated on
+                                                    // every move took the rows being built and
+                                                    // scrolled with it, and they slid back
+                                                    // before catching up. The preview animates
+                                                    // its own coming and going.
+                                                    focusedGuideItem = GuideFocusItem(stream: stream, program: program)
+                                                    previewHidden = false
                                                 }
                                             )
                                             .id(stream.id)
+                                            .onAppear { rowBuilt(stream.id) }
+                                            .onDisappear { navigation.builtRows.remove(stream.id) }
                                         }
                                     }.padding(.top, 2)
                                 }
@@ -2571,6 +2593,9 @@ struct GuideView: View {
                     .clipShape(Rectangle())
                 }
                 .padding(.horizontal, GuideLayout.margin).padding(.top, 8)
+                // Only the preview coming and going is animated. Focus moving
+                // through the grid never is.
+                .animation(.easeOut(duration: 0.18), value: previewHidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())
@@ -2578,7 +2603,8 @@ struct GuideView: View {
                     PlayerView(
                         urls: library.playbackURLs(for: stream),
                         title: stream.name,
-                        program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+                        program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive },
+                        continuing: fullScreenPreview
                     )
                 }
                 .fullScreenCover(item: $multiviewSession) { session in
@@ -2655,14 +2681,27 @@ struct GuideView: View {
     /// browsing, so it always lands on the adjacent channel's on-air block.
     /// Horizontal movement remains schedule browsing and walks every visible
     /// listing in the current row.
-    private func moveGuideFocus(_ direction: MoveCommandDirection, from source: GuideGridFocus) {
+    ///
+    /// A press is taken from where the last one was going, while that one is
+    /// still on its way. Presses come faster than focus settles when a
+    /// direction is held or swiped, and one taken from the cell that
+    /// happened to have focus -- a row or more behind -- sent focus back up
+    /// the guide it had just come down. A row not yet built is scrolled in
+    /// first and focused once it is there; asked for before, focus had
+    /// nowhere to go and fell back to a row on screen.
+    private func moveGuideFocus(_ direction: MoveCommandDirection, from cell: GuideGridFocus,
+                                proxy: ScrollViewProxy) {
+        let source = navigation.headingTo() ?? cell
         guard let row = filtered.firstIndex(where: { $0.id == source.streamID }) else { return }
 
         switch direction {
         case .up, .down:
             let targetRow = direction == .up ? row - 1 : row + 1
             guard filtered.indices.contains(targetRow) else { return }
-            focusOnAirProgram(for: filtered[targetRow])
+            let stream = filtered[targetRow]
+            let programs = visibleGuidePrograms(for: stream)
+            let onAir = programs.first { $0.start <= guideNow && guideNow < $0.end }
+            send(GuideGridFocus(streamID: stream.id, programStart: (onAir ?? programs.first)?.start), proxy: proxy)
 
         case .left, .right:
             let stream = filtered[row]
@@ -2679,17 +2718,29 @@ struct GuideView: View {
                 if direction == .left { openSidebar() }
                 return
             }
-            gridFocus = GuideGridFocus(streamID: stream.id, programStart: programs[target].start)
+            send(GuideGridFocus(streamID: stream.id, programStart: programs[target].start), proxy: proxy)
 
         default:
             return
         }
     }
 
-    private func focusOnAirProgram(for stream: XtreamStream) {
-        let programs = visibleGuidePrograms(for: stream)
-        let onAir = programs.first { $0.start <= guideNow && guideNow < $0.end }
-        gridFocus = GuideGridFocus(streamID: stream.id, programStart: (onAir ?? programs.first)?.start)
+    private func send(_ target: GuideGridFocus, proxy: ScrollViewProxy) {
+        navigation.heading(to: target)
+        if navigation.builtRows.contains(target.streamID) {
+            gridFocus = target
+        } else {
+            // Focused as it is built; see `rowBuilt`.
+            proxy.scrollTo(target.streamID)
+        }
+    }
+
+    /// A row has been built. If focus was on its way to it, it goes there now.
+    private func rowBuilt(_ streamID: Int) {
+        navigation.builtRows.insert(streamID)
+        guard let target = navigation.headingTo(), target.streamID == streamID,
+              !sidebarVisible, gridFocus != target else { return }
+        gridFocus = target
     }
 
     private func visibleGuidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
@@ -2706,11 +2757,11 @@ struct GuideView: View {
     /// the branch below that pins a new one. Choosing the same channel again
     /// goes back to full screen, as it did before.
     ///
-    /// The stream is opened again rather than handed over: the full-screen
-    /// player and the preview are separate players, so there is a moment of
-    /// reconnecting rather than an unbroken picture.
+    /// Only for a preview that could not be lent to full screen. One that
+    /// was carries on playing behind it and needs nothing put back.
     private func resumePreview() {
         previewHidden = false
+        fullScreenPreview = nil
         guard let resume = resumeAfterFullscreen else { return }
         resumeAfterFullscreen = nil
         pinnedPreviewItem = resume
@@ -2719,7 +2770,13 @@ struct GuideView: View {
 
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
-            if previewPlaybackStream?.id == stream.id {
+            if previewPlaybackStream?.id == stream.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
+                // The preview's own player goes full screen, still playing,
+                // and the preview stays pinned behind it to come back to.
+                playbackTransitionID = nil
+                fullScreenPreview = preview
+                presentWithoutAnimation { selectedStream = stream }
+            } else if previewPlaybackStream?.id == stream.id {
                 let transitionID = UUID()
                 playbackTransitionID = transitionID
                 // Remember what is being handed to full screen, so closing it
@@ -2860,7 +2917,7 @@ private struct GuidePreviewPanel: View {
         HStack(alignment: .center, spacing: 34) {
             Group {
                 if let previewURLs {
-                    GuidePreviewVideo(urls: previewURLs)
+                    GuidePreviewVideo(channelID: item.stream.id, urls: previewURLs)
                         .id(item.stream.id)
                 } else {
                     GuidePreviewArtwork(stream: item.stream)
@@ -2918,13 +2975,19 @@ private struct GuidePreviewPanel: View {
 
 private struct GuidePreviewVideo: View {
     @StateObject private var controller = VLCPlaybackController()
+    let channelID: Int
     let urls: [URL]
 
     var body: some View {
-        VLCVideoSurface(player: controller.player).overlay { TVPlaybackStatus(controller: controller) }
+        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
-            .onAppear { controller.start(urls: urls, muted: false) }
-            .onDisappear { controller.stop() }
+            .onAppear {
+                // Back from full screen, where it played on: nothing to open.
+                guard !controller.isOpen else { return }
+                controller.start(urls: urls, muted: false)
+                TVPreviewHandoff.previewing(channelID, in: controller)
+            }
+            .onDisappear { if !controller.lentToFullScreen { controller.stop() } }
     }
 }
 
@@ -3178,6 +3241,29 @@ private func guideTimelineAnchor(_ date: Date) -> Date {
 private struct GuideGridFocus: Hashable {
     let streamID: Int
     let programStart: Date?
+}
+
+/// Where the remote is taking focus in the guide, and which rows exist.
+///
+/// A class, and so not observed: it changes with every press and every row
+/// scrolled past, and redrawing the guide for either would be work for
+/// nothing.
+private final class GuideNavigation {
+    var builtRows: Set<Int> = []
+    private var target: GuideGridFocus?
+    private var sentAt: TimeInterval = 0
+
+    func heading(to focus: GuideGridFocus) {
+        target = focus
+        sentAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// Where the last press sent focus, while it may still be on its way.
+    /// After that, the focused cell itself is where a press starts.
+    func headingTo() -> GuideGridFocus? {
+        guard ProcessInfo.processInfo.systemUptime - sentAt < 0.45 else { return nil }
+        return target
+    }
 }
 
 // Only the first reachable cell receives a directional handler. Other cells
@@ -5067,7 +5153,7 @@ struct PlayerView: View {
     @EnvironmentObject private var library: SportsLibrary
     let urls: [URL]
     var title: String = "Live TV"
-    var program: CurrentProgram?
+    var program: CurrentProgram? = nil
     var isLive = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
@@ -5076,11 +5162,17 @@ struct PlayerView: View {
     /// For a Library title: its show, episode and details, which the stream
     /// URL and name alone cannot say.
     var synopsis: TVPlayerSynopsis? = nil
-    @StateObject private var controller = VLCPlaybackController()
-    @State private var choosingGame: SportsGame?
-    @State private var chosenTitle: String?
+    @StateObject private var controller: VLCPlaybackController
+    /// The preview's player, already playing, rather than one of its own.
+    /// It is not opened here, and closing full screen gives it back to the
+    /// preview still playing rather than stopping it.
+    @State private var continuesPreview: Bool
+    /// What the preview does when its channel fails, put back with it.
+    @State private var previewFailover: VLCPlaybackController.FailoverContext? = nil
+    @State private var choosingGame: SportsGame? = nil
+    @State private var chosenTitle: String? = nil
     @State private var controlsVisible = true
-    @State private var hideControlsTask: Task<Void, Never>?
+    @State private var hideControlsTask: Task<Void, Never>? = nil
     /// A subtitle, audio, video or quality list is open. The controls stay up
     /// until it closes: the lists hang off the controls, so hiding them on the
     /// usual timer closed a list before anything could be chosen in it.
@@ -5093,9 +5185,26 @@ struct PlayerView: View {
     /// as such, because that is the one nobody asked for.
     @State private var closing = false
 
+    init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
+         initialPosition: TimeInterval? = nil, onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
+         game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
+         continuing preview: TVPreviewHandoff? = nil) {
+        self.urls = urls
+        self.title = title
+        self.program = program
+        self.isLive = isLive
+        self.initialPosition = initialPosition
+        self.onProgress = onProgress
+        self.game = game
+        self.channelID = channelID
+        self.synopsis = synopsis
+        _controller = StateObject(wrappedValue: preview?.controller ?? VLCPlaybackController())
+        _continuesPreview = State(initialValue: preview != nil)
+    }
+
     var body: some View {
         ZStack {
-            VLCVideoSurface(player: controller.player)
+            VLCHostedSurface(controller: controller, fullScreen: true)
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .background(Color.black).ignoresSafeArea()
             // Hiding the chrome removes every focusable view, and the remote
@@ -5153,13 +5262,19 @@ struct PlayerView: View {
             }
         }
         .onAppear {
+            if continuesPreview { previewFailover = controller.failover }
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
             controller.watched = .fullScreen
-            PlaybackJournal.shared.note(openingNote)
-            controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
-                             channelID: channelID, isLive: isLive)
+            if continuesPreview && controller.isOpen {
+                PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
+            } else {
+                PlaybackJournal.shared.note(openingNote)
+                controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
+                                 channelID: channelID, isLive: isLive)
+            }
+            if continuesPreview { controller.lentToFullScreen = true }
             revealControls(focus: true)
         }
         .onDisappear {
@@ -5169,7 +5284,7 @@ struct PlayerView: View {
             }
             reportProgress(force: true)
             hideControlsTask?.cancel()
-            controller.stop()
+            finishPlayback()
         }
         .onChange(of: controller.elapsed) { _, _ in reportProgress() }
         // A film or an episode played to its end is saved as watched and the
@@ -5209,8 +5324,19 @@ struct PlayerView: View {
         PlaybackJournal.shared.note("Closed: " + reason
             + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
         reportProgress(force: true)
-        controller.stop()
+        finishPlayback()
         dismiss()
+    }
+
+    /// Stops the player, or gives the preview's back to it still playing.
+    /// The picture goes back at once, so the preview is already playing as
+    /// full screen fades away from over it.
+    private func finishPlayback() {
+        guard continuesPreview else { controller.stop(); return }
+        guard controller.lentToFullScreen else { return }
+        controller.watched = nil
+        controller.failover = previewFailover
+        controller.lentToFullScreen = false
     }
 
     /// The log's first line for this title.
@@ -5543,6 +5669,21 @@ private struct TVPlayerMenuLabel: View {
 
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
+    /// The view VLC draws into, for as long as this player lives. It is
+    /// drawn at the television's size and moved, never resized, between the
+    /// places it is shown; see `VLCHostedSurface`.
+    let surface: UIView = {
+        let view = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        view.backgroundColor = .black
+        return view
+    }()
+    /// Every place showing this player, oldest first.
+    private var hosts: [VLCSurfaceHost] = []
+    /// Full screen has this preview's player for now. The preview neither
+    /// stops it when it is covered nor opens it again when it is uncovered.
+    var lentToFullScreen = false {
+        didSet { if lentToFullScreen != oldValue { placeSurface() } }
+    }
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
     @Published private(set) var isPlaying = false
@@ -5631,6 +5772,34 @@ private struct TVPlayerMenuLabel: View {
     }
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
+    /// A stream has been opened and not stopped since.
+    var isOpen: Bool { !urls.isEmpty }
+
+    func show(in host: VLCSurfaceHost) {
+        host.owner = self
+        hosts.removeAll { $0 === host }
+        hosts.append(host)
+        // Set before anything plays, and never changed after: VLC stops
+        // drawing when it is given another view mid-stream.
+        if player.drawable as? UIView !== surface { player.drawable = surface }
+        placeSurface()
+    }
+
+    func stopShowing(in host: VLCSurfaceHost) {
+        hosts.removeAll { $0 === host }
+        placeSurface()
+    }
+
+    /// The picture goes to full screen while it has the player, and
+    /// otherwise to the newest place showing it.
+    private func placeSurface() {
+        let front = (lentToFullScreen ? hosts.last(where: \.fullScreen) : nil)
+            ?? hosts.last(where: { !$0.fullScreen }) ?? hosts.last
+        guard let front, surface.superview !== front else { return }
+        front.addSubview(surface)
+        front.setNeedsLayout()
+        front.layoutIfNeeded()
+    }
     var selectedSubtitleTitle: String {
         subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
     }
@@ -6260,10 +6429,107 @@ private struct TVPlaybackStatus: View {
     }
 }
 
-private struct VLCVideoSurface: UIViewRepresentable {
-    let player: VLCMediaPlayer
-    func makeUIView(context: Context) -> UIView { let view = UIView(); view.backgroundColor = .black; player.drawable = view; return view }
-    func updateUIView(_ uiView: UIView, context: Context) { if player.drawable == nil { player.drawable = uiView } }
+/// Where a player's picture is shown: a preview, or full screen over it.
+///
+/// VLC draws into one view for as long as the player lives -- the
+/// controller's `surface` -- and each place the picture can be shown holds
+/// that view while it is the one in front. Going full screen from a preview
+/// moves the view, which VLC never notices: the stream is not closed,
+/// reopened or rebuffered, and the picture carries straight on. Handing VLC
+/// a new view to draw into instead stops the picture while the sound plays
+/// on.
+private struct VLCHostedSurface: UIViewRepresentable {
+    let controller: VLCPlaybackController
+    /// Full screen comes in front of the preview it was opened from.
+    var fullScreen = false
+
+    func makeUIView(context: Context) -> VLCSurfaceHost {
+        let host = VLCSurfaceHost(fullScreen: fullScreen)
+        controller.show(in: host)
+        return host
+    }
+
+    func updateUIView(_ host: VLCSurfaceHost, context: Context) {}
+
+    static func dismantleUIView(_ host: VLCSurfaceHost, coordinator: ()) {
+        host.owner?.stopShowing(in: host)
+    }
+}
+
+private final class VLCSurfaceHost: UIView {
+    let fullScreen: Bool
+    weak var owner: VLCPlaybackController?
+
+    init(fullScreen: Bool) {
+        self.fullScreen = fullScreen
+        super.init(frame: .zero)
+        backgroundColor = .black
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// The surface keeps the size it is drawn at and is scaled to fit here.
+    /// Resizing the view VLC draws into makes it rebuild its output, which
+    /// is a hitch in the picture.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for surface in subviews {
+            let drawn = surface.bounds.size
+            guard drawn.width > 0, drawn.height > 0, bounds.width > 0, bounds.height > 0 else { continue }
+            let scale = min(bounds.width / drawn.width, bounds.height / drawn.height)
+            surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            surface.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+    }
+}
+
+/// Opens full screen at once rather than sliding it in. The picture is
+/// already playing, and an entrance would only hold it back behind the
+/// screen it is leaving.
+@MainActor private func presentWithoutAnimation(_ change: () -> Void) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, change)
+}
+
+/// A preview's player, lent to full screen.
+///
+/// Going full screen from a preview closed the preview's stream and opened
+/// the same channel again in a second player: a wait for the first
+/// connection to close, a black screen while the second buffered, and the
+/// game picking up a few seconds on. The preview's own player now goes full
+/// screen, and comes back to the preview after, without a break.
+final class TVPreviewHandoff {
+    fileprivate let controller: VLCPlaybackController
+    fileprivate init(_ controller: VLCPlaybackController) { self.controller = controller }
+
+    private final class Entry {
+        let channelID: Int
+        weak var controller: VLCPlaybackController?
+        init(channelID: Int, controller: VLCPlaybackController) {
+            self.channelID = channelID
+            self.controller = controller
+        }
+    }
+
+    @MainActor private static var previews: [Entry] = []
+
+    /// A preview has opened this channel.
+    @MainActor fileprivate static func previewing(_ channelID: Int, in controller: VLCPlaybackController) {
+        previews.removeAll { $0.controller == nil || $0.controller === controller }
+        previews.append(Entry(channelID: channelID, controller: controller))
+    }
+
+    /// The preview playing this channel, lent to full screen from now:
+    /// covered by it, the preview leaves the player playing.
+    @MainActor static func lend(playing channelID: Int) -> TVPreviewHandoff? {
+        previews.removeAll { $0.controller == nil }
+        guard let controller = previews.last(where: { $0.channelID == channelID })?.controller,
+              controller.isOpen else { return nil }
+        controller.lentToFullScreen = true
+        return TVPreviewHandoff(controller)
+    }
 }
 
 /// A video surface that VLC draws into at one fixed size, scaled to fit
