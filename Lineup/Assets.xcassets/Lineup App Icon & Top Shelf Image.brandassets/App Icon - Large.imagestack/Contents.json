@@ -1,6 +1,7 @@
 {
   "layers" : [
     { "filename" : "Foreground.imagestacklayer" },
+    { "filename" : "Middle.imagestacklayer" },
     { "filename" : "Background.imagestacklayer" }
   ],
   "info" : { "author" : "com.nulldev85.Lineup", "version" : 1 }
