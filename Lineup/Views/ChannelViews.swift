@@ -467,6 +467,9 @@ private struct LiveScreen: View {
     /// My Teams beside the monitor, or put away so the monitor runs the full
     /// width of the board and the picture sits centred. Kept between visits.
     @AppStorage("live.myTeamsShown") private var myTeamsShown = true
+    /// Where the remote goes after My Teams is put away or brought back: onto
+    /// the control that undoes it, rather than wherever focus falls.
+    @FocusState private var myTeamsControl: LiveMyTeamsControl?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -475,8 +478,6 @@ private struct LiveScreen: View {
                              previewGameID: previewGame?.id, multiviewPrimaryID: multiviewPrimaryID,
                              multiviewTitle: multiviewTitle, isScheduleLoading: isScheduleLoading,
                              isScheduleAvailable: isScheduleAvailable,
-                             myTeamsShown: myTeamsShown,
-                             onToggleMyTeams: { withAnimation(.easeInOut(duration: 0.32)) { myTeamsShown.toggle() } },
                              onPlay: onPlay, onStartMultiview: onStartMultiview,
                              onCancelMultiview: onCancelMultiview)
         }
@@ -503,6 +504,8 @@ private struct LiveScreen: View {
             if myTeamsShown {
                 LiveMyTeams(events: events, spotlight: spotlight, previewGameID: previewGame?.id,
                             multiviewPrimaryID: multiviewPrimaryID,
+                            hideFocus: $myTeamsControl,
+                            onHide: { setMyTeams(shown: false) },
                             onPlay: onPlay, onStartMultiview: onStartMultiview)
                     .frame(width: LiveMetrics.railWidth)
                     .transition(.move(edge: .leading).combined(with: .opacity))
@@ -512,9 +515,25 @@ private struct LiveScreen: View {
                         isMultiview: multiviewTitle != nil, isPreparingStreams: isPreparingStreams,
                         isScheduleLoading: isScheduleLoading, isScheduleAvailable: isScheduleAvailable,
                         scheduleErrorMessage: scheduleErrorMessage)
+                // Put away, My Teams leaves a tab on the monitor's left edge
+                // to bring it back. It sits over the picture rather than
+                // beside it, so the monitor keeps the board's full width.
+                .overlay(alignment: .leading) {
+                    if !myTeamsShown {
+                        LiveMyTeamsTab(focus: $myTeamsControl) { setMyTeams(shown: true) }
+                            .padding(.leading, 16)
+                            .transition(.opacity)
+                    }
+                }
         }
         .frame(maxHeight: .infinity)
         .lineupFocusRegion()
+    }
+
+    private func setMyTeams(shown: Bool) {
+        withAnimation(.easeInOut(duration: 0.32)) { myTeamsShown = shown }
+        // Onto the control that undoes it, once it is there to take focus.
+        DispatchQueue.main.async { myTeamsControl = shown ? .hide : .show }
     }
 
     /// The same rule the phone uses, from the same file: work in flight is
@@ -1064,14 +1083,19 @@ private struct LiveMyTeams: View {
     let spotlight: LiveSpotlight
     let previewGameID: String?
     let multiviewPrimaryID: Int?
+    let hideFocus: FocusState<LiveMyTeamsControl?>.Binding
+    let onHide: () -> Void
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
     var body: some View {
         let mine = events.filter { library.isFollowing($0) }
         VStack(alignment: .leading, spacing: 14) {
-            LiveEyebrow(title: "MY TEAMS", live: mine.filter(\.isLive).count,
-                        detail: mine.isEmpty ? nil : "\(mine.count) \(mine.count == 1 ? "GAME" : "GAMES")")
+            HStack(spacing: 14) {
+                LiveEyebrow(title: "MY TEAMS", live: mine.filter(\.isLive).count,
+                            detail: mine.isEmpty ? nil : "\(mine.count) \(mine.count == 1 ? "GAME" : "GAMES")")
+                LiveMyTeamsHideButton(focus: hideFocus, action: onHide)
+            }
             if mine.isEmpty {
                 LiveMyTeamsEmpty(teams: library.followedTeams.teams, hasGames: !events.isEmpty)
             } else {
@@ -1093,6 +1117,71 @@ private struct LiveMyTeams: View {
                 .padding(-LiveMetrics.liftRoom)
             }
         }
+    }
+}
+
+/// The two controls that put My Teams away and bring it back.
+private enum LiveMyTeamsControl: Hashable {
+    case hide, show
+}
+
+/// In My Teams' heading: puts the rail away so the monitor can run the
+/// full width of the board, the picture centred.
+private struct LiveMyTeamsHideButton: View {
+    let focus: FocusState<LiveMyTeamsControl?>.Binding
+    let action: () -> Void
+
+    var body: some View {
+        let focused = focus.wrappedValue == .hide
+        let shape = Capsule()
+        HStack(spacing: 7) {
+            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+            Text("Hide").font(.inter(15, .semibold))
+        }
+        .foregroundStyle(LivePalette.text)
+        .padding(.horizontal, 14).frame(height: 36)
+        .background(LineupStyle.raised, in: shape)
+        .overlay(shape.strokeBorder(LivePalette.rule, lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contentShape(shape)
+        .focusable()
+        .focused(focus, equals: .hide)
+        .focusEffectDisabled()
+        .onTapGesture(perform: action)
+        .accessibilityLabel("Hide My Teams")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// With My Teams put away: a tab on the monitor's left edge that brings it
+/// back.
+private struct LiveMyTeamsTab: View {
+    let focus: FocusState<LiveMyTeamsControl?>.Binding
+    let action: () -> Void
+
+    var body: some View {
+        let focused = focus.wrappedValue == .show
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        VStack(spacing: 10) {
+            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold))
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
+        }
+        .foregroundStyle(LivePalette.text)
+        .frame(width: 48, height: 116)
+        .background(Color.black.opacity(0.6), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contentShape(shape)
+        .focusable()
+        .focused(focus, equals: .show)
+        .focusEffectDisabled()
+        .onTapGesture(perform: action)
+        .accessibilityLabel("Show My Teams")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -1341,8 +1430,6 @@ private struct LiveMatchupBoard: View {
     let multiviewTitle: String?
     let isScheduleLoading: Bool
     let isScheduleAvailable: Bool
-    let myTeamsShown: Bool
-    let onToggleMyTeams: () -> Void
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
@@ -1407,13 +1494,6 @@ private struct LiveMatchupBoard: View {
                     LiveChipLabel(symbol: "xmark", title: "Cancel multiview")
                 }
             } else {
-                // Puts My Teams away so the monitor runs the board's full
-                // width, or brings it back beside the monitor.
-                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: onToggleMyTeams) {
-                    LiveChipLabel(symbol: myTeamsShown ? "sidebar.left" : "star",
-                                  title: myTeamsShown ? "Hide My Teams" : "My Teams")
-                }
-                .accessibilityLabel(myTeamsShown ? "Hide My Teams" : "Show My Teams")
                 LiveLeagueFilter(selectedLeague: $selectedLeague)
             }
         }
