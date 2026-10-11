@@ -395,8 +395,6 @@ private enum LivePalette {
     static var accent: Color { LineupStyle.highlight }
     static var rim: Color { LineupStyle.liveSelectionBorder }
     static var onAir: Color { LineupStyle.liveDot }
-    /// How strongly a matchup's colours light the wall behind the monitor.
-    static let spill = 0.32
 }
 
 /// One grid for the whole tab.
@@ -508,12 +506,6 @@ private struct LiveScreen: View {
                         scheduleErrorMessage: scheduleErrorMessage)
         }
         .frame(maxHeight: .infinity)
-        .background {
-            HStack(spacing: 0) {
-                Color.clear.frame(width: LiveMetrics.railWidth + LiveMetrics.gutter)
-                LiveBiasLight(spotlight: spotlight, events: events, previewGame: previewGame)
-            }
-        }
         .lineupFocusRegion()
     }
 
@@ -542,48 +534,6 @@ private struct LiveCanvas: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
-    }
-}
-
-/// The light a television throws on the wall behind it.
-///
-/// Each side of the matchup lights its own half in its own colour, so the
-/// room changes with the game under the remote -- or with the game on the
-/// monitor, while one is. Two gradients and no blur: nothing here costs more
-/// than a fill.
-private struct LiveBiasLight: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject var spotlight: LiveSpotlight
-    let events: [SportsGame]
-    let previewGame: SportsGame?
-
-    var body: some View {
-        let game = previewGame ?? spotlight.game(in: events)
-        let teams = game.map { !$0.isEvent } ?? false
-        GeometryReader { proxy in
-            let size = proxy.size
-            ZStack {
-                // Seated low, so the light has faded to nothing before it
-                // reaches the tab bar and spills mostly beside and beneath
-                // the monitor, where a real set lights a wall.
-                glow(liveTeamColor(teams ? game?.awayColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.3)
-                    .position(x: size.width * 0.25, y: size.height * 0.62)
-                glow(liveTeamColor(teams ? game?.homeColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.3)
-                    .position(x: size.width * 0.75, y: size.height * 0.62)
-            }
-            .id(game?.id ?? "")
-            .transition(.opacity)
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: game?.id)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func glow(_ color: Color) -> some View {
-        EllipticalGradient(colors: [color.opacity(LivePalette.spill), color.opacity(LivePalette.spill * 0.45), .clear],
-                           center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
     }
 }
 
@@ -660,8 +610,7 @@ private struct LiveSlate: View {
         GeometryReader { proxy in
             let crest = min(150, proxy.size.height * 0.27)
             ZStack {
-                LiveSlateBackdrop(away: game.isEvent ? nil : game.awayColor,
-                                  home: game.isEvent ? nil : game.homeColor)
+                LiveSlateBackdrop()
                 VStack(spacing: 0) {
                     header
                     Spacer(minLength: 10)
@@ -670,12 +619,14 @@ private struct LiveSlate: View {
                     } else {
                         HStack(alignment: .center, spacing: 0) {
                             LiveCrestColumn(name: game.awayTeam, abbreviation: game.awayAbbreviation,
-                                            logo: game.awayLogo, record: game.awayRecord, crest: crest)
+                                            logo: game.awayLogo, color: game.awayColor,
+                                            record: game.awayRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                             center
                                 .frame(width: min(450, proxy.size.width * 0.34))
                             LiveCrestColumn(name: game.homeTeam, abbreviation: game.homeAbbreviation,
-                                            logo: game.homeLogo, record: game.homeRecord, crest: crest)
+                                            logo: game.homeLogo, color: game.homeColor,
+                                            record: game.homeRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                         }
                     }
@@ -791,21 +742,15 @@ private struct LiveSlate: View {
 /// The slate's ground: black, each side's colour lifting its own half, and a
 /// centre line and circle drawn faintly through the middle, the way every
 /// field and floor and rink is marked.
+/// The slate's ground: dark, with the court's lines. The teams' colours are
+/// not washed across it; each glows only just around its own crest, inside
+/// the monitor's edge.
 private struct LiveSlateBackdrop: View {
-    let away: String?
-    let home: String?
-
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
                 LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-                wash(liveTeamColor(away))
-                    .frame(width: size.width * 0.62, height: size.height * 1.3)
-                    .position(x: size.width * 0.15, y: size.height * 0.55)
-                wash(liveTeamColor(home))
-                    .frame(width: size.width * 0.62, height: size.height * 1.3)
-                    .position(x: size.width * 0.85, y: size.height * 0.55)
                 LiveCourtLines()
                 RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center,
                                startRadius: size.height * 0.45, endRadius: size.width * 0.62)
@@ -813,11 +758,6 @@ private struct LiveSlateBackdrop: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-
-    private func wash(_ color: Color) -> some View {
-        EllipticalGradient(colors: [color.opacity(0.32), color.opacity(0.1), .clear],
-                           center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
     }
 }
 
@@ -851,6 +791,7 @@ private struct LiveCrestColumn: View {
     let name: String
     let abbreviation: String
     let logo: String
+    let color: String?
     let record: String?
     let crest: CGFloat
 
@@ -858,6 +799,16 @@ private struct LiveCrestColumn: View {
         VStack(spacing: 16) {
             LiveCrest(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
                       size: crest)
+                // The team's colour, faint, flaring just past the crest's
+                // edge and no further.
+                .background {
+                    if let tint = sportsReadableTeamColor(color) {
+                        RadialGradient(colors: [tint.opacity(0.36), tint.opacity(0.12), .clear],
+                                       center: .center, startRadius: 0, endRadius: crest * 0.82)
+                            .frame(width: crest * 1.64, height: crest * 1.64)
+                            .allowsHitTesting(false)
+                    }
+                }
             VStack(spacing: 5) {
                 Text(name).font(.inter(30, .semibold)).foregroundStyle(LivePalette.text)
                     .lineLimit(1).minimumScaleFactor(0.6)
@@ -966,7 +917,7 @@ private struct LiveEmptySlate: View {
 
     var body: some View {
         ZStack {
-            LiveSlateBackdrop(away: nil, home: nil)
+            LiveSlateBackdrop()
             VStack(spacing: 18) {
                 Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
                     .font(.system(size: 52, weight: .ultraLight))
