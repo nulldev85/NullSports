@@ -672,6 +672,7 @@ private struct TVLibraryMenuBar: View {
                 .focused($focus, equals: .row(index))
                 .focusEffectDisabled()
                 .onTapGesture { choose(option) }
+                .onMoveCommand { direction in move(direction, from: index) }
             }
         }
         .padding(8)
@@ -679,19 +680,20 @@ private struct TVLibraryMenuBar: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
         .fixedSize()
-        // The list moves its own focus. Left to the focus engine, a press
-        // down could land on a poster under the list -- whichever one the
-        // engine judged nearer than the next row -- and focus leaving closed
-        // the list under the viewer, two rows in, at Remove a Shelf.
-        .onMoveCommand { direction in
-            guard case .row(let index) = focus else { return }
-            switch direction {
-            case .down: focus = .row(min(index + 1, options.count - 1))
-            case .up: focus = index == 0 ? .button : .row(index - 1)
-            default: break
-            }
-        }
         .onAppear { focus = .row(0) }
+    }
+
+    /// The list moves its own focus, one row a press. Left to the focus
+    /// engine, a press down could land on a poster under the list and close
+    /// it under the viewer. The handler sits on each row rather than on the
+    /// list: there it takes the press, where on the list it only heard it
+    /// as the engine moved too, and every press went two rows.
+    private func move(_ direction: MoveCommandDirection, from index: Int) {
+        switch direction {
+        case .down: focus = .row(min(index + 1, options.count - 1))
+        case .up: focus = index == 0 ? .button : .row(index - 1)
+        default: break
+        }
     }
 
     private func choose(_ option: TVLibraryOption) {
@@ -1140,7 +1142,6 @@ private struct MediaCatalogsScreen: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .onMoveCommand(perform: moveTV)
             // At the top right of the artwork, clear of the title told on
             // the left.
             if let options {
@@ -1189,6 +1190,7 @@ private struct MediaCatalogsScreen: View {
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
             .onTapGesture { playHero() }
+            .onMoveCommand(perform: moveTV)
             .contextMenu {
                 if let item, item.opensPage {
                     Button("Details", systemImage: "info.circle") { pushed = item }
@@ -1279,6 +1281,7 @@ private struct MediaCatalogsScreen: View {
             .focused($tvFocus, equals: .card(slot))
             .focusEffectDisabled()
             .onTapGesture { activate(item, in: shelf) }
+            .onMoveCommand(perform: moveTV)
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
@@ -1311,6 +1314,7 @@ private struct MediaCatalogsScreen: View {
         .focused($tvFocus, equals: .card(slot))
         .focusEffectDisabled()
         .onTapGesture { pushed = catalog.root }
+        .onMoveCommand(perform: moveTV)
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
         .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
@@ -1326,7 +1330,10 @@ private struct MediaCatalogsScreen: View {
     /// The remote's presses, all of them: left and right along the row or
     /// through the hero's titles, up and down between the hero and the
     /// shelves. Left to the focus engine, up and down would scroll a stack of
-    /// shelves; here they change which shelf is in the one row.
+    /// shelves; here they change which shelf is in the one row. Play and
+    /// every card carry the handler themselves: on a view around them it
+    /// only hears a press the engine has already acted on, so a press could
+    /// move two places, as it did in the Library menu.
     private func moveTV(_ direction: MoveCommandDirection) {
         let shelves = tvShelves
         switch tvFocus {
