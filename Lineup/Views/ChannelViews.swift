@@ -4610,9 +4610,10 @@ private struct MultiviewChannelChoice: Identifiable {
 /// screen and back -- moves and scales the two pictures and never touches the
 /// players, so neither stream stops, buffers or loses its place.
 ///
-/// Sound follows the picture with focus and crossfades as focus moves. When
-/// focus leaves both for a moment -- a menu, a sheet -- the sound stays where
-/// it was rather than going quiet.
+/// Sound follows the picture with focus. It is handed over, never shared: the
+/// old picture's sound goes out before the new one's comes in, so the two are
+/// never heard together. When focus leaves both for a moment -- a menu, a
+/// sheet -- the sound stays where it was rather than going quiet.
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -4621,6 +4622,8 @@ private struct MultiviewView: View {
     @FocusState private var focusedTile: Int?
     /// The picture whose sound is playing.
     @State private var audibleTile = 0
+    /// Brings the new picture's sound in once the old one's is out.
+    @State private var soundTask: Task<Void, Never>?
     /// In Big + Small, which picture is the big one.
     @State private var bigTile = 0
     /// A picture filling the screen, with the other still playing, unseen.
@@ -4668,6 +4671,7 @@ private struct MultiviewView: View {
         .onAppear(perform: begin)
         .onDisappear {
             chromeTask?.cancel()
+            soundTask?.cancel()
             players.tiles.forEach { $0.stop() }
         }
         .onChange(of: focusedTile) { _, tile in
@@ -4888,12 +4892,26 @@ private struct MultiviewView: View {
         }
     }
 
-    /// Crossfade to a picture's sound: one fades down as the other comes up.
+    /// Hand the sound to a picture: the other's goes out first, and only then
+    /// does this one's come in. A crossfade had both playing at once while it
+    /// ran, and a stream that reconnected partway through could be left
+    /// playing under the other for good.
     private func listen(to index: Int) {
         audibleTile = index
-        players.tiles[index].fadeAudio(audible: true)
-        players.tiles[1 - index].fadeAudio(audible: false)
+        soundTask?.cancel()
+        let heard = players.tiles[index]
+        let quiet = players.tiles[1 - index]
+        quiet.fadeAudio(audible: false, over: Self.soundOut)
+        // Held silent until the other is out -- it may still be on its way
+        // out itself, after a quick move there and back.
+        heard.fadeAudio(audible: false, over: 0)
+        soundTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(Self.soundOut + 0.02)) } catch { return }
+            heard.fadeAudio(audible: true, over: 0.25)
+        }
     }
+
+    private static let soundOut = 0.18
 
     private func showChrome() {
         withAnimation(.easeOut(duration: 0.25)) { chromeVisible = true }
@@ -5800,7 +5818,10 @@ private struct TVPlayerMenuLabel: View {
         stop()
         restarting = false
         self.urls = Array(urls.reversed())
-        self.muted = muted
+        // A picture turned down to nothing stays muted whatever it is
+        // reopened with: a retry or a change of channel passes on the mute
+        // as it stood, which partway through fading out was still off.
+        self.muted = muted || targetVolume == 0
         self.isLive = isLive
         finished = false
         if !keepTrackChoices {
@@ -6123,6 +6144,8 @@ private struct TVPlayerMenuLabel: View {
     /// the sound under a playing picture.
     private func holdAudioLevel() {
         guard let audio = player.audio else { return }
+        // Turned down to nothing and not fading: muted, however it got here.
+        if fadeTask == nil, targetVolume == 0, !muted { setMuted(true) }
         if audio.isMuted != muted { audio.isMuted = muted }
         guard fadeTask == nil, audio.volume != targetVolume else { return }
         audio.volume = targetVolume
@@ -6244,6 +6267,8 @@ private struct TVPlayerMenuLabel: View {
         monitor = nil
         fadeTask?.cancel()
         fadeTask = nil
+        // A fade out cut short ends where it was going: muted.
+        if targetVolume == 0, !muted { setMuted(true) }
         retryAt = nil
         reopenPosition = nil
         pendingWorkingChannelID = nil
