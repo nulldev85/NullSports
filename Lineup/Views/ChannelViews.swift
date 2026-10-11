@@ -585,13 +585,8 @@ private struct LiveMonitor: View {
         ZStack {
             Color.black
             if let previewStream {
+                // The picture is left clear, nothing written over it.
                 LiveVideoWall(stream: previewStream, game: previewGame, urls: previewURLs)
-                // On the game playing, the picture is left clear. On another,
-                // the foot names it and offers it.
-                if let game, game.id != previewGame?.id {
-                    LiveLowerThird(game: game)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                }
             } else if let game {
                 LiveSlate(game: game, channel: library.stream(for: game)?.name,
                           hint: isPreparingStreams ? .refreshing : (isMultiview ? .secondGame : .preview))
@@ -1026,42 +1021,6 @@ private struct LiveTallyChip: View {
         .background(.black.opacity(0.55), in: Capsule())
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-}
-
-/// Over the foot of a playing feed, while the remote rests on another game:
-/// which game that is, and that Select will preview it.
-private struct LiveLowerThird: View {
-    let game: SportsGame
-
-    var body: some View {
-        HStack(spacing: 16) {
-            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-            Text(liveHeadline(game)).font(.inter(20, .semibold)).tracking(0).lineLimit(1)
-            if game.isLive {
-                PulsingLiveDot(size: 6)
-                Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
-                    .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
-            } else {
-                Text(game.startLabel.uppercased()).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
-            }
-            Spacer(minLength: 20)
-            Image(systemName: "play.fill")
-            Text("SELECT TO PREVIEW")
-        }
-        .font(.inter(14, .bold)).tracking(1.8)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 28).padding(.bottom, 24)
-        .frame(maxWidth: .infinity)
-        .frame(height: 112, alignment: .bottom)
-        // Deep enough under the words that broadcast red and a dimmed line
-        // still read over the brightest picture.
-        .background(LinearGradient(stops: [
-            .init(color: .clear, location: 0),
-            .init(color: .black.opacity(0.62), location: 0.45),
-            .init(color: .black.opacity(0.92), location: 1)
-        ], startPoint: .top, endPoint: .bottom))
-        .allowsHitTesting(false)
     }
 }
 
