@@ -10,14 +10,78 @@ enum MobileLiveSegment: Hashable {
 }
 
 /// A team's colour from the schedule, which gives it as hex with or without
-/// the hash.
-func mobileTeamColor(_ hex: String?) -> Color? {
+/// the hash, as an accent on a dark card. A few teams' colour is all but
+/// black, which on charcoal is no colour at all, so those are lifted toward
+/// white until they read.
+func mobileTeamAccent(_ hex: String?) -> Color? {
     guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
     value = value.replacingOccurrences(of: "#", with: "")
     guard value.count == 6, let rgb = UInt64(value, radix: 16) else { return nil }
-    return Color(red: Double((rgb >> 16) & 0xff) / 255,
-                 green: Double((rgb >> 8) & 0xff) / 255,
-                 blue: Double(rgb & 0xff) / 255)
+    var red = Double((rgb >> 16) & 0xff) / 255
+    var green = Double((rgb >> 8) & 0xff) / 255
+    var blue = Double(rgb & 0xff) / 255
+    if 0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.1 {
+        red += (1 - red) * 0.45
+        green += (1 - green) * 0.45
+        blue += (1 - blue) * 0.45
+    }
+    return Color(red: red, green: green, blue: blue)
+}
+
+/// The Live tab's cards share one corner. A single radius across the
+/// preview, the strip and the tiles is what makes them read as one set.
+enum MobileCard {
+    static let radius: CGFloat = 14
+    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+}
+
+/// The clock after a small solid dot in broadcast red: plain type, with the
+/// red kept to the dot so a grid of live games does not shout. The feed
+/// writes "10:20 - 3rd"; it is set as "10:20 · 3RD".
+struct MobileLiveClock: View {
+    let text: String
+    var size: CGFloat = 11
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(LineupStyle.liveDot).frame(width: 6, height: 6)
+            Text(text.replacingOccurrences(of: " - ", with: " · ").uppercased())
+                .font(.interDigits(size, .semibold)).tracking(0.3)
+                .foregroundStyle(LineupStyle.text)
+                .lineLimit(1).minimumScaleFactor(0.8)
+        }
+    }
+}
+
+/// A league's logo as a quiet grey mark. Beside the network it says which
+/// league without competing with the teams' own colours.
+struct MobileLeagueMark: View {
+    let league: SportsLeague
+    var size: CGFloat = 14
+
+    var body: some View {
+        MobileLeagueLogo(league: league, size: size)
+            .saturation(0)
+            .opacity(0.72)
+    }
+}
+
+/// A team's colour as a tab on the card's edge, square to the edge and
+/// rounded where it ends.
+struct MobileTeamTab: View {
+    let color: Color
+    var edge: HorizontalEdge = .leading
+
+    var body: some View {
+        let round: CGFloat = 1.5
+        let corners = edge == .leading
+            ? RectangleCornerRadii(topLeading: 0, bottomLeading: 0, bottomTrailing: round, topTrailing: round)
+            : RectangleCornerRadii(topLeading: round, bottomLeading: round, bottomTrailing: 0, topTrailing: 0)
+        return UnevenRoundedRectangle(cornerRadii: corners)
+            .fill(color)
+            .frame(width: 3)
+            .accessibilityHidden(true)
+    }
 }
 
 extension SportsGame {
@@ -80,65 +144,71 @@ extension SportsGame {
 func mobileRankedName(_ name: String, rank: Int?, size: CGFloat) -> Text {
     guard let rank else { return Text(verbatim: name) }
     let mark = Text(verbatim: "\(rank)")
-        .font(.interDigits((size * 0.64).rounded(), .heavy))
+        .font(.interDigits((size * 0.64).rounded(), .bold))
         .baselineOffset((size * 0.38).rounded())
     return Text("\(Text(verbatim: name))\u{200A}\(mark)")
 }
 
-/// One game on now: both sides and their scores, the clock, the network,
-/// tinted in the two teams' colours.
+/// One game on now: both sides and their scores, the clock, the network.
+/// Flat, with each team's colour as a tab on the card's edge beside its
+/// row.
 struct MobileScoreTile: View {
     let game: SportsGame
     /// The game in the preview above, marked so the eye finds it again.
     var isWatching = false
     var isFollowed = false
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }
+    static let height: CGFloat = 116
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                MobileLiveStatusPill(text: game.status.isEmpty ? "Live" : game.status)
+                MobileLiveClock(text: game.status.isEmpty ? "Live" : game.status)
                     .layoutPriority(1)
-                Spacer(minLength: 2)
+                Spacer(minLength: 4)
                 if isFollowed {
                     Image(systemName: "star.fill").font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(red: 0.96, green: 0.77, blue: 0.09))
                         .accessibilityHidden(true)
                 }
                 if let network = game.leadNetwork {
-                    Text(network.uppercased()).font(.inter(10, .bold))
-                        .foregroundStyle(LineupStyle.secondary).lineLimit(1).minimumScaleFactor(0.75)
+                    Text(network.uppercased()).font(.inter(10, .semibold)).tracking(0.5)
+                        .foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.75)
                 }
                 // An event already leads with its league's mark below.
                 if !game.isEvent {
-                    MobileLeagueLogo(league: game.league, size: 20)
+                    MobileLeagueMark(league: game.league, size: 14)
                 }
             }
-            Spacer(minLength: 8)
+            .frame(height: 16)
+            Spacer(minLength: 10)
             if game.isEvent {
-                HStack(spacing: 9) {
+                HStack(spacing: 10) {
                     MobileLeagueLogo(league: game.league, size: 28)
-                    Text(game.eventName ?? "").font(.inter(14, .bold))
+                    Text(game.eventName ?? "").font(.inter(14, .semibold))
+                        .foregroundStyle(LineupStyle.text)
                         .lineLimit(2).multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
                 }
             } else {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     side(logo: game.awayLogo, code: SportsGame.code(game.awayAbbreviation, game.awayTeam),
-                         rank: game.awayRank, score: game.awayScore, leads: leads(game.awayScore, over: game.homeScore))
+                         rank: game.awayRank, color: game.awayColor,
+                         score: game.awayScore, leads: leads(game.awayScore, over: game.homeScore))
                     side(logo: game.homeLogo, code: SportsGame.code(game.homeAbbreviation, game.homeTeam),
-                         rank: game.homeRank, score: game.homeScore, leads: leads(game.homeScore, over: game.awayScore))
+                         rank: game.homeRank, color: game.homeColor,
+                         score: game.homeScore, leads: leads(game.homeScore, over: game.awayScore))
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 10)
-        .frame(height: 124)
-        .background { MobileTeamWash(away: game.awayColor, home: game.homeColor) }
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(isWatching ? LineupStyle.text.opacity(0.85) : LineupStyle.line,
-                                    lineWidth: isWatching ? 1.5 : 1))
-        .contentShape(shape)
+        .padding(12)
+        .frame(height: Self.height)
+        .background(LineupStyle.surface)
+        .clipShape(MobileCard.shape)
+        .overlay(MobileCard.shape.strokeBorder(isWatching ? LineupStyle.text : LineupStyle.line,
+                                               lineWidth: isWatching ? 1.5 : 1))
+        .contentShape(MobileCard.shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(game.spokenScoreline)
     }
@@ -149,52 +219,23 @@ struct MobileScoreTile: View {
         return mine >= theirs
     }
 
-    private func side(logo: String, code: String, rank: Int?, score: String, leads: Bool) -> some View {
-        HStack(spacing: 8) {
-            TeamBadge(url: logo, fallback: code, size: 26)
-            mobileRankedName(code, rank: rank, size: 15).font(.inter(15, .heavy)).lineLimit(1)
+    private func side(logo: String, code: String, rank: Int?, color: String?,
+                      score: String, leads: Bool) -> some View {
+        HStack(spacing: 9) {
+            TeamBadge(url: logo, fallback: code, size: 22, tight: true)
+            mobileRankedName(code, rank: rank, size: 16)
+                .font(.inter(16, .semibold)).tracking(0.2).lineLimit(1)
             Spacer(minLength: 4)
-            Text(score).font(.interDigits(22, .heavy)).lineLimit(1)
+            Text(score).font(.interDigits(26, .bold)).lineLimit(1)
         }
-        .foregroundStyle(LineupStyle.text.opacity(leads ? 1 : 0.55))
-    }
-}
-
-/// The two teams' colours, washed in from opposite corners over the card.
-struct MobileTeamWash: View {
-    let away: String?
-    let home: String?
-    var strength: Double = 0.42
-
-    var body: some View {
-        ZStack {
-            LineupStyle.surface
-            if let away = mobileTeamColor(away) {
-                RadialGradient(colors: [away.opacity(strength), away.opacity(0)],
-                               center: .topLeading, startRadius: 0, endRadius: 170)
-            }
-            if let home = mobileTeamColor(home) {
-                RadialGradient(colors: [home.opacity(strength), home.opacity(0)],
-                               center: .bottomTrailing, startRadius: 0, endRadius: 170)
+        .foregroundStyle(leads ? LineupStyle.text : LineupStyle.secondary)
+        .frame(height: 26)
+        // Out to the card's edge, through the padding, level with its row.
+        .background(alignment: .leading) {
+            if let accent = mobileTeamAccent(color) {
+                MobileTeamTab(color: accent).frame(height: 22).offset(x: -12)
             }
         }
-    }
-}
-
-/// The game clock on a dark pill, with the live light.
-struct MobileLiveStatusPill: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            MobileLiveDot()
-            Text(text).font(.inter(10.5, .heavy)).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .padding(.leading, 6).padding(.trailing, 8)
-        .frame(height: 22)
-        .background(Color.black.opacity(0.42), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
-        .foregroundStyle(LineupStyle.text)
     }
 }
 
@@ -209,16 +250,16 @@ struct MobileUpcomingRow: View {
     var body: some View {
         HStack(spacing: 11) {
             Text(showsDay ? game.startLabel : game.start.formatted(.dateTime.hour().minute()))
-                .font(.interDigits(showsDay ? 12 : 14, .heavy))
+                .font(.interDigits(showsDay ? 12 : 14, .semibold))
                 .lineLimit(2).minimumScaleFactor(0.85)
                 .frame(width: 62, alignment: .leading)
             logos
             VStack(alignment: .leading, spacing: 2) {
-                matchup.font(.inter(14, .bold)).lineLimit(1)
+                matchup.font(.inter(14, .semibold)).lineLimit(1)
                 HStack(spacing: 5) {
                     // An event's mark is already in the logo column.
                     if !game.isEvent {
-                        MobileLeagueLogo(league: game.league, size: 15)
+                        MobileLeagueMark(league: game.league, size: 14)
                     }
                     Text(game.leadNetwork ?? (game.isEvent ? game.league.shortName : ""))
                         .font(.inter(11.5, .medium)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
@@ -246,8 +287,8 @@ struct MobileUpcomingRow: View {
             MobileLeagueLogo(league: game.league, size: 26).frame(width: 45)
         } else {
             HStack(spacing: -7) {
-                TeamBadge(url: game.awayLogo, fallback: SportsGame.code(game.awayAbbreviation, game.awayTeam), size: 26)
-                TeamBadge(url: game.homeLogo, fallback: SportsGame.code(game.homeAbbreviation, game.homeTeam), size: 26)
+                TeamBadge(url: game.awayLogo, fallback: SportsGame.code(game.awayAbbreviation, game.awayTeam), size: 26, tight: true)
+                TeamBadge(url: game.homeLogo, fallback: SportsGame.code(game.homeAbbreviation, game.homeTeam), size: 26, tight: true)
             }
             .accessibilityHidden(true)
         }
@@ -295,7 +336,7 @@ struct MobileLiveScoreboard: View {
         // A scoreboard that moves under VoiceOver's cursor reads as noise,
         // so with VoiceOver it stays on the game being watched.
         let rotates = ids.count > 1 && !voiceOver && scenePhase == .active
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        let shape = MobileCard.shape
         Button {
             if shown.id != watching.id { onWatch(shown) }
         } label: {
@@ -335,7 +376,7 @@ struct MobileLiveScoreboard: View {
 }
 
 /// One game on the scoreboard: the score, the clock and the network on one
-/// line, over the two teams' colours.
+/// line, between the two teams' colours on the card's two edges.
 struct MobileNowPlayingStrip: View {
     let game: SportsGame
 
@@ -348,7 +389,7 @@ struct MobileNowPlayingStrip: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(game.eventName ?? "").font(.inter(14, .bold)).lineLimit(1)
                     if game.isLive { clock } else {
-                        Text(game.startLabel).font(.interDigits(12, .heavy))
+                        Text(game.startLabel.uppercased()).font(.interDigits(11, .semibold)).tracking(0.3)
                     }
                 }
                 Spacer(minLength: 4)
@@ -357,12 +398,14 @@ struct MobileNowPlayingStrip: View {
                 if game.isLive { score(game.awayScore, leads: leads(game.awayScore, game.homeScore)) }
                 VStack(spacing: 1) {
                     if game.isLive { clock } else {
-                        Text(game.startLabel).font(.interDigits(12, .heavy))
+                        Text(game.startLabel.uppercased()).font(.interDigits(11, .semibold)).tracking(0.3)
+                            .foregroundStyle(LineupStyle.text)
                     }
-                    HStack(spacing: 4) {
-                        MobileLeagueLogo(league: game.league, size: 13)
+                    HStack(spacing: 5) {
+                        MobileLeagueMark(league: game.league, size: 12)
                         if let network = game.leadNetwork {
-                            Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
+                            Text(network.uppercased()).font(.inter(10, .semibold)).tracking(0.5)
+                                .foregroundStyle(LineupStyle.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -375,17 +418,20 @@ struct MobileNowPlayingStrip: View {
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity)
         .frame(height: Self.height)
-        .background { MobileTeamWash(away: game.awayColor, home: game.homeColor, strength: 0.5) }
+        .background {
+            HStack(spacing: 0) {
+                if let away = mobileTeamAccent(game.awayColor) { MobileTeamTab(color: away, edge: .leading) }
+                Spacer(minLength: 0)
+                if let home = mobileTeamAccent(game.homeColor) { MobileTeamTab(color: home, edge: .trailing) }
+            }
+            .padding(.vertical, 12)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(game.spokenScoreline)
     }
 
     private var clock: some View {
-        HStack(spacing: 5) {
-            MobileLiveDot()
-            Text(game.status.isEmpty ? "Live" : game.status).font(.inter(11, .heavy)).lineLimit(1)
-        }
-        .foregroundStyle(LineupStyle.liveStatus)
+        MobileLiveClock(text: game.status.isEmpty ? "Live" : game.status)
     }
 
     private func leads(_ score: String, _ other: String) -> Bool {
@@ -397,16 +443,16 @@ struct MobileNowPlayingStrip: View {
     /// after the logo instead.
     private func badge(logo: String, code: String, rank: Int?) -> some View {
         HStack(alignment: .top, spacing: 1) {
-            TeamBadge(url: logo, fallback: code, size: 30)
+            TeamBadge(url: logo, fallback: code, size: 28, tight: true)
             if let rank {
-                Text(verbatim: "\(rank)").font(.interDigits(10, .heavy))
+                Text(verbatim: "\(rank)").font(.interDigits(10, .bold))
                     .foregroundStyle(LineupStyle.text)
             }
         }
     }
 
     private func score(_ value: String, leads: Bool) -> some View {
-        Text(value).font(.interDigits(22, .heavy))
-            .foregroundStyle(LineupStyle.text.opacity(leads ? 1 : 0.6))
+        Text(value).font(.interDigits(26, .bold))
+            .foregroundStyle(leads ? LineupStyle.text : LineupStyle.secondary)
     }
 }

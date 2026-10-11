@@ -185,8 +185,7 @@ struct MobileLiveView: View {
                                    alignment: .top)
                             .background(LineupStyle.background)
                             // A card among the cards until it fills the screen.
-                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : 22, style: .continuous))
-                            .shadow(color: .black.opacity(fillsScreen ? 0 : 0.45), radius: 18, y: 10)
+                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : MobileCard.radius, style: .continuous))
                             .padding(.horizontal, fillsScreen ? 0 : Self.inset)
                         }
                         .offset(y: fillsScreen ? 0 : previewTop)
@@ -455,7 +454,7 @@ struct MobileLiveView: View {
                 }
                 .buttonStyle(MobileCardButtonStyle())
                 .accessibilityHint("Watch game. Touch and hold for more, such as adding a team to My Teams.")
-                .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .contentShape(.contextMenuPreview, MobileCard.shape)
                 .contextMenu { gameMenu(game) }
             }
         }
@@ -481,10 +480,9 @@ struct MobileLiveView: View {
                             .contextMenu { gameMenu(game) }
                     }
                 }
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(LineupStyle.line, lineWidth: 1))
+                .background(LineupStyle.surface, in: MobileCard.shape)
+                .clipShape(MobileCard.shape)
+                .overlay(MobileCard.shape.strokeBorder(LineupStyle.line, lineWidth: 1))
             }
         }
     }

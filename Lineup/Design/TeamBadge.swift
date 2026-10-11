@@ -20,9 +20,13 @@ struct TeamBadge: View {
     let fallback: String
     /// The badge's drawn size. The rim is derived from it.
     var size: CGFloat
+    /// A rim just wide enough to keep a dark badge off a dark card, for flat
+    /// scoreboard cards where a visible glow would be the loudest thing on
+    /// them.
+    var tight = false
 
-    private var inset: CGFloat { max(2, size * 0.09) }
-    private var rim: CGFloat { max(2, size * 0.1) }
+    private var inset: CGFloat { tight ? max(1, size * 0.05) : max(2, size * 0.09) }
+    private var rim: CGFloat { tight ? max(0.8, size * 0.035) : max(2, size * 0.1) }
 
     var body: some View {
         LineupArtView(url: URL(string: url), width: size) { loaded in
@@ -62,8 +66,8 @@ struct TeamBadge: View {
     private func halo(_ art: some View) -> some View {
         ZStack {
             LineupStyle.logoPlate.mask { art.blur(radius: rim) }
-            LineupStyle.logoPlate.mask { art.blur(radius: rim) }
+            if !tight { LineupStyle.logoPlate.mask { art.blur(radius: rim) } }
         }
-        .opacity(0.9)
+        .opacity(tight ? 0.75 : 0.9)
     }
 }
