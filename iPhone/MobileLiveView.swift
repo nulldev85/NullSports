@@ -5,6 +5,7 @@ struct MobileLiveView: View {
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var league: SportsLeague?
     /// The part of the slate on screen, once the viewer has picked one. Until
     /// then the tab opens on what is live, or on what is next when nothing is.
@@ -97,6 +98,20 @@ struct MobileLiveView: View {
             .map(\.game)
     }
 
+    /// The phone is on its side. Every iPhone has a compact height there and
+    /// only there.
+    private var sideways: Bool { verticalSizeClass == .compact }
+
+    /// The preview fills the screen when asked to, and whenever the phone is
+    /// on its side. Worked out from the orientation rather than set when it
+    /// changes, so the preview fills the screen inside the rotation itself
+    /// instead of a beat after it, and upright again it is back among the
+    /// cards in the same single move.
+    ///
+    /// Only on this tab: a player kept for Picture in Picture while another
+    /// tab is open must not take the screen from it when the phone turns.
+    private var fillsScreen: Bool { isActive && previewStream != nil && (expanded || sideways) }
+
     private var showsMyTeams: Bool { !library.followedTeams.isEmpty }
 
     private func shownSegment(_ slate: Slate) -> MobileLiveSegment {
@@ -141,8 +156,8 @@ struct MobileLiveView: View {
                             .padding(.horizontal, Self.inset).padding(.top, 12)
                         content(slate, shown: shown)
                     }
-                    .allowsHitTesting(!expanded)
-                    .accessibilityHidden(expanded)
+                    .allowsHitTesting(!fillsScreen)
+                    .accessibilityHidden(fillsScreen)
 
                     if let stream = previewStream {
                         TimelineView(.periodic(from: .now, by: 30)) { clock in
@@ -152,31 +167,33 @@ struct MobileLiveView: View {
                                 program: library.guidePrograms(for: stream).first {
                                     $0.start <= clock.date && clock.date < $0.end
                                 },
-                                expanded: expanded,
+                                expanded: fillsScreen,
                                 showsMetadata: watching == nil,
-                                videoHeight: expanded ? fullHeight : videoHeight,
+                                videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
                                 onClose: closePreview,
-                                onExpand: { setExpanded(!expanded) },
+                                // On its side the phone itself is the control:
+                                // upright again is the way back.
+                                onExpand: sideways ? nil : { setExpanded(!expanded) },
                                 onRetry: {
                                     playback.start(urls: library.playbackURLs(for: stream),
                                                    channelID: stream.id)
                                 },
                                 onChooseChannel: chooseAnotherChannelAction
                             )
-                            .frame(height: expanded ? fullHeight : videoHeight + metadataHeight,
+                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
                                    alignment: .top)
                             .background(LineupStyle.background)
                             // A card among the cards until it fills the screen.
-                            .clipShape(RoundedRectangle(cornerRadius: expanded ? 0 : 22, style: .continuous))
-                            .shadow(color: .black.opacity(expanded ? 0 : 0.45), radius: 18, y: 10)
-                            .padding(.horizontal, expanded ? 0 : Self.inset)
+                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : 22, style: .continuous))
+                            .shadow(color: .black.opacity(fillsScreen ? 0 : 0.45), radius: 18, y: 10)
+                            .padding(.horizontal, fillsScreen ? 0 : Self.inset)
                         }
-                        .offset(y: expanded ? 0 : previewTop)
-                        .ignoresSafeArea(expanded ? .all : [], edges: .all)
+                        .offset(y: fillsScreen ? 0 : previewTop)
+                        .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(
-                            enabled: expanded,
+                            enabled: fillsScreen,
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -185,9 +202,17 @@ struct MobileLiveView: View {
             }
             .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(expanded ? .hidden : .visible, for: .tabBar)
-            .statusBarHidden(expanded)
-            .persistentSystemOverlays(expanded ? .hidden : .automatic)
+            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(fillsScreen)
+            .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+            // Turning the phone needs no animation of its own: the rotation
+            // already carries everything that follows from it.
+            .onChange(of: fillsScreen) { _, value in onFullscreenChange(value) }
+            .onChange(of: sideways) { _, value in
+                // A preview made full screen by hand, then turned on its side,
+                // comes back upright as the preview, not as full screen.
+                if value { expanded = false }
+            }
             .alert("Game has not started yet", isPresented: Binding(
                 get: { upcomingGame != nil },
                 set: { if !$0 { upcomingGame = nil } }
@@ -614,7 +639,7 @@ struct MobileLiveView: View {
         let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
         withAnimation(animation) {
             expanded = value
-            onFullscreenChange(value)
+            onFullscreenChange(isActive && previewStream != nil && (value || sideways))
         }
     }
 

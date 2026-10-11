@@ -19,7 +19,8 @@ struct MobileGuidePlayer: View {
     /// only ever showed up on the device.
     var screenInsets: EdgeInsets = EdgeInsets()
     let onClose: () -> Void
-    let onExpand: () -> Void
+    /// Nil hides the control: on its side the phone itself does the job.
+    let onExpand: (() -> Void)?
     let onRetry: () -> Void
     /// Live supplies this to reopen the channel picker for the game on screen.
     /// The Guide leaves it nil, and the control does not appear there.
@@ -97,10 +98,12 @@ struct MobileGuidePlayer: View {
                                     controller.togglePictureInPicture()
                                 }
                             }
-                            control(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                    label: expanded ? "Return to guide" : "Expand player") {
-                                showControls()
-                                onExpand()
+                            if let onExpand {
+                                control(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                        label: expanded ? "Return to guide" : "Expand player") {
+                                    showControls()
+                                    onExpand()
+                                }
                             }
                         }
                         }
