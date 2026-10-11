@@ -589,17 +589,36 @@ extension View {
     }
 }
 
-/// The background behind a Form row, on the same Liquid Glass as the app's
-/// floating chrome. Passed to `listRowBackground`, which wants a view rather
-/// than a modifier, so it is a view rather than another `lineupLiquidGlass`
-/// overload. Below iOS 26 it is the theme surface these rows already used.
-struct LineupGlassRow: View {
+/// The background behind a Form row: the Guide's flat grey. These rows were
+/// Liquid Glass, which put a sheen under every setting; the settings now sit
+/// on the same quiet ground as the Guide and the Live tab. Passed to
+/// `listRowBackground`, which wants a view rather than a modifier.
+struct LineupRowBackground: View {
     var body: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear.glassEffect(.regular, in: Rectangle())
-        } else {
-            LineupStyle.surface
-        }
+        LineupStyle.raised
+    }
+}
+
+/// A row drawn as the Guide draws a programme: flat grey, squared off at four
+/// points, a hairline round it and a gap to the next. `listRowBackground`
+/// fills the whole row, so the gap is padding around the cell.
+struct LineupCellBackground: View {
+    static let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+
+    var body: some View {
+        Self.shape.fill(LineupStyle.raised)
+            .overlay(Self.shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+            .padding(.horizontal, 12).padding(.vertical, 3)
+    }
+}
+
+extension View {
+    /// List rows as separate Guide cells, the content inside each cell's own
+    /// margins.
+    func lineupCellRows() -> some View {
+        self.listRowBackground(LineupCellBackground())
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 13, leading: 26, bottom: 13, trailing: 26))
     }
 }
 

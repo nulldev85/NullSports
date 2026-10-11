@@ -36,11 +36,18 @@ struct SportsScheduleClient: Sendable {
     }
 
     private func snapshot(for day: String) async -> Snapshot {
+        // Fetched alongside the schedule, never instead of it: a game without
+        // its rank is still the game.
+        async let rankings = CollegeFootballRankings.shared.ranks(for: day)
         let base: Snapshot
         do { base = try await combinedSchedule(for: day) }
         catch { base = Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error)) }
 
         var games = base.games
+        let ranks = await rankings
+        if let college = games[.ncaaf] {
+            games[.ncaaf] = college.map { ranks.applied(to: $0) }
+        }
         var loaded = base.loadedLeagues
         var errors = [base.errorMessage].compactMap { $0 }
         do {

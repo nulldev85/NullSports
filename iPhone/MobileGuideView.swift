@@ -41,6 +41,7 @@ struct MobileGuideView: View {
     }
     @State private var selectedStream: XtreamStream?
     @State private var expanded = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
     /// Lineup's own match for the game being picked for. Resolved once when the
     /// picker appears: `verifiedStream` revalidates against the guide, which is
@@ -53,6 +54,18 @@ struct MobileGuideView: View {
     let onPlay: (XtreamStream) -> Void
     private let logoWidth: CGFloat = 80
     private var cardHeight: CGFloat { rowHeight - 6 }
+
+    /// The phone is on its side. Every iPhone has a compact height there and
+    /// only there.
+    private var sideways: Bool { verticalSizeClass == .compact }
+
+    /// The player fills the screen when asked to, and whenever the phone is
+    /// on its side -- worked out from the orientation, so it happens inside
+    /// the rotation rather than a beat after it, and undoes itself upright.
+    ///
+    /// Only on this tab: a player kept for Picture in Picture while another
+    /// tab is open must not take the screen from it when the phone turns.
+    private var fillsScreen: Bool { isActive && selectedStream != nil && (expanded || sideways) }
 
     /// Favorites, until the viewer picks something else -- or every channel
     /// while there are no favorites yet, or when picking for a game.
@@ -134,18 +147,18 @@ struct MobileGuideView: View {
                             guide(now: window.anchor)
                         }
                     }
-                    .allowsHitTesting(!expanded)
-                    .accessibilityHidden(expanded)
+                    .allowsHitTesting(!fillsScreen)
+                    .accessibilityHidden(fillsScreen)
                     if let stream = selectedStream {
                         TimelineView(.periodic(from: .now, by: 5)) { clock in
                             MobileGuidePlayer(controller: playback, stream: stream,
                                 program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
-                                expanded: expanded, showsMetadata: showsMetadata,
-                                videoHeight: expanded ? fullHeight : videoHeight,
+                                expanded: fillsScreen, showsMetadata: showsMetadata,
+                                videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
-                                onClose: closePlayer, onExpand: { setExpanded(!expanded) },
+                                onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) })
-                                .frame(height: expanded ? fullHeight : videoHeight + metadataHeight, alignment: .top)
+                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
                         // The player is the one thing that reaches past the
@@ -153,10 +166,10 @@ struct MobileGuideView: View {
                         // than waiting for the guide around it to get out of the
                         // way first. Its position and size stay identical
                         // whether or not the bars have finished hiding.
-                        .ignoresSafeArea(expanded ? .all : [], edges: .all)
+                        .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(
-                            enabled: expanded,
+                            enabled: fillsScreen,
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePlayer))
                     }
@@ -165,7 +178,7 @@ struct MobileGuideView: View {
             .background(LineupStyle.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
-                if showsSearch && !expanded {
+                if showsSearch && !fillsScreen {
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             .accessibilityHidden(true)
@@ -222,10 +235,10 @@ struct MobileGuideView: View {
                     .accessibilityLabel("Guide options")
                 }
             }
-            .toolbar(expanded ? .hidden : .visible, for: .navigationBar)
-            .toolbar(expanded ? .hidden : .visible, for: .tabBar)
-            .statusBarHidden(expanded)
-            .persistentSystemOverlays(expanded ? .hidden : .automatic)
+            .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
+            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(fillsScreen)
+            .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { returnToNow() }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
@@ -236,9 +249,14 @@ struct MobileGuideView: View {
                 // Genuinely playing, not merely selected.
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
-            .onChange(of: expanded) { _, value in
+            .onChange(of: fillsScreen) { _, value in
                 if value { searchFocused = false }
                 onFullscreenChange(value)
+            }
+            .onChange(of: sideways) { _, value in
+                // Full screen by hand, then turned on its side, comes back
+                // upright as the guide's own player, not as full screen.
+                if value { expanded = false }
             }
             .onChange(of: isActive) { _, active in
                 // Leaving the Guide tab still tears the player down — except
@@ -289,14 +307,15 @@ struct MobileGuideView: View {
     /// what makes it read as a single motion instead of the video jumping first
     /// and the chrome catching up afterwards.
     private func setExpanded(_ value: Bool) {
+        let fills = isActive && selectedStream != nil && (value || sideways)
         guard !reduceMotion else {
             expanded = value
-            onFullscreenChange(value)
+            onFullscreenChange(fills)
             return
         }
         withAnimation(.smooth(duration: 0.34)) {
             expanded = value
-            onFullscreenChange(value)
+            onFullscreenChange(fills)
         }
     }
 

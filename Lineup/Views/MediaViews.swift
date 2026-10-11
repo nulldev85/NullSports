@@ -221,8 +221,16 @@ struct LineupAccountCard<Actions: View>: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(cardPadding)
         .frame(maxWidth: maxCardWidth, alignment: .leading)
+        #if os(tvOS)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
+        #else
+        // The phone's account tab sits on the Guide's quiet ground: a flat
+        // grey card, squared off, with a hairline round it.
+        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        #endif
     }
 
     // A television is not a large phone. The type scales itself -- a text style
@@ -239,7 +247,7 @@ struct LineupAccountCard<Actions: View>: View {
     #else
     private var cardPadding: CGFloat { 16 }
     private var maxCardWidth: CGFloat { 720 }
-    private var cardRadius: CGFloat { 20 }
+    private var cardRadius: CGFloat { 4 }
     private var glyph: CGFloat { 42 }
     private var glyphSize: CGFloat { 20 }
     private var rule: CGFloat { 26 }
@@ -250,8 +258,12 @@ struct LineupAccountCard<Actions: View>: View {
             Image(systemName: symbol)
                 .font(.system(size: glyphSize, weight: .semibold))
                 .frame(width: glyph, height: glyph)
+                #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
+                #else
+                .background(LineupStyle.focused, in: Circle())
+                #endif
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(title).font(.inter(.headline, .bold)).lineLimit(1)
@@ -264,6 +276,7 @@ struct LineupAccountCard<Actions: View>: View {
             Spacer(minLength: 8)
             // A floor under the width so the header does not shuffle as the
             // word changes between connecting, connected and offline.
+            #if os(tvOS)
             Text(status)
                 .font(.inter(.caption2, .semibold))
                 .foregroundStyle(statusTint)
@@ -272,6 +285,18 @@ struct LineupAccountCard<Actions: View>: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
+            #else
+            // Flat and grey like the card under it: white words while
+            // connected, grey while not.
+            Text(status)
+                .font(.inter(.caption2, .semibold))
+                .foregroundStyle(connected ? LineupStyle.text : LineupStyle.secondary)
+                .lineLimit(1)
+                .frame(minWidth: 74)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(LineupStyle.focused, in: Capsule())
+                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
+            #endif
         }
     }
 
@@ -387,112 +412,60 @@ struct MediaServerAccountCard: View {
 
 struct LineupCardAction: View {
     @Environment(\.isFocused) private var focused
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
+            #if os(tvOS)
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
-                #if os(tvOS)
                 .frame(maxWidth: .infinity, minHeight: 66)
-                #else
-                .frame(maxWidth: .infinity, minHeight: 38)
-                #endif
                 .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised, border: LineupStyle.line)
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
+            #else
+            // A flat grey capsule with a hairline, dimmed while unavailable.
+            Label(title, systemImage: symbol)
+                .font(.inter(.subheadline, .semibold))
+                .foregroundStyle(LineupStyle.text)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background(LineupStyle.focused, in: Capsule())
+                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
+                .opacity(isEnabled ? 1 : 0.5)
+            #endif
         }
         .lineupFlatButton()
     }
 }
 
 struct LineupStatusDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
 
     #if os(tvOS)
-    private static let size: CGFloat = 16
+    private static let size: CGFloat = 14
     #else
     private static let size: CGFloat = 9
     #endif
 
-    private var tint: Color {
-        connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
+    private var fill: Color {
+        #if os(tvOS)
+        Color(red: 0.29, green: 0.84, blue: 0.45)
+        #else
+        LineupStyle.text
+        #endif
     }
 
     var body: some View {
-        // A bead rather than a filled circle: a lit upper face, a deeper base,
-        // a hairline rim and one small specular. That is what reads as glass at
-        // nine points, where a material effect would show nothing at all.
-        // Every measurement below is a fraction of the bead rather than a
-        // number, because the television draws it at nearly twice the size and
-        // a specular highlight fixed at two and a half points would vanish
-        // there while the rim stayed hairline-thin.
-        Circle()
-            .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
-                                 center: UnitPoint(x: 0.34, y: 0.28),
-                                 startRadius: 0, endRadius: Self.size * 0.9))
-            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: Self.size * 0.056))
-            .overlay(alignment: .topLeading) {
-                Circle().fill(.white.opacity(0.55))
-                    .frame(width: Self.size * 0.29, height: Self.size * 0.29)
-                    .blur(radius: Self.size * 0.067)
-                    .offset(x: Self.size * 0.167, y: Self.size * 0.144)
-            }
+        // A plain dot when connected and a ring when not. It was a glossy
+        // bead with a glow and a pulsing halo; nothing in the app glows now
+        // but the pale rim that keeps a dark team badge readable.
+        Circle().fill(connected ? fill : Color.clear)
+            .overlay(Circle().strokeBorder(LineupStyle.secondary, lineWidth: connected ? 0 : 1.5))
             .frame(width: Self.size, height: Self.size)
-            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: Self.size / 3)
-            // Underneath, not over: the halo comes out from beneath the bead
-            // and travels outward, which is the only way round that reads as
-            // the dot giving something off. Drawn over the bead it washed the
-            // bead out instead, and the bead is the thing worth looking at.
-            //
-            // It also sits in a background rather than in the layout, so its
-            // travel can never move the name beside it.
-            .background { halo }
             .accessibilityLabel(connected ? "Connected" : "Not connected")
-    }
-
-    /// Where the halo is in its cycle.
-    ///
-    /// `home` is the bead's own size, and the bead is opaque and sits on top of
-    /// it, so the halo is invisible there -- it only becomes visible in the
-    /// travelling, which is the point: nothing appears out of thin air around
-    /// the dot, it comes out from under it.
-    private enum HaloPhase: Equatable { case home, out, back }
-
-    /// The pulse. Quiet on purpose: it leaves the bead, gets a little under
-    /// twice its size, and is gone. A breath, not a beacon.
-    @ViewBuilder
-    private var halo: some View {
-        if connected && !reduceMotion {
-            Circle()
-                .fill(tint)
-                .frame(width: Self.size, height: Self.size)
-                // A phase animator rather than a repeating animation driven by
-                // state: the cycle restarts itself, so there is no stale one to
-                // cancel and no way for two to overlap and send the halo
-                // inward, which is what the first attempt at this did.
-                .phaseAnimator([HaloPhase.home, .out, .back]) { circle, phase in
-                    circle
-                        .scaleEffect(phase == .out ? 1.9 : 1)
-                        .opacity(phase == .home ? 0.38 : 0)
-                } animation: { (phase: HaloPhase) -> Animation? in
-                    switch phase {
-                    // The travel, and the only part anyone sees.
-                    case .out: return .easeOut(duration: 1.9)
-                    // Home again while fully transparent, so the return trip
-                    // -- the one that would read as a halo moving inward --
-                    // happens where there is nothing to see.
-                    case .back: return .linear(duration: 0.01)
-                    // A beat between pulses. Also invisible: at the bead's own
-                    // size the bead covers it.
-                    case .home: return .easeIn(duration: 0.45)
-                    }
-                }
-                .allowsHitTesting(false)
-        }
     }
 }
 
@@ -617,58 +590,92 @@ struct TVLibraryOption: Identifiable {
 /// still lands on it.
 private struct TVLibraryMenuBar: View {
     let options: [TVLibraryOption]
+    /// Told when the list opens and closes, so the screen can keep focus off
+    /// everything under it while it is open: a press in the list that the
+    /// focus engine carried onto a poster below closed the list under the
+    /// viewer.
+    var onOpenChange: (Bool) -> Void = { _ in }
     @State private var open = false
-    /// Which parts of the menu hold focus. When none does, focus has gone
-    /// elsewhere and the list closes behind it.
-    @State private var focused: Set<String> = []
+    /// Where focus is in the menu: its button, one of its rows, or nil once
+    /// it is somewhere else on the screen.
+    @FocusState private var focus: Place?
+
+    private enum Place: Hashable {
+        case button
+        case row(Int)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            TVSelectable(scale: LineupStyle.controlLift, action: { open.toggle() },
-                         onFocusChange: { track("menu", $0) }) {
-                MediaChromeLabel {
-                    HStack(spacing: 10) {
-                        Image(systemName: "slider.horizontal.3")
-                        Text("Library")
-                        Image(systemName: open ? "chevron.up" : "chevron.down")
-                            .font(.inter(13, .bold))
+            button
+                .overlay(alignment: .topTrailing) {
+                    if open {
+                        panel
+                            .alignmentGuide(.top) { $0[.top] - 48 }
+                            .transition(.opacity.combined(with: .offset(y: -8)))
                     }
-                    .font(.inter(16, .semibold))
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                if open {
-                    panel
-                        .alignmentGuide(.top) { $0[.top] - 48 }
-                        .transition(.opacity.combined(with: .offset(y: -8)))
-                }
-            }
         }
         .padding(.horizontal, 54)
         .lineupFocusRegion()
-        .onExitCommand(perform: open ? { open = false } : nil)
+        .onExitCommand(perform: open ? { close() } : nil)
+        // Focus gone from the button and every row: the list closes behind it.
+        .onChange(of: focus) { _, place in
+            if place == nil, open { open = false }
+        }
+        .onChange(of: open) { _, isOpen in onOpenChange(isOpen) }
         .animation(.easeOut(duration: 0.16), value: open)
+    }
+
+    private var button: some View {
+        MediaChromeLabel {
+            HStack(spacing: 10) {
+                Image(systemName: "slider.horizontal.3")
+                Text("Library")
+                Image(systemName: open ? "chevron.up" : "chevron.down")
+                    .font(.inter(13, .bold))
+            }
+            .font(.inter(16, .semibold))
+        }
+        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 12))
+        .focusable()
+        .focused($focus, equals: .button)
+        .focusEffectDisabled()
+        .onTapGesture {
+            if open { close() } else { open = true }
+        }
+        // While the list is open, down leads into it. Up the focus engine
+        // takes to the tab bar, and the list closes behind it.
+        .onMoveCommand(perform: open ? { direction in
+            switch direction {
+            case .down: focus = .row(0)
+            case .up: open = false
+            default: close()
+            }
+        } : nil)
+        .accessibilityLabel("Library options")
     }
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                TVSelectable(scale: 1.02, fillRadius: 10,
-                             action: { open = false; option.action() },
-                             onFocusChange: { track(option.id, $0) },
-                             requestInitialFocus: index == 0) {
-                    HStack(spacing: 14) {
-                        Image(systemName: option.symbol)
-                            .frame(width: 28)
-                        Text(option.title)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.inter(17, .semibold))
-                    .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
-                    .padding(.horizontal, 16)
-                    .frame(width: 340, height: 50)
+                HStack(spacing: 14) {
+                    Image(systemName: option.symbol)
+                        .frame(width: 28)
+                    Text(option.title)
+                    Spacer(minLength: 0)
                 }
+                .font(.inter(17, .semibold))
+                .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
+                .padding(.horizontal, 16)
+                .frame(width: 340, height: 50)
+                .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 10))
+                .focusable()
+                .focused($focus, equals: .row(index))
+                .focusEffectDisabled()
+                .onTapGesture { choose(option) }
+                .onMoveCommand { direction in move(direction, from: index) }
             }
         }
         .padding(8)
@@ -676,18 +683,53 @@ private struct TVLibraryMenuBar: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
         .fixedSize()
+        .onAppear { focus = .row(0) }
     }
 
-    /// Notes where focus is, and closes the list a moment after it has left
-    /// every part of the menu -- the moment covers focus passing from one
-    /// row to the next, which reports the old row losing it first.
-    private func track(_ id: String, _ isFocused: Bool) {
-        if isFocused { focused.insert(id) } else { focused.remove(id) }
-        guard open, focused.isEmpty else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            if focused.isEmpty { open = false }
+    /// One row a press. tvOS moves focus for the press as well as calling
+    /// this, so the target is the row next to the one the handler sits on --
+    /// the row the engine goes to, so the two agree. Worked out from where
+    /// focus already was after the engine's move, every press went two rows.
+    /// The screen keeps everything under the list unfocusable while it is
+    /// open (`onOpenChange`), so the engine has nowhere else to go.
+    private func move(_ direction: MoveCommandDirection, from index: Int) {
+        switch direction {
+        case .down: focus = .row(min(index + 1, options.count - 1))
+        case .up: focus = index == 0 ? .button : .row(index - 1)
+        default: break
         }
+    }
+
+    private func choose(_ option: TVLibraryOption) {
+        close()
+        option.action()
+    }
+
+    /// Back to the button before the list goes, so focus never falls loose
+    /// onto whatever was under it.
+    private func close() {
+        focus = .button
+        open = false
+    }
+}
+
+/// The app's focus look -- the light layer, a lift and a shadow -- for a
+/// control that keeps its focus in a parent's `FocusState` rather than its
+/// own, as the Library menu's button and rows do.
+private struct TVMenuFocus: ViewModifier {
+    let focused: Bool
+    let scale: CGFloat
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.lineupTVSelectableFocused, focused)
+            .contentShape(Rectangle())
+            .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: radius, style: .continuous).inset(by: -6))
+            .scaleEffect(focused ? scale : 1)
+            .lineupShadow(.lifted, on: focused)
+            .zIndex(focused ? 10 : 0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
 }
 
@@ -766,15 +808,32 @@ private struct MediaCatalogsScreen: View {
     @State private var heroPlayableItem: MediaItem?
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
+    @Environment(\.playMedia) private var playMedia
+    /// Where the remote is: the hero's Play, or a card in the shelf row. The
+    /// focus engine moves it; the screen adds only what the engine cannot --
+    /// see `moveTV(_:from:)`.
+    @FocusState private var tvFocus: TVLibraryFocus?
+    /// The one shelf in the row at the foot of the screen.
+    @State private var shelfIndex = 0
+    /// The card each shelf was left on, so coming back to it lands there.
+    @State private var shelfColumns: [String: Int] = [:]
+    /// Which way the last change of shelf went, for its transition.
+    @State private var shelfStepDown = true
+    @State private var heroIndex = 0
+    /// While the Library menu is open, Play and the shelf can't take focus,
+    /// so a press in the list can't land on them and close it.
+    @State private var menuOpen = false
+    @State private var focusedCard: MediaItem?
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #if os(tvOS)
+    /// The hero's first title, which is where the remote starts.
     private var defaultPreviewItem: MediaItem? {
-        continueWatching.first?.item
-            ?? media.heroCatalog?.items.first
+        heroItems.first
+            ?? continueWatching.first?.item
             ?? catalogs.first(where: { !$0.items.isEmpty })?.items.first
             ?? favoriteTitles.first
             ?? favoriteEpisodes.first
@@ -836,32 +895,7 @@ private struct MediaCatalogsScreen: View {
                     }
                 } else {
                     #if os(tvOS)
-                    ZStack(alignment: .top) {
-                        TVMediaLibraryCanvas(preview: tvPreview, height: tvPreviewHeight)
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                                Color.clear.frame(height: tvPreviewHeight)
-                                    // At the top right of the preview, clear
-                                    // of its title and overview on the left,
-                                    // and moving with the shelves so it never
-                                    // sits over them. It takes no room of its
-                                    // own, and its list opens over the
-                                    // artwork beneath it.
-                                    .overlay(alignment: .top) {
-                                        if let options {
-                                            TVLibraryMenuBar(options: options).padding(.top, 100)
-                                        }
-                                    }
-                                    .zIndex(1)
-                                libraryShelves
-                            }
-                            .padding(.bottom, 44)
-                        }
-                    }
-                    // Artwork owns the television canvas. Shelf content keeps
-                    // its own readable insets while the backdrop continues
-                    // behind the tab bar and through every catalog row.
-                    .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                    tvBrowser
                     #else
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: catalogSpacing) {
@@ -1023,31 +1057,419 @@ private struct MediaCatalogsScreen: View {
 
     private func rotateLibraryPreview() async {
         while !Task.isCancelled {
-            let candidates = media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+            let candidates = heroItems
             guard !candidates.isEmpty else {
                 do { try await Task.sleep(for: .seconds(8)) } catch { return }
                 continue
             }
-            let current = tvPreview.item.flatMap { current in
-                candidates.firstIndex(where: { $0.id == current.id })
-            } ?? -1
-            let next = candidates[(current + 1) % candidates.count]
+            let nextIndex = (heroIndex + 1) % candidates.count
+            let next = candidates[nextIndex]
             // Spend the eight-second dwell preloading the next frame. On a
             // normal connection the transition therefore begins with decoded
             // artwork already in memory, without making the interval longer.
             Task { await preloadBackdrop(for: next) }
             do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            guard !tvPreview.isNavigating, !Task.isCancelled else { continue }
+            // Held still while the remote is on a card, which owns the
+            // preview, or on the hero's Play, which is about to be pressed.
+            guard !tvPreview.isNavigating, tvFocus != .hero, !Task.isCancelled else { continue }
             // A weak connection may miss this particular turn, but the hero
             // never rotates to a blank frame. The already-running shared load
             // keeps going and the next eight-second tick can use it.
             guard backdropIsReady(for: next) else { continue }
-            withAnimation(.easeInOut(duration: 0.45)) {
-                tvPreview.rotate(to: next) { item in
-                    try? await media.details(of: item)
+            showHero(at: nextIndex)
+        }
+    }
+
+    // MARK: - The television's browser
+
+    /// What can sit in the row at the foot of the screen, top to bottom.
+    private var tvShelves: [TVLibraryShelf] {
+        var shelves: [TVLibraryShelf] = []
+        if !continueWatching.isEmpty {
+            shelves.append(TVLibraryShelf(id: "continue-watching", title: "Continue Watching",
+                                          label: "On this device", items: continueWatching.map(\.item),
+                                          opensPages: true, catalog: nil))
+        }
+        if !favoriteTitles.isEmpty {
+            shelves.append(TVLibraryShelf(id: "favorites", title: "Favorites", label: "On this device",
+                                          items: favoriteTitles, opensPages: false, catalog: nil))
+        }
+        if !favoriteEpisodes.isEmpty {
+            shelves.append(TVLibraryShelf(id: "favorite-episodes", title: "Favorite Episodes",
+                                          label: "On this device", items: favoriteEpisodes,
+                                          opensPages: false, catalog: nil))
+        }
+        for catalog in catalogs {
+            shelves.append(TVLibraryShelf(id: catalog.id, title: catalog.title,
+                                          label: media.serverName(for: catalog), items: catalog.items,
+                                          opensPages: false, catalog: catalog))
+        }
+        return shelves
+    }
+
+    private var heroItems: [MediaItem] {
+        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+    }
+
+    private var heroItem: MediaItem? {
+        let items = heroItems
+        guard !items.isEmpty else { return nil }
+        return items[min(heroIndex, items.count - 1)]
+    }
+
+    /// The artwork fills the screen. The title it shows is told in the top
+    /// half, the hero's Play sits under that, and one shelf at a time is the
+    /// row along the foot, its titles resting on the bottom edge. Up and down
+    /// change which shelf is in that row rather than scrolling the screen.
+    private var tvBrowser: some View {
+        let shelves = tvShelves
+        let index = min(shelfIndex, max(0, shelves.count - 1))
+        let rowShape: MediaArtShape = shelves.contains { MediaArtShape.forItems($0.items) == .poster } ? .poster : .still
+        let blockHeight = tvShelfBlockHeight(for: rowShape)
+        let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
+        return ZStack(alignment: .topTrailing) {
+            TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight)
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                // Each row is a focus region the full width of the screen.
+                // Play and the first cards sit at the left, nowhere under the
+                // Library button at the right, so without that a press down
+                // from the button found nothing below it and went nowhere.
+                if !heroItems.isEmpty {
+                    heroRow
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: heroHeight, alignment: .top)
+                        .lineupFocusRegion()
+                }
+                if !shelves.isEmpty {
+                    shelfBlock(shelves[index], index: index, count: shelves.count)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
+                        .frame(height: blockHeight, alignment: .bottom)
+                        .lineupFocusRegion()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .disabled(menuOpen)
+            // At the top right of the artwork, clear of the title told on
+            // the left.
+            if let options {
+                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 100)
+            }
+        }
+        .ignoresSafeArea()
+        .defaultFocus($tvFocus, heroItems.isEmpty ? TVLibraryFocus.card(0) : TVLibraryFocus.hero)
+        .onChange(of: tvFocus) { previous, place in
+            if place == .shelfAbove { cameUpFromRow(previous) } else { tvFocusChanged(to: place) }
+        }
+        .onChange(of: shelves.count) { _, count in
+            if shelfIndex >= count { shelfIndex = max(0, count - 1) }
+        }
+    }
+
+    /// A strip the width of the screen along the top of the shelf, there to be
+    /// focused. Up from a card the focus engine moves on its own, to whatever
+    /// is above; with an earlier shelf to go back to, this is the nearest
+    /// thing above, so the engine lands here and the screen brings that shelf
+    /// in (`cameUpFromRow`). On the first shelf it is not there, and up goes
+    /// on to Play. From Play it is never there, so down goes to a card.
+    private func shelfAboveStrip(shown: Bool) -> some View {
+        // Faint enough not to be seen, but not clear: a fully transparent
+        // view risks being passed over by the focus engine.
+        Color.black.opacity(0.02)
+            .frame(height: 4)
+            .focusable(shown && tvFocus != .hero)
+            .focused($tvFocus, equals: .shelfAbove)
+            .focusEffectDisabled()
+            .accessibilityHidden(true)
+    }
+
+    /// The row's height: its heading, the tallest card it can hold with that
+    /// card's two lines of title, and the last of those resting a few points
+    /// above the screen's edge.
+    private func tvShelfBlockHeight(for shape: MediaArtShape) -> CGFloat {
+        let width = cardWidth(shape)
+        let art = width / shape.ratio
+        let caption: CGFloat = 10 + 56
+        let heading: CGFloat = 34 + 14
+        return heading + 16 + art + caption + 18
+    }
+
+    /// The hero's own control: Play, and left or right for the title before
+    /// or after it.
+    private var heroRow: some View {
+        let item = heroItem
+        let focused = tvFocus == .hero
+        let count = heroItems.count
+        return HStack(spacing: 22) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.fill")
+                Text(item?.isSeries == true ? "Play Show" : "Play Movie")
+            }
+            .font(.inter(20, .semibold))
+            .foregroundStyle(focused ? LineupStyle.background : LineupStyle.text)
+            .padding(.horizontal, 30).frame(height: 58)
+            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
+            .scaleEffect(focused ? LineupStyle.controlLift : 1)
+            .lineupShadow(.lifted, on: focused)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .focusable()
+            .focused($tvFocus, equals: .hero)
+            .focusEffectDisabled()
+            .onTapGesture { playHero() }
+            .onMoveCommand { moveTV($0, from: .hero) }
+            .contextMenu {
+                if let item, item.opensPage {
+                    Button("Details", systemImage: "info.circle") { pushed = item }
+                        .lineupFlatButton()
+                }
+            }
+            .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
+            if count > 1 {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.left")
+                    Text("\(min(heroIndex, count - 1) + 1) of \(count)")
+                        .font(.interDigits(16, .semibold))
+                    Image(systemName: "chevron.right")
+                }
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(LineupStyle.text.opacity(focused ? 0.8 : 0.45))
+                .accessibilityHidden(true)
+            }
+        }
+        .padding(.leading, 72)
+    }
+
+    @ViewBuilder
+    private func shelfBlock(_ shelf: TVLibraryShelf, index: Int, count: Int) -> some View {
+        let shape = MediaArtShape.forItems(shelf.items)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(shelf.title).font(sectionTitleFont)
+                if let label = shelf.label {
+                    Text(label.uppercased())
+                        .font(.inter(10, .bold)).tracking(1.2)
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                        .lineLimit(1)
+                }
+                Spacer()
+                // Where this shelf is among them, and that up and down move
+                // through the rest.
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.up").opacity(index > 0 ? 1 : 0.3)
+                    Text("\(index + 1) of \(count)").font(.interDigits(15, .semibold))
+                    Image(systemName: "chevron.down").opacity(index < count - 1 ? 1 : 0.3)
+                }
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .accessibilityHidden(true)
+            }
+            .id(shelf.id)
+            .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 18 : -18)))
+            .padding(.horizontal, horizontalPadding)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: itemSpacing) {
+                        // Slots by position, so a change of shelf refills
+                        // them and the one the remote is on stays put.
+                        ForEach(Array(shelf.items.enumerated()), id: \.offset) { slot, item in
+                            tvCard(item, slot: slot, shelf: shelf, shape: shape)
+                                .frame(width: cardWidth(shape))
+                                .id(slot)
+                        }
+                        if let catalog = shelf.catalog {
+                            seeAllTile(catalog, slot: shelf.items.count, shape: shape)
+                                .frame(width: cardWidth(shape))
+                                .id(shelf.items.count)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+                .scrollClipDisabled()
+                .onChange(of: tvFocus) { _, place in
+                    if case .card(let slot)? = place {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(slot) }
+                    }
                 }
             }
         }
+        .padding(.bottom, 18)
+    }
+
+    private func tvCard(_ item: MediaItem, slot: Int, shelf: TVLibraryShelf, shape: MediaArtShape) -> some View {
+        let focused = tvFocus == .card(slot)
+        return MediaItemCard(item: item, shape: shape)
+            .id(item.libraryKey)
+            .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 24 : -24)))
+            .environment(\.lineupTVSelectableFocused, focused)
+            .contentShape(Rectangle())
+            .focusable()
+            .focused($tvFocus, equals: .card(slot))
+            .focusEffectDisabled()
+            .onTapGesture { activate(item, in: shelf) }
+            .onMoveCommand { moveTV($0, from: .card(slot)) }
+            .scaleEffect(focused ? LineupStyle.cardLift : 1)
+            .zIndex(focused ? 10 : 0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .contextMenu { MediaCardActions(item: item) }
+    }
+
+    /// The end of a catalog's row: the whole catalog, and holding Select to
+    /// take the shelf away.
+    private func seeAllTile(_ catalog: MediaCatalog, slot: Int, shape: MediaArtShape) -> some View {
+        let focused = tvFocus == .card(slot)
+        let tile = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return VStack(spacing: 10) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .aspectRatio(shape.ratio, contentMode: .fit)
+                .overlay {
+                    VStack(spacing: 10) {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold))
+                        Text("See All").font(.inter(20, .semibold))
+                    }
+                    .foregroundStyle(LineupStyle.lightPurple)
+                }
+                .background(LineupStyle.surface.opacity(0.8), in: tile)
+                .overlay(tile.stroke(LineupStyle.line, lineWidth: 1))
+                .lineupFocusLayer(focused, in: tile)
+            Text(" ").font(.inter(22, .semibold)).lineLimit(2, reservesSpace: true)
+        }
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($tvFocus, equals: .card(slot))
+        .focusEffectDisabled()
+        .onTapGesture { pushed = catalog.root }
+        .onMoveCommand { moveTV($0, from: .card(slot)) }
+        .scaleEffect(focused ? LineupStyle.cardLift : 1)
+        .zIndex(focused ? 10 : 0)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contextMenu {
+            Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+                media.removeShelf(catalog)
+            }
+            .lineupFlatButton()
+        }
+        .accessibilityLabel("See all of \(catalog.title)")
+    }
+
+    /// Only what the focus engine can't do: left and right on Play turn
+    /// through the hero's titles, and down from a card, where there is
+    /// nothing below, brings in the next shelf. Everything else -- along the
+    /// row, up to Play and the Library button, down from Play -- is the
+    /// engine's. tvOS moves focus for a press and calls this as well, so a
+    /// handler that moved focus where the engine could go moved it twice.
+    private func moveTV(_ direction: MoveCommandDirection, from place: TVLibraryFocus) {
+        switch (place, direction) {
+        case (.hero, .left): stepHero(by: -1)
+        case (.hero, .right): stepHero(by: 1)
+        case (.card(let slot), .down):
+            let shelves = tvShelves
+            guard !shelves.isEmpty else { return }
+            let index = min(shelfIndex, shelves.count - 1)
+            if index < shelves.count - 1 { changeShelf(to: index + 1, from: slot, in: shelves) }
+        default:
+            break
+        }
+    }
+
+    /// Up from a card onto the strip above the row: the shelf before comes
+    /// in, at the card it was left on. From anywhere else the strip is
+    /// passed straight through to the shelf in the row.
+    private func cameUpFromRow(_ previous: TVLibraryFocus?) {
+        let shelves = tvShelves
+        guard !shelves.isEmpty else { return }
+        let index = min(shelfIndex, shelves.count - 1)
+        if case .card(let slot)? = previous, index > 0 {
+            changeShelf(to: index - 1, from: slot, in: shelves)
+        } else {
+            focusShelf(at: index, in: shelves)
+        }
+    }
+
+    private func changeShelf(to index: Int, from slot: Int, in shelves: [TVLibraryShelf]) {
+        shelfColumns[shelves[min(shelfIndex, shelves.count - 1)].id] = slot
+        shelfStepDown = index > shelfIndex
+        withAnimation(.easeOut(duration: 0.22)) { shelfIndex = index }
+        focusShelf(at: index, in: shelves)
+    }
+
+    /// Onto a shelf at the card it was left on, or its first.
+    private func focusShelf(at index: Int, in shelves: [TVLibraryShelf]) {
+        let shelf = shelves[index]
+        let slots = shelf.items.count + (shelf.catalog == nil ? 0 : 1)
+        guard slots > 0 else { return }
+        let place = TVLibraryFocus.card(min(shelfColumns[shelf.id] ?? 0, slots - 1))
+        tvFocus = place
+        // The same slot on another shelf is the same focus value, which
+        // changes nothing for onChange to see; the preview is told here.
+        tvFocusChanged(to: place)
+    }
+
+    private func stepHero(by step: Int) {
+        let count = heroItems.count
+        guard count > 1 else { return }
+        showHero(at: (heroIndex + step + count) % count)
+    }
+
+    private func showHero(at index: Int) {
+        let items = heroItems
+        guard items.indices.contains(index) else { return }
+        heroIndex = index
+        withAnimation(.easeInOut(duration: 0.45)) {
+            tvPreview.rotate(to: items[index]) { item in try? await media.details(of: item) }
+        }
+    }
+
+    /// The preview follows the remote: the card it is on, or the hero's
+    /// title when it is back on Play.
+    private func tvFocusChanged(to place: TVLibraryFocus?) {
+        if let card = focusedCard {
+            preview(card, when: false)
+            focusedCard = nil
+        }
+        switch place {
+        case .card(let slot)?:
+            let shelves = tvShelves
+            guard !shelves.isEmpty else { return }
+            let shelf = shelves[min(shelfIndex, shelves.count - 1)]
+            guard shelf.items.indices.contains(slot) else { return }
+            let item = shelf.items[slot]
+            focusedCard = item
+            preview(item, when: true)
+        case .hero?:
+            if let heroItem, tvPreview.item?.libraryKey != heroItem.libraryKey {
+                showHero(at: heroIndex)
+            }
+        case .shelfAbove?, nil:
+            break
+        }
+    }
+
+    private func activate(_ item: MediaItem, in shelf: TVLibraryShelf) {
+        if let page = pageItem(for: item, opensPages: shelf.opensPages) { pushed = page }
+        else { play(item) }
+    }
+
+    /// A film plays; a show plays its next episode, or opens its page when
+    /// there is none to play yet.
+    private func playHero() {
+        guard let item = heroItem else { return }
+        if item.isSeries {
+            Task {
+                if let next = await media.nextUp(in: item) { play(next) } else { pushed = item }
+            }
+        } else if item.isPlayable {
+            play(item)
+        } else {
+            pushed = item
+        }
+    }
+
+    private func play(_ item: MediaItem) {
+        if let playMedia { playMedia(item) } else { heroPlayableItem = item }
     }
 
     private func preloadBackdrop(for item: MediaItem) async {
@@ -1066,7 +1488,6 @@ private struct MediaCatalogsScreen: View {
         return (url, LineupArt.pixels(for: 1920))
     }
 
-    private var tvPreviewHeight: CGFloat { 500 }
     #endif
 
     private func clearSearch() {
@@ -2846,16 +3267,38 @@ private final class TVMediaPreviewState: ObservableObject {
 /// what lets the poster shelves stay still while the room behind them changes.
 private struct TVMediaLibraryCanvas: View {
     @ObservedObject var preview: TVMediaPreviewState
-    let height: CGFloat
+    /// What the controls along the foot of the screen take; the title is
+    /// told in the space above them.
+    let bottomInset: CGFloat
 
     var body: some View {
         ZStack(alignment: .top) {
             TVMediaCinematicBackdrop(item: preview.item)
             TVMediaLibraryPreview(item: preview.item)
-                .frame(height: height)
+                .padding(.bottom, bottomInset)
                 .allowsHitTesting(false)
         }
     }
+}
+
+/// Where the Library's remote can be.
+private enum TVLibraryFocus: Hashable {
+    case hero
+    case card(Int)
+    /// The strip along the top of the shelf, which turns Up from a card
+    /// into the shelf before.
+    case shelfAbove
+}
+
+/// One shelf the Library's row can show.
+private struct TVLibraryShelf: Identifiable {
+    let id: String
+    let title: String
+    let label: String?
+    let items: [MediaItem]
+    /// Continue Watching opens a show's page rather than its streams.
+    let opensPages: Bool
+    let catalog: MediaCatalog?
 }
 
 /// The artwork plane behind both Library browsing and the selected-title page.
@@ -3332,7 +3775,7 @@ struct LibraryHeroSettingsView: View {
                 } footer: {
                     Text("The first ten titles in this catalog become the swipeable Library hero.")
                 }
-                .listRowBackground(LineupGlassRow())
+                .listRowBackground(LineupRowBackground())
             }
         }
         .scrollContentBackground(.hidden)

@@ -139,6 +139,19 @@ final class MobilePlaybackController: ObservableObject {
     /// opening watchdog has nothing more to judge.
     private var systemPictureSeen = false
 
+    // Starting together; see `StartTogether`.
+    /// Shut from the moment a stream is opened until its picture moves.
+    private var startGateOpen = true
+    private var startGate: Task<Void, Never>?
+    /// Hands over the AVPlayer item's frames as each falls due, which is how
+    /// a moving picture is told from a held one. Attached only while shut.
+    private var gateOutput: AVPlayerItemVideoOutput?
+    private var gateFrames = 0
+    private var gateLastFrameAt: TimeInterval?
+    /// When the engine started playing behind the shut gate: the sound has
+    /// been held since then.
+    private var heldSoundSince: TimeInterval?
+
     // AVPlayer engine state.
     private var systemObservers: [NSKeyValueObservation] = []
     private var systemNotifications: [NSObjectProtocol] = []
@@ -212,6 +225,8 @@ final class MobilePlaybackController: ObservableObject {
             ("pip possible", pictureInPicturePossible ? "yes" : "no"),
             ("libvlc handle", libVLCHandle == nil ? "UNAVAILABLE" : "ok"),
             ("frame api", VLCFrameTap.videoCallbackAPIIsLinked ? "linked" : "MISSING"),
+            ("start together", startGateOpen ? "open"
+                : "holding sound" + (heldSoundSince.map { String(format: " %.1fs", ProcessInfo.processInfo.systemUptime - $0) } ?? "")),
             ("loading", loading ? "yes" : "no"),
             ("error", error ?? "—")
         ]
@@ -434,6 +449,7 @@ final class MobilePlaybackController: ObservableObject {
         player.drawable = nil
         let existed = view.playerLayer != nil
         let layer = view.installPlayerLayer(for: systemPlayer)
+        view.holdPicture(!startGateOpen)
         diag.record("attachSystemLayer \(existed ? "reused" : "created") frame=\(Int(layer.frame.width))x\(Int(layer.frame.height)) player=\(layer.player == nil ? "nil" : "set")")
         if pipController?.playerLayer !== layer {
             pipController = AVPictureInPictureController(playerLayer: layer)
@@ -453,6 +469,111 @@ final class MobilePlaybackController: ObservableObject {
             let possible = pip.isPictureInPicturePossible
             onMain { self?.pictureInPicturePossible = possible }
         }
+    }
+
+    // MARK: - Starting together
+
+    /// Holds the sound and keeps the picture back until the picture moves.
+    private func closeStartGate() {
+        startGate?.cancel()
+        startGateOpen = false
+        gateFrames = 0
+        gateLastFrameAt = nil
+        heldSoundSince = nil
+        switch engine {
+        case .system: systemPlayer.isMuted = true
+        case .vlc: player.audio?.isMuted = true
+        }
+        videoView?.holdPicture(true)
+        diag.record("start together: holding sound until the picture moves")
+        startGate = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(40)) } catch { return }
+                guard let self, !Task.isCancelled, !self.startGateOpen else { return }
+                self.checkStartGate()
+            }
+        }
+    }
+
+    private func checkStartGate() {
+        let now = ProcessInfo.processInfo.systemUptime
+        // Backgrounded, the sound is all there is to play.
+        if inBackground {
+            openStartGate("in background")
+            return
+        }
+        switch engine {
+        case .system:
+            let playing = systemPlayer.timeControlStatus == .playing
+            if playing, heldSoundSince == nil { heldSoundSince = now }
+            // Paused, by the viewer or the app going to the background, no
+            // sound is being held: the wait starts again on resuming.
+            if systemPlayer.timeControlStatus == .paused { heldSoundSince = nil }
+            if let item = systemPlayer.currentItem, item.status == .readyToPlay, !item.tracks.isEmpty,
+               !item.tracks.contains(where: { $0.assetTrack?.mediaType == .video }) {
+                openStartGate("no picture to wait for")
+                return
+            }
+            guard playing, let output = gateOutput else { return }
+            let time = output.itemTime(forHostTime: CACurrentMediaTime())
+            guard output.hasNewPixelBuffer(forItemTime: time) else { return }
+            // Taken rather than only seen, so the next one reads as new.
+            _ = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+            gateFrames = StartTogether.frames(after: gateFrames, lastFrameAt: gateLastFrameAt, now: now)
+            gateLastFrameAt = now
+            if gateFrames >= StartTogether.framesToStart { openStartGate("picture moving") }
+        case .vlc:
+            guard player.isPlaying else { return }
+            if heldSoundSince == nil { heldSoundSince = now }
+            // VLC builds its sound output as it starts and can bring it up
+            // unmuted; held again until the picture is there.
+            if player.audio?.isMuted == false { player.audio?.isMuted = true }
+            if player.hasVideoOut {
+                openStartGate("picture up")
+            } else if let since = heldSoundSince, now - since > StartTogether.soundAloneAfter {
+                openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
+            }
+        }
+    }
+
+    /// Sound and picture, together.
+    private func openStartGate(_ reason: String) {
+        guard !startGateOpen else { return }
+        startGateOpen = true
+        startGate?.cancel()
+        startGate = nil
+        let held = heldSoundSince.map { ProcessInfo.processInfo.systemUptime - $0 }
+        diag.record("start together: \(reason)" + (held.map { String(format: ", sound held %.1fs", $0) } ?? ""))
+        heldSoundSince = nil
+        releaseGateOutput()
+        switch engine {
+        case .system:
+            systemPlayer.isMuted = false
+            if systemPlayer.currentItem?.status == .readyToPlay { loading = false }
+        case .vlc:
+            player.audio?.isMuted = false
+        }
+        videoView?.holdPicture(false)
+    }
+
+    /// The gate goes with the stream it held: nothing left muted or hidden.
+    private func resetStartGate() {
+        startGate?.cancel()
+        startGate = nil
+        releaseGateOutput()
+        heldSoundSince = nil
+        startGateOpen = true
+        systemPlayer.isMuted = false
+        player.audio?.isMuted = false
+        videoView?.holdPicture(false)
+    }
+
+    private func releaseGateOutput() {
+        if let output = gateOutput, let item = systemPlayer.currentItem,
+           item.outputs.contains(where: { $0 === output }) {
+            item.remove(output)
+        }
+        gateOutput = nil
     }
 
     // MARK: - Picture in Picture
@@ -525,7 +646,7 @@ final class MobilePlaybackController: ObservableObject {
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
                 self.sampleProgress()
-                if self.engine == .system,
+                if self.engine == .system, self.startGateOpen,
                    self.systemPlayer.timeControlStatus == .playing,
                    self.videoView?.playerLayer?.isReadyForDisplay == true {
                     self.confirmWorkingChannel()
@@ -562,6 +683,16 @@ final class MobilePlaybackController: ObservableObject {
                         self.systemEngineFailed()
                     }
                 }
+                // Sound held over a picture that will not move: the channel's
+                // other stream is likelier to start than this one is to catch up.
+                if self.engine == .system, !self.startGateOpen, self.error == nil,
+                   StartTogether.shouldTryNext(
+                       heldFor: self.heldSoundSince.map { ProcessInfo.processInfo.systemUptime - $0 },
+                       isLive: self.isLive, hasAnotherStream: !self.candidates.isEmpty) {
+                    self.diag.record("start together: picture still after \(Int(StartTogether.stillPictureDeadline))s of sound, trying the next stream")
+                    self.systemEngineFailed()
+                    continue
+                }
                 guard self.engine == .vlc else { continue }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {
@@ -578,7 +709,7 @@ final class MobilePlaybackController: ObservableObject {
                 }
                 guard self.error == nil else { continue }
                 self.isPlaying = self.player.isPlaying
-                self.loading = !self.player.isPlaying || !self.player.hasVideoOut
+                self.loading = !self.player.isPlaying || !self.player.hasVideoOut || !self.startGateOpen
                 if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
                 // A backgrounded stream has no video output by design. Feeding
                 // that to the health model would read as a lost picture and
@@ -617,6 +748,7 @@ final class MobilePlaybackController: ObservableObject {
 
     private func openNext() {
         systemPictureSeen = false
+        resetStartGate()
         teardownSystemEngine()
         player.stop()
         resetSubtitles()
@@ -690,7 +822,9 @@ final class MobilePlaybackController: ObservableObject {
                 switch status {
                 case .failed: self.systemEngineFailed()
                 case .readyToPlay:
-                    self.loading = false
+                    // Ready is not started: the gate decides when the
+                    // picture and sound come up.
+                    if self.startGateOpen { self.loading = false }
                     UIApplication.shared.isIdleTimerDisabled = true
                     self.loadSystemSubtitleTracks(for: item)
                 default: break
@@ -712,7 +846,7 @@ final class MobilePlaybackController: ObservableObject {
                 self.diag.record("timeControlStatus -> \(playing ? "playing" : "not playing") rate=\(player.rate) layerReady=\(self.videoView?.playerLayer?.isReadyForDisplay.description ?? "—")")
                 self.isPlaying = playing
                 if playing {
-                    self.loading = false
+                    if self.startGateOpen { self.loading = false }
                     self.retries.reset()
                 }
             }
@@ -734,6 +868,10 @@ final class MobilePlaybackController: ObservableObject {
         })
 
         diag.record("openSystem item created; videoView=\(videoView == nil ? "nil" : "present")")
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
+        item.add(output)
+        gateOutput = output
+        closeStartGate()
         if let view = videoView { attachSystemLayer(to: view) }
         systemPlayer.play()
         diag.record("openSystem play() called; layer=\(videoView?.playerLayer == nil ? "ABSENT" : "present")")
@@ -779,6 +917,7 @@ final class MobilePlaybackController: ObservableObject {
         waitingSince = nil
         started = Date()
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        closeStartGate()
         player.play()
         UIApplication.shared.isIdleTimerDisabled = true
     }
@@ -1079,6 +1218,7 @@ final class MobilePlaybackController: ObservableObject {
     func stop() {
         monitor?.cancel()
         monitor = nil
+        resetStartGate()
         pendingTeardown?.cancel()
         pendingTeardown = nil
         retryAt = nil
@@ -1226,10 +1366,24 @@ final class MobileVideoHost: UIView {
         }
         let created = AVPlayerLayer(player: player)
         created.videoGravity = .resizeAspect
+        created.opacity = pictureHeld ? 0 : 1
         created.frame = bounds
         layer.addSublayer(created)
         playerLayer = created
         return created
+    }
+
+    /// Kept back while sound and picture wait to start together, so a held
+    /// first frame never shows. Opacity rather than `isHidden`, which the
+    /// dismissal's still picture already uses.
+    private(set) var pictureHeld = false
+
+    func holdPicture(_ held: Bool) {
+        pictureHeld = held
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer?.opacity = held ? 0 : 1
+        CATransaction.commit()
     }
 
     private var stillPicture: UIView?

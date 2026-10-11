@@ -170,6 +170,9 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     let broadcast: String
     /// Event-level title for cards that contain multiple contests, such as UFC.
     let eventName: String?
+    /// A college football team's place in the Top 25, where it has one.
+    var awayRank: Int? = nil
+    var homeRank: Int? = nil
 
     // How long a game can run before an unchanged status is stale rather than late.
     static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
