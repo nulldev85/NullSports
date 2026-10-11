@@ -464,6 +464,9 @@ private struct LiveScreen: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
     @State private var spotlight = LiveSpotlight()
+    /// My Teams beside the monitor, or put away so the monitor runs the full
+    /// width of the board and the picture sits centred. Kept between visits.
+    @AppStorage("live.myTeamsShown") private var myTeamsShown = true
 
     var body: some View {
         VStack(spacing: 14) {
@@ -472,6 +475,8 @@ private struct LiveScreen: View {
                              previewGameID: previewGame?.id, multiviewPrimaryID: multiviewPrimaryID,
                              multiviewTitle: multiviewTitle, isScheduleLoading: isScheduleLoading,
                              isScheduleAvailable: isScheduleAvailable,
+                             myTeamsShown: myTeamsShown,
+                             onToggleMyTeams: { withAnimation(.easeInOut(duration: 0.32)) { myTeamsShown.toggle() } },
                              onPlay: onPlay, onStartMultiview: onStartMultiview,
                              onCancelMultiview: onCancelMultiview)
         }
@@ -494,11 +499,14 @@ private struct LiveScreen: View {
     /// otherwise find nothing and be swallowed; as a region it arrives at the
     /// viewer's teams instead.
     private var stage: some View {
-        HStack(alignment: .top, spacing: LiveMetrics.gutter) {
-            LiveMyTeams(events: events, spotlight: spotlight, previewGameID: previewGame?.id,
-                        multiviewPrimaryID: multiviewPrimaryID,
-                        onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(width: LiveMetrics.railWidth)
+        HStack(alignment: .top, spacing: myTeamsShown ? LiveMetrics.gutter : 0) {
+            if myTeamsShown {
+                LiveMyTeams(events: events, spotlight: spotlight, previewGameID: previewGame?.id,
+                            multiviewPrimaryID: multiviewPrimaryID,
+                            onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(width: LiveMetrics.railWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             LiveMonitor(spotlight: spotlight, events: events, previewStream: previewStream,
                         previewGame: previewGame, previewURLs: previewURLs,
                         isMultiview: multiviewTitle != nil, isPreparingStreams: isPreparingStreams,
@@ -1333,6 +1341,8 @@ private struct LiveMatchupBoard: View {
     let multiviewTitle: String?
     let isScheduleLoading: Bool
     let isScheduleAvailable: Bool
+    let myTeamsShown: Bool
+    let onToggleMyTeams: () -> Void
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
@@ -1397,6 +1407,13 @@ private struct LiveMatchupBoard: View {
                     LiveChipLabel(symbol: "xmark", title: "Cancel multiview")
                 }
             } else {
+                // Puts My Teams away so the monitor runs the board's full
+                // width, or brings it back beside the monitor.
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: onToggleMyTeams) {
+                    LiveChipLabel(symbol: myTeamsShown ? "sidebar.left" : "star",
+                                  title: myTeamsShown ? "Hide My Teams" : "My Teams")
+                }
+                .accessibilityLabel(myTeamsShown ? "Hide My Teams" : "Show My Teams")
                 LiveLeagueFilter(selectedLeague: $selectedLeague)
             }
         }
@@ -2355,8 +2372,6 @@ private enum GuidePalette {
     /// How far the programme on now has run, on its track.
     static var progress: Color { LineupStyle.text }
     static var track: Color { LineupStyle.text.opacity(0.14) }
-    /// Now, and on air: broadcast red.
-    static var now: Color { LineupStyle.liveDot }
 }
 
 struct GuideView: View {
@@ -2495,9 +2510,6 @@ struct GuideView: View {
                                 }
                                 }
                             }
-                        }
-                        .overlay(alignment: .topLeading) {
-                            if !filtered.isEmpty { GuideNowLine(now: guideNow) }
                         }
                         .disabled(sidebarVisible && !searchActive)
 
@@ -3101,11 +3113,18 @@ private struct GuideTimelineHeader: View {
     var body: some View {
         let anchor = guideTimelineAnchor(now)
         HStack(spacing: 0) {
-            Text(now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()).uppercased())
-                .font(.inter(14, .bold)).tracking(1.6)
-                .foregroundStyle(GuidePalette.text)
-                .lineLimit(1)
-                .frame(width: layout.channelWidth, alignment: .leading)
+            // Now, at the head of the channel column, as the phone's Guide
+            // has it. There is no line down the grid for it: how far each
+            // programme on now has run is washed across its own cell.
+            VStack(spacing: 2) {
+                Text("NOW").font(.inter(12, .bold)).tracking(1.4)
+                    .foregroundStyle(GuidePalette.secondary)
+                Text(now.formatted(date: .omitted, time: .shortened))
+                    .font(.interDigits(17, .semibold))
+                    .foregroundStyle(GuidePalette.text)
+            }
+            .lineLimit(1)
+            .frame(width: layout.channelWidth)
             ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                 HStack(spacing: 10) {
                     Rectangle().fill(GuidePalette.secondary.opacity(0.5)).frame(width: 1, height: 14)
@@ -3676,30 +3695,6 @@ private struct GuideProgressBar: View {
                     .frame(width: proxy.size.width * min(max(progress, 0), 1))
             }
         }
-    }
-}
-
-/// Now, as a red line down the grid from a mark on the time bar.
-private struct GuideNowLine: View {
-    @Environment(\.guideLayout) private var layout
-    let now: Date
-
-    var body: some View {
-        let x = 14 + layout.channelWidth
-            + CGFloat(now.timeIntervalSince(guideTimelineAnchor(now)) / 1800) * layout.slotWidth
-        ZStack(alignment: .topLeading) {
-            Rectangle().fill(GuidePalette.now)
-                .frame(width: 1.5)
-                .frame(maxHeight: .infinity)
-                .padding(.top, guideHeaderHeight)
-                .offset(x: x - 0.75)
-            Circle().fill(GuidePalette.now)
-                .frame(width: 10, height: 10)
-                .offset(x: x - 5, y: guideHeaderHeight - 5)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
