@@ -4489,23 +4489,28 @@ struct MediaRatingChips: View {
     var body: some View {
         HStack(spacing: Metrics.gap) {
             if let imdb = ratings.imdb {
-                chip("IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb), tint: Metrics.imdb)
+                chip("Rating-IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb))
             }
             if let tmdb = ratings.tmdb {
-                chip("TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb), tint: Metrics.tmdb)
+                chip("Rating-TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb))
             }
             if let tomatoes = ratings.rottenTomatoes {
-                chip("RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%", tint: Metrics.rottenTomatoes)
+                chip("Rating-RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%")
             }
         }
         .fixedSize()
     }
 
-    private func chip(_ source: String, spoken: String, value: String, tint: Color) -> some View {
+    /// Each site by its own mark rather than its name in letters: IMDb's
+    /// yellow badge, TMDB's square mark and the Tomatometer's tomato, all
+    /// the same height.
+    private func chip(_ logo: String, spoken: String, value: String) -> some View {
         HStack(spacing: Metrics.inner) {
-            Text(source)
-                .font(.inter(Metrics.sourceSize, .heavy))
-                .foregroundStyle(tint)
+            Image(logo)
+                .resizable()
+                .scaledToFit()
+                .frame(height: Metrics.logo)
+                .accessibilityHidden(true)
             Text(value)
                 .font(.interDigits(Metrics.valueSize, .bold))
                 .foregroundStyle(Color.white)
@@ -4519,25 +4524,21 @@ struct MediaRatingChips: View {
 }
 
 private enum MediaRatingMetrics {
-    // The sites' own colours: IMDb's yellow, TMDB's blue, the Tomatometer's red.
-    static let imdb = Color(red: 0.96, green: 0.77, blue: 0.09)
-    static let tmdb = Color(red: 0.0, green: 0.71, blue: 0.89)
-    static let rottenTomatoes = Color(red: 0.98, green: 0.24, blue: 0.1)
     static let fill = Color(red: 0.15, green: 0.16, blue: 0.19).opacity(0.9)
     #if os(tvOS)
     static let height: CGFloat = 42
-    static let padding: CGFloat = 15
+    static let padding: CGFloat = 14
     static let gap: CGFloat = 12
-    static let inner: CGFloat = 10
-    static let sourceSize: CGFloat = 19
+    static let inner: CGFloat = 11
+    static let logo: CGFloat = 26
     static let valueSize: CGFloat = 22
     static let radius: CGFloat = 10
     #else
     static let height: CGFloat = 30
-    static let padding: CGFloat = 10
+    static let padding: CGFloat = 9
     static let gap: CGFloat = 8
     static let inner: CGFloat = 7
-    static let sourceSize: CGFloat = 13
+    static let logo: CGFloat = 18
     static let valueSize: CGFloat = 15
     static let radius: CGFloat = 8
     #endif

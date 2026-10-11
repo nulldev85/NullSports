@@ -515,6 +515,24 @@ struct LineupButtonStyle: ButtonStyle {
     }
 }
 
+/// Glass controls that sit together -- a player's row of buttons. Glass
+/// cannot sample other glass, so neighbours drawn apart each guess at what
+/// is behind them; inside one container they are drawn as one sheet and
+/// read as one set. `spacing` is how near two have to come before they run
+/// together, kept under the gap between them so they never do.
+struct LineupGlassGroup<Content: View>: View {
+    var spacing: CGFloat = 8
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(iOS 26.0, tvOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
 #if os(iOS)
 extension View {
     // Apple's Liquid Glass for the iPhone app's chrome and floating controls.
@@ -538,6 +556,37 @@ extension View {
         lineupLiquidGlass(shape, clear: clear, fallback: Color.black.opacity(0.6))
     }
 
+    /// Glass for something pressed: it gives under a finger and catches the
+    /// light the way the system's own controls do, where `lineupLiquidGlass`
+    /// is a surface that only sits there. `prominent` lifts it a shade, for
+    /// the one control a screen is about -- play and pause.
+    @ViewBuilder
+    func lineupGlassControl<S: InsettableShape, F: ShapeStyle>(
+        _ shape: S, fallback: F, prominent: Bool = false
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(prominent ? Glass.regular.tint(.white.opacity(0.16)).interactive()
+                                       : Glass.regular.interactive(), in: shape)
+        } else {
+            self.background(fallback, in: shape)
+                .overlay(shape.strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }
+    }
+
+    func lineupGlassControl<S: InsettableShape>(_ shape: S, prominent: Bool = false) -> some View {
+        lineupGlassControl(shape, fallback: Color.black.opacity(0.6), prominent: prominent)
+    }
+
+    /// The one action a message is waiting on, such as Retry: the system's
+    /// prominent glass button, or its filled button below iOS 26.
+    @ViewBuilder
+    func lineupProminentButton() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
+        }
+    }
 }
 
 /// The background behind a Form row, on the same Liquid Glass as the app's
@@ -585,15 +634,24 @@ extension EnvironmentValues {
 }
 
 extension View {
-    // tvOS has no Liquid Glass, so the shared views that ask for it keep the
-    // theme's own fill and hairline — which is exactly what they looked like
-    // before the call site was unified.
+    // Liquid Glass came to the television with tvOS 26, and the shared views
+    // that ask for it get it there as on the phone. Before tvOS 26 they keep
+    // the theme's own fill and hairline, which is what they always looked
+    // like, so nothing shifts in size, shape or spacing on an older system.
+    // Focus is not the glass's business on the television: the app's own
+    // focus layer and lift sit on top of it, as they sat on the fill.
+    @ViewBuilder
     func lineupLiquidGlass<S: InsettableShape, F: ShapeStyle>(
         _ shape: S, clear: Bool = false, fallback: F,
-        border: Color = .white.opacity(0.12)
+        border: Color = .white.opacity(0.12), prominent: Bool = false
     ) -> some View {
-        self.background(fallback, in: shape)
-            .overlay(shape.strokeBorder(border, lineWidth: 1))
+        if #available(tvOS 26.0, *) {
+            self.glassEffect(prominent ? Glass.regular.tint(.white.opacity(0.16))
+                                       : (clear ? Glass.clear : Glass.regular), in: shape)
+        } else {
+            self.background(fallback, in: shape)
+                .overlay(shape.strokeBorder(border, lineWidth: 1))
+        }
     }
 
     func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {

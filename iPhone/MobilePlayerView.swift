@@ -54,8 +54,11 @@ struct MobilePlayerView: View {
                         controller.start(urls: urls, initialPosition: isLive ? nil
                             : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition))
                     }
-                        .buttonStyle(.borderedProminent)
-                }.padding(32)
+                        .lineupProminentButton()
+                }
+                .padding(24)
+                .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .padding(32)
             } else if controller.loading {
                 ProgressView("Opening stream…").padding(24)
                     .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
@@ -84,6 +87,7 @@ struct MobilePlayerView: View {
             }
             if controlsVisible {
                 VStack(spacing: 0) {
+                    LineupGlassGroup {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { exit() }
                         if showsTitleInHeader {
@@ -109,6 +113,7 @@ struct MobilePlayerView: View {
                             if let detail = badgeDetail { qualityBadge(detail) }
                         }
                     }
+                    }
                     .padding(.horizontal, 14)
                     .padding(.top, 12)
                     .padding(.bottom, 22)
@@ -120,6 +125,7 @@ struct MobilePlayerView: View {
                 // lands dead-center on screen — the same spot every other player
                 // in the app puts its play/pause control.
                 if !controller.loading && controller.error == nil {
+                    LineupGlassGroup {
                     HStack(spacing: 28) {
                         if showsTransport {
                             control("gobackward.15", label: "Back 15 seconds") {
@@ -135,6 +141,7 @@ struct MobilePlayerView: View {
                                 controller.skip(by: 15)
                             }
                         }
+                    }
                     }
                     .transition(.opacity)
                 }
@@ -249,7 +256,7 @@ struct MobilePlayerView: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .lineupLiquidGlass(Capsule())
+            .lineupGlassControl(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -379,12 +386,16 @@ struct MobilePlayerView: View {
         dismiss()
     }
 
+    /// A round glass button that gives under a finger, as the system's own
+    /// player controls do. Play and pause, the large one, sits a shade
+    /// brighter than the rest.
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
                 .frame(width: size, height: size)
-                .lineupLiquidGlass(Circle())
+                .contentShape(Circle())
+                .lineupGlassControl(Circle(), prominent: size >= 60)
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }
