@@ -664,57 +664,79 @@ struct TVLibraryOption: Identifiable {
 private struct TVLibraryMenuBar: View {
     let options: [TVLibraryOption]
     @State private var open = false
-    /// Which parts of the menu hold focus. When none does, focus has gone
-    /// elsewhere and the list closes behind it.
-    @State private var focused: Set<String> = []
+    /// Where focus is in the menu: its button, one of its rows, or nil once
+    /// it is somewhere else on the screen.
+    @FocusState private var focus: Place?
+
+    private enum Place: Hashable {
+        case button
+        case row(Int)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            TVSelectable(scale: LineupStyle.controlLift, action: { open.toggle() },
-                         onFocusChange: { track("menu", $0) }) {
-                MediaChromeLabel {
-                    HStack(spacing: 10) {
-                        Image(systemName: "slider.horizontal.3")
-                        Text("Library")
-                        Image(systemName: open ? "chevron.up" : "chevron.down")
-                            .font(.inter(13, .bold))
+            button
+                .overlay(alignment: .topTrailing) {
+                    if open {
+                        panel
+                            .alignmentGuide(.top) { $0[.top] - 48 }
+                            .transition(.opacity.combined(with: .offset(y: -8)))
                     }
-                    .font(.inter(16, .semibold))
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                if open {
-                    panel
-                        .alignmentGuide(.top) { $0[.top] - 48 }
-                        .transition(.opacity.combined(with: .offset(y: -8)))
-                }
-            }
         }
         .padding(.horizontal, 54)
         .lineupFocusRegion()
-        .onExitCommand(perform: open ? { open = false } : nil)
+        .onExitCommand(perform: open ? { close() } : nil)
+        // Focus gone from the button and every row: the list closes behind it.
+        .onChange(of: focus) { _, place in
+            if place == nil, open { open = false }
+        }
         .animation(.easeOut(duration: 0.16), value: open)
+    }
+
+    private var button: some View {
+        MediaChromeLabel {
+            HStack(spacing: 10) {
+                Image(systemName: "slider.horizontal.3")
+                Text("Library")
+                Image(systemName: open ? "chevron.up" : "chevron.down")
+                    .font(.inter(13, .bold))
+            }
+            .font(.inter(16, .semibold))
+        }
+        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 12))
+        .focusable()
+        .focused($focus, equals: .button)
+        .focusEffectDisabled()
+        .onTapGesture {
+            if open { close() } else { open = true }
+        }
+        // While the list is open the button only leads down into it.
+        .onMoveCommand(perform: open ? { direction in
+            if direction == .down { focus = .row(0) } else { close() }
+        } : nil)
+        .accessibilityLabel("Library options")
     }
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                TVSelectable(scale: 1.02, fillRadius: 10,
-                             action: { open = false; option.action() },
-                             onFocusChange: { track(option.id, $0) },
-                             requestInitialFocus: index == 0) {
-                    HStack(spacing: 14) {
-                        Image(systemName: option.symbol)
-                            .frame(width: 28)
-                        Text(option.title)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.inter(17, .semibold))
-                    .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
-                    .padding(.horizontal, 16)
-                    .frame(width: 340, height: 50)
+                HStack(spacing: 14) {
+                    Image(systemName: option.symbol)
+                        .frame(width: 28)
+                    Text(option.title)
+                    Spacer(minLength: 0)
                 }
+                .font(.inter(17, .semibold))
+                .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
+                .padding(.horizontal, 16)
+                .frame(width: 340, height: 50)
+                .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 10))
+                .focusable()
+                .focused($focus, equals: .row(index))
+                .focusEffectDisabled()
+                .onTapGesture { choose(option) }
             }
         }
         .padding(8)
@@ -722,18 +744,51 @@ private struct TVLibraryMenuBar: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
         .fixedSize()
+        // The list moves its own focus. Left to the focus engine, a press
+        // down could land on a poster under the list -- whichever one the
+        // engine judged nearer than the next row -- and focus leaving closed
+        // the list under the viewer, two rows in, at Remove a Shelf.
+        .onMoveCommand { direction in
+            guard case .row(let index) = focus else { return }
+            switch direction {
+            case .down: focus = .row(min(index + 1, options.count - 1))
+            case .up: focus = index == 0 ? .button : .row(index - 1)
+            default: break
+            }
+        }
+        .onAppear { focus = .row(0) }
     }
 
-    /// Notes where focus is, and closes the list a moment after it has left
-    /// every part of the menu -- the moment covers focus passing from one
-    /// row to the next, which reports the old row losing it first.
-    private func track(_ id: String, _ isFocused: Bool) {
-        if isFocused { focused.insert(id) } else { focused.remove(id) }
-        guard open, focused.isEmpty else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            if focused.isEmpty { open = false }
-        }
+    private func choose(_ option: TVLibraryOption) {
+        close()
+        option.action()
+    }
+
+    /// Back to the button before the list goes, so focus never falls loose
+    /// onto whatever was under it.
+    private func close() {
+        focus = .button
+        open = false
+    }
+}
+
+/// The app's focus look -- the light layer, a lift and a shadow -- for a
+/// control that keeps its focus in a parent's `FocusState` rather than its
+/// own, as the Library menu's button and rows do.
+private struct TVMenuFocus: ViewModifier {
+    let focused: Bool
+    let scale: CGFloat
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.lineupTVSelectableFocused, focused)
+            .contentShape(Rectangle())
+            .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: radius, style: .continuous).inset(by: -6))
+            .scaleEffect(focused ? scale : 1)
+            .lineupShadow(.lifted, on: focused)
+            .zIndex(focused ? 10 : 0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
 }
 

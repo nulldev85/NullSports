@@ -2414,18 +2414,18 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// A programme still to come, and the one on the air, a step lighter: on
-    /// now and coming up are told apart at a glance without a word of ink.
-    static var card: Color { LineupStyle.surface }
-    static var cardNow: Color { LineupStyle.raised }
+    /// A programme still to come, and the one on the air a step lighter
+    /// with a faint red edge -- the phone's Guide, cell for cell.
+    static var card: Color { LineupStyle.raised }
+    static var cardNow: Color { LineupStyle.focused }
+    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.34) }
+    /// How much of the programme on now has gone, washed over its cell.
+    static var elapsed: Color { LineupStyle.text.opacity(0.10) }
     /// How far the programme on now has run, on its track.
     static var progress: Color { LineupStyle.text }
     static var track: Color { LineupStyle.text.opacity(0.14) }
     /// Now, and on air: broadcast red.
     static var now: Color { LineupStyle.liveDot }
-    /// A favourite's heart: a deep crimson, darker than broadcast red so it
-    /// is never read as something going out live.
-    static let favorite = Color(red: 0.69, green: 0.13, blue: 0.19)
 }
 
 struct GuideView: View {
@@ -3306,15 +3306,14 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // On the guide's own ground, as on the phone: no plate behind it.
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.vertical, 4)
             .padding(.trailing, 8)
             .clipped()
 
             ZStack(alignment: .leading) {
-                GuideTimelineGrid()
                 if visiblePrograms.isEmpty {
                     let focusID = GuideGridFocus(streamID: stream.id, programStart: nil)
                     GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
@@ -3366,29 +3365,10 @@ private struct GuideChannelRow: View {
     }
 }
 
-/// Fine, fixed half-hour rules give the schedule the precision of a broadcast
-/// rundown without adding another stack of views to every visible row.
-private struct GuideTimelineGrid: View {
-    @Environment(\.guideLayout) private var layout
-
-    var body: some View {
-        Canvas { context, size in
-            var path = Path()
-            for step in 0...guideVisibleSlotCount {
-                let x = CGFloat(step) * layout.slotWidth
-                path.move(to: CGPoint(x: x, y: 0))
-                path.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            context.stroke(path, with: .color(GuidePalette.line.opacity(0.4)), lineWidth: 1)
-        }
-        .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), height: layout.rowHeight)
-        .accessibilityHidden(true)
-    }
-}
-
 /// A channel as the guide names it: its logo, its name under it, and a small
-/// dark red heart in the corner if it is a favourite. Where there is no logo, a quiet
-/// television mark holds its place so every name sits on the same line.
+/// star in the corner if it is a favourite, as on the phone. Where there is no
+/// logo, a quiet television mark holds its place so every name sits on the
+/// same line.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
@@ -3417,9 +3397,9 @@ private struct GuideChannelArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
             if isFavorite {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(GuidePalette.favorite)
+                Image(systemName: "star.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(GuidePalette.text)
                     .padding(9)
             }
         }
@@ -3665,23 +3645,34 @@ private struct GuideProgramCell: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        VStack(alignment: .leading, spacing: 5) {
+        // The phone's Guide, at television size: flat grey cells squared off
+        // at four points, the one on now a step lighter with a faint red
+        // edge, the time it has run washed across it, and LIVE in red.
+        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        VStack(alignment: .leading, spacing: 6) {
             if let program {
                 HStack(spacing: 8) {
                     Text(program.title.isEmpty ? "Untitled" : program.title)
-                        .font(.inter(20, isOnNow ? .semibold : .medium))
-                        .foregroundStyle(isOnNow || isFocused ? GuidePalette.text : GuidePalette.text.opacity(0.82))
+                        .font(.inter(20, .semibold))
+                        .foregroundStyle(GuidePalette.text)
                         .lineLimit(1)
                     if program.isNew == true { GuideTinyBadge(title: "NEW") }
                 }
-                if showsTime {
+                if showsTime || isOnNow {
                     HStack(spacing: 8) {
-                        Text(guideTimeRange(program))
-                            .font(.interDigits(15, .medium))
-                            .foregroundStyle(GuidePalette.secondary)
-                            .lineLimit(1)
-                        if let quality { GuideTinyBadge(title: quality) }
+                        if isOnNow {
+                            GuideLiveDot(size: 8)
+                            Text("LIVE")
+                                .font(.inter(14, .semibold)).tracking(1.2)
+                                .foregroundStyle(LineupStyle.liveStatus)
+                        }
+                        if showsTime {
+                            Text(guideTimeRange(program))
+                                .font(.interDigits(15, .medium))
+                                .foregroundStyle(GuidePalette.secondary)
+                                .lineLimit(1)
+                            if let quality { GuideTinyBadge(title: quality) }
+                        }
                     }
                 }
             } else {
@@ -3691,25 +3682,25 @@ private struct GuideProgramCell: View {
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: layout.rowHeight - 8, alignment: .topLeading)
-        .background(isOnNow ? GuidePalette.cardNow : GuidePalette.card, in: shape)
-        .overlay {
-            if let program, isOnNow {
-                GeometryReader { geometry in
-                    let played = GuideProgress.playedWidth(
-                        start: program.start, end: program.end, now: now,
-                        visibleStart: guideTimelineAnchor(now),
-                        pointsPerSecond: Double(layout.slotWidth) / 1800,
-                        cellWidth: Double(geometry.size.width))
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(GuidePalette.track)
-                        Rectangle().fill(GuidePalette.progress.opacity(0.85)).frame(width: CGFloat(played))
+        .background {
+            ZStack(alignment: .leading) {
+                shape.fill(isOnNow ? GuidePalette.cardNow : GuidePalette.card)
+                if let program, isOnNow {
+                    GeometryReader { geometry in
+                        let played = GuideProgress.playedWidth(
+                            start: program.start, end: program.end, now: now,
+                            visibleStart: guideTimelineAnchor(now),
+                            pointsPerSecond: Double(layout.slotWidth) / 1800,
+                            cellWidth: Double(geometry.size.width))
+                        Rectangle().fill(GuidePalette.elapsed).frame(width: CGFloat(played))
                     }
-                    .frame(height: 3)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                .clipShape(shape)
-                .allowsHitTesting(false)
             }
+            .clipShape(shape)
+        }
+        .overlay {
+            shape.strokeBorder(isOnNow ? GuidePalette.edgeNow : GuidePalette.line,
+                               lineWidth: isOnNow ? 1.5 : 1)
         }
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
