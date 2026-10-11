@@ -834,6 +834,7 @@ private struct LiveCrest: View {
         }
     }
 
+    @ViewBuilder
     private var crest: some View {
         let rim = max(3, size * 0.06)
         LineupArtView(url: URL(string: url), width: size) { loaded in
