@@ -57,12 +57,12 @@ struct MobileChannelPicker: View {
                                 Section {
                                     ForEach(suggested) { row($0, suggested: true) }
                                 } header: { sectionLabel("Suggested") }
-                                    .listRowBackground(LineupGlassRow())
+                                    .listRowBackground(LineupRowBackground())
                             }
                             Section {
                                 ForEach(results) { row($0, suggested: false) }
                             } header: { sectionLabel(query.isEmpty ? "All channels" : "Results") }
-                                .listRowBackground(LineupGlassRow())
+                                .listRowBackground(LineupRowBackground())
                         }
                         .listStyle(.insetGrouped)
                         .scrollContentBackground(.hidden)

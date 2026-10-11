@@ -5,9 +5,8 @@ struct MobileLiveView: View {
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var league: SportsLeague?
-    /// The star at the head of the league strip. Narrows the whole tab to the
-    /// viewer's teams rather than adding another section to scroll past.
     @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
@@ -36,12 +35,10 @@ struct MobileLiveView: View {
 
     /// Today's games, sorted into what the screen actually draws.
     ///
-    /// These used to be computed properties, and a computed property is
-    /// recomputed at every mention. A single pass over this screen mentioned
-    /// them about ten times -- the masthead twice, the live section three
-    /// times, and once per upcoming day inside a loop -- so one render walked
-    /// every game, checked every clock and sorted the lot ten times over.
-    /// That is what a tab switch was waiting for.
+    /// Computed once per render and passed down. These used to be computed
+    /// properties, and a computed property is recomputed at every mention:
+    /// one pass over this screen walked every game, checked every clock and
+    /// sorted the lot ten times over, which is what a tab switch waited for.
     struct Slate {
         let all: [SportsGame]
         /// The viewer's own games, live first and soonest next. Held out of
@@ -64,7 +61,7 @@ struct MobileLiveView: View {
         let separatesMine = !onlyFollowed
         for game in all {
             if separatesMine, library.isFollowing(game) {
-                mine.append(game)
+                if game.isLive || game.isUpcoming { mine.append(game) }
                 continue
             }
             if game.isLive { live.append(game) }
@@ -82,16 +79,59 @@ struct MobileLiveView: View {
                      days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
     }
 
+    /// Everything on now in every league, for the scoreboard under the
+    /// preview, whichever league or teams the list below it is showing.
+    private func liveEverywhere() -> [SportsGame] {
+        library.games(for: nil).filter(\.isLive)
+            .map { (game: $0, followed: library.isFollowing($0)) }
+            .sorted { left, right in
+                if left.followed != right.followed { return left.followed }
+                return left.game.start < right.game.start
+            }
+            .map(\.game)
+    }
+
+    /// The phone is on its side. Every iPhone has a compact height there and
+    /// only there.
+    private var sideways: Bool { verticalSizeClass == .compact }
+
+    /// The preview fills the screen when asked to, and whenever the phone is
+    /// on its side. Worked out from the orientation rather than set when it
+    /// changes, so the preview fills the screen inside the rotation itself
+    /// instead of a beat after it, and upright again it is back among the
+    /// cards in the same single move.
+    ///
+    /// Only on this tab: a player kept for Picture in Picture while another
+    /// tab is open must not take the screen from it when the phone turns.
+    private var fillsScreen: Bool { isActive && previewStream != nil && (expanded || sideways) }
+
+    /// The masthead and the league strip, at fixed heights so the preview
+    /// knows where to sit below them.
+    private static let mastheadHeight: CGFloat = 62
+    private static let leagueStripHeight: CGFloat = 48
+    private static var headerHeight: CGFloat { mastheadHeight + leagueStripHeight }
+    /// The margin the preview and the score bar under it keep from the edges.
+    private static let inset: CGFloat = 16
+
     var body: some View {
         // Once, at the top, and passed down. Everything below reads from it.
         let slate = slate()
+        // The game in the preview, as the schedule has it now, so its score
+        // keeps up while it plays.
+        let watching = previewGame.map { game in
+            slate.all.first { $0.id == game.id }
+                // Narrowed to a league or to followed teams, the list may not
+                // hold the game being watched; the schedule still does.
+                ?? library.games(for: nil).first { $0.id == game.id }
+                ?? game
+        }
         return NavigationStack {
             GeometryReader { viewport in
-                let videoHeight = viewport.size.width * 9 / 16
-                let metadataHeight: CGFloat = 106
-                // The preview normally begins below the 62-point masthead and
-                // 48-point league strip, then moves to the top as it expands.
-                let previewTop: CGFloat = 110
+                // The preview sits in the same margins as the cards, under the
+                // header, and moves to the top of the screen as it expands.
+                let videoHeight = (viewport.size.width - Self.inset * 2) * 9 / 16
+                let metadataHeight: CGFloat = watching == nil ? 106 : 0
+                let previewTop = Self.headerHeight + 4
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(
                     containerHeight: viewport.size.height,
                     safeAreaTop: viewport.safeAreaInsets.top,
@@ -101,12 +141,17 @@ struct MobileLiveView: View {
                         masthead(slate)
                         leagueTabs
                         if previewStream != nil {
-                            Color.clear.frame(height: videoHeight + metadataHeight)
+                            Color.clear.frame(height: 4 + videoHeight + metadataHeight)
+                            if let watching {
+                                MobileLiveScoreboard(watching: watching, live: liveEverywhere()) { open($0) }
+                                    .padding(.horizontal, Self.inset).padding(.top, 10)
+                                    .padding(.bottom, 4)
+                            }
                         }
                         slateList(slate)
                     }
-                    .allowsHitTesting(!expanded)
-                    .accessibilityHidden(expanded)
+                    .allowsHitTesting(!fillsScreen)
+                    .accessibilityHidden(fillsScreen)
 
                     if let stream = previewStream {
                         TimelineView(.periodic(from: .now, by: 30)) { clock in
@@ -116,27 +161,34 @@ struct MobileLiveView: View {
                                 program: library.guidePrograms(for: stream).first {
                                     $0.start <= clock.date && clock.date < $0.end
                                 },
-                                expanded: expanded,
-                                showsMetadata: true,
-                                videoHeight: expanded ? fullHeight : videoHeight,
+                                expanded: fillsScreen,
+                                showsMetadata: watching == nil,
+                                videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
                                 onClose: closePreview,
-                                onExpand: { setExpanded(!expanded) },
+                                // On its side the phone itself is the control:
+                                // upright again is the way back.
+                                onExpand: sideways ? nil : { setExpanded(!expanded) },
                                 onRetry: {
                                     playback.start(urls: library.playbackURLs(for: stream),
                                                    channelID: stream.id)
                                 },
                                 onChooseChannel: chooseAnotherChannelAction
                             )
-                            .frame(height: expanded ? fullHeight : videoHeight + metadataHeight,
+                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
                                    alignment: .top)
                             .background(LineupStyle.background)
+                            // Squared off like the Guide's own cells until it
+                            // fills the screen.
+                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : LineupStyle.compactRadius,
+                                                        style: .continuous))
+                            .padding(.horizontal, fillsScreen ? 0 : Self.inset)
                         }
-                        .offset(y: expanded ? 0 : previewTop)
-                        .ignoresSafeArea(expanded ? .all : [], edges: .all)
+                        .offset(y: fillsScreen ? 0 : previewTop)
+                        .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(
-                            enabled: expanded,
+                            enabled: fillsScreen,
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -145,9 +197,17 @@ struct MobileLiveView: View {
             }
             .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(expanded ? .hidden : .visible, for: .tabBar)
-            .statusBarHidden(expanded)
-            .persistentSystemOverlays(expanded ? .hidden : .automatic)
+            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(fillsScreen)
+            .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+            // Turning the phone needs no animation of its own: the rotation
+            // already carries everything that follows from it.
+            .onChange(of: fillsScreen) { _, value in onFullscreenChange(value) }
+            .onChange(of: sideways) { _, value in
+                // A preview made full screen by hand, then turned on its side,
+                // comes back upright as the preview, not as full screen.
+                if value { expanded = false }
+            }
             .alert("Game has not started yet", isPresented: Binding(
                 get: { upcomingGame != nil },
                 set: { if !$0 { upcomingGame = nil } }
@@ -265,17 +325,21 @@ struct MobileLiveView: View {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                     .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
                 HStack(spacing: 5) {
-                    if slate.live.isEmpty {
+                    if slate.live.isEmpty && !slate.mine.contains(where: \.isLive) {
                         Circle().fill(LineupStyle.secondary).frame(width: 5, height: 5)
                     } else {
                         MobileLiveDot()
                     }
-                    Text(slate.live.isEmpty ? "\(slate.all.count) MATCHUPS" : "\(slate.live.count) LIVE NOW")
+                    let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
+                    Text(liveCount == 0 ? "\(slate.all.count) MATCHUPS" : "\(liveCount) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
-                .foregroundStyle(slate.live.isEmpty ? LineupStyle.secondary : LineupStyle.liveStatus)
+                .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
+                                 ? LineupStyle.secondary : LineupStyle.liveStatus)
             }
-        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 17)
+        }
+        .padding(.horizontal, 20).padding(.bottom, 17)
+        .frame(height: Self.mastheadHeight, alignment: .bottom)
     }
 
     private var leagueTabs: some View {
@@ -286,6 +350,7 @@ struct MobileLiveView: View {
                 ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
             }.padding(.horizontal, 20)
         }
+        .frame(height: Self.leagueStripHeight)
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
@@ -412,14 +477,36 @@ struct MobileLiveView: View {
                 return
             }
             open(game)
-        } label: { MobileMatchupRow(game: game, showsDay: showsDay) }
+        } label: {
+            MobileMatchupRow(game: game, showsDay: showsDay,
+                             isWatching: previewStream != nil && previewGame?.id == game.id)
+        }
         .buttonStyle(MobileMatchupButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
-        .contextMenu {
+        .contextMenu { gameMenu(game) }
+    }
+
+    /// Touch and hold on any game: watch it or be reminded, another channel,
+    /// or follow either side.
+    @ViewBuilder
+    private func gameMenu(_ game: SportsGame) -> some View {
+        Section {
+            if game.isLive {
+                let watching = previewGame?.id == game.id && previewStream != nil
+                Button(watching ? "Watching" : "Watch", systemImage: "play.fill") { open(game) }
+                    .disabled(watching)
+            } else {
+                let on = reminders.reminds(game)
+                Button(on ? "Remove reminder" : "Remind me", systemImage: on ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                }
+            }
             Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
-            // Following happens here rather than on a settings screen: this is
-            // where the team is already in front of the viewer.
+        }
+        // Following happens here rather than on a settings screen: this is
+        // where the team is already in front of the viewer.
+        Section {
             ForEach(library.followableSides(of: game)) { side in
                 let following = library.isFollowing(side.key)
                 Button(following ? "Remove \(side.name) from My Teams"
@@ -506,7 +593,7 @@ struct MobileLiveView: View {
         let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.34)
         withAnimation(animation) {
             expanded = value
-            onFullscreenChange(value)
+            onFullscreenChange(isActive && previewStream != nil && (value || sideways))
         }
     }
 
@@ -533,11 +620,23 @@ struct MobileLiveView: View {
     }
 }
 
+/// The score bar pressed in: it gives a little, as the system's own cards do.
+struct MobileCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
 private struct MobileMatchupRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
     /// Set where the row is not under a heading that names the day.
     var showsDay = false
+    /// The game in the preview above.
+    var isWatching = false
 
     /// Both read from the game itself, so the card and the tests agree on what
     /// an event is and on where it is being held.
@@ -560,8 +659,10 @@ private struct MobileMatchupRow: View {
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
-                    team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
-                    team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
+                    team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
+                         record: game.awayRecord, score: game.awayScore)
+                    team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
+                         record: game.homeRecord, score: game.homeScore)
                     if let whereItIs { place(whereItIs) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -590,19 +691,24 @@ private struct MobileMatchupRow: View {
                     Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
                         .foregroundStyle(LineupStyle.secondary)
                 }
-                Image(systemName: "play.fill").font(.system(size: 10))
+                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10))
                     .padding(.top, 2).accessibilityHidden(true)
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 20).padding(.vertical, 13)
-        .background(game.isLive ? LineupStyle.surface : .clear)
-        .overlay(alignment: .leading) {
-            if game.isLive { Rectangle().fill(LineupStyle.liveDot).frame(width: 3) }
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        // The Guide's own cells: grey, squared off, a step lighter and edged
+        // in a faint red while the game is on.
+        .background(game.isLive ? LineupStyle.focused : LineupStyle.raised, in: Self.cell)
+        .overlay {
+            Self.cell.strokeBorder(game.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
+                                   lineWidth: game.isLive ? 1 : 0.5)
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
+        .padding(.horizontal, 12).padding(.vertical, 3)
         .contentShape(Rectangle())
     }
+
+    static let cell = RoundedRectangle(cornerRadius: 4, style: .continuous)
 
     /// One line, quiet, and only when there is something to say. The card
     /// earns its look by not filling every gap that could hold a fact.
@@ -613,14 +719,15 @@ private struct MobileMatchupRow: View {
             .lineLimit(1).truncationMode(.tail)
     }
 
-    private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
+    private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String) -> some View {
         HStack(spacing: 9) {
             // The disc went first and the ring that replaced it goes now: both
             // drew a circle around a mark that is not one. The badge lights
             // its own shape instead.
-            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28)
+            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28, tight: true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.inter(.subheadline, .semibold))
+                // A college team's Top 25 place, raised after its name.
+                mobileRankedName(name, rank: rank, size: 15).font(.inter(.subheadline, .semibold))
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
@@ -640,58 +747,37 @@ private struct MobileMatchupRow: View {
 private struct MobileMatchupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupStyle.raised : .clear)
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
-/// A crisp red LED with a breathing halo. The red core stays steady so the
-/// status never blinks; only the light around it moves.
+/// On air, as a small flat red dot that breathes in and out. It had a halo
+/// and a glow; nothing in the app glows now but the pale rim that keeps a
+/// dark team badge readable.
 struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var red: Color { LineupStyle.liveDot }
 
     var body: some View {
-        ZStack {
-            halo
-            Circle()
-                .fill(RadialGradient(stops: [
-                    .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
-                    .init(color: red, location: 0.28),
-                    .init(color: Color(red: 0.58, green: 0.025, blue: 0.09), location: 1)
-                ], center: .topLeading, startRadius: 0, endRadius: 5))
-                .frame(width: 5, height: 5)
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.4))
-                .shadow(color: red.opacity(0.48), radius: 2.5)
+        let dot = Circle().fill(LineupStyle.liveDot).frame(width: 6, height: 6)
+        Group {
+            if reduceMotion {
+                dot
+            } else {
+                // A phase animator animates only the dot's opacity, so the
+                // dot never drifts when the row holding it moves.
+                dot.phaseAnimator([false, true]) { dot, dimmed in
+                    dot.opacity(dimmed ? 0.45 : 1)
+                } animation: { _ in
+                    .easeInOut(duration: 1.1)
+                }
+            }
         }
         .frame(width: 8, height: 8)
         .accessibilityHidden(true)
     }
-
-    /// The halo keeps its own time: it grows and fades, then starts again.
-    ///
-    /// It was a repeating animation started as the dot appeared, and that
-    /// takes hold of anything else that changes at the same moment -- the
-    /// dot's place in its row included. Opening the Guide lays out and
-    /// reorders its rows just as their dots appear, so the dots slid to and
-    /// fro without end, in and out of the program cells that clip them, and
-    /// read as blinking until the rows were redrawn. A keyframe animator
-    /// animates only the halo's size and fade, and nothing it holds can move.
-    @ViewBuilder
-    private var halo: some View {
-        let ring = Circle().fill(red.opacity(0.3)).frame(width: 10, height: 10)
-        if reduceMotion {
-            ring.scaleEffect(0.75).opacity(0.34)
-        } else {
-            ring.keyframeAnimator(initialValue: 0.0, repeating: true) { ring, progress in
-                ring.scaleEffect(0.68 + 0.37 * progress).opacity(0.5 * (1 - progress))
-            } keyframes: { _ in
-                LinearKeyframe(1.0, duration: 1.8, timingCurve: .easeOut)
-            }
-        }
-    }
 }
 
-private struct MobileLeagueLogo: View {
+struct MobileLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {

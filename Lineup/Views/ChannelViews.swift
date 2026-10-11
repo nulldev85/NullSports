@@ -395,8 +395,6 @@ private enum LivePalette {
     static var accent: Color { LineupStyle.highlight }
     static var rim: Color { LineupStyle.liveSelectionBorder }
     static var onAir: Color { LineupStyle.liveDot }
-    /// How strongly a matchup's colours light the wall behind the monitor.
-    static let spill = 0.32
 }
 
 /// One grid for the whole tab.
@@ -466,6 +464,12 @@ private struct LiveScreen: View {
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
     @State private var spotlight = LiveSpotlight()
+    /// My Teams beside the monitor, or put away so the monitor runs the full
+    /// width of the board and the picture sits centred. Kept between visits.
+    @AppStorage("live.myTeamsShown") private var myTeamsShown = true
+    /// Where the remote goes after My Teams is put away or brought back: onto
+    /// the control that undoes it, rather than wherever focus falls.
+    @FocusState private var myTeamsControl: LiveMyTeamsControl?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -496,25 +500,40 @@ private struct LiveScreen: View {
     /// otherwise find nothing and be swallowed; as a region it arrives at the
     /// viewer's teams instead.
     private var stage: some View {
-        HStack(alignment: .top, spacing: LiveMetrics.gutter) {
-            LiveMyTeams(events: events, spotlight: spotlight, previewGameID: previewGame?.id,
-                        multiviewPrimaryID: multiviewPrimaryID,
-                        onPlay: onPlay, onStartMultiview: onStartMultiview)
-                .frame(width: LiveMetrics.railWidth)
+        HStack(alignment: .top, spacing: myTeamsShown ? LiveMetrics.gutter : 0) {
+            if myTeamsShown {
+                LiveMyTeams(events: events, spotlight: spotlight, previewGameID: previewGame?.id,
+                            multiviewPrimaryID: multiviewPrimaryID,
+                            hideFocus: $myTeamsControl,
+                            onHide: { setMyTeams(shown: false) },
+                            onPlay: onPlay, onStartMultiview: onStartMultiview)
+                    .frame(width: LiveMetrics.railWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             LiveMonitor(spotlight: spotlight, events: events, previewStream: previewStream,
                         previewGame: previewGame, previewURLs: previewURLs,
                         isMultiview: multiviewTitle != nil, isPreparingStreams: isPreparingStreams,
                         isScheduleLoading: isScheduleLoading, isScheduleAvailable: isScheduleAvailable,
                         scheduleErrorMessage: scheduleErrorMessage)
+                // Put away, My Teams leaves a tab on the monitor's left edge
+                // to bring it back. It sits over the picture rather than
+                // beside it, so the monitor keeps the board's full width.
+                .overlay(alignment: .leading) {
+                    if !myTeamsShown {
+                        LiveMyTeamsTab(focus: $myTeamsControl) { setMyTeams(shown: true) }
+                            .padding(.leading, 16)
+                            .transition(.opacity)
+                    }
+                }
         }
         .frame(maxHeight: .infinity)
-        .background {
-            HStack(spacing: 0) {
-                Color.clear.frame(width: LiveMetrics.railWidth + LiveMetrics.gutter)
-                LiveBiasLight(spotlight: spotlight, events: events, previewGame: previewGame)
-            }
-        }
         .lineupFocusRegion()
+    }
+
+    private func setMyTeams(shown: Bool) {
+        withAnimation(.easeInOut(duration: 0.32)) { myTeamsShown = shown }
+        // Onto the control that undoes it, once it is there to take focus.
+        DispatchQueue.main.async { myTeamsControl = shown ? .hide : .show }
     }
 
     /// The same rule the phone uses, from the same file: work in flight is
@@ -545,48 +564,6 @@ private struct LiveCanvas: View {
     }
 }
 
-/// The light a television throws on the wall behind it.
-///
-/// Each side of the matchup lights its own half in its own colour, so the
-/// room changes with the game under the remote -- or with the game on the
-/// monitor, while one is. Two gradients and no blur: nothing here costs more
-/// than a fill.
-private struct LiveBiasLight: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject var spotlight: LiveSpotlight
-    let events: [SportsGame]
-    let previewGame: SportsGame?
-
-    var body: some View {
-        let game = previewGame ?? spotlight.game(in: events)
-        let teams = game.map { !$0.isEvent } ?? false
-        GeometryReader { proxy in
-            let size = proxy.size
-            ZStack {
-                // Seated low, so the light has faded to nothing before it
-                // reaches the tab bar and spills mostly beside and beneath
-                // the monitor, where a real set lights a wall.
-                glow(liveTeamColor(teams ? game?.awayColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.3)
-                    .position(x: size.width * 0.25, y: size.height * 0.62)
-                glow(liveTeamColor(teams ? game?.homeColor : nil))
-                    .frame(width: size.width * 0.95, height: size.height * 1.3)
-                    .position(x: size.width * 0.75, y: size.height * 0.62)
-            }
-            .id(game?.id ?? "")
-            .transition(.opacity)
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: game?.id)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func glow(_ color: Color) -> some View {
-        EllipticalGradient(colors: [color.opacity(LivePalette.spill), color.opacity(LivePalette.spill * 0.45), .clear],
-                           center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
-    }
-}
-
 /// The monitor. A slate while nothing is playing, the feed while one is.
 private struct LiveMonitor: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -608,11 +585,8 @@ private struct LiveMonitor: View {
         ZStack {
             Color.black
             if let previewStream {
+                // The picture is left clear, nothing written over it.
                 LiveVideoWall(stream: previewStream, game: previewGame, urls: previewURLs)
-                if let game {
-                    LiveLowerThird(game: game, isOnScreen: game.id == previewGame?.id)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                }
             } else if let game {
                 LiveSlate(game: game, channel: library.stream(for: game)?.name,
                           hint: isPreparingStreams ? .refreshing : (isMultiview ? .secondGame : .preview))
@@ -660,8 +634,7 @@ private struct LiveSlate: View {
         GeometryReader { proxy in
             let crest = min(150, proxy.size.height * 0.27)
             ZStack {
-                LiveSlateBackdrop(away: game.isEvent ? nil : game.awayColor,
-                                  home: game.isEvent ? nil : game.homeColor)
+                LiveSlateBackdrop()
                 VStack(spacing: 0) {
                     header
                     Spacer(minLength: 10)
@@ -670,12 +643,14 @@ private struct LiveSlate: View {
                     } else {
                         HStack(alignment: .center, spacing: 0) {
                             LiveCrestColumn(name: game.awayTeam, abbreviation: game.awayAbbreviation,
-                                            logo: game.awayLogo, record: game.awayRecord, crest: crest)
+                                            logo: game.awayLogo,
+                                            record: game.awayRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                             center
                                 .frame(width: min(450, proxy.size.width * 0.34))
                             LiveCrestColumn(name: game.homeTeam, abbreviation: game.homeAbbreviation,
-                                            logo: game.homeLogo, record: game.homeRecord, crest: crest)
+                                            logo: game.homeLogo,
+                                            record: game.homeRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                         }
                     }
@@ -791,21 +766,15 @@ private struct LiveSlate: View {
 /// The slate's ground: black, each side's colour lifting its own half, and a
 /// centre line and circle drawn faintly through the middle, the way every
 /// field and floor and rink is marked.
+/// The slate's ground: dark, with the court's lines. No team colour is cast
+/// across it or around the crests; the only light is the pale rim each crest
+/// carries to keep a dark badge readable.
 private struct LiveSlateBackdrop: View {
-    let away: String?
-    let home: String?
-
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
                 LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-                wash(liveTeamColor(away))
-                    .frame(width: size.width * 0.62, height: size.height * 1.3)
-                    .position(x: size.width * 0.15, y: size.height * 0.55)
-                wash(liveTeamColor(home))
-                    .frame(width: size.width * 0.62, height: size.height * 1.3)
-                    .position(x: size.width * 0.85, y: size.height * 0.55)
                 LiveCourtLines()
                 RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center,
                                startRadius: size.height * 0.45, endRadius: size.width * 0.62)
@@ -813,11 +782,6 @@ private struct LiveSlateBackdrop: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-
-    private func wash(_ color: Color) -> some View {
-        EllipticalGradient(colors: [color.opacity(0.32), color.opacity(0.1), .clear],
-                           center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
     }
 }
 
@@ -966,7 +930,7 @@ private struct LiveEmptySlate: View {
 
     var body: some View {
         ZStack {
-            LiveSlateBackdrop(away: nil, home: nil)
+            LiveSlateBackdrop()
             VStack(spacing: 18) {
                 Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
                     .font(.system(size: 52, weight: .ultraLight))
@@ -1014,7 +978,8 @@ private struct LiveVideoWall: View {
     }
 }
 
-/// One side's scoreboard beside a playing feed.
+/// One side's scoreboard beside a playing feed: its crest and score on the
+/// monitor's plain black.
 private struct LiveFlank: View {
     let game: SportsGame?
     let isHome: Bool
@@ -1038,11 +1003,6 @@ private struct LiveFlank: View {
                     }
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
-                .background {
-                    EllipticalGradient(colors: [liveTeamColor(isHome ? game.homeColor : game.awayColor).opacity(0.3),
-                                                .clear],
-                                       center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
-                }
             }
         }
         .accessibilityHidden(true)
@@ -1054,7 +1014,6 @@ private struct LiveTallyChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(LivePalette.onAir).frame(width: 8, height: 8)
-                .shadow(color: LivePalette.onAir.opacity(0.8), radius: 4)
             Text("PREVIEW").font(.inter(13, .bold)).tracking(2)
         }
         .foregroundStyle(.white)
@@ -1062,50 +1021,6 @@ private struct LiveTallyChip: View {
         .background(.black.opacity(0.55), in: Capsule())
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-}
-
-/// Over the foot of a playing feed: what the remote is resting on, and what
-/// Select will do with it.
-private struct LiveLowerThird: View {
-    let game: SportsGame
-    let isOnScreen: Bool
-
-    var body: some View {
-        HStack(spacing: 16) {
-            if isOnScreen {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                Text("SELECT AGAIN FOR FULL SCREEN")
-                Spacer(minLength: 20)
-                Text("MENU STOPS THE PREVIEW").foregroundStyle(.white.opacity(0.6))
-            } else {
-                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-                Text(liveHeadline(game)).font(.inter(20, .semibold)).tracking(0).lineLimit(1)
-                if game.isLive {
-                    PulsingLiveDot(size: 6)
-                    Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
-                        .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
-                } else {
-                    Text(game.startLabel.uppercased()).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
-                }
-                Spacer(minLength: 20)
-                Image(systemName: "play.fill")
-                Text("SELECT TO PREVIEW")
-            }
-        }
-        .font(.inter(14, .bold)).tracking(1.8)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 28).padding(.bottom, 24)
-        .frame(maxWidth: .infinity)
-        .frame(height: 112, alignment: .bottom)
-        // Deep enough under the words that broadcast red and a dimmed line
-        // still read over the brightest picture.
-        .background(LinearGradient(stops: [
-            .init(color: .clear, location: 0),
-            .init(color: .black.opacity(0.62), location: 0.45),
-            .init(color: .black.opacity(0.92), location: 1)
-        ], startPoint: .top, endPoint: .bottom))
-        .allowsHitTesting(false)
     }
 }
 
@@ -1121,14 +1036,19 @@ private struct LiveMyTeams: View {
     let spotlight: LiveSpotlight
     let previewGameID: String?
     let multiviewPrimaryID: Int?
+    let hideFocus: FocusState<LiveMyTeamsControl?>.Binding
+    let onHide: () -> Void
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
     var body: some View {
         let mine = events.filter { library.isFollowing($0) }
         VStack(alignment: .leading, spacing: 14) {
-            LiveEyebrow(title: "MY TEAMS", live: mine.filter(\.isLive).count,
-                        detail: mine.isEmpty ? nil : "\(mine.count) \(mine.count == 1 ? "GAME" : "GAMES")")
+            HStack(spacing: 14) {
+                LiveEyebrow(title: "MY TEAMS", live: mine.filter(\.isLive).count,
+                            detail: mine.isEmpty ? nil : "\(mine.count) \(mine.count == 1 ? "GAME" : "GAMES")")
+                LiveMyTeamsHideButton(focus: hideFocus, action: onHide)
+            }
             if mine.isEmpty {
                 LiveMyTeamsEmpty(teams: library.followedTeams.teams, hasGames: !events.isEmpty)
             } else {
@@ -1150,6 +1070,71 @@ private struct LiveMyTeams: View {
                 .padding(-LiveMetrics.liftRoom)
             }
         }
+    }
+}
+
+/// The two controls that put My Teams away and bring it back.
+private enum LiveMyTeamsControl: Hashable {
+    case hide, show
+}
+
+/// In My Teams' heading: puts the rail away so the monitor can run the
+/// full width of the board, the picture centred.
+private struct LiveMyTeamsHideButton: View {
+    let focus: FocusState<LiveMyTeamsControl?>.Binding
+    let action: () -> Void
+
+    var body: some View {
+        let focused = focus.wrappedValue == .hide
+        let shape = Capsule()
+        HStack(spacing: 7) {
+            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+            Text("Hide").font(.inter(15, .semibold))
+        }
+        .foregroundStyle(LivePalette.text)
+        .padding(.horizontal, 14).frame(height: 36)
+        .background(LineupStyle.raised, in: shape)
+        .overlay(shape.strokeBorder(LivePalette.rule, lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contentShape(shape)
+        .focusable()
+        .focused(focus, equals: .hide)
+        .focusEffectDisabled()
+        .onTapGesture(perform: action)
+        .accessibilityLabel("Hide My Teams")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// With My Teams put away: a tab on the monitor's left edge that brings it
+/// back.
+private struct LiveMyTeamsTab: View {
+    let focus: FocusState<LiveMyTeamsControl?>.Binding
+    let action: () -> Void
+
+    var body: some View {
+        let focused = focus.wrappedValue == .show
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        VStack(spacing: 10) {
+            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold))
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
+        }
+        .foregroundStyle(LivePalette.text)
+        .frame(width: 48, height: 116)
+        .background(Color.black.opacity(0.6), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .scaleEffect(focused ? LineupStyle.controlLift : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contentShape(shape)
+        .focusable()
+        .focused(focus, equals: .show)
+        .focusEffectDisabled()
+        .onTapGesture(perform: action)
+        .accessibilityLabel("Show My Teams")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -1829,10 +1814,6 @@ private func liveLeader(_ game: SportsGame) -> LiveLead {
 
 /// A team's colour, lifted until it can glow on a dark screen; the theme's own
 /// colour stands in for a side the schedule has no colour for.
-private func liveTeamColor(_ hex: String?) -> Color {
-    sportsReadableTeamColor(hex) ?? LineupStyle.highlight
-}
-
 /// "8:20 PM" as "8:20" and "PM", so the period can be set smaller than the
 /// time. A clock with no period, in a 24-hour locale, comes back whole.
 private func liveTimeParts(_ date: Date) -> (time: String, period: String?) {
@@ -2414,18 +2395,16 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// A programme still to come, and the one on the air, a step lighter: on
-    /// now and coming up are told apart at a glance without a word of ink.
-    static var card: Color { LineupStyle.surface }
-    static var cardNow: Color { LineupStyle.raised }
+    /// A programme still to come, and the one on the air a step lighter
+    /// with a faint red edge -- the phone's Guide, cell for cell.
+    static var card: Color { LineupStyle.raised }
+    static var cardNow: Color { LineupStyle.focused }
+    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.34) }
+    /// How much of the programme on now has gone, washed over its cell.
+    static var elapsed: Color { LineupStyle.text.opacity(0.10) }
     /// How far the programme on now has run, on its track.
     static var progress: Color { LineupStyle.text }
     static var track: Color { LineupStyle.text.opacity(0.14) }
-    /// Now, and on air: broadcast red.
-    static var now: Color { LineupStyle.liveDot }
-    /// A favourite's heart: a deep crimson, darker than broadcast red so it
-    /// is never read as something going out live.
-    static let favorite = Color(red: 0.69, green: 0.13, blue: 0.19)
 }
 
 struct GuideView: View {
@@ -2496,6 +2475,7 @@ struct GuideView: View {
                         now: guideNow,
                         onCancelMultiview: { multiviewPrimary = nil }
                     )
+                    .padding(.horizontal, GuideLayout.inset)
 
                     if !previewHidden, let previewItem = displayedPreviewItem {
                         GuidePreviewPanel(
@@ -2506,6 +2486,7 @@ struct GuideView: View {
                             now: guideNow
                         )
                         .frame(height: 216)
+                        .padding(.horizontal, GuideLayout.inset)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
@@ -2564,9 +2545,6 @@ struct GuideView: View {
                                 }
                                 }
                             }
-                        }
-                        .overlay(alignment: .topLeading) {
-                            if !filtered.isEmpty { GuideNowLine(now: guideNow) }
                         }
                         .disabled(sidebarVisible && !searchActive)
 
@@ -3170,11 +3148,18 @@ private struct GuideTimelineHeader: View {
     var body: some View {
         let anchor = guideTimelineAnchor(now)
         HStack(spacing: 0) {
-            Text(now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()).uppercased())
-                .font(.inter(14, .bold)).tracking(1.6)
-                .foregroundStyle(GuidePalette.text)
-                .lineLimit(1)
-                .frame(width: layout.channelWidth, alignment: .leading)
+            // Now, at the head of the channel column, as the phone's Guide
+            // has it. There is no line down the grid for it: how far each
+            // programme on now has run is washed across its own cell.
+            VStack(spacing: 2) {
+                Text("NOW").font(.inter(12, .bold)).tracking(1.4)
+                    .foregroundStyle(GuidePalette.secondary)
+                Text(now.formatted(date: .omitted, time: .shortened))
+                    .font(.interDigits(17, .semibold))
+                    .foregroundStyle(GuidePalette.text)
+            }
+            .lineLimit(1)
+            .frame(width: layout.channelWidth)
             ForEach(0..<guideVisibleSlotCount, id: \.self) { step in
                 HStack(spacing: 10) {
                     Rectangle().fill(GuidePalette.secondary.opacity(0.5)).frame(width: 1, height: 14)
@@ -3187,7 +3172,7 @@ private struct GuideTimelineHeader: View {
                 .frame(width: layout.slotWidth, alignment: .leading)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, GuideLayout.inset)
         .frame(height: guideHeaderHeight)
         .overlay(alignment: .bottom) {
             Rectangle().fill(GuidePalette.line).frame(height: 1)
@@ -3203,11 +3188,16 @@ private let guideVisibleSlotCount = 6
 // Grow the grid cells in both dimensions without scaling typography or artwork.
 // Keep the original channel/half-hour widths and row aspect ratio in sync.
 private struct GuideLayout {
-    /// Keeps the grid clear of a television's overscan without giving up a
-    /// column: tighter than the Live tab's margin, wide enough to be safe.
-    static let margin: CGFloat = 60
+    /// The grid runs nearly the screen's full width. With each row's own
+    /// inset (`inset`) its logos and programmes sit 20 points from the edges.
+    /// The grid scales as a whole to fill it, cells and rows in proportion,
+    /// so nothing is stretched.
+    static let margin: CGFloat = 6
+    /// A row's own padding either side, which the header and the preview
+    /// above take too, so everything lines up with the logos.
+    static let inset: CGFloat = 14
     let width: CGFloat
-    var slotWidth: CGFloat { max(1, width - 28) / CGFloat(guideVisibleSlotCount + 1) }
+    var slotWidth: CGFloat { max(1, width - 2 * Self.inset) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
     // A guide is worth having in proportion to how much of it you can see at
     // once, and at 132 this showed four channels on a 1080 screen. Ninety-two
@@ -3306,15 +3296,14 @@ private struct GuideChannelRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // On the guide's own ground, as on the phone: no plate behind it.
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
             .frame(width: layout.channelWidth - 8, height: layout.rowHeight - 8)
-            .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.vertical, 4)
             .padding(.trailing, 8)
             .clipped()
 
             ZStack(alignment: .leading) {
-                GuideTimelineGrid()
                 if visiblePrograms.isEmpty {
                     let focusID = GuideGridFocus(streamID: stream.id, programStart: nil)
                     GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
@@ -3332,7 +3321,7 @@ private struct GuideChannelRow: View {
             .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), alignment: .leading)
             .clipped()
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, GuideLayout.inset)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
         // Multiview's first channel keeps a white frame while the second is
         // chosen, so it is never mistaken for where the remote is.
@@ -3366,29 +3355,10 @@ private struct GuideChannelRow: View {
     }
 }
 
-/// Fine, fixed half-hour rules give the schedule the precision of a broadcast
-/// rundown without adding another stack of views to every visible row.
-private struct GuideTimelineGrid: View {
-    @Environment(\.guideLayout) private var layout
-
-    var body: some View {
-        Canvas { context, size in
-            var path = Path()
-            for step in 0...guideVisibleSlotCount {
-                let x = CGFloat(step) * layout.slotWidth
-                path.move(to: CGPoint(x: x, y: 0))
-                path.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            context.stroke(path, with: .color(GuidePalette.line.opacity(0.4)), lineWidth: 1)
-        }
-        .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), height: layout.rowHeight)
-        .accessibilityHidden(true)
-    }
-}
-
 /// A channel as the guide names it: its logo, its name under it, and a small
-/// dark red heart in the corner if it is a favourite. Where there is no logo, a quiet
-/// television mark holds its place so every name sits on the same line.
+/// star in the corner if it is a favourite, as on the phone. Where there is no
+/// logo, a quiet television mark holds its place so every name sits on the
+/// same line.
 private struct GuideChannelArtwork: View {
     let stream: XtreamStream
     let isFavorite: Bool
@@ -3417,9 +3387,9 @@ private struct GuideChannelArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
             if isFavorite {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(GuidePalette.favorite)
+                Image(systemName: "star.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(GuidePalette.text)
                     .padding(9)
             }
         }
@@ -3665,23 +3635,34 @@ private struct GuideProgramCell: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        VStack(alignment: .leading, spacing: 5) {
+        // The phone's Guide, at television size: flat grey cells squared off
+        // at four points, the one on now a step lighter with a faint red
+        // edge, the time it has run washed across it, and LIVE in red.
+        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        VStack(alignment: .leading, spacing: 6) {
             if let program {
                 HStack(spacing: 8) {
                     Text(program.title.isEmpty ? "Untitled" : program.title)
-                        .font(.inter(20, isOnNow ? .semibold : .medium))
-                        .foregroundStyle(isOnNow || isFocused ? GuidePalette.text : GuidePalette.text.opacity(0.82))
+                        .font(.inter(20, .semibold))
+                        .foregroundStyle(GuidePalette.text)
                         .lineLimit(1)
                     if program.isNew == true { GuideTinyBadge(title: "NEW") }
                 }
-                if showsTime {
+                if showsTime || isOnNow {
                     HStack(spacing: 8) {
-                        Text(guideTimeRange(program))
-                            .font(.interDigits(15, .medium))
-                            .foregroundStyle(GuidePalette.secondary)
-                            .lineLimit(1)
-                        if let quality { GuideTinyBadge(title: quality) }
+                        if isOnNow {
+                            GuideLiveDot(size: 8)
+                            Text("LIVE")
+                                .font(.inter(14, .semibold)).tracking(1.2)
+                                .foregroundStyle(LineupStyle.liveStatus)
+                        }
+                        if showsTime {
+                            Text(guideTimeRange(program))
+                                .font(.interDigits(15, .medium))
+                                .foregroundStyle(GuidePalette.secondary)
+                                .lineLimit(1)
+                            if let quality { GuideTinyBadge(title: quality) }
+                        }
                     }
                 }
             } else {
@@ -3691,25 +3672,25 @@ private struct GuideProgramCell: View {
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: layout.rowHeight - 8, alignment: .topLeading)
-        .background(isOnNow ? GuidePalette.cardNow : GuidePalette.card, in: shape)
-        .overlay {
-            if let program, isOnNow {
-                GeometryReader { geometry in
-                    let played = GuideProgress.playedWidth(
-                        start: program.start, end: program.end, now: now,
-                        visibleStart: guideTimelineAnchor(now),
-                        pointsPerSecond: Double(layout.slotWidth) / 1800,
-                        cellWidth: Double(geometry.size.width))
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(GuidePalette.track)
-                        Rectangle().fill(GuidePalette.progress.opacity(0.85)).frame(width: CGFloat(played))
+        .background {
+            ZStack(alignment: .leading) {
+                shape.fill(isOnNow ? GuidePalette.cardNow : GuidePalette.card)
+                if let program, isOnNow {
+                    GeometryReader { geometry in
+                        let played = GuideProgress.playedWidth(
+                            start: program.start, end: program.end, now: now,
+                            visibleStart: guideTimelineAnchor(now),
+                            pointsPerSecond: Double(layout.slotWidth) / 1800,
+                            cellWidth: Double(geometry.size.width))
+                        Rectangle().fill(GuidePalette.elapsed).frame(width: CGFloat(played))
                     }
-                    .frame(height: 3)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                .clipShape(shape)
-                .allowsHitTesting(false)
             }
+            .clipShape(shape)
+        }
+        .overlay {
+            shape.strokeBorder(isOnNow ? GuidePalette.edgeNow : GuidePalette.line,
+                               lineWidth: isOnNow ? 1.5 : 1)
         }
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
@@ -3754,30 +3735,6 @@ private struct GuideProgressBar: View {
                     .frame(width: proxy.size.width * min(max(progress, 0), 1))
             }
         }
-    }
-}
-
-/// Now, as a red line down the grid from a mark on the time bar.
-private struct GuideNowLine: View {
-    @Environment(\.guideLayout) private var layout
-    let now: Date
-
-    var body: some View {
-        let x = 14 + layout.channelWidth
-            + CGFloat(now.timeIntervalSince(guideTimelineAnchor(now)) / 1800) * layout.slotWidth
-        ZStack(alignment: .topLeading) {
-            Rectangle().fill(GuidePalette.now)
-                .frame(width: 1.5)
-                .frame(maxHeight: .infinity)
-                .padding(.top, guideHeaderHeight)
-                .offset(x: x - 0.75)
-            Circle().fill(GuidePalette.now)
-                .frame(width: 10, height: 10)
-                .offset(x: x - 5, y: guideHeaderHeight - 5)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
@@ -4653,9 +4610,10 @@ private struct MultiviewChannelChoice: Identifiable {
 /// screen and back -- moves and scales the two pictures and never touches the
 /// players, so neither stream stops, buffers or loses its place.
 ///
-/// Sound follows the picture with focus and crossfades as focus moves. When
-/// focus leaves both for a moment -- a menu, a sheet -- the sound stays where
-/// it was rather than going quiet.
+/// Sound follows the picture with focus. It is handed over, never shared: the
+/// old picture's sound goes out before the new one's comes in, so the two are
+/// never heard together. When focus leaves both for a moment -- a menu, a
+/// sheet -- the sound stays where it was rather than going quiet.
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -4664,6 +4622,8 @@ private struct MultiviewView: View {
     @FocusState private var focusedTile: Int?
     /// The picture whose sound is playing.
     @State private var audibleTile = 0
+    /// Brings the new picture's sound in once the old one's is out.
+    @State private var soundTask: Task<Void, Never>?
     /// In Big + Small, which picture is the big one.
     @State private var bigTile = 0
     /// A picture filling the screen, with the other still playing, unseen.
@@ -4711,6 +4671,7 @@ private struct MultiviewView: View {
         .onAppear(perform: begin)
         .onDisappear {
             chromeTask?.cancel()
+            soundTask?.cancel()
             players.tiles.forEach { $0.stop() }
         }
         .onChange(of: focusedTile) { _, tile in
@@ -4931,12 +4892,26 @@ private struct MultiviewView: View {
         }
     }
 
-    /// Crossfade to a picture's sound: one fades down as the other comes up.
+    /// Hand the sound to a picture: the other's goes out first, and only then
+    /// does this one's come in. A crossfade had both playing at once while it
+    /// ran, and a stream that reconnected partway through could be left
+    /// playing under the other for good.
     private func listen(to index: Int) {
         audibleTile = index
-        players.tiles[index].fadeAudio(audible: true)
-        players.tiles[1 - index].fadeAudio(audible: false)
+        soundTask?.cancel()
+        let heard = players.tiles[index]
+        let quiet = players.tiles[1 - index]
+        quiet.fadeAudio(audible: false, over: Self.soundOut)
+        // Held silent until the other is out -- it may still be on its way
+        // out itself, after a quick move there and back.
+        heard.fadeAudio(audible: false, over: 0)
+        soundTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(Self.soundOut + 0.02)) } catch { return }
+            heard.fadeAudio(audible: true, over: 0.25)
+        }
     }
+
+    private static let soundOut = 0.18
 
     private func showChrome() {
         withAnimation(.easeOut(duration: 0.25)) { chromeVisible = true }
@@ -5843,7 +5818,10 @@ private struct TVPlayerMenuLabel: View {
         stop()
         restarting = false
         self.urls = Array(urls.reversed())
-        self.muted = muted
+        // A picture turned down to nothing stays muted whatever it is
+        // reopened with: a retry or a change of channel passes on the mute
+        // as it stood, which partway through fading out was still off.
+        self.muted = muted || targetVolume == 0
         self.isLive = isLive
         finished = false
         if !keepTrackChoices {
@@ -6166,6 +6144,8 @@ private struct TVPlayerMenuLabel: View {
     /// the sound under a playing picture.
     private func holdAudioLevel() {
         guard let audio = player.audio else { return }
+        // Turned down to nothing and not fading: muted, however it got here.
+        if fadeTask == nil, targetVolume == 0, !muted { setMuted(true) }
         if audio.isMuted != muted { audio.isMuted = muted }
         guard fadeTask == nil, audio.volume != targetVolume else { return }
         audio.volume = targetVolume
@@ -6287,6 +6267,8 @@ private struct TVPlayerMenuLabel: View {
         monitor = nil
         fadeTask?.cancel()
         fadeTask = nil
+        // A fade out cut short ends where it was going: muted.
+        if targetVolume == 0, !muted { setMuted(true) }
         retryAt = nil
         reopenPosition = nil
         pendingWorkingChannelID = nil
