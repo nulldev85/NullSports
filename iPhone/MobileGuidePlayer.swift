@@ -44,10 +44,15 @@ struct MobileGuidePlayer: View {
                     VStack(spacing: 8) {
                         Text(error).font(.inter(.caption)).multilineTextAlignment(.center)
                         Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
-                            .buttonStyle(.borderedProminent)
-                    }.padding(.horizontal, 52)
+                            .lineupProminentButton()
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .padding(.horizontal, 52)
                 } else if controller.loading {
                     ProgressView("Opening stream…").font(.inter(.caption))
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if let notice = controller.failoverNotice {
                     VStack {
@@ -72,6 +77,7 @@ struct MobileGuidePlayer: View {
                 }
                 if controlsVisible {
                     VStack {
+                        LineupGlassGroup {
                         HStack(spacing: 10) {
                             control("xmark", label: "Close player", action: onClose)
                             if controller.error == nil && !controller.loading {
@@ -96,6 +102,7 @@ struct MobileGuidePlayer: View {
                                 showControls()
                                 onExpand()
                             }
+                        }
                         }
                         Spacer()
                     }
@@ -198,13 +205,16 @@ struct MobileGuidePlayer: View {
         }
     }
 
+    /// A round glass button that gives under a finger, as the system's own
+    /// player controls do. Play and pause, the large one, sits a shade
+    /// brighter than the rest.
     private func control(_ symbol: String, label: String, size: CGFloat = 36,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold))
                 .frame(width: size, height: size)
-                .lineupLiquidGlass(Circle(), fallback: Color.black.opacity(0.48))
                 .contentShape(Circle())
+                .lineupGlassControl(Circle(), fallback: Color.black.opacity(0.48), prominent: size >= 42)
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 
@@ -218,7 +228,7 @@ struct MobileGuidePlayer: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .lineupLiquidGlass(Capsule())
+            .lineupGlassControl(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
