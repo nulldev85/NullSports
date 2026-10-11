@@ -3,17 +3,6 @@ import SwiftUI
 // The Live tab's score bar: the strip under a game being previewed, turning
 // through everything on now.
 
-/// A team's colour from the schedule, which gives it as hex with or without
-/// the hash.
-func mobileTeamColor(_ hex: String?) -> Color? {
-    guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-    value = value.replacingOccurrences(of: "#", with: "")
-    guard value.count == 6, let rgb = UInt64(value, radix: 16) else { return nil }
-    return Color(red: Double((rgb >> 16) & 0xff) / 255,
-                 green: Double((rgb >> 8) & 0xff) / 255,
-                 blue: Double(rgb & 0xff) / 255)
-}
-
 extension SportsGame {
     /// The first network only: the score bar has room for one, and the
     /// first is the one the game is on.
@@ -58,27 +47,6 @@ func mobileRankedName(_ name: String, rank: Int?, size: CGFloat) -> Text {
     return Text("\(Text(verbatim: name))\u{200A}\(mark)")
 }
 
-/// The two teams' colours, washed in from opposite corners over the card.
-struct MobileTeamWash: View {
-    let away: String?
-    let home: String?
-    var strength: Double = 0.42
-
-    var body: some View {
-        ZStack {
-            LineupStyle.surface
-            if let away = mobileTeamColor(away) {
-                RadialGradient(colors: [away.opacity(strength), away.opacity(0)],
-                               center: .topLeading, startRadius: 0, endRadius: 170)
-            }
-            if let home = mobileTeamColor(home) {
-                RadialGradient(colors: [home.opacity(strength), home.opacity(0)],
-                               center: .bottomTrailing, startRadius: 0, endRadius: 170)
-            }
-        }
-    }
-}
-
 /// Under the preview, a scoreboard for everything on now: the game being
 /// watched first, then every other live game in every league, a new one
 /// every three seconds. Tapping one plays it in the preview.
@@ -103,7 +71,9 @@ struct MobileLiveScoreboard: View {
         // A scoreboard that moves under VoiceOver's cursor reads as noise,
         // so with VoiceOver it stays on the game being watched.
         let rotates = ids.count > 1 && !voiceOver && scenePhase == .active
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        // Coloured as the Guide colours a programme: grey, a step lighter and
+        // edged in a faint red while it is on.
+        let shape = RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
         Button {
             if shown.id != watching.id { onWatch(shown) }
         } label: {
@@ -114,9 +84,10 @@ struct MobileLiveScoreboard: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: MobileNowPlayingStrip.height)
-            .background(LineupStyle.surface)
+            .background(shown.isLive ? LineupStyle.focused : LineupStyle.raised)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+            .overlay(shape.strokeBorder(shown.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
+                                        lineWidth: shown.isLive ? 1 : 0.5))
             .contentShape(shape)
         }
         .buttonStyle(MobileCardButtonStyle())
@@ -143,7 +114,7 @@ struct MobileLiveScoreboard: View {
 }
 
 /// One game on the scoreboard: the score, the clock and the network on one
-/// line, over the two teams' colours.
+/// line.
 struct MobileNowPlayingStrip: View {
     let game: SportsGame
 
@@ -183,7 +154,6 @@ struct MobileNowPlayingStrip: View {
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity)
         .frame(height: Self.height)
-        .background { MobileTeamWash(away: game.awayColor, home: game.homeColor, strength: 0.5) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(game.spokenScoreline)
     }
@@ -205,7 +175,7 @@ struct MobileNowPlayingStrip: View {
     /// after the logo instead.
     private func badge(logo: String, code: String, rank: Int?) -> some View {
         HStack(alignment: .top, spacing: 1) {
-            TeamBadge(url: logo, fallback: code, size: 30)
+            TeamBadge(url: logo, fallback: code, size: 30, tight: true)
             if let rank {
                 Text(verbatim: "\(rank)").font(.interDigits(10, .heavy))
                     .foregroundStyle(LineupStyle.text)
@@ -215,6 +185,6 @@ struct MobileNowPlayingStrip: View {
 
     private func score(_ value: String, leads: Bool) -> some View {
         Text(value).font(.interDigits(22, .heavy))
-            .foregroundStyle(LineupStyle.text.opacity(leads ? 1 : 0.6))
+            .foregroundStyle(leads ? LineupStyle.text : LineupStyle.secondary)
     }
 }

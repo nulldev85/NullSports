@@ -178,9 +178,10 @@ struct MobileLiveView: View {
                             .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
                                    alignment: .top)
                             .background(LineupStyle.background)
-                            // A card among the cards until it fills the screen.
-                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : 22, style: .continuous))
-                            .shadow(color: .black.opacity(fillsScreen ? 0 : 0.45), radius: 18, y: 10)
+                            // Squared off like the Guide's own cells until it
+                            // fills the screen.
+                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : LineupStyle.compactRadius,
+                                                        style: .continuous))
                             .padding(.horizontal, fillsScreen ? 0 : Self.inset)
                         }
                         .offset(y: fillsScreen ? 0 : previewTop)
@@ -695,14 +696,19 @@ private struct MobileMatchupRow: View {
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 20).padding(.vertical, 13)
-        .background(game.isLive ? LineupStyle.surface : .clear)
-        .overlay(alignment: .leading) {
-            if game.isLive { Rectangle().fill(LineupStyle.liveDot).frame(width: 3) }
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        // The Guide's own cells: grey, squared off, a step lighter and edged
+        // in a faint red while the game is on.
+        .background(game.isLive ? LineupStyle.focused : LineupStyle.raised, in: Self.cell)
+        .overlay {
+            Self.cell.strokeBorder(game.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
+                                   lineWidth: game.isLive ? 1 : 0.5)
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
+        .padding(.horizontal, 12).padding(.vertical, 3)
         .contentShape(Rectangle())
     }
+
+    static let cell = RoundedRectangle(cornerRadius: 4, style: .continuous)
 
     /// One line, quiet, and only when there is something to say. The card
     /// earns its look by not filling every gap that could hold a fact.
@@ -718,7 +724,7 @@ private struct MobileMatchupRow: View {
             // The disc went first and the ring that replaced it goes now: both
             // drew a circle around a mark that is not one. The badge lights
             // its own shape instead.
-            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28)
+            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28, tight: true)
             VStack(alignment: .leading, spacing: 2) {
                 // A college team's Top 25 place, raised after its name.
                 mobileRankedName(name, rank: rank, size: 15).font(.inter(.subheadline, .semibold))
@@ -741,7 +747,7 @@ private struct MobileMatchupRow: View {
 private struct MobileMatchupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupStyle.raised : .clear)
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
