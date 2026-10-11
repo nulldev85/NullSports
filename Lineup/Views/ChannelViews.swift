@@ -586,8 +586,10 @@ private struct LiveMonitor: View {
             Color.black
             if let previewStream {
                 LiveVideoWall(stream: previewStream, game: previewGame, urls: previewURLs)
-                if let game {
-                    LiveLowerThird(game: game, isOnScreen: game.id == previewGame?.id)
+                // On the game playing, the picture is left clear. On another,
+                // the foot names it and offers it.
+                if let game, game.id != previewGame?.id {
+                    LiveLowerThird(game: game)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
             } else if let game {
@@ -1027,33 +1029,25 @@ private struct LiveTallyChip: View {
     }
 }
 
-/// Over the foot of a playing feed: what the remote is resting on, and what
-/// Select will do with it.
+/// Over the foot of a playing feed, while the remote rests on another game:
+/// which game that is, and that Select will preview it.
 private struct LiveLowerThird: View {
     let game: SportsGame
-    let isOnScreen: Bool
 
     var body: some View {
         HStack(spacing: 16) {
-            if isOnScreen {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                Text("SELECT AGAIN FOR FULL SCREEN")
-                Spacer(minLength: 20)
-                Text("MENU STOPS THE PREVIEW").foregroundStyle(.white.opacity(0.6))
+            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
+            Text(liveHeadline(game)).font(.inter(20, .semibold)).tracking(0).lineLimit(1)
+            if game.isLive {
+                PulsingLiveDot(size: 6)
+                Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
+                    .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
             } else {
-                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-                Text(liveHeadline(game)).font(.inter(20, .semibold)).tracking(0).lineLimit(1)
-                if game.isLive {
-                    PulsingLiveDot(size: 6)
-                    Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
-                        .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
-                } else {
-                    Text(game.startLabel.uppercased()).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
-                }
-                Spacer(minLength: 20)
-                Image(systemName: "play.fill")
-                Text("SELECT TO PREVIEW")
+                Text(game.startLabel.uppercased()).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
             }
+            Spacer(minLength: 20)
+            Image(systemName: "play.fill")
+            Text("SELECT TO PREVIEW")
         }
         .font(.inter(14, .bold)).tracking(1.8)
         .foregroundStyle(.white)
