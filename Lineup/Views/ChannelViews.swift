@@ -798,17 +798,7 @@ private struct LiveCrestColumn: View {
     var body: some View {
         VStack(spacing: 16) {
             LiveCrest(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: crest)
-                // The team's colour, faint, flaring just past the crest's
-                // edge and no further.
-                .background {
-                    if let tint = sportsReadableTeamColor(color) {
-                        RadialGradient(colors: [tint.opacity(0.36), tint.opacity(0.12), .clear],
-                                       center: .center, startRadius: 0, endRadius: crest * 0.82)
-                            .frame(width: crest * 1.64, height: crest * 1.64)
-                            .allowsHitTesting(false)
-                    }
-                }
+                      size: crest, color: color)
             VStack(spacing: 5) {
                 Text(name).font(.inter(30, .semibold)).foregroundStyle(LivePalette.text)
                     .lineLimit(1).minimumScaleFactor(0.6)
@@ -829,8 +819,22 @@ private struct LiveCrest: View {
     let url: String
     let fallback: String
     let size: CGFloat
+    /// The team's colour, glowing faintly just past the crest's edge and no
+    /// further -- never washed across the card or the room behind it.
+    var color: String? = nil
 
     var body: some View {
+        crest.background {
+            if let tint = sportsReadableTeamColor(color) {
+                RadialGradient(colors: [tint.opacity(0.36), tint.opacity(0.12), .clear],
+                               center: .center, startRadius: 0, endRadius: size * 0.82)
+                    .frame(width: size * 1.64, height: size * 1.64)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var crest: some View {
         let rim = max(3, size * 0.06)
         LineupArtView(url: URL(string: url), width: size) { loaded in
             if let image = loaded {
@@ -965,7 +969,8 @@ private struct LiveVideoWall: View {
     }
 }
 
-/// One side's scoreboard beside a playing feed.
+/// One side's scoreboard beside a playing feed: its crest, glowing faintly
+/// in the team's colour just around itself, on the monitor's plain black.
 private struct LiveFlank: View {
     let game: SportsGame?
     let isHome: Bool
@@ -977,7 +982,8 @@ private struct LiveFlank: View {
                 let abbreviation = isHome ? game.homeAbbreviation : game.awayAbbreviation
                 VStack(spacing: 12) {
                     LiveCrest(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
-                              size: min(92, proxy.size.width * 0.5))
+                              size: min(92, proxy.size.width * 0.5),
+                              color: isHome ? game.homeColor : game.awayColor)
                     Text(abbreviation).font(.inter(20, .bold)).tracking(1.6)
                         .foregroundStyle(LivePalette.secondary)
                     if game.isLive, !score.isEmpty {
@@ -989,11 +995,6 @@ private struct LiveFlank: View {
                     }
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
-                .background {
-                    EllipticalGradient(colors: [liveTeamColor(isHome ? game.homeColor : game.awayColor).opacity(0.3),
-                                                .clear],
-                                       center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
-                }
             }
         }
         .accessibilityHidden(true)
@@ -1780,10 +1781,6 @@ private func liveLeader(_ game: SportsGame) -> LiveLead {
 
 /// A team's colour, lifted until it can glow on a dark screen; the theme's own
 /// colour stands in for a side the schedule has no colour for.
-private func liveTeamColor(_ hex: String?) -> Color {
-    sportsReadableTeamColor(hex) ?? LineupStyle.highlight
-}
-
 /// "8:20 PM" as "8:20" and "PM", so the period can be set smaller than the
 /// time. A clock with no period, in a 24-hour locale, comes back whole.
 private func liveTimeParts(_ date: Date) -> (time: String, period: String?) {
