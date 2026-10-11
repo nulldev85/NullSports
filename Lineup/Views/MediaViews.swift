@@ -663,6 +663,9 @@ struct TVLibraryOption: Identifiable {
 /// still lands on it.
 private struct TVLibraryMenuBar: View {
     let options: [TVLibraryOption]
+    /// Set by the screen around it to bring the remote up onto the button,
+    /// from a screen that moves its own focus.
+    var focusRequest: Binding<Bool>? = nil
     @State private var open = false
     /// Where focus is in the menu: its button, one of its rows, or nil once
     /// it is somewhere else on the screen.
@@ -691,6 +694,11 @@ private struct TVLibraryMenuBar: View {
         // Focus gone from the button and every row: the list closes behind it.
         .onChange(of: focus) { _, place in
             if place == nil, open { open = false }
+        }
+        .onChange(of: focusRequest?.wrappedValue ?? false) { _, requested in
+            guard requested else { return }
+            focus = .button
+            focusRequest?.wrappedValue = false
         }
         .animation(.easeOut(duration: 0.16), value: open)
     }
@@ -867,15 +875,29 @@ private struct MediaCatalogsScreen: View {
     @State private var heroPlayableItem: MediaItem?
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
+    @Environment(\.playMedia) private var playMedia
+    /// Where the remote is: the hero's Play, or a card in the shelf row. The
+    /// screen moves this itself -- see `moveTV(_:)`.
+    @FocusState private var tvFocus: TVLibraryFocus?
+    /// The one shelf in the row at the foot of the screen.
+    @State private var shelfIndex = 0
+    /// The card each shelf was left on, so coming back to it lands there.
+    @State private var shelfColumns: [String: Int] = [:]
+    /// Which way the last change of shelf went, for its transition.
+    @State private var shelfStepDown = true
+    @State private var heroIndex = 0
+    @State private var menuFocusRequest = false
+    @State private var focusedCard: MediaItem?
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #if os(tvOS)
+    /// The hero's first title, which is where the remote starts.
     private var defaultPreviewItem: MediaItem? {
-        continueWatching.first?.item
-            ?? media.heroCatalog?.items.first
+        heroItems.first
+            ?? continueWatching.first?.item
             ?? catalogs.first(where: { !$0.items.isEmpty })?.items.first
             ?? favoriteTitles.first
             ?? favoriteEpisodes.first
@@ -937,32 +959,7 @@ private struct MediaCatalogsScreen: View {
                     }
                 } else {
                     #if os(tvOS)
-                    ZStack(alignment: .top) {
-                        TVMediaLibraryCanvas(preview: tvPreview, height: tvPreviewHeight)
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                                Color.clear.frame(height: tvPreviewHeight)
-                                    // At the top right of the preview, clear
-                                    // of its title and overview on the left,
-                                    // and moving with the shelves so it never
-                                    // sits over them. It takes no room of its
-                                    // own, and its list opens over the
-                                    // artwork beneath it.
-                                    .overlay(alignment: .top) {
-                                        if let options {
-                                            TVLibraryMenuBar(options: options).padding(.top, 100)
-                                        }
-                                    }
-                                    .zIndex(1)
-                                libraryShelves
-                            }
-                            .padding(.bottom, 44)
-                        }
-                    }
-                    // Artwork owns the television canvas. Shelf content keeps
-                    // its own readable insets while the backdrop continues
-                    // behind the tab bar and through every catalog row.
-                    .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                    tvBrowser
                     #else
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: catalogSpacing) {
@@ -1124,31 +1121,389 @@ private struct MediaCatalogsScreen: View {
 
     private func rotateLibraryPreview() async {
         while !Task.isCancelled {
-            let candidates = media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+            let candidates = heroItems
             guard !candidates.isEmpty else {
                 do { try await Task.sleep(for: .seconds(8)) } catch { return }
                 continue
             }
-            let current = tvPreview.item.flatMap { current in
-                candidates.firstIndex(where: { $0.id == current.id })
-            } ?? -1
-            let next = candidates[(current + 1) % candidates.count]
+            let nextIndex = (heroIndex + 1) % candidates.count
+            let next = candidates[nextIndex]
             // Spend the eight-second dwell preloading the next frame. On a
             // normal connection the transition therefore begins with decoded
             // artwork already in memory, without making the interval longer.
             Task { await preloadBackdrop(for: next) }
             do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            guard !tvPreview.isNavigating, !Task.isCancelled else { continue }
+            // Held still while the remote is on a card, which owns the
+            // preview, or on the hero's Play, which is about to be pressed.
+            guard !tvPreview.isNavigating, tvFocus != .hero, !Task.isCancelled else { continue }
             // A weak connection may miss this particular turn, but the hero
             // never rotates to a blank frame. The already-running shared load
             // keeps going and the next eight-second tick can use it.
             guard backdropIsReady(for: next) else { continue }
-            withAnimation(.easeInOut(duration: 0.45)) {
-                tvPreview.rotate(to: next) { item in
-                    try? await media.details(of: item)
+            showHero(at: nextIndex)
+        }
+    }
+
+    // MARK: - The television's browser
+
+    /// What can sit in the row at the foot of the screen, top to bottom.
+    private var tvShelves: [TVLibraryShelf] {
+        var shelves: [TVLibraryShelf] = []
+        if !continueWatching.isEmpty {
+            shelves.append(TVLibraryShelf(id: "continue-watching", title: "Continue Watching",
+                                          label: "On this device", items: continueWatching.map(\.item),
+                                          opensPages: true, catalog: nil))
+        }
+        if !favoriteTitles.isEmpty {
+            shelves.append(TVLibraryShelf(id: "favorites", title: "Favorites", label: "On this device",
+                                          items: favoriteTitles, opensPages: false, catalog: nil))
+        }
+        if !favoriteEpisodes.isEmpty {
+            shelves.append(TVLibraryShelf(id: "favorite-episodes", title: "Favorite Episodes",
+                                          label: "On this device", items: favoriteEpisodes,
+                                          opensPages: false, catalog: nil))
+        }
+        for catalog in catalogs {
+            shelves.append(TVLibraryShelf(id: catalog.id, title: catalog.title,
+                                          label: media.serverName(for: catalog), items: catalog.items,
+                                          opensPages: false, catalog: catalog))
+        }
+        return shelves
+    }
+
+    private var heroItems: [MediaItem] {
+        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+    }
+
+    private var heroItem: MediaItem? {
+        let items = heroItems
+        guard !items.isEmpty else { return nil }
+        return items[min(heroIndex, items.count - 1)]
+    }
+
+    /// The artwork fills the screen. The title it shows is told in the top
+    /// half, the hero's Play sits under that, and one shelf at a time is the
+    /// row along the foot, its titles resting on the bottom edge. Up and down
+    /// change which shelf is in that row rather than scrolling the screen.
+    private var tvBrowser: some View {
+        let shelves = tvShelves
+        let index = min(shelfIndex, max(0, shelves.count - 1))
+        let rowShape: MediaArtShape = shelves.contains { MediaArtShape.forItems($0.items) == .poster } ? .poster : .still
+        let blockHeight = tvShelfBlockHeight(for: rowShape)
+        let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
+        return ZStack(alignment: .topTrailing) {
+            TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight)
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                if !heroItems.isEmpty {
+                    heroRow.frame(height: heroHeight, alignment: .top)
+                }
+                if !shelves.isEmpty {
+                    shelfBlock(shelves[index], index: index, count: shelves.count)
+                        .frame(height: blockHeight, alignment: .bottom)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .onMoveCommand(perform: moveTV)
+            // At the top right of the artwork, clear of the title told on
+            // the left.
+            if let options {
+                TVLibraryMenuBar(options: options, focusRequest: $menuFocusRequest).padding(.top, 100)
+            }
+        }
+        .ignoresSafeArea()
+        .defaultFocus($tvFocus, heroItems.isEmpty ? TVLibraryFocus.card(0) : TVLibraryFocus.hero)
+        .onChange(of: tvFocus) { _, place in tvFocusChanged(to: place) }
+        .onChange(of: shelves.count) { _, count in
+            if shelfIndex >= count { shelfIndex = max(0, count - 1) }
+        }
+    }
+
+    /// The row's height: its heading, the tallest card it can hold with that
+    /// card's two lines of title, and the last of those resting a few points
+    /// above the screen's edge.
+    private func tvShelfBlockHeight(for shape: MediaArtShape) -> CGFloat {
+        let width = cardWidth(shape)
+        let art = width / shape.ratio
+        let caption: CGFloat = 10 + 56
+        let heading: CGFloat = 34 + 14
+        return heading + 16 + art + caption + 18
+    }
+
+    /// The hero's own control: Play, and left or right for the title before
+    /// or after it.
+    private var heroRow: some View {
+        let item = heroItem
+        let focused = tvFocus == .hero
+        let count = heroItems.count
+        return HStack(spacing: 22) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.fill")
+                Text(item?.isSeries == true ? "Play Show" : "Play Movie")
+            }
+            .font(.inter(20, .semibold))
+            .foregroundStyle(focused ? LineupStyle.background : LineupStyle.text)
+            .padding(.horizontal, 30).frame(height: 58)
+            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
+            .scaleEffect(focused ? LineupStyle.controlLift : 1)
+            .lineupShadow(.lifted, on: focused)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .focusable()
+            .focused($tvFocus, equals: .hero)
+            .focusEffectDisabled()
+            .onTapGesture { playHero() }
+            .contextMenu {
+                if let item, item.opensPage {
+                    Button("Details", systemImage: "info.circle") { pushed = item }
+                        .lineupFlatButton()
+                }
+            }
+            .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
+            if count > 1 {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.left")
+                    Text("\(min(heroIndex, count - 1) + 1) of \(count)")
+                        .font(.interDigits(16, .semibold))
+                    Image(systemName: "chevron.right")
+                }
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(LineupStyle.text.opacity(focused ? 0.8 : 0.45))
+                .accessibilityHidden(true)
+            }
+        }
+        .padding(.leading, 72)
+    }
+
+    @ViewBuilder
+    private func shelfBlock(_ shelf: TVLibraryShelf, index: Int, count: Int) -> some View {
+        let shape = MediaArtShape.forItems(shelf.items)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(shelf.title).font(sectionTitleFont)
+                if let label = shelf.label {
+                    Text(label.uppercased())
+                        .font(.inter(10, .bold)).tracking(1.2)
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                        .lineLimit(1)
+                }
+                Spacer()
+                // Where this shelf is among them, and that up and down move
+                // through the rest.
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.up").opacity(index > 0 ? 1 : 0.3)
+                    Text("\(index + 1) of \(count)").font(.interDigits(15, .semibold))
+                    Image(systemName: "chevron.down").opacity(index < count - 1 ? 1 : 0.3)
+                }
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .accessibilityHidden(true)
+            }
+            .id(shelf.id)
+            .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 18 : -18)))
+            .padding(.horizontal, horizontalPadding)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: itemSpacing) {
+                        // Slots by position, so a change of shelf refills
+                        // them and the one the remote is on stays put.
+                        ForEach(Array(shelf.items.enumerated()), id: \.offset) { slot, item in
+                            tvCard(item, slot: slot, shelf: shelf, shape: shape)
+                                .frame(width: cardWidth(shape))
+                                .id(slot)
+                        }
+                        if let catalog = shelf.catalog {
+                            seeAllTile(catalog, slot: shelf.items.count, shape: shape)
+                                .frame(width: cardWidth(shape))
+                                .id(shelf.items.count)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+                .scrollClipDisabled()
+                .onChange(of: tvFocus) { _, place in
+                    if case .card(let slot)? = place {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(slot) }
+                    }
                 }
             }
         }
+        .padding(.bottom, 18)
+    }
+
+    private func tvCard(_ item: MediaItem, slot: Int, shelf: TVLibraryShelf, shape: MediaArtShape) -> some View {
+        let focused = tvFocus == .card(slot)
+        return MediaItemCard(item: item, shape: shape)
+            .id(item.libraryKey)
+            .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 24 : -24)))
+            .environment(\.lineupTVSelectableFocused, focused)
+            .contentShape(Rectangle())
+            .focusable()
+            .focused($tvFocus, equals: .card(slot))
+            .focusEffectDisabled()
+            .onTapGesture { activate(item, in: shelf) }
+            .scaleEffect(focused ? LineupStyle.cardLift : 1)
+            .zIndex(focused ? 10 : 0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .contextMenu { MediaCardActions(item: item) }
+    }
+
+    /// The end of a catalog's row: the whole catalog, and holding Select to
+    /// take the shelf away.
+    private func seeAllTile(_ catalog: MediaCatalog, slot: Int, shape: MediaArtShape) -> some View {
+        let focused = tvFocus == .card(slot)
+        let tile = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return VStack(spacing: 10) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .aspectRatio(shape.ratio, contentMode: .fit)
+                .overlay {
+                    VStack(spacing: 10) {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold))
+                        Text("See All").font(.inter(20, .semibold))
+                    }
+                    .foregroundStyle(LineupStyle.lightPurple)
+                }
+                .background(LineupStyle.surface.opacity(0.8), in: tile)
+                .overlay(tile.stroke(LineupStyle.line, lineWidth: 1))
+                .lineupFocusLayer(focused, in: tile)
+            Text(" ").font(.inter(22, .semibold)).lineLimit(2, reservesSpace: true)
+        }
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($tvFocus, equals: .card(slot))
+        .focusEffectDisabled()
+        .onTapGesture { pushed = catalog.root }
+        .scaleEffect(focused ? LineupStyle.cardLift : 1)
+        .zIndex(focused ? 10 : 0)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+        .contextMenu {
+            Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+                media.removeShelf(catalog)
+            }
+            .lineupFlatButton()
+        }
+        .accessibilityLabel("See all of \(catalog.title)")
+    }
+
+    /// The remote's presses, all of them: left and right along the row or
+    /// through the hero's titles, up and down between the hero and the
+    /// shelves. Left to the focus engine, up and down would scroll a stack of
+    /// shelves; here they change which shelf is in the one row.
+    private func moveTV(_ direction: MoveCommandDirection) {
+        let shelves = tvShelves
+        switch tvFocus {
+        case .hero?:
+            switch direction {
+            case .left: stepHero(by: -1)
+            case .right: stepHero(by: 1)
+            case .down: if !shelves.isEmpty { focusShelf(at: min(shelfIndex, shelves.count - 1), in: shelves) }
+            case .up: menuFocusRequest = true
+            @unknown default: break
+            }
+        case .card(let slot)?:
+            guard !shelves.isEmpty else { return }
+            let index = min(shelfIndex, shelves.count - 1)
+            let shelf = shelves[index]
+            let slots = shelf.items.count + (shelf.catalog == nil ? 0 : 1)
+            switch direction {
+            case .left: if slot > 0 { tvFocus = .card(slot - 1) }
+            case .right: if slot < slots - 1 { tvFocus = .card(slot + 1) }
+            case .down:
+                if index < shelves.count - 1 { changeShelf(to: index + 1, from: slot, in: shelves) }
+            case .up:
+                if index > 0 { changeShelf(to: index - 1, from: slot, in: shelves) }
+                else if !heroItems.isEmpty { tvFocus = .hero }
+                else { menuFocusRequest = true }
+            @unknown default: break
+            }
+        case nil:
+            break
+        }
+    }
+
+    private func changeShelf(to index: Int, from slot: Int, in shelves: [TVLibraryShelf]) {
+        shelfColumns[shelves[min(shelfIndex, shelves.count - 1)].id] = slot
+        shelfStepDown = index > shelfIndex
+        withAnimation(.easeOut(duration: 0.22)) { shelfIndex = index }
+        focusShelf(at: index, in: shelves)
+    }
+
+    /// Onto a shelf at the card it was left on, or its first.
+    private func focusShelf(at index: Int, in shelves: [TVLibraryShelf]) {
+        let shelf = shelves[index]
+        let slots = shelf.items.count + (shelf.catalog == nil ? 0 : 1)
+        guard slots > 0 else { return }
+        let place = TVLibraryFocus.card(min(shelfColumns[shelf.id] ?? 0, slots - 1))
+        tvFocus = place
+        // The same slot on another shelf is the same focus value, which
+        // changes nothing for onChange to see; the preview is told here.
+        tvFocusChanged(to: place)
+    }
+
+    private func stepHero(by step: Int) {
+        let count = heroItems.count
+        guard count > 1 else { return }
+        showHero(at: (heroIndex + step + count) % count)
+    }
+
+    private func showHero(at index: Int) {
+        let items = heroItems
+        guard items.indices.contains(index) else { return }
+        heroIndex = index
+        withAnimation(.easeInOut(duration: 0.45)) {
+            tvPreview.rotate(to: items[index]) { item in try? await media.details(of: item) }
+        }
+    }
+
+    /// The preview follows the remote: the card it is on, or the hero's
+    /// title when it is back on Play.
+    private func tvFocusChanged(to place: TVLibraryFocus?) {
+        if let card = focusedCard {
+            preview(card, when: false)
+            focusedCard = nil
+        }
+        switch place {
+        case .card(let slot)?:
+            let shelves = tvShelves
+            guard !shelves.isEmpty else { return }
+            let shelf = shelves[min(shelfIndex, shelves.count - 1)]
+            guard shelf.items.indices.contains(slot) else { return }
+            let item = shelf.items[slot]
+            focusedCard = item
+            preview(item, when: true)
+        case .hero?:
+            if let heroItem, tvPreview.item?.libraryKey != heroItem.libraryKey {
+                showHero(at: heroIndex)
+            }
+        case nil:
+            break
+        }
+    }
+
+    private func activate(_ item: MediaItem, in shelf: TVLibraryShelf) {
+        if let page = pageItem(for: item, opensPages: shelf.opensPages) { pushed = page }
+        else { play(item) }
+    }
+
+    /// A film plays; a show plays its next episode, or opens its page when
+    /// there is none to play yet.
+    private func playHero() {
+        guard let item = heroItem else { return }
+        if item.isSeries {
+            Task {
+                if let next = await media.nextUp(in: item) { play(next) } else { pushed = item }
+            }
+        } else if item.isPlayable {
+            play(item)
+        } else {
+            pushed = item
+        }
+    }
+
+    private func play(_ item: MediaItem) {
+        if let playMedia { playMedia(item) } else { heroPlayableItem = item }
     }
 
     private func preloadBackdrop(for item: MediaItem) async {
@@ -1167,7 +1522,6 @@ private struct MediaCatalogsScreen: View {
         return (url, LineupArt.pixels(for: 1920))
     }
 
-    private var tvPreviewHeight: CGFloat { 500 }
     #endif
 
     private func clearSearch() {
@@ -2947,16 +3301,35 @@ private final class TVMediaPreviewState: ObservableObject {
 /// what lets the poster shelves stay still while the room behind them changes.
 private struct TVMediaLibraryCanvas: View {
     @ObservedObject var preview: TVMediaPreviewState
-    let height: CGFloat
+    /// What the controls along the foot of the screen take; the title is
+    /// told in the space above them.
+    let bottomInset: CGFloat
 
     var body: some View {
         ZStack(alignment: .top) {
             TVMediaCinematicBackdrop(item: preview.item)
             TVMediaLibraryPreview(item: preview.item)
-                .frame(height: height)
+                .padding(.bottom, bottomInset)
                 .allowsHitTesting(false)
         }
     }
+}
+
+/// Where the Library's remote can be.
+private enum TVLibraryFocus: Hashable {
+    case hero
+    case card(Int)
+}
+
+/// One shelf the Library's row can show.
+private struct TVLibraryShelf: Identifiable {
+    let id: String
+    let title: String
+    let label: String?
+    let items: [MediaItem]
+    /// Continue Watching opens a show's page rather than its streams.
+    let opensPages: Bool
+    let catalog: MediaCatalog?
 }
 
 /// The artwork plane behind both Library browsing and the selected-title page.
