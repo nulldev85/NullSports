@@ -590,9 +590,11 @@ struct TVLibraryOption: Identifiable {
 /// still lands on it.
 private struct TVLibraryMenuBar: View {
     let options: [TVLibraryOption]
-    /// Set by the screen around it to bring the remote up onto the button,
-    /// from a screen that moves its own focus.
-    var focusRequest: Binding<Bool>? = nil
+    /// Told when the list opens and closes, so the screen can keep focus off
+    /// everything under it while it is open: a press in the list that the
+    /// focus engine carried onto a poster below closed the list under the
+    /// viewer.
+    var onOpenChange: (Bool) -> Void = { _ in }
     @State private var open = false
     /// Where focus is in the menu: its button, one of its rows, or nil once
     /// it is somewhere else on the screen.
@@ -622,11 +624,7 @@ private struct TVLibraryMenuBar: View {
         .onChange(of: focus) { _, place in
             if place == nil, open { open = false }
         }
-        .onChange(of: focusRequest?.wrappedValue ?? false) { _, requested in
-            guard requested else { return }
-            focus = .button
-            focusRequest?.wrappedValue = false
-        }
+        .onChange(of: open) { _, isOpen in onOpenChange(isOpen) }
         .animation(.easeOut(duration: 0.16), value: open)
     }
 
@@ -647,9 +645,14 @@ private struct TVLibraryMenuBar: View {
         .onTapGesture {
             if open { close() } else { open = true }
         }
-        // While the list is open the button only leads down into it.
+        // While the list is open, down leads into it. Up the focus engine
+        // takes to the tab bar, and the list closes behind it.
         .onMoveCommand(perform: open ? { direction in
-            if direction == .down { focus = .row(0) } else { close() }
+            switch direction {
+            case .down: focus = .row(0)
+            case .up: open = false
+            default: close()
+            }
         } : nil)
         .accessibilityLabel("Library options")
     }
@@ -683,11 +686,12 @@ private struct TVLibraryMenuBar: View {
         .onAppear { focus = .row(0) }
     }
 
-    /// The list moves its own focus, one row a press. Left to the focus
-    /// engine, a press down could land on a poster under the list and close
-    /// it under the viewer. The handler sits on each row rather than on the
-    /// list: there it takes the press, where on the list it only heard it
-    /// as the engine moved too, and every press went two rows.
+    /// One row a press. tvOS moves focus for the press as well as calling
+    /// this, so the target is the row next to the one the handler sits on --
+    /// the row the engine goes to, so the two agree. Worked out from where
+    /// focus already was after the engine's move, every press went two rows.
+    /// The screen keeps everything under the list unfocusable while it is
+    /// open (`onOpenChange`), so the engine has nowhere else to go.
     private func move(_ direction: MoveCommandDirection, from index: Int) {
         switch direction {
         case .down: focus = .row(min(index + 1, options.count - 1))
@@ -806,7 +810,8 @@ private struct MediaCatalogsScreen: View {
     @StateObject private var tvPreview = TVMediaPreviewState()
     @Environment(\.playMedia) private var playMedia
     /// Where the remote is: the hero's Play, or a card in the shelf row. The
-    /// screen moves this itself -- see `moveTV(_:)`.
+    /// focus engine moves it; the screen adds only what the engine cannot --
+    /// see `moveTV(_:from:)`.
     @FocusState private var tvFocus: TVLibraryFocus?
     /// The one shelf in the row at the foot of the screen.
     @State private var shelfIndex = 0
@@ -815,7 +820,9 @@ private struct MediaCatalogsScreen: View {
     /// Which way the last change of shelf went, for its transition.
     @State private var shelfStepDown = true
     @State private var heroIndex = 0
-    @State private var menuFocusRequest = false
+    /// While the Library menu is open, Play and the shelf can't take focus,
+    /// so a press in the list can't land on them and close it.
+    @State private var menuOpen = false
     @State private var focusedCard: MediaItem?
     #endif
 
@@ -1137,23 +1144,44 @@ private struct MediaCatalogsScreen: View {
                 if !shelves.isEmpty {
                     shelfBlock(shelves[index], index: index, count: shelves.count)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
                         .frame(height: blockHeight, alignment: .bottom)
                         .lineupFocusRegion()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .disabled(menuOpen)
             // At the top right of the artwork, clear of the title told on
             // the left.
             if let options {
-                TVLibraryMenuBar(options: options, focusRequest: $menuFocusRequest).padding(.top, 100)
+                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 100)
             }
         }
         .ignoresSafeArea()
         .defaultFocus($tvFocus, heroItems.isEmpty ? TVLibraryFocus.card(0) : TVLibraryFocus.hero)
-        .onChange(of: tvFocus) { _, place in tvFocusChanged(to: place) }
+        .onChange(of: tvFocus) { previous, place in
+            if place == .shelfAbove { cameUpFromRow(previous) } else { tvFocusChanged(to: place) }
+        }
         .onChange(of: shelves.count) { _, count in
             if shelfIndex >= count { shelfIndex = max(0, count - 1) }
         }
+    }
+
+    /// A strip the width of the screen along the top of the shelf, there to be
+    /// focused. Up from a card the focus engine moves on its own, to whatever
+    /// is above; with an earlier shelf to go back to, this is the nearest
+    /// thing above, so the engine lands here and the screen brings that shelf
+    /// in (`cameUpFromRow`). On the first shelf it is not there, and up goes
+    /// on to Play. From Play it is never there, so down goes to a card.
+    private func shelfAboveStrip(shown: Bool) -> some View {
+        // Faint enough not to be seen, but not clear: a fully transparent
+        // view risks being passed over by the focus engine.
+        Color.black.opacity(0.02)
+            .frame(height: 4)
+            .focusable(shown && tvFocus != .hero)
+            .focused($tvFocus, equals: .shelfAbove)
+            .focusEffectDisabled()
+            .accessibilityHidden(true)
     }
 
     /// The row's height: its heading, the tallest card it can hold with that
@@ -1190,7 +1218,7 @@ private struct MediaCatalogsScreen: View {
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
             .onTapGesture { playHero() }
-            .onMoveCommand(perform: moveTV)
+            .onMoveCommand { moveTV($0, from: .hero) }
             .contextMenu {
                 if let item, item.opensPage {
                     Button("Details", systemImage: "info.circle") { pushed = item }
@@ -1281,7 +1309,7 @@ private struct MediaCatalogsScreen: View {
             .focused($tvFocus, equals: .card(slot))
             .focusEffectDisabled()
             .onTapGesture { activate(item, in: shelf) }
-            .onMoveCommand(perform: moveTV)
+            .onMoveCommand { moveTV($0, from: .card(slot)) }
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
@@ -1314,7 +1342,7 @@ private struct MediaCatalogsScreen: View {
         .focused($tvFocus, equals: .card(slot))
         .focusEffectDisabled()
         .onTapGesture { pushed = catalog.root }
-        .onMoveCommand(perform: moveTV)
+        .onMoveCommand { moveTV($0, from: .card(slot)) }
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
         .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
@@ -1327,42 +1355,37 @@ private struct MediaCatalogsScreen: View {
         .accessibilityLabel("See all of \(catalog.title)")
     }
 
-    /// The remote's presses, all of them: left and right along the row or
-    /// through the hero's titles, up and down between the hero and the
-    /// shelves. Left to the focus engine, up and down would scroll a stack of
-    /// shelves; here they change which shelf is in the one row. Play and
-    /// every card carry the handler themselves: on a view around them it
-    /// only hears a press the engine has already acted on, so a press could
-    /// move two places, as it did in the Library menu.
-    private func moveTV(_ direction: MoveCommandDirection) {
-        let shelves = tvShelves
-        switch tvFocus {
-        case .hero?:
-            switch direction {
-            case .left: stepHero(by: -1)
-            case .right: stepHero(by: 1)
-            case .down: if !shelves.isEmpty { focusShelf(at: min(shelfIndex, shelves.count - 1), in: shelves) }
-            case .up: menuFocusRequest = true
-            @unknown default: break
-            }
-        case .card(let slot)?:
+    /// Only what the focus engine can't do: left and right on Play turn
+    /// through the hero's titles, and down from a card, where there is
+    /// nothing below, brings in the next shelf. Everything else -- along the
+    /// row, up to Play and the Library button, down from Play -- is the
+    /// engine's. tvOS moves focus for a press and calls this as well, so a
+    /// handler that moved focus where the engine could go moved it twice.
+    private func moveTV(_ direction: MoveCommandDirection, from place: TVLibraryFocus) {
+        switch (place, direction) {
+        case (.hero, .left): stepHero(by: -1)
+        case (.hero, .right): stepHero(by: 1)
+        case (.card(let slot), .down):
+            let shelves = tvShelves
             guard !shelves.isEmpty else { return }
             let index = min(shelfIndex, shelves.count - 1)
-            let shelf = shelves[index]
-            let slots = shelf.items.count + (shelf.catalog == nil ? 0 : 1)
-            switch direction {
-            case .left: if slot > 0 { tvFocus = .card(slot - 1) }
-            case .right: if slot < slots - 1 { tvFocus = .card(slot + 1) }
-            case .down:
-                if index < shelves.count - 1 { changeShelf(to: index + 1, from: slot, in: shelves) }
-            case .up:
-                if index > 0 { changeShelf(to: index - 1, from: slot, in: shelves) }
-                else if !heroItems.isEmpty { tvFocus = .hero }
-                else { menuFocusRequest = true }
-            @unknown default: break
-            }
-        case nil:
+            if index < shelves.count - 1 { changeShelf(to: index + 1, from: slot, in: shelves) }
+        default:
             break
+        }
+    }
+
+    /// Up from a card onto the strip above the row: the shelf before comes
+    /// in, at the card it was left on. From anywhere else the strip is
+    /// passed straight through to the shelf in the row.
+    private func cameUpFromRow(_ previous: TVLibraryFocus?) {
+        let shelves = tvShelves
+        guard !shelves.isEmpty else { return }
+        let index = min(shelfIndex, shelves.count - 1)
+        if case .card(let slot)? = previous, index > 0 {
+            changeShelf(to: index - 1, from: slot, in: shelves)
+        } else {
+            focusShelf(at: index, in: shelves)
         }
     }
 
@@ -1420,7 +1443,7 @@ private struct MediaCatalogsScreen: View {
             if let heroItem, tvPreview.item?.libraryKey != heroItem.libraryKey {
                 showHero(at: heroIndex)
             }
-        case nil:
+        case .shelfAbove?, nil:
             break
         }
     }
@@ -3262,6 +3285,9 @@ private struct TVMediaLibraryCanvas: View {
 private enum TVLibraryFocus: Hashable {
     case hero
     case card(Int)
+    /// The strip along the top of the shelf, which turns Up from a card
+    /// into the shelf before.
+    case shelfAbove
 }
 
 /// One shelf the Library's row can show.
