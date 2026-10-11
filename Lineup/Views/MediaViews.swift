@@ -4489,31 +4489,27 @@ struct MediaRatingChips: View {
     var body: some View {
         HStack(spacing: Metrics.gap) {
             if let imdb = ratings.imdb {
-                chip("Rating-IMDb", height: Metrics.imdbLogo, spoken: "IMDb",
-                     value: String(format: "%.1f", imdb))
+                chip("Rating-IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb))
             }
             if let tmdb = ratings.tmdb {
-                chip("Rating-TMDB", height: Metrics.tmdbLogo, spoken: "TMDB",
-                     value: String(format: "%.1f", tmdb))
+                chip("Rating-TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb))
             }
             if let tomatoes = ratings.rottenTomatoes {
-                chip("Rating-RT", height: Metrics.tomatoLogo, spoken: "Rotten Tomatoes",
-                     value: "\(tomatoes)%")
+                chip("Rating-RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%")
             }
         }
         .fixedSize()
     }
 
     /// Each site by its own mark rather than its name in letters: IMDb's
-    /// yellow badge, TMDB's green-to-blue mark and the Tomatometer's tomato.
-    /// Each is sized for its shape -- TMDB's runs long and short, the
-    /// tomato is round -- so the three read at the same weight.
-    private func chip(_ logo: String, height: CGFloat, spoken: String, value: String) -> some View {
+    /// yellow badge, TMDB's square mark and the Tomatometer's tomato, all
+    /// the same height.
+    private func chip(_ logo: String, spoken: String, value: String) -> some View {
         HStack(spacing: Metrics.inner) {
             Image(logo)
                 .resizable()
                 .scaledToFit()
-                .frame(height: height)
+                .frame(height: Metrics.logo)
                 .accessibilityHidden(true)
             Text(value)
                 .font(.interDigits(Metrics.valueSize, .bold))
@@ -4534,9 +4530,7 @@ private enum MediaRatingMetrics {
     static let padding: CGFloat = 14
     static let gap: CGFloat = 12
     static let inner: CGFloat = 11
-    static let imdbLogo: CGFloat = 22
-    static let tmdbLogo: CGFloat = 13
-    static let tomatoLogo: CGFloat = 25
+    static let logo: CGFloat = 26
     static let valueSize: CGFloat = 22
     static let radius: CGFloat = 10
     #else
@@ -4544,9 +4538,7 @@ private enum MediaRatingMetrics {
     static let padding: CGFloat = 9
     static let gap: CGFloat = 8
     static let inner: CGFloat = 7
-    static let imdbLogo: CGFloat = 16
-    static let tmdbLogo: CGFloat = 9.5
-    static let tomatoLogo: CGFloat = 18
+    static let logo: CGFloat = 18
     static let valueSize: CGFloat = 15
     static let radius: CGFloat = 8
     #endif
