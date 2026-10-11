@@ -4966,6 +4966,7 @@ private struct MultiviewView: View {
                 .font(.inter(15, .medium))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 .opacity(chromeVisible ? 1 : 0)
+            LineupGlassGroup {
             HStack(spacing: 14) {
                 ForEach([MultiviewLayout.sideBySide, .bigAndSmall], id: \.self) { option in
                     TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
@@ -4992,6 +4993,7 @@ private struct MultiviewView: View {
                 }
             }
             .lineupFocusRegion()
+            }
         }
     }
 
@@ -5092,20 +5094,22 @@ private struct MultiviewStatus: View {
                 Text("Select to retry  ·  Hold for more").font(.inter(14)).opacity(0.72)
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 22).padding(.vertical, 18)
-            .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 24).padding(.vertical, 20)
+            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous),
+                               fallback: Color.black.opacity(0.7), border: .clear)
         } else if controller.reconnecting {
             VStack(spacing: 12) {
                 ProgressView()
                 Text("Reconnecting…").font(.inter(15, .semibold))
             }
             .foregroundStyle(.white)
-            .padding(18)
-            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(20)
+            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous),
+                               fallback: Color.black.opacity(0.6), border: .clear)
         } else if let notice = controller.failoverNotice {
             Text(notice).font(.inter(15, .medium)).foregroundStyle(.white)
-                .padding(14)
-                .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 20).padding(.vertical, 14)
+                .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.7), border: .clear)
         } else if !controller.isPlaying {
             ProgressView()
         }
@@ -5121,7 +5125,7 @@ private struct MultiviewControlLabel: View {
     var selected = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+        let shape = Capsule()
         HStack(spacing: 10) {
             Image(systemName: symbol).font(.system(size: 17, weight: .bold)).frame(width: 22)
             Text(title).font(.inter(18, .semibold)).fixedSize()
@@ -5130,10 +5134,10 @@ private struct MultiviewControlLabel: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.horizontal, 18).frame(height: 52)
-        .background(selected ? LineupStyle.raised : LineupStyle.surface.opacity(0.88), in: shape)
-        .overlay(shape.strokeBorder(selected ? LineupStyle.lightPurple.opacity(0.5) : LineupStyle.line,
-                                    lineWidth: 1))
+        .padding(.horizontal, 22).frame(height: 52)
+        .lineupLiquidGlass(shape, fallback: selected ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
+                           border: selected ? LineupStyle.lightPurple.opacity(0.5) : LineupStyle.line,
+                           prominent: selected)
         .lineupFocusLayer(focused, in: shape)
         .lineupShadow(.resting)
     }
@@ -5445,9 +5449,12 @@ private struct TVPlayerChrome: View {
                     .padding(.horizontal, 72).padding(.top, 48)
                 }
             Spacer()
-            LinearGradient(colors: [.clear, .black.opacity(0.34), .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+            // Lighter than it was: glass shows what is behind it, and over a
+            // band of near-black there was nothing behind it to show.
+            LinearGradient(colors: [.clear, .black.opacity(0.22), .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
                 .frame(height: 270)
                 .overlay(alignment: .bottom) {
+                    LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
                     if !isLive && controller.duration > 0 {
                         TVSeekBar(controller: controller, focus: focusedControl,
@@ -5540,6 +5547,7 @@ private struct TVPlayerChrome: View {
                         Spacer(minLength: 0)
                     }
                     }
+                    }
                     .padding(.horizontal, 72).padding(.bottom, 52)
                 }
         }
@@ -5569,6 +5577,7 @@ private struct TVSeekBar: View {
 
     var body: some View {
         let selected = focus.wrappedValue == .scrubber
+        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
         VStack(spacing: 10) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -5586,6 +5595,9 @@ private struct TVSeekBar: View {
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
+        .padding(.horizontal, 26).padding(.vertical, 18)
+        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
+        .lineupFocusLayer(selected, in: panel)
         .contentShape(Rectangle())
         .focusable()
         .focused(focus, equals: .scrubber)
@@ -5626,6 +5638,7 @@ private struct TVPlayerButton: View {
 
     var body: some View {
         let selected = focus.wrappedValue == id
+        let shape = Capsule()
         Button(action: action) {
             HStack(spacing: 10) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
@@ -5633,12 +5646,10 @@ private struct TVPlayerButton: View {
                 Text(title).font(.inter(18, .semibold)).fixedSize()
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 18).frame(height: 52)
-            .background(prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
-                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(LineupStyle.line, lineWidth: 1))
-            .lineupFocusLayer(selected, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .padding(.horizontal, 22).frame(height: 52)
+            .lineupLiquidGlass(shape, fallback: prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
+                               border: LineupStyle.line, prominent: prominent)
+            .lineupFocusLayer(selected, in: shape)
             .lineupShadow(.resting)
             .scaleEffect(selected ? LineupStyle.controlLift : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: selected)
@@ -5661,12 +5672,9 @@ private struct TVPlayerMenuLabel: View {
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.horizontal, 18).frame(height: 52)
-        .background(LineupStyle.surface.opacity(0.88),
-            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .strokeBorder(LineupStyle.line, lineWidth: 1))
-        .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .padding(.horizontal, 22).frame(height: 52)
+        .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
+        .lineupFocusLayer(focused, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
@@ -6426,12 +6434,17 @@ private struct TVPlaybackStatus: View {
                     Button("Choose Another Channel", action: choose).lineupButtonStyle()
                 }
             }
-            .padding(24).background(Color.black.opacity(0.8))
+            .padding(30)
+            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 28, style: .continuous),
+                               fallback: Color.black.opacity(0.8), border: .clear)
         } else if let notice = controller.failoverNotice {
             Text(notice).font(.inter(.callout)).foregroundStyle(LineupStyle.mediaText)
-                .padding(14).background(Color.black.opacity(0.8))
+                .padding(.horizontal, 22).padding(.vertical, 14)
+                .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.8), border: .clear)
         } else if controller.reconnecting {
-            ProgressView("Reconnecting…").padding(24).background(Color.black.opacity(0.8))
+            ProgressView("Reconnecting…").padding(26)
+                .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous),
+                                   fallback: Color.black.opacity(0.8), border: .clear)
         }
     }
 }
