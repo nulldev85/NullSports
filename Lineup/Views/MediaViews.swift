@@ -1122,12 +1122,21 @@ private struct MediaCatalogsScreen: View {
             TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight)
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
+                // Each row is a focus region the full width of the screen.
+                // Play and the first cards sit at the left, nowhere under the
+                // Library button at the right, so without that a press down
+                // from the button found nothing below it and went nowhere.
                 if !heroItems.isEmpty {
-                    heroRow.frame(height: heroHeight, alignment: .top)
+                    heroRow
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: heroHeight, alignment: .top)
+                        .lineupFocusRegion()
                 }
                 if !shelves.isEmpty {
                     shelfBlock(shelves[index], index: index, count: shelves.count)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: blockHeight, alignment: .bottom)
+                        .lineupFocusRegion()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
