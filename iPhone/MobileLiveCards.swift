@@ -48,6 +48,11 @@ extension SportsGame {
         return trimmed.isEmpty ? String(name.prefix(3)).uppercased() : trimmed
     }
 
+    /// "Number 5 Georgia" for a ranked college team, to be read aloud.
+    static func spokenName(_ name: String, rank: Int?) -> String {
+        rank.map { "Number \($0) \(name)" } ?? name
+    }
+
     /// The part of a team's name that it goes by: the last word, or the last
     /// two where the nickname is two words long.
     static func nickname(_ name: String) -> String {
@@ -56,6 +61,16 @@ extension SportsGame {
         if let match = twoWord.first(where: { name.hasSuffix($0) }) { return match }
         return name.split(separator: " ").last.map(String.init) ?? name
     }
+}
+
+/// A team's name with its Top 25 place raised after it, the way ESPN prints
+/// a ranked college team. Unranked, it is the name alone.
+func mobileRankedName(_ name: String, rank: Int?, size: CGFloat) -> Text {
+    guard let rank else { return Text(verbatim: name) }
+    let mark = Text(verbatim: "\(rank)")
+        .font(.interDigits((size * 0.64).rounded(), .heavy))
+        .baselineOffset((size * 0.38).rounded())
+    return Text("\(Text(verbatim: name))\u{200A}\(mark)")
 }
 
 /// One game on now: both sides and their scores, the clock, the network,
@@ -72,6 +87,7 @@ struct MobileScoreTile: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 MobileLiveStatusPill(text: game.status.isEmpty ? "Live" : game.status)
+                    .layoutPriority(1)
                 Spacer(minLength: 2)
                 if isFollowed {
                     Image(systemName: "star.fill").font(.system(size: 9, weight: .bold))
@@ -80,7 +96,11 @@ struct MobileScoreTile: View {
                 }
                 if let network = game.leadNetwork {
                     Text(network.uppercased()).font(.inter(10, .bold))
-                        .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .foregroundStyle(LineupStyle.secondary).lineLimit(1).minimumScaleFactor(0.75)
+                }
+                // An event already leads with its league's mark below.
+                if !game.isEvent {
+                    MobileLeagueLogo(league: game.league, size: 20)
                 }
             }
             Spacer(minLength: 8)
@@ -94,9 +114,9 @@ struct MobileScoreTile: View {
             } else {
                 VStack(spacing: 6) {
                     side(logo: game.awayLogo, code: SportsGame.code(game.awayAbbreviation, game.awayTeam),
-                         score: game.awayScore, leads: leads(game.awayScore, over: game.homeScore))
+                         rank: game.awayRank, score: game.awayScore, leads: leads(game.awayScore, over: game.homeScore))
                     side(logo: game.homeLogo, code: SportsGame.code(game.homeAbbreviation, game.homeTeam),
-                         score: game.homeScore, leads: leads(game.homeScore, over: game.awayScore))
+                         rank: game.homeRank, score: game.homeScore, leads: leads(game.homeScore, over: game.awayScore))
                 }
             }
         }
@@ -117,10 +137,10 @@ struct MobileScoreTile: View {
         return mine >= theirs
     }
 
-    private func side(logo: String, code: String, score: String, leads: Bool) -> some View {
+    private func side(logo: String, code: String, rank: Int?, score: String, leads: Bool) -> some View {
         HStack(spacing: 8) {
             TeamBadge(url: logo, fallback: code, size: 26)
-            Text(code).font(.inter(15, .heavy)).lineLimit(1)
+            mobileRankedName(code, rank: rank, size: 15).font(.inter(15, .heavy)).lineLimit(1)
             Spacer(minLength: 4)
             Text(score).font(.interDigits(22, .heavy)).lineLimit(1)
         }
@@ -131,7 +151,9 @@ struct MobileScoreTile: View {
         let clock = game.status.isEmpty ? "Live" : game.status
         let network = game.leadNetwork.map { ", on \($0)" } ?? ""
         if game.isEvent { return "\(game.eventName ?? ""), \(clock)\(network)" }
-        return "\(game.awayTeam) \(game.awayScore), \(game.homeTeam) \(game.homeScore), \(clock)\(network)"
+        let away = SportsGame.spokenName(game.awayTeam, rank: game.awayRank)
+        let home = SportsGame.spokenName(game.homeTeam, rank: game.homeRank)
+        return "\(away) \(game.awayScore), \(home) \(game.homeScore), \(clock)\(network)"
     }
 }
 
@@ -188,10 +210,16 @@ struct MobileUpcomingRow: View {
                 .lineLimit(2).minimumScaleFactor(0.85)
                 .frame(width: 62, alignment: .leading)
             logos
-            VStack(alignment: .leading, spacing: 1) {
-                Text(game.shortMatchup).font(.inter(14, .bold)).lineLimit(1)
-                Text([game.league.shortName, game.leadNetwork].compactMap { $0 }.joined(separator: " · "))
-                    .font(.inter(11.5, .medium)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                matchup.font(.inter(14, .bold)).lineLimit(1)
+                HStack(spacing: 5) {
+                    // An event's mark is already in the logo column.
+                    if !game.isEvent {
+                        MobileLeagueLogo(league: game.league, size: 15)
+                    }
+                    Text(game.leadNetwork ?? (game.isEvent ? game.league.shortName : ""))
+                        .font(.inter(11.5, .medium)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
             }
             Spacer(minLength: 4)
             bell
@@ -199,6 +227,14 @@ struct MobileUpcomingRow: View {
         .padding(.leading, 14).padding(.trailing, 10)
         .frame(minHeight: 56)
         .contentShape(Rectangle())
+    }
+
+    /// "UGA⁵ at ALA³" for ranked college teams; the plain matchup otherwise.
+    private var matchup: Text {
+        guard game.league == .ncaaf, !game.isEvent else { return Text(verbatim: game.shortMatchup) }
+        let away = mobileRankedName(SportsGame.code(game.awayAbbreviation, game.awayTeam), rank: game.awayRank, size: 14)
+        let home = mobileRankedName(SportsGame.code(game.homeAbbreviation, game.homeTeam), rank: game.homeRank, size: 14)
+        return Text("\(away) at \(home)")
     }
 
     @ViewBuilder
@@ -248,19 +284,23 @@ struct MobileNowPlayingStrip: View {
                 }
                 Spacer(minLength: 4)
             } else {
-                TeamBadge(url: game.awayLogo, fallback: SportsGame.code(game.awayAbbreviation, game.awayTeam), size: 30)
+                badge(logo: game.awayLogo, code: SportsGame.code(game.awayAbbreviation, game.awayTeam), rank: game.awayRank)
                 if game.isLive { score(game.awayScore, leads: leads(game.awayScore, game.homeScore)) }
                 VStack(spacing: 1) {
                     if game.isLive { clock } else {
                         Text(game.startLabel).font(.interDigits(12, .heavy))
                     }
-                    if let network = game.leadNetwork {
-                        Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    HStack(spacing: 4) {
+                        MobileLeagueLogo(league: game.league, size: 13)
+                        if let network = game.leadNetwork {
+                            Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)
                 if game.isLive { score(game.homeScore, leads: leads(game.homeScore, game.awayScore)) }
-                TeamBadge(url: game.homeLogo, fallback: SportsGame.code(game.homeAbbreviation, game.homeTeam), size: 30)
+                badge(logo: game.homeLogo, code: SportsGame.code(game.homeAbbreviation, game.homeTeam), rank: game.homeRank)
             }
             followMenu
         }
@@ -283,6 +323,19 @@ struct MobileNowPlayingStrip: View {
     private func leads(_ score: String, _ other: String) -> Bool {
         guard let mine = Int(score), let theirs = Int(other) else { return true }
         return mine >= theirs
+    }
+
+    /// The strip has logos rather than names, so a Top 25 place is raised
+    /// after the logo instead.
+    private func badge(logo: String, code: String, rank: Int?) -> some View {
+        HStack(alignment: .top, spacing: 1) {
+            TeamBadge(url: logo, fallback: code, size: 30)
+            if let rank {
+                Text(verbatim: "\(rank)").font(.interDigits(10, .heavy))
+                    .foregroundStyle(LineupStyle.text)
+                    .accessibilityLabel("Number \(rank)")
+            }
+        }
     }
 
     private func score(_ value: String, leads: Bool) -> some View {
