@@ -2522,6 +2522,7 @@ struct GuideView: View {
                         now: guideNow,
                         onCancelMultiview: { multiviewPrimary = nil }
                     )
+                    .padding(.horizontal, GuideLayout.inset)
 
                     if !previewHidden, let previewItem = displayedPreviewItem {
                         GuidePreviewPanel(
@@ -2532,6 +2533,7 @@ struct GuideView: View {
                             now: guideNow
                         )
                         .frame(height: 216)
+                        .padding(.horizontal, GuideLayout.inset)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
@@ -3217,7 +3219,7 @@ private struct GuideTimelineHeader: View {
                 .frame(width: layout.slotWidth, alignment: .leading)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, GuideLayout.inset)
         .frame(height: guideHeaderHeight)
         .overlay(alignment: .bottom) {
             Rectangle().fill(GuidePalette.line).frame(height: 1)
@@ -3233,11 +3235,16 @@ private let guideVisibleSlotCount = 6
 // Grow the grid cells in both dimensions without scaling typography or artwork.
 // Keep the original channel/half-hour widths and row aspect ratio in sync.
 private struct GuideLayout {
-    /// Keeps the grid clear of a television's overscan without giving up a
-    /// column: tighter than the Live tab's margin, wide enough to be safe.
-    static let margin: CGFloat = 60
+    /// The grid runs nearly the screen's full width. With each row's own
+    /// inset (`inset`) its logos and programmes sit 20 points from the edges.
+    /// The grid scales as a whole to fill it, cells and rows in proportion,
+    /// so nothing is stretched.
+    static let margin: CGFloat = 6
+    /// A row's own padding either side, which the header and the preview
+    /// above take too, so everything lines up with the logos.
+    static let inset: CGFloat = 14
     let width: CGFloat
-    var slotWidth: CGFloat { max(1, width - 28) / CGFloat(guideVisibleSlotCount + 1) }
+    var slotWidth: CGFloat { max(1, width - 2 * Self.inset) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
     // A guide is worth having in proportion to how much of it you can see at
     // once, and at 132 this showed four channels on a 1080 screen. Ninety-two
@@ -3361,7 +3368,7 @@ private struct GuideChannelRow: View {
             .frame(width: layout.slotWidth * CGFloat(guideVisibleSlotCount), alignment: .leading)
             .clipped()
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, GuideLayout.inset)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
         // Multiview's first channel keeps a white frame while the second is
         // chosen, so it is never mistaken for where the remote is.
