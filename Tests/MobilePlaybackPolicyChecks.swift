@@ -98,6 +98,26 @@ struct MobilePlaybackPolicyChecks {
         // Video without readiness cannot happen, but must not crash the table.
         check(verdict(20, ready: false, video: true) == .failOver, "Unready outranks a stale size")
 
+        // Starting together -------------------------------------------------
+        check(StartTogether.frames(after: 0, lastFrameAt: nil, now: 10) == 1, "The first new frame starts a run")
+        check(StartTogether.frames(after: 1, lastFrameAt: 10, now: 10.04) == 2, "A frame soon after extends it")
+        check(StartTogether.frames(after: 2, lastFrameAt: 10, now: 10.6) == 1,
+              "A frame long after a held one starts the run again")
+        check(StartTogether.framesToStart >= 2, "One frame alone never counts as moving")
+
+        check(!StartTogether.shouldTryNext(heldFor: nil, isLive: true, hasAnotherStream: true),
+              "Nothing playing yet is not a held start")
+        check(!StartTogether.shouldTryNext(heldFor: 3.9, isLive: true, hasAnotherStream: true),
+              "A held start is given a moment")
+        check(StartTogether.shouldTryNext(heldFor: 4.1, isLive: true, hasAnotherStream: true),
+              "…then the channel's other stream is tried")
+        check(!StartTogether.shouldTryNext(heldFor: 30, isLive: true, hasAnotherStream: false),
+              "With nothing else to try, the start waits for its picture")
+        check(!StartTogether.shouldTryNext(heldFor: 30, isLive: false, hasAnotherStream: true),
+              "A title seeking to its place is never abandoned for being slow")
+        check(StartTogether.stillPictureDeadline < SystemEngineWatchdog.videoDeadline,
+              "A held picture is given up on sooner than a missing one")
+
         print("Mobile playback policy checks passed")
     }
 }

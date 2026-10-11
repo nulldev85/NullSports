@@ -124,6 +124,46 @@ enum SystemEngineWatchdog {
     }
 }
 
+/// Sound and picture start together.
+///
+/// A stream can reach the player with its sound ready well before its
+/// picture moves: a first frame shown and then held, or none at all, while
+/// the sound runs on. Played as it arrives, that is a commentary over a
+/// frozen frame. So the sound is held, and the picture kept back behind
+/// "Opening stream…", until the picture is seen to move -- then both start
+/// at once.
+enum StartTogether {
+    /// New frames in a row, each soon after the last, that show a picture
+    /// is moving rather than holding on one frame.
+    static let framesToStart = 3
+    /// A longer wait than this between new frames is a held picture, and
+    /// the count starts again.
+    static let frameGap: TimeInterval = 0.5
+    /// How long a live channel's sound may be held for a picture that will
+    /// not move before the channel's other stream is tried instead.
+    static let stillPictureDeadline: TimeInterval = 4
+    /// How long VLC may play with no picture at all before its sound goes
+    /// ahead alone. A radio channel has no picture to wait for, and VLC
+    /// cannot say so any sooner.
+    static let soundAloneAfter: TimeInterval = 6
+
+    /// The run of moving frames after one more new frame at `now`.
+    static func frames(after count: Int, lastFrameAt: TimeInterval?, now: TimeInterval) -> Int {
+        guard let lastFrameAt, now - lastFrameAt <= frameGap else { return 1 }
+        return count + 1
+    }
+
+    /// Whether a held start should give up on this stream for the next one.
+    /// Only for live channels, and only where there is another stream to
+    /// try: a title's picture can be late because it is seeking to where the
+    /// viewer left off, and with nothing else to try, a late start beats a
+    /// reconnect that would only start late again.
+    static func shouldTryNext(heldFor: TimeInterval?, isLive: Bool, hasAnotherStream: Bool) -> Bool {
+        guard isLive, hasAnotherStream, let heldFor else { return false }
+        return heldFor > stillPictureDeadline
+    }
+}
+
 /// Where playback is in a title that has an end.
 ///
 /// Live channels have neither a length nor a position worth showing, so the

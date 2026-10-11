@@ -81,6 +81,29 @@ final class PlaybackPolicyTests: XCTestCase {
         XCTAssertGreaterThan(SystemEngineWatchdog.videoDeadline, SystemEngineWatchdog.readyDeadline)
     }
 
+    // MARK: - Starting together
+
+    /// A picture is moving once new frames keep arriving close together; one
+    /// frame and then a wait is a held picture, and the count starts again.
+    func testOnlyARunOfNewFramesCountsAsAMovingPicture() {
+        XCTAssertEqual(StartTogether.frames(after: 0, lastFrameAt: nil, now: 10), 1)
+        XCTAssertEqual(StartTogether.frames(after: 1, lastFrameAt: 10, now: 10.04), 2)
+        XCTAssertEqual(StartTogether.frames(after: 2, lastFrameAt: 10, now: 10.6), 1)
+        XCTAssertGreaterThanOrEqual(StartTogether.framesToStart, 2)
+    }
+
+    /// The reported case: a live game's sound running over a frozen picture.
+    /// Held a moment, then the channel's other stream is tried -- but never
+    /// for a title, and never with nothing else to try.
+    func testAHeldLiveStartMovesOnToTheChannelsOtherStream() {
+        XCTAssertFalse(StartTogether.shouldTryNext(heldFor: nil, isLive: true, hasAnotherStream: true))
+        XCTAssertFalse(StartTogether.shouldTryNext(heldFor: 3.9, isLive: true, hasAnotherStream: true))
+        XCTAssertTrue(StartTogether.shouldTryNext(heldFor: 4.1, isLive: true, hasAnotherStream: true))
+        XCTAssertFalse(StartTogether.shouldTryNext(heldFor: 30, isLive: true, hasAnotherStream: false))
+        XCTAssertFalse(StartTogether.shouldTryNext(heldFor: 30, isLive: false, hasAnotherStream: true))
+        XCTAssertLessThan(StartTogether.stillPictureDeadline, SystemEngineWatchdog.videoDeadline)
+    }
+
     // MARK: - Engine selection
 
     private let hls = URL(string: "http://example.com/live/u/p/1234.m3u8")!
