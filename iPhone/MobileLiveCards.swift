@@ -53,6 +53,18 @@ extension SportsGame {
         rank.map { "Number \($0) \(name)" } ?? name
     }
 
+    /// The whole card, to be read aloud: who, the score or the start, and
+    /// where it is on.
+    var spokenScoreline: String {
+        let network = leadNetwork.map { ", on \($0)" } ?? ""
+        let when = isLive ? (status.isEmpty ? "Live" : status) : startLabel
+        if isEvent { return "\(eventName ?? ""), \(when)\(network)" }
+        let away = Self.spokenName(awayTeam, rank: awayRank)
+        let home = Self.spokenName(homeTeam, rank: homeRank)
+        guard isLive else { return "\(away) at \(home), \(when)\(network)" }
+        return "\(away) \(awayScore), \(home) \(homeScore), \(when)\(network)"
+    }
+
     /// The part of a team's name that it goes by: the last word, or the last
     /// two where the nickname is two words long.
     static func nickname(_ name: String) -> String {
@@ -128,7 +140,7 @@ struct MobileScoreTile: View {
                                     lineWidth: isWatching ? 1.5 : 1))
         .contentShape(shape)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spoken)
+        .accessibilityLabel(game.spokenScoreline)
     }
 
     /// Level scores both read as leading: nobody is behind yet.
@@ -145,15 +157,6 @@ struct MobileScoreTile: View {
             Text(score).font(.interDigits(22, .heavy)).lineLimit(1)
         }
         .foregroundStyle(LineupStyle.text.opacity(leads ? 1 : 0.55))
-    }
-
-    private var spoken: String {
-        let clock = game.status.isEmpty ? "Live" : game.status
-        let network = game.leadNetwork.map { ", on \($0)" } ?? ""
-        if game.isEvent { return "\(game.eventName ?? ""), \(clock)\(network)" }
-        let away = SportsGame.spokenName(game.awayTeam, rank: game.awayRank)
-        let home = SportsGame.spokenName(game.homeTeam, rank: game.homeRank)
-        return "\(away) \(game.awayScore), \(home) \(game.homeScore), \(clock)\(network)"
     }
 }
 
@@ -268,11 +271,75 @@ struct MobileUpcomingRow: View {
     }
 }
 
-/// Under the preview: the score, the clock and the network on one line, and
-/// a star for following either side.
+/// Under the preview, a scoreboard for everything on now: the game being
+/// watched first, then every other live game in every league, a new one
+/// every three seconds. Tapping one plays it in the preview.
+struct MobileLiveScoreboard: View {
+    let watching: SportsGame
+    /// Everything live, in the Live tab's own order. The watched game is
+    /// taken out and put first.
+    let live: [SportsGame]
+    let onWatch: (SportsGame) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var shownID: String?
+
+    static let interval: Duration = .seconds(3)
+
+    var body: some View {
+        let games = [watching] + live.filter { $0.id != watching.id }
+        let ids = games.map(\.id)
+        let shown = games.first { $0.id == shownID } ?? watching
+        // A scoreboard that moves under VoiceOver's cursor reads as noise,
+        // so with VoiceOver it stays on the game being watched.
+        let rotates = ids.count > 1 && !voiceOver && scenePhase == .active
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        Button {
+            if shown.id != watching.id { onWatch(shown) }
+        } label: {
+            ZStack {
+                MobileNowPlayingStrip(game: shown)
+                    .id(shown.id)
+                    .transition(reduceMotion ? .opacity : .push(from: .bottom))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: MobileNowPlayingStrip.height)
+            .background(LineupStyle.surface)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+            .contentShape(shape)
+        }
+        .buttonStyle(MobileCardButtonStyle())
+        .accessibilityHint(shown.id == watching.id ? "" : "Plays this game in the preview")
+        // Restarted whenever the games on now, or whether to turn at all,
+        // change. The closure holds this render's list, never a stale one.
+        .task(id: "\(rotates)|" + ids.joined(separator: ",")) {
+            guard rotates else {
+                if voiceOver { shownID = nil }
+                return
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.interval)
+                guard !Task.isCancelled else { return }
+                let index = ids.firstIndex(of: shownID ?? ids[0]) ?? 0
+                withAnimation(reduceMotion ? .easeInOut(duration: 0.3) : .smooth(duration: 0.5)) {
+                    shownID = ids[(index + 1) % ids.count]
+                }
+            }
+        }
+        // A newly opened game starts the board again from itself.
+        .onChange(of: watching.id) { shownID = nil }
+    }
+}
+
+/// One game on the scoreboard: the score, the clock and the network on one
+/// line, over the two teams' colours.
 struct MobileNowPlayingStrip: View {
-    @EnvironmentObject private var library: SportsLibrary
     let game: SportsGame
+
+    static let height: CGFloat = 58
 
     var body: some View {
         HStack(spacing: 10) {
@@ -280,7 +347,9 @@ struct MobileNowPlayingStrip: View {
                 MobileLeagueLogo(league: game.league, size: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(game.eventName ?? "").font(.inter(14, .bold)).lineLimit(1)
-                    clock
+                    if game.isLive { clock } else {
+                        Text(game.startLabel).font(.interDigits(12, .heavy))
+                    }
                 }
                 Spacer(minLength: 4)
             } else {
@@ -302,14 +371,13 @@ struct MobileNowPlayingStrip: View {
                 if game.isLive { score(game.homeScore, leads: leads(game.homeScore, game.awayScore)) }
                 badge(logo: game.homeLogo, code: SportsGame.code(game.homeAbbreviation, game.homeTeam), rank: game.homeRank)
             }
-            followMenu
         }
-        .padding(.leading, 12).padding(.trailing, 8)
-        .frame(height: 58)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.height)
         .background { MobileTeamWash(away: game.awayColor, home: game.homeColor, strength: 0.5) }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(LineupStyle.line, lineWidth: 1))
-        .accessibilityElement(children: .contain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(game.spokenScoreline)
     }
 
     private var clock: some View {
@@ -333,7 +401,6 @@ struct MobileNowPlayingStrip: View {
             if let rank {
                 Text(verbatim: "\(rank)").font(.interDigits(10, .heavy))
                     .foregroundStyle(LineupStyle.text)
-                    .accessibilityLabel("Number \(rank)")
             }
         }
     }
@@ -341,29 +408,5 @@ struct MobileNowPlayingStrip: View {
     private func score(_ value: String, leads: Bool) -> some View {
         Text(value).font(.interDigits(22, .heavy))
             .foregroundStyle(LineupStyle.text.opacity(leads ? 1 : 0.6))
-    }
-
-    @ViewBuilder
-    private var followMenu: some View {
-        let sides = library.followableSides(of: game)
-        if !sides.isEmpty {
-            let following = sides.contains { library.isFollowing($0.key) }
-            Menu {
-                ForEach(sides) { side in
-                    let on = library.isFollowing(side.key)
-                    Button(on ? "Remove \(side.name) from My Teams" : "Add \(side.name) to My Teams",
-                           systemImage: on ? "star.slash" : "star") {
-                        library.toggleFollow(side)
-                    }
-                }
-            } label: {
-                Image(systemName: following ? "star.fill" : "star")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.96, green: 0.77, blue: 0.09))
-                    .frame(width: 36, height: 36)
-                    .lineupGlassControl(Circle(), fallback: LineupStyle.raised)
-            }
-            .accessibilityLabel("Follow a team")
-        }
     }
 }

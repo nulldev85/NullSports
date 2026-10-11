@@ -84,6 +84,19 @@ struct MobileLiveView: View {
         }
     }
 
+    /// Everything on now in every league, for the scoreboard under the
+    /// preview, whichever league the cards below it are showing.
+    private func liveEverywhere(_ slate: Slate) -> [SportsGame] {
+        guard league != nil else { return slate.live }
+        return library.games(for: nil).filter(\.isLive)
+            .map { (game: $0, followed: library.isFollowing($0)) }
+            .sorted { left, right in
+                if left.followed != right.followed { return left.followed }
+                return left.game.start < right.game.start
+            }
+            .map(\.game)
+    }
+
     private var showsMyTeams: Bool { !library.followedTeams.isEmpty }
 
     private func shownSegment(_ slate: Slate) -> MobileLiveSegment {
@@ -120,7 +133,7 @@ struct MobileLiveView: View {
                         if previewStream != nil {
                             Color.clear.frame(height: 4 + videoHeight + metadataHeight)
                             if let watching {
-                                MobileNowPlayingStrip(game: watching)
+                                MobileLiveScoreboard(watching: watching, live: liveEverywhere(slate)) { open($0) }
                                     .padding(.horizontal, Self.inset).padding(.top, 10)
                             }
                         }
@@ -416,7 +429,8 @@ struct MobileLiveView: View {
                                     isFollowed: library.isFollowing(game))
                 }
                 .buttonStyle(MobileCardButtonStyle())
-                .accessibilityHint("Watch game or choose a channel")
+                .accessibilityHint("Watch game. Touch and hold for more, such as adding a team to My Teams.")
+                .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .contextMenu { gameMenu(game) }
             }
         }
@@ -494,18 +508,33 @@ struct MobileLiveView: View {
         }
     }
 
-    /// Touch and hold on any game: another channel, or follow either side.
+    /// Touch and hold on any game: watch it or be reminded, another channel,
+    /// or follow either side.
     @ViewBuilder
     private func gameMenu(_ game: SportsGame) -> some View {
-        Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+        Section {
+            if game.isLive {
+                let watching = previewGame?.id == game.id && previewStream != nil
+                Button(watching ? "Watching" : "Watch", systemImage: "play.fill") { open(game) }
+                    .disabled(watching)
+            } else {
+                let on = reminders.reminds(game)
+                Button(on ? "Remove reminder" : "Remind me", systemImage: on ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                }
+            }
+            Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+        }
         // Following happens here rather than on a settings screen: this is
         // where the team is already in front of the viewer.
-        ForEach(library.followableSides(of: game)) { side in
-            let following = library.isFollowing(side.key)
-            Button(following ? "Remove \(side.name) from My Teams"
-                             : "Add \(side.name) to My Teams",
-                   systemImage: following ? "star.slash" : "star") {
-                library.toggleFollow(side)
+        Section {
+            ForEach(library.followableSides(of: game)) { side in
+                let following = library.isFollowing(side.key)
+                Button(following ? "Remove \(side.name) from My Teams"
+                                 : "Add \(side.name) to My Teams",
+                       systemImage: following ? "star.slash" : "star") {
+                    library.toggleFollow(side)
+                }
             }
         }
     }
@@ -613,7 +642,7 @@ struct MobileLiveView: View {
 }
 
 /// A card pressed in: it gives a little, as the system's own cards do.
-private struct MobileCardButtonStyle: ButtonStyle {
+struct MobileCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
