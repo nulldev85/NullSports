@@ -6,9 +6,9 @@ struct MobileLiveView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var league: SportsLeague?
-    /// The star at the head of the league strip. Narrows the whole tab to the
-    /// viewer's teams rather than adding another section to scroll past.
-    @State private var onlyFollowed = false
+    /// The part of the slate on screen, once the viewer has picked one. Until
+    /// then the tab opens on what is live, or on what is next when nothing is.
+    @State private var segment: MobileLiveSegment?
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
@@ -36,41 +36,35 @@ struct MobileLiveView: View {
 
     /// Today's games, sorted into what the screen actually draws.
     ///
-    /// These used to be computed properties, and a computed property is
-    /// recomputed at every mention. A single pass over this screen mentioned
-    /// them about ten times -- the masthead twice, the live section three
-    /// times, and once per upcoming day inside a loop -- so one render walked
-    /// every game, checked every clock and sorted the lot ten times over.
-    /// That is what a tab switch was waiting for.
+    /// Computed once per render and passed down. These used to be computed
+    /// properties, and a computed property is recomputed at every mention:
+    /// one pass over this screen walked every game, checked every clock and
+    /// sorted the lot ten times over, which is what a tab switch waited for.
     struct Slate {
         let all: [SportsGame]
-        /// The viewer's own games, live first and soonest next. Held out of
-        /// the sections below rather than repeated in them.
-        let mine: [SportsGame]
+        /// On now. The viewer's own teams first, then by start.
         let live: [SportsGame]
-        /// Upcoming games already grouped, so the section loop does not filter
-        /// the whole list again for each day it draws.
+        /// Still to come, already grouped by day.
         let days: [(day: Date, games: [SportsGame])]
+        /// The viewer's teams, live and to come: live first, soonest next.
+        let mine: [SportsGame]
+        var upcomingCount: Int { days.reduce(0) { $0 + $1.games.count } }
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league).filter { !onlyFollowed || library.isFollowing($0) }
-        let calendar = Calendar.current
-        var byDay: [Date: [SportsGame]] = [:]
-        var live: [SportsGame] = []
+        let all = library.games(for: league)
+        var live: [(game: SportsGame, followed: Bool)] = []
+        var upcoming: [SportsGame] = []
         var mine: [SportsGame] = []
-        // With the tab already narrowed to followed teams, a section for them
-        // would be the whole list under a second heading.
-        let separatesMine = !onlyFollowed
         for game in all {
-            if separatesMine, library.isFollowing(game) {
-                mine.append(game)
-                continue
-            }
-            if game.isLive { live.append(game) }
-            if game.isUpcoming {
-                byDay[calendar.startOfDay(for: game.start), default: []].append(game)
-            }
+            let followed = library.isFollowing(game)
+            if game.isLive { live.append((game, followed)) }
+            if game.isUpcoming { upcoming.append(game) }
+            if followed && (game.isLive || game.isUpcoming) { mine.append(game) }
+        }
+        live.sort { left, right in
+            if left.followed != right.followed { return left.followed }
+            return left.game.start < right.game.start
         }
         // On now first, then by kick-off. Whatever a viewer can watch this
         // second outranks whatever they are waiting for.
@@ -78,32 +72,61 @@ struct MobileLiveView: View {
             if left.isLive != right.isLive { return left.isLive }
             return left.start < right.start
         }
-        return Slate(all: all, mine: mine, live: live,
-                     days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
+        return Slate(all: all, live: live.map(\.game), days: Self.byDay(upcoming), mine: mine)
     }
+
+    private static func byDay(_ games: [SportsGame]) -> [(day: Date, games: [SportsGame])] {
+        let calendar = Calendar.current
+        var byDay: [Date: [SportsGame]] = [:]
+        for game in games { byDay[calendar.startOfDay(for: game.start), default: []].append(game) }
+        return byDay.keys.sorted().map { day in
+            (day, (byDay[day] ?? []).sorted { $0.start < $1.start })
+        }
+    }
+
+    private var showsMyTeams: Bool { !library.followedTeams.isEmpty }
+
+    private func shownSegment(_ slate: Slate) -> MobileLiveSegment {
+        if let segment, segment != .mine || showsMyTeams { return segment }
+        return slate.live.isEmpty && !slate.days.isEmpty ? .upNext : .live
+    }
+
+    /// The header's height, fixed so the preview knows where to sit below it.
+    private static let headerHeight: CGFloat = 62
+    /// The margin the cards, and the preview above them, keep from the edges.
+    private static let inset: CGFloat = 16
 
     var body: some View {
         // Once, at the top, and passed down. Everything below reads from it.
         let slate = slate()
+        let shown = shownSegment(slate)
+        // The game in the preview, as the schedule has it now, so its score
+        // keeps up while it plays.
+        let watching = previewGame.map { game in slate.all.first { $0.id == game.id } ?? game }
         return NavigationStack {
             GeometryReader { viewport in
-                let videoHeight = viewport.size.width * 9 / 16
-                let metadataHeight: CGFloat = 106
-                // The preview normally begins below the 62-point masthead and
-                // 48-point league strip, then moves to the top as it expands.
-                let previewTop: CGFloat = 110
+                // The preview sits in the same margins as the cards, under the
+                // header, and moves to the top of the screen as it expands.
+                let videoHeight = (viewport.size.width - Self.inset * 2) * 9 / 16
+                let metadataHeight: CGFloat = watching == nil ? 106 : 0
+                let previewTop = Self.headerHeight + 4
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(
                     containerHeight: viewport.size.height,
                     safeAreaTop: viewport.safeAreaInsets.top,
                     safeAreaBottom: viewport.safeAreaInsets.bottom)
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
-                        masthead(slate)
-                        leagueTabs
+                        header
                         if previewStream != nil {
-                            Color.clear.frame(height: videoHeight + metadataHeight)
+                            Color.clear.frame(height: 4 + videoHeight + metadataHeight)
+                            if let watching {
+                                MobileNowPlayingStrip(game: watching)
+                                    .padding(.horizontal, Self.inset).padding(.top, 10)
+                            }
                         }
-                        slateList(slate)
+                        segmentBar(slate, selected: shown)
+                            .padding(.horizontal, Self.inset).padding(.top, 12)
+                        content(slate, shown: shown)
                     }
                     .allowsHitTesting(!expanded)
                     .accessibilityHidden(expanded)
@@ -117,7 +140,7 @@ struct MobileLiveView: View {
                                     $0.start <= clock.date && clock.date < $0.end
                                 },
                                 expanded: expanded,
-                                showsMetadata: true,
+                                showsMetadata: watching == nil,
                                 videoHeight: expanded ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
                                 onClose: closePreview,
@@ -131,6 +154,10 @@ struct MobileLiveView: View {
                             .frame(height: expanded ? fullHeight : videoHeight + metadataHeight,
                                    alignment: .top)
                             .background(LineupStyle.background)
+                            // A card among the cards until it fills the screen.
+                            .clipShape(RoundedRectangle(cornerRadius: expanded ? 0 : 22, style: .continuous))
+                            .shadow(color: .black.opacity(expanded ? 0 : 0.45), radius: 18, y: 10)
+                            .padding(.horizontal, expanded ? 0 : Self.inset)
                         }
                         .offset(y: expanded ? 0 : previewTop)
                         .ignoresSafeArea(expanded ? .all : [], edges: .all)
@@ -251,182 +278,234 @@ struct MobileLiveView: View {
         }
     }
 
-    private func masthead(_ slate: Slate) -> some View {
-        HStack(alignment: .bottom) {
-            HStack(spacing: 10) {
-                Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("LINEUP").font(.inter(20, .black)).tracking(-0.5).foregroundStyle(LineupStyle.text)
-                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2).foregroundStyle(LineupStyle.secondary)
-                }
+    /// The day, the tab's name, and the league it shows.
+    private var header: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Date(), format: .dateTime.weekday(.wide).month(.abbreviated).day())
+                    .font(.inter(12, .semibold)).foregroundStyle(LineupStyle.secondary)
+                Text("Live").font(.inter(30, .heavy)).tracking(-0.7).foregroundStyle(LineupStyle.text)
+                    .accessibilityAddTraits(.isHeader)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
-                HStack(spacing: 5) {
-                    if slate.live.isEmpty {
-                        Circle().fill(LineupStyle.secondary).frame(width: 5, height: 5)
-                    } else {
-                        MobileLiveDot()
-                    }
-                    Text(slate.live.isEmpty ? "\(slate.all.count) MATCHUPS" : "\(slate.live.count) LIVE NOW")
-                        .font(.inter(10, .bold)).tracking(1)
-                }
-                .foregroundStyle(slate.live.isEmpty ? LineupStyle.secondary : LineupStyle.liveStatus)
-            }
-        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 17)
-    }
-
-    private var leagueTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 25) {
-                if !library.followedTeams.isEmpty { followedTab }
-                leagueTab(value: nil)
-                ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
-            }.padding(.horizontal, 20)
+            Spacer(minLength: 8)
+            leagueMenu
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
+        .padding(.horizontal, Self.inset).padding(.bottom, 2)
+        .frame(height: Self.headerHeight, alignment: .bottom)
     }
 
-    /// Only appears once there is somebody to follow. An empty filter is a
-    /// control that can only disappoint.
-    private var followedTab: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) { onlyFollowed.toggle() }
+    /// The leagues, one button rather than a strip of them: a row of logos
+    /// took a line of the screen to say which one was picked.
+    private var leagueMenu: some View {
+        Menu {
+            Picker("League", selection: Binding(
+                get: { league },
+                set: { value in withAnimation(.easeInOut(duration: 0.18)) { league = value } })) {
+                Text("All Sports").tag(nil as SportsLeague?)
+                ForEach(SportsLeague.allCases) { Text($0 == .ncaaf ? "College Football" : $0.shortName).tag(Optional($0)) }
+            }
         } label: {
-            Image(systemName: onlyFollowed ? "star.fill" : "star")
-                .font(.system(size: 19))
-                .foregroundStyle(onlyFollowed ? LineupStyle.highlight : LineupStyle.lightPurple)
-                .opacity(onlyFollowed ? 1 : 0.38)
-                .frame(minWidth: 44, minHeight: 48)
-                .overlay(alignment: .bottom) {
-                    if onlyFollowed {
-                        Rectangle().fill(LineupStyle.highlight).frame(height: 2)
-                    }
+            HStack(spacing: 6) {
+                if let league { MobileLeagueLogo(league: league, size: 18) }
+                Text(league.map { $0 == .ncaaf ? "College" : $0.shortName } ?? "All Sports")
+                    .font(.inter(13, .bold))
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(LineupStyle.text)
+            .padding(.leading, 14).padding(.trailing, 12)
+            .frame(height: 36)
+            .lineupGlassControl(Capsule(), fallback: LineupStyle.raised)
+        }
+        .accessibilityLabel("League, \(league?.fullName ?? "all sports")")
+    }
+
+    /// Live, Up Next and My Teams: switched between, each a screen of its
+    /// own, rather than stacked into one long list to scroll down.
+    private func segmentBar(_ slate: Slate, selected: MobileLiveSegment) -> some View {
+        HStack(spacing: 3) {
+            segmentButton(.live, title: "Live", count: slate.live.count,
+                          dot: !slate.live.isEmpty, selected: selected)
+            segmentButton(.upNext, title: "Up Next", count: slate.upcomingCount,
+                          dot: false, selected: selected)
+            if showsMyTeams {
+                segmentButton(.mine, title: "My Teams", count: slate.mine.count,
+                              dot: slate.mine.contains(where: \.isLive), selected: selected)
+            }
+        }
+        .padding(3)
+        .frame(height: 42)
+        .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface)
+    }
+
+    private func segmentButton(_ value: MobileLiveSegment, title: String, count: Int,
+                               dot: Bool, selected: MobileLiveSegment) -> some View {
+        let on = value == selected
+        return Button {
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { segment = value }
+        } label: {
+            HStack(spacing: 5) {
+                if dot { Circle().fill(LineupStyle.liveDot).frame(width: 7, height: 7) }
+                Text(title).font(.inter(13, on ? .heavy : .bold))
+                Text("\(count)").font(.interDigits(13, .semibold)).opacity(0.65)
+            }
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .foregroundStyle(on ? LineupStyle.background : LineupStyle.text.opacity(0.82))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                if on {
+                    Capsule().fill(LineupStyle.text)
+                        .matchedGeometryEffect(id: "liveSegment", in: selection)
                 }
+            }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("My teams")
-        .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
-    }
-
-    private func leagueTab(value: SportsLeague?) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) { league = value }
-        } label: {
-            Group {
-                if let value {
-                    MobileLeagueLogo(league: value, size: 32)
-                } else {
-                    Image(systemName: "square.grid.2x2.fill").font(.system(size: 21))
-                        .foregroundStyle(LineupStyle.lightPurple)
-                }
-            }
-                .opacity(league == value ? 1 : 0.38)
-                .frame(minWidth: 44, minHeight: 48)
-                .overlay(alignment: .bottom) {
-                    if league == value {
-                        Rectangle().fill(LineupStyle.highlight).frame(height: 2)
-                            .matchedGeometryEffect(id: "leagueUnderline", in: selection)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(value?.shortName ?? "All sports")
-        .accessibilityAddTraits(league == value ? .isSelected : [])
-    }
-
-    private func sectionTitle(_ title: String, detail: String) -> some View {
-        HStack {
-            Text(title).tracking(1.8)
-            Spacer()
-            Text(detail).tracking(1)
-        }
-        .font(.inter(9, .bold))
-        .foregroundStyle(LineupStyle.secondary)
-        .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
-        .background(LineupStyle.background)
+        .accessibilityLabel("\(title), \(count)")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     /// The list stays mounted underneath the player while it expands. Only the
     /// player's frame changes, so the controller, decoder, PiP layer and network
     /// connection all remain the same objects throughout the transition.
-    private func slateList(_ slate: Slate) -> some View {
+    private func content(_ slate: Slate, shown: MobileLiveSegment) -> some View {
         ScrollView {
-            // A refresh of the channels is said in the pop-up at the top of the
-            // screen, not in a line of its own above the games.
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            VStack(alignment: .leading, spacing: 16) {
                 if let error = library.scheduleErrorMessage {
                     Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
-                        .padding(16)
                 }
-                if !slate.mine.isEmpty {
-                    Section {
-                        ForEach(slate.mine) { matchup($0, showsDay: true) }
-                    } header: {
-                        let onNow = slate.mine.filter(\.isLive).count
-                        sectionTitle("MY TEAMS",
-                                     detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
+                switch shown {
+                case .live:
+                    if slate.live.isEmpty {
+                        nothingLive(slate)
+                    } else {
+                        tileGrid(slate.live)
                     }
-                }
-                if !slate.live.isEmpty {
-                    Section {
-                        ForEach(slate.live) { matchup($0) }
-                    } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
-                }
-                ForEach(slate.days, id: \.day) { day, dayGames in
-                    Section {
-                        ForEach(dayGames) { matchup($0) }
-                    } header: {
-                        sectionTitle(
-                            Calendar.current.isDateInToday(day)
-                                ? "UP NEXT"
-                                : day.formatted(.dateTime.weekday(.wide)).uppercased(),
-                            detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
+                case .upNext:
+                    if slate.days.isEmpty {
+                        nothingScheduled
+                    } else {
+                        upcomingSections(slate.days)
                     }
-                }
-                if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
-                    ContentUnavailableView("Nothing for your teams",
-                        systemImage: "star",
-                        description: Text("None of the teams you follow are playing in this range. Tap the star again to see everything."))
-                        .padding(.top, 40)
-                } else if slate.all.isEmpty && !library.isScheduleLoading {
-                    ContentUnavailableView(
-                        library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
-                        systemImage: "sportscourt",
-                        description: Text("Pull down to refresh, or find your channels in Guide."))
-                        .padding(.top, 40)
+                case .mine:
+                    let live = slate.mine.filter(\.isLive)
+                    let later = slate.mine.filter(\.isUpcoming)
+                    if slate.mine.isEmpty {
+                        ContentUnavailableView("Your teams aren't playing", systemImage: "star",
+                            description: Text("None of the teams you follow have a game in this range. Touch and hold a game to follow its teams."))
+                            .padding(.top, 24)
+                    } else {
+                        if !live.isEmpty { tileGrid(live) }
+                        if !later.isEmpty { upcomingSections(Self.byDay(later)) }
+                    }
                 }
             }
-            .padding(.bottom, 16)
+            .padding(.horizontal, Self.inset).padding(.top, 14).padding(.bottom, 24)
         }
+        .scrollIndicators(.hidden)
         .refreshable { library.refreshSchedule(showsLoading: true) }
     }
 
-    private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
-        Button {
-            guard !game.isUpcoming else {
-                upcomingGame = game
-                return
-            }
-            open(game)
-        } label: { MobileMatchupRow(game: game, showsDay: showsDay) }
-        .buttonStyle(MobileMatchupButtonStyle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
-        .contextMenu {
-            Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
-            // Following happens here rather than on a settings screen: this is
-            // where the team is already in front of the viewer.
-            ForEach(library.followableSides(of: game)) { side in
-                let following = library.isFollowing(side.key)
-                Button(following ? "Remove \(side.name) from My Teams"
-                                 : "Add \(side.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
-                    library.toggleFollow(side)
+    /// Games on now, two to a row: a whole slate on one screen.
+    private func tileGrid(_ games: [SportsGame]) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                  spacing: 10) {
+            ForEach(games) { game in
+                Button { open(game) } label: {
+                    MobileScoreTile(game: game, isWatching: previewGame?.id == game.id,
+                                    isFollowed: library.isFollowing(game))
                 }
+                .buttonStyle(MobileCardButtonStyle())
+                .accessibilityHint("Watch game or choose a channel")
+                .contextMenu { gameMenu(game) }
+            }
+        }
+    }
+
+    /// Games still to come, a card for each day.
+    private func upcomingSections(_ days: [(day: Date, games: [SportsGame])]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(days, id: \.day) { day, games in
+                Text(Self.dayTitle(day))
+                    .font(.inter(12, .heavy)).tracking(1.2)
+                    .foregroundStyle(LineupStyle.secondary)
+                    .padding(.leading, 4).padding(.top, day == days.first?.day ? 0 : 8)
+                    .accessibilityAddTraits(.isHeader)
+                VStack(spacing: 0) {
+                    ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
+                        if index > 0 {
+                            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.leading, 14)
+                        }
+                        Button { upcomingGame = game } label: { MobileUpcomingRow(game: game) }
+                            .buttonStyle(MobileRowButtonStyle())
+                            .accessibilityHint("Show scheduled start time")
+                            .contextMenu { gameMenu(game) }
+                    }
+                }
+                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(LineupStyle.line, lineWidth: 1))
+            }
+        }
+    }
+
+    private static func dayTitle(_ day: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return "TODAY" }
+        if calendar.isDateInTomorrow(day) { return "TOMORROW" }
+        return day.formatted(.dateTime.weekday(.wide)).uppercased()
+            + " · " + day.formatted(.dateTime.month(.abbreviated).day()).uppercased()
+    }
+
+    @ViewBuilder
+    private func nothingLive(_ slate: Slate) -> some View {
+        VStack(spacing: 14) {
+            ContentUnavailableView {
+                Label("Nothing live right now", systemImage: "dot.radiowaves.left.and.right")
+            } description: {
+                if let next = slate.days.first?.games.first {
+                    Text("Next up: \(next.shortMatchup), \(next.startLabel).")
+                } else {
+                    Text("Pull down to refresh, or find your channels in Guide.")
+                }
+            }
+            if !slate.days.isEmpty {
+                Button("See Up Next") {
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { segment = .upNext }
+                }
+                .lineupProminentButton()
+            }
+        }
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var nothingScheduled: some View {
+        if library.isScheduleLoading {
+            ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+        } else {
+            ContentUnavailableView(
+                library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
+                systemImage: "sportscourt",
+                description: Text("Pull down to refresh, or find your channels in Guide."))
+                .padding(.top, 24)
+        }
+    }
+
+    /// Touch and hold on any game: another channel, or follow either side.
+    @ViewBuilder
+    private func gameMenu(_ game: SportsGame) -> some View {
+        Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+        // Following happens here rather than on a settings screen: this is
+        // where the team is already in front of the viewer.
+        ForEach(library.followableSides(of: game)) { side in
+            let following = library.isFollowing(side.key)
+            Button(following ? "Remove \(side.name) from My Teams"
+                             : "Add \(side.name) to My Teams",
+                   systemImage: following ? "star.slash" : "star") {
+                library.toggleFollow(side)
             }
         }
     }
@@ -533,111 +612,18 @@ struct MobileLiveView: View {
     }
 }
 
-private struct MobileMatchupRow: View {
-    @Environment(\.dynamicTypeSize) private var typeSize
-    let game: SportsGame
-    /// Set where the row is not under a heading that names the day.
-    var showsDay = false
-
-    /// Both read from the game itself, so the card and the tests agree on what
-    /// an event is and on where it is being held.
-    private var isEvent: Bool { game.isEvent }
-    private var whereItIs: String? { game.placeLine }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                if isEvent {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 9) {
-                            if game.isNFLRedZone {
-                                MobileLeagueLogo(league: .nfl, size: 28)
-                            }
-                            Text(game.eventName ?? "")
-                                .font(.inter(.body, .semibold))
-                                .lineLimit(2).multilineTextAlignment(.leading)
-                        }
-                        if let whereItIs { place(whereItIs) }
-                    }
-                } else {
-                    team(game.awayTeam, logo: game.awayLogo, record: game.awayRecord, score: game.awayScore)
-                    team(game.homeTeam, logo: game.homeLogo, record: game.homeRecord, score: game.homeScore)
-                    if let whereItIs { place(whereItIs) }
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(LineupStyle.line).frame(width: 1)
-            VStack(alignment: .leading, spacing: 6) {
-                MobileLeagueLogo(league: game.league, size: 23)
-                if game.isLive {
-                    HStack(alignment: .center, spacing: 5) {
-                        MobileLiveDot()
-                        Text(game.status.isEmpty ? "Live now" : game.status)
-                            .font(.inter(.caption, .semibold)).lineLimit(2)
-                    }
-                    .foregroundStyle(LineupStyle.liveStatus)
-                    .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Live. \(game.status)")
-                } else {
-                    // A bare time only reads correctly under a heading that
-                    // names the day. My Teams has no such heading -- it is
-                    // sorted by what you can watch, not by date -- so the rows
-                    // there carry the day themselves.
-                    Text(showsDay ? game.startLabel
-                                  : game.start.formatted(.dateTime.hour().minute()))
-                        .font(.interDigits(.caption, .semibold))
-                }
-                if !game.broadcast.isEmpty {
-                    Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
-                        .foregroundStyle(LineupStyle.secondary)
-                }
-                Image(systemName: "play.fill").font(.system(size: 10))
-                    .padding(.top, 2).accessibilityHidden(true)
-            }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 20).padding(.vertical, 13)
-        .background(game.isLive ? LineupStyle.surface : .clear)
-        .overlay(alignment: .leading) {
-            if game.isLive { Rectangle().fill(LineupStyle.liveDot).frame(width: 3) }
-        }
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 20) }
-        .contentShape(Rectangle())
-    }
-
-    /// One line, quiet, and only when there is something to say. The card
-    /// earns its look by not filling every gap that could hold a fact.
-    private func place(_ text: String) -> some View {
-        Text(text)
-            .font(.inter(.caption2))
-            .foregroundStyle(LineupStyle.secondary)
-            .lineLimit(1).truncationMode(.tail)
-    }
-
-    private func team(_ name: String, logo: String, record: String?, score: String) -> some View {
-        HStack(spacing: 9) {
-            // The disc went first and the ring that replaced it goes now: both
-            // drew a circle around a mark that is not one. The badge lights
-            // its own shape instead.
-            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.inter(.subheadline, .semibold))
-                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    .multilineTextAlignment(.leading)
-                if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
-                    Text(record).font(.interDigits(.caption2))
-                        .foregroundStyle(LineupStyle.secondary)
-                        .accessibilityLabel("Record: \(record)")
-                }
-            }
-            Spacer(minLength: 3)
-            if game.isLive {
-                Text(score).font(.interDigits(.title3, .bold))
-            }
-        }
+/// A card pressed in: it gives a little, as the system's own cards do.
+private struct MobileCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }
 
-private struct MobileMatchupButtonStyle: ButtonStyle {
+/// A row inside a card, lit while pressed.
+private struct MobileRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(configuration.isPressed ? LineupStyle.raised : .clear)
@@ -691,7 +677,7 @@ struct MobileLiveDot: View {
     }
 }
 
-private struct MobileLeagueLogo: View {
+struct MobileLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {
