@@ -620,54 +620,6 @@ extension View {
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 13, leading: 26, bottom: 13, trailing: 26))
     }
-
-    /// The app's pill, in broadcast red: filled while something is on,
-    /// outlined while it is off. Red either way, so an off state still reads
-    /// as one of the app's own controls instead of fading into the grey.
-    func lineupRedPill(on: Bool) -> some View {
-        self.foregroundStyle(on ? Color.white : LineupStyle.liveDot)
-            .background(on ? LineupStyle.liveDot : Color.clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(LineupStyle.liveDot, lineWidth: on ? 0 : 1))
-    }
-}
-
-/// A switch in the same red as the pills: a solid red track with a white
-/// knob when on, a red outline with a red knob when off.
-struct LineupRedToggleStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            HStack(spacing: 12) {
-                configuration.label.frame(maxWidth: .infinity, alignment: .leading)
-                LineupRedSwitch(on: configuration.isOn)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(.isToggle)
-        .accessibilityValue(configuration.isOn ? "On" : "Off")
-    }
-}
-
-private struct LineupRedSwitch: View {
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let on: Bool
-
-    var body: some View {
-        let red = LineupStyle.liveDot
-        ZStack(alignment: on ? .trailing : .leading) {
-            Capsule().fill(on ? red : Color.clear)
-            Capsule().strokeBorder(red, lineWidth: on ? 0 : 1.5)
-            Circle().fill(on ? Color.white : red)
-                .padding(on ? 2 : 6)
-                .frame(width: 31, height: 31)
-        }
-        .frame(width: 51, height: 31)
-        // Unavailable is still red, only quieter: never the system's grey.
-        .opacity(isEnabled ? 1 : 0.5)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: on)
-        .accessibilityHidden(true)
-    }
 }
 
 extension View {

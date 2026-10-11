@@ -246,7 +246,6 @@ private struct MobileDiagnosticsView: View {
                 NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
                 NavigationLink("Launch timing") { StartupTraceReportView() }
                 Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
-                    .toggleStyle(LineupRedToggleStyle())
                 if playbackDiagnostics.isEnabled {
                     NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
                 }
@@ -313,17 +312,16 @@ private struct MediaServerRow: View {
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
             } icon: {
+                // The one red on the tab: the tick on a connected server.
                 Image(systemName: state.isConnected ? "checkmark.circle.fill" : "circle.dashed")
-                    .foregroundStyle(LineupStyle.liveDot)
+                    .foregroundStyle(state.isConnected ? LineupStyle.liveDot : LineupStyle.secondary)
             }
             Spacer(minLength: 8)
             Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
-                .font(.inter(.caption2, .semibold)).lineLimit(1)
-                .padding(.horizontal, 9).padding(.vertical, 4)
-                .lineupRedPill(on: state.isConnected)
+                .font(.inter(.caption)).foregroundStyle(.secondary)
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                    .foregroundStyle(LineupStyle.liveDot)
+                    .foregroundStyle(LineupStyle.secondary)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Remove \(profile.name)")
@@ -361,23 +359,22 @@ private struct AccountSourceRow: View {
                                 .foregroundStyle(.secondary).lineLimit(1)
                         }
                     } icon: {
+                        // The one red on the tab: the tick on the
+                        // provider in use.
                         Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(LineupStyle.liveDot)
+                            .foregroundStyle(isActive ? LineupStyle.liveDot : LineupStyle.secondary)
                     }
                     Spacer(minLength: 8)
-                    // Solid on the provider in use, outlined on the others,
-                    // which a tap switches to.
-                    Text(isActive ? "Active" : "Switch")
-                        .font(.inter(.caption2, .semibold)).lineLimit(1)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .lineupRedPill(on: isActive)
+                    if isActive {
+                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
+                    }
                 }.contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(name), \(isActive ? "active \(kind)" : "switch \(kind)")")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                    .foregroundStyle(LineupStyle.liveDot)
+                    .foregroundStyle(LineupStyle.secondary)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Remove \(name)")
@@ -592,9 +589,6 @@ private struct MobileAccountView: View {
                 Button("Cancel", role: .cancel) { removingMediaProfile = nil }
             }
         }
-        // Every switch on this tab and the screens it opens is red, on or
-        // off. Set on the stack so the pushed screens have it too.
-        .toggleStyle(LineupRedToggleStyle())
     }
 }
 

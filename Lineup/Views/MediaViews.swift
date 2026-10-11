@@ -286,13 +286,16 @@ struct LineupAccountCard<Actions: View>: View {
                 .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
             #else
-            // Solid red while connected, outlined red while not.
+            // Flat and grey like the card under it: white words while
+            // connected, grey while not.
             Text(status)
                 .font(.inter(.caption2, .semibold))
+                .foregroundStyle(connected ? LineupStyle.text : LineupStyle.secondary)
                 .lineLimit(1)
                 .frame(minWidth: 74)
                 .padding(.horizontal, 10).padding(.vertical, 6)
-                .lineupRedPill(on: connected)
+                .background(LineupStyle.focused, in: Capsule())
+                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
             #endif
         }
     }
@@ -424,16 +427,13 @@ struct LineupCardAction: View {
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
-            // Outlined in red, the icon red and the word white. Unavailable
-            // while a refresh runs, it dims but stays red.
-            Label {
-                Text(title).foregroundStyle(LineupStyle.text)
-            } icon: {
-                Image(systemName: symbol)
-            }
+            // A flat grey capsule with a hairline, dimmed while unavailable.
+            Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
+                .foregroundStyle(LineupStyle.text)
                 .frame(maxWidth: .infinity, minHeight: 38)
-                .lineupRedPill(on: false)
+                .background(LineupStyle.focused, in: Capsule())
+                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
                 .opacity(isEnabled ? 1 : 0.5)
             #endif
         }
@@ -459,10 +459,10 @@ struct LineupStatusDot: View {
         #if os(tvOS)
         bead
         #else
-        // On the phone, a plain red dot when connected and a red ring when
-        // not, matching the pill beside it.
-        Circle().fill(connected ? LineupStyle.liveDot : Color.clear)
-            .overlay(Circle().strokeBorder(LineupStyle.liveDot, lineWidth: connected ? 0 : 1.5))
+        // On the phone, a plain white dot when connected and a grey ring
+        // when not: no glass, no glow.
+        Circle().fill(connected ? LineupStyle.text : Color.clear)
+            .overlay(Circle().strokeBorder(LineupStyle.secondary, lineWidth: connected ? 0 : 1.5))
             .frame(width: Self.size, height: Self.size)
             .accessibilityLabel(connected ? "Connected" : "Not connected")
         #endif
