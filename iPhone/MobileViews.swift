@@ -107,7 +107,7 @@ struct ProfileSetupView: View {
                         Text("Your games.\nAnywhere.").font(.inter(.largeTitle, .bold))
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
-                }.listRowBackground(LineupGlassRow())
+                }.listRowBackground(LineupRowBackground())
                 Section("Your provider") {
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -115,7 +115,7 @@ struct ProfileSetupView: View {
                         .keyboardType(.URL).textContentType(.URL)
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
-                }.listRowBackground(LineupGlassRow())
+                }.listRowBackground(LineupRowBackground())
                 Section {
                     Button {
                         connecting = true
@@ -140,7 +140,7 @@ struct ProfileSetupView: View {
                 }.listRowBackground(LineupStyle.raised)
                 if let connectionError {
                     Section { Text(connectionError).foregroundStyle(.red) }
-                        .listRowBackground(LineupGlassRow())
+                        .listRowBackground(LineupRowBackground())
                 }
             }
             .navigationTitle(addingProvider ? "Add provider" : "")
@@ -219,7 +219,7 @@ private struct MobilePreferredChannelsView: View {
                     }
             } footer: {
                 Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
-            }.listRowBackground(LineupGlassRow())
+            }.listRowBackground(LineupRowBackground())
         }
         .scrollContentBackground(.hidden).background(LineupStyle.background)
         .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
@@ -246,12 +246,13 @@ private struct MobileDiagnosticsView: View {
                 NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
                 NavigationLink("Launch timing") { StartupTraceReportView() }
                 Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
+                    .toggleStyle(LineupRedToggleStyle())
                 if playbackDiagnostics.isEnabled {
                     NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
                 }
             } footer: {
                 Text("Launch timing is always recorded and shows where the last start spent its time. Playback diagnostics records what the player does while it is on — leave that off unless you are chasing a problem.")
-            }.listRowBackground(LineupGlassRow())
+            }.listRowBackground(LineupRowBackground())
         }
         .scrollContentBackground(.hidden).background(LineupStyle.background)
         .navigationTitle("Diagnostics")
@@ -279,7 +280,7 @@ extension View {
     /// sit the same way.
     func lineupAccountCardRow() -> some View {
         self
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 9, trailing: 12))
             .listRowBackground(LineupStyle.background)
             .listRowSeparator(.hidden)
     }
@@ -313,12 +314,16 @@ private struct MediaServerRow: View {
                 }
             } icon: {
                 Image(systemName: state.isConnected ? "checkmark.circle.fill" : "circle.dashed")
+                    .foregroundStyle(LineupStyle.liveDot)
             }
             Spacer(minLength: 8)
             Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
-                .font(.inter(.caption)).foregroundStyle(.secondary)
+                .font(.inter(.caption2, .semibold)).lineLimit(1)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .lineupRedPill(on: state.isConnected)
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupStyle.liveDot)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Remove \(profile.name)")
@@ -357,17 +362,22 @@ private struct AccountSourceRow: View {
                         }
                     } icon: {
                         Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(LineupStyle.liveDot)
                     }
                     Spacer(minLength: 8)
-                    if isActive {
-                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
-                    }
+                    // Solid on the provider in use, outlined on the others,
+                    // which a tap switches to.
+                    Text(isActive ? "Active" : "Switch")
+                        .font(.inter(.caption2, .semibold)).lineLimit(1)
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .lineupRedPill(on: isActive)
                 }.contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(name), \(isActive ? "active \(kind)" : "switch \(kind)")")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupStyle.liveDot)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Remove \(name)")
@@ -403,7 +413,9 @@ private struct MobileAccountView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            // A list of separate cells in the Guide's flat grey, rather than
+            // the grouped form's large rounded sections.
+            List {
                 Section {
                     if let profile = library.activeProfile {
                         ProviderAccountCard(profile: profile) { selectedTab = 1 }
@@ -439,7 +451,7 @@ private struct MobileAccountView: View {
                     Text("Providers").lineupSectionHeader()
                 } footer: {
                     Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
-                }.listRowBackground(LineupGlassRow())
+                }.lineupCellRows()
                 Section {
                     if media.hasAnySource {
                         MediaServerAccountCard { selectedTab = 2 }
@@ -454,7 +466,7 @@ private struct MobileAccountView: View {
                     Text("Media Servers").lineupSectionHeader()
                 } footer: {
                     Text("Lineup uses every Jellyfin server here together: their shelves, search and streams all appear in one Library.")
-                }.listRowBackground(LineupGlassRow())
+                }.lineupCellRows()
                 Section {
                     NavigationLink {
                         LibraryHeroSettingsView().environmentObject(media)
@@ -468,7 +480,7 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Choose the catalog whose top ten titles appear in the full-screen Library hero.")
                 }
-                .listRowBackground(LineupGlassRow())
+                .lineupCellRows()
                 Section {
                     if let account = media.mdbListAccount {
                         LabeledContent("MDBList", value: "@\(account.username)")
@@ -488,7 +500,7 @@ private struct MobileAccountView: View {
                     Text("Integrations").lineupSectionHeader()
                 } footer: {
                     Text("Use your MDBList movie and show lists as Library shelves.")
-                }.listRowBackground(LineupGlassRow())
+                }.lineupCellRows()
                 Section {
                     // Collapsed rather than pushed. A theme screen of its own
                     // dismissed itself as the palette changed underneath it,
@@ -519,7 +531,7 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Syncs through iCloud.")
                 }
-                .listRowBackground(LineupGlassRow())
+                .lineupCellRows()
                 // What is left once the provider card carries the channel
                 // count, the sync state and the refresh button: three facts
                 // about the app rather than a drawer of odds and ends, which
@@ -533,8 +545,9 @@ private struct MobileAccountView: View {
                     LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"))")
                 } header: {
                     Text("About").lineupSectionHeader()
-                }.listRowBackground(LineupGlassRow())
+                }.lineupCellRows()
             }
+            .listStyle(.grouped)
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Account")
             .task {
@@ -579,6 +592,9 @@ private struct MobileAccountView: View {
                 Button("Cancel", role: .cancel) { removingMediaProfile = nil }
             }
         }
+        // Every switch on this tab and the screens it opens is red, on or
+        // off. Set on the stack so the pushed screens have it too.
+        .toggleStyle(LineupRedToggleStyle())
     }
 }
 
@@ -604,7 +620,7 @@ private struct MatchDiagnosticsView: View {
                 }
             } footer: {
                 Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
-            }.listRowBackground(LineupGlassRow())
+            }.listRowBackground(LineupRowBackground())
         }
         .scrollContentBackground(.hidden)
         .background(LineupStyle.background)

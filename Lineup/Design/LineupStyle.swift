@@ -589,17 +589,84 @@ extension View {
     }
 }
 
-/// The background behind a Form row, on the same Liquid Glass as the app's
-/// floating chrome. Passed to `listRowBackground`, which wants a view rather
-/// than a modifier, so it is a view rather than another `lineupLiquidGlass`
-/// overload. Below iOS 26 it is the theme surface these rows already used.
-struct LineupGlassRow: View {
+/// The background behind a Form row: the Guide's flat grey. These rows were
+/// Liquid Glass, which put a sheen under every setting; the settings now sit
+/// on the same quiet ground as the Guide and the Live tab. Passed to
+/// `listRowBackground`, which wants a view rather than a modifier.
+struct LineupRowBackground: View {
     var body: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear.glassEffect(.regular, in: Rectangle())
-        } else {
-            LineupStyle.surface
+        LineupStyle.raised
+    }
+}
+
+/// A row drawn as the Guide draws a programme: flat grey, squared off at four
+/// points, a hairline round it and a gap to the next. `listRowBackground`
+/// fills the whole row, so the gap is padding around the cell.
+struct LineupCellBackground: View {
+    static let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+
+    var body: some View {
+        Self.shape.fill(LineupStyle.raised)
+            .overlay(Self.shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+            .padding(.horizontal, 12).padding(.vertical, 3)
+    }
+}
+
+extension View {
+    /// List rows as separate Guide cells, the content inside each cell's own
+    /// margins.
+    func lineupCellRows() -> some View {
+        self.listRowBackground(LineupCellBackground())
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 13, leading: 26, bottom: 13, trailing: 26))
+    }
+
+    /// The app's pill, in broadcast red: filled while something is on,
+    /// outlined while it is off. Red either way, so an off state still reads
+    /// as one of the app's own controls instead of fading into the grey.
+    func lineupRedPill(on: Bool) -> some View {
+        self.foregroundStyle(on ? Color.white : LineupStyle.liveDot)
+            .background(on ? LineupStyle.liveDot : Color.clear, in: Capsule())
+            .overlay(Capsule().strokeBorder(LineupStyle.liveDot, lineWidth: on ? 0 : 1))
+    }
+}
+
+/// A switch in the same red as the pills: a solid red track with a white
+/// knob when on, a red outline with a red knob when off.
+struct LineupRedToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 12) {
+                configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+                LineupRedSwitch(on: configuration.isOn)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+}
+
+private struct LineupRedSwitch: View {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let on: Bool
+
+    var body: some View {
+        let red = LineupStyle.liveDot
+        ZStack(alignment: on ? .trailing : .leading) {
+            Capsule().fill(on ? red : Color.clear)
+            Capsule().strokeBorder(red, lineWidth: on ? 0 : 1.5)
+            Circle().fill(on ? Color.white : red)
+                .padding(on ? 2 : 6)
+                .frame(width: 31, height: 31)
+        }
+        .frame(width: 51, height: 31)
+        // Unavailable is still red, only quieter: never the system's grey.
+        .opacity(isEnabled ? 1 : 0.5)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: on)
+        .accessibilityHidden(true)
     }
 }
 

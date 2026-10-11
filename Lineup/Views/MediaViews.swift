@@ -221,8 +221,16 @@ struct LineupAccountCard<Actions: View>: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(cardPadding)
         .frame(maxWidth: maxCardWidth, alignment: .leading)
+        #if os(tvOS)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
+        #else
+        // The phone's account tab sits on the Guide's quiet ground: a flat
+        // grey card, squared off, with a hairline round it.
+        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        #endif
     }
 
     // A television is not a large phone. The type scales itself -- a text style
@@ -239,7 +247,7 @@ struct LineupAccountCard<Actions: View>: View {
     #else
     private var cardPadding: CGFloat { 16 }
     private var maxCardWidth: CGFloat { 720 }
-    private var cardRadius: CGFloat { 20 }
+    private var cardRadius: CGFloat { 4 }
     private var glyph: CGFloat { 42 }
     private var glyphSize: CGFloat { 20 }
     private var rule: CGFloat { 26 }
@@ -250,8 +258,12 @@ struct LineupAccountCard<Actions: View>: View {
             Image(systemName: symbol)
                 .font(.system(size: glyphSize, weight: .semibold))
                 .frame(width: glyph, height: glyph)
+                #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
+                #else
+                .background(LineupStyle.focused, in: Circle())
+                #endif
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(title).font(.inter(.headline, .bold)).lineLimit(1)
@@ -264,6 +276,7 @@ struct LineupAccountCard<Actions: View>: View {
             Spacer(minLength: 8)
             // A floor under the width so the header does not shuffle as the
             // word changes between connecting, connected and offline.
+            #if os(tvOS)
             Text(status)
                 .font(.inter(.caption2, .semibold))
                 .foregroundStyle(statusTint)
@@ -272,6 +285,15 @@ struct LineupAccountCard<Actions: View>: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
+            #else
+            // Solid red while connected, outlined red while not.
+            Text(status)
+                .font(.inter(.caption2, .semibold))
+                .lineLimit(1)
+                .frame(minWidth: 74)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .lineupRedPill(on: connected)
+            #endif
         }
     }
 
@@ -387,22 +409,33 @@ struct MediaServerAccountCard: View {
 
 struct LineupCardAction: View {
     @Environment(\.isFocused) private var focused
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
+            #if os(tvOS)
             Label(title, systemImage: symbol)
                 .font(.inter(.subheadline, .semibold))
-                #if os(tvOS)
                 .frame(maxWidth: .infinity, minHeight: 66)
-                #else
-                .frame(maxWidth: .infinity, minHeight: 38)
-                #endif
                 .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised, border: LineupStyle.line)
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
+            #else
+            // Outlined in red, the icon red and the word white. Unavailable
+            // while a refresh runs, it dims but stays red.
+            Label {
+                Text(title).foregroundStyle(LineupStyle.text)
+            } icon: {
+                Image(systemName: symbol)
+            }
+                .font(.inter(.subheadline, .semibold))
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .lineupRedPill(on: false)
+                .opacity(isEnabled ? 1 : 0.5)
+            #endif
         }
         .lineupFlatButton()
     }
@@ -423,6 +456,19 @@ struct LineupStatusDot: View {
     }
 
     var body: some View {
+        #if os(tvOS)
+        bead
+        #else
+        // On the phone, a plain red dot when connected and a red ring when
+        // not, matching the pill beside it.
+        Circle().fill(connected ? LineupStyle.liveDot : Color.clear)
+            .overlay(Circle().strokeBorder(LineupStyle.liveDot, lineWidth: connected ? 0 : 1.5))
+            .frame(width: Self.size, height: Self.size)
+            .accessibilityLabel(connected ? "Connected" : "Not connected")
+        #endif
+    }
+
+    private var bead: some View {
         // A bead rather than a filled circle: a lit upper face, a deeper base,
         // a hairline rim and one small specular. That is what reads as glass at
         // nine points, where a material effect would show nothing at all.
@@ -3332,7 +3378,7 @@ struct LibraryHeroSettingsView: View {
                 } footer: {
                     Text("The first ten titles in this catalog become the swipeable Library hero.")
                 }
-                .listRowBackground(LineupGlassRow())
+                .listRowBackground(LineupRowBackground())
             }
         }
         .scrollContentBackground(.hidden)
