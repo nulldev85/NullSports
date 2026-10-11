@@ -619,13 +619,13 @@ private struct LiveSlate: View {
                     } else {
                         HStack(alignment: .center, spacing: 0) {
                             LiveCrestColumn(name: game.awayTeam, abbreviation: game.awayAbbreviation,
-                                            logo: game.awayLogo, color: game.awayColor,
+                                            logo: game.awayLogo,
                                             record: game.awayRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                             center
                                 .frame(width: min(450, proxy.size.width * 0.34))
                             LiveCrestColumn(name: game.homeTeam, abbreviation: game.homeAbbreviation,
-                                            logo: game.homeLogo, color: game.homeColor,
+                                            logo: game.homeLogo,
                                             record: game.homeRecord, crest: crest)
                                 .frame(maxWidth: .infinity)
                         }
@@ -742,9 +742,9 @@ private struct LiveSlate: View {
 /// The slate's ground: black, each side's colour lifting its own half, and a
 /// centre line and circle drawn faintly through the middle, the way every
 /// field and floor and rink is marked.
-/// The slate's ground: dark, with the court's lines. The teams' colours are
-/// not washed across it; each glows only just around its own crest, inside
-/// the monitor's edge.
+/// The slate's ground: dark, with the court's lines. No team colour is cast
+/// across it or around the crests; the only light is the pale rim each crest
+/// carries to keep a dark badge readable.
 private struct LiveSlateBackdrop: View {
     var body: some View {
         GeometryReader { proxy in
@@ -791,14 +791,13 @@ private struct LiveCrestColumn: View {
     let name: String
     let abbreviation: String
     let logo: String
-    let color: String?
     let record: String?
     let crest: CGFloat
 
     var body: some View {
         VStack(spacing: 16) {
             LiveCrest(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: crest, color: color)
+                      size: crest)
             VStack(spacing: 5) {
                 Text(name).font(.inter(30, .semibold)).foregroundStyle(LivePalette.text)
                     .lineLimit(1).minimumScaleFactor(0.6)
@@ -819,23 +818,8 @@ private struct LiveCrest: View {
     let url: String
     let fallback: String
     let size: CGFloat
-    /// The team's colour, glowing faintly just past the crest's edge and no
-    /// further -- never washed across the card or the room behind it.
-    var color: String? = nil
 
     var body: some View {
-        crest.background {
-            if let tint = sportsReadableTeamColor(color) {
-                RadialGradient(colors: [tint.opacity(0.36), tint.opacity(0.12), .clear],
-                               center: .center, startRadius: 0, endRadius: size * 0.82)
-                    .frame(width: size * 1.64, height: size * 1.64)
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var crest: some View {
         let rim = max(3, size * 0.06)
         LineupArtView(url: URL(string: url), width: size) { loaded in
             if let image = loaded {
@@ -970,8 +954,8 @@ private struct LiveVideoWall: View {
     }
 }
 
-/// One side's scoreboard beside a playing feed: its crest, glowing faintly
-/// in the team's colour just around itself, on the monitor's plain black.
+/// One side's scoreboard beside a playing feed: its crest and score on the
+/// monitor's plain black.
 private struct LiveFlank: View {
     let game: SportsGame?
     let isHome: Bool
@@ -983,8 +967,7 @@ private struct LiveFlank: View {
                 let abbreviation = isHome ? game.homeAbbreviation : game.awayAbbreviation
                 VStack(spacing: 12) {
                     LiveCrest(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
-                              size: min(92, proxy.size.width * 0.5),
-                              color: isHome ? game.homeColor : game.awayColor)
+                              size: min(92, proxy.size.width * 0.5))
                     Text(abbreviation).font(.inter(20, .bold)).tracking(1.6)
                         .foregroundStyle(LivePalette.secondary)
                     if game.isLive, !score.isEmpty {
@@ -1007,7 +990,6 @@ private struct LiveTallyChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(LivePalette.onAir).frame(width: 8, height: 8)
-                .shadow(color: LivePalette.onAir.opacity(0.8), radius: 4)
             Text("PREVIEW").font(.inter(13, .bold)).tracking(2)
         }
         .foregroundStyle(.white)

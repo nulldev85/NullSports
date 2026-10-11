@@ -751,50 +751,29 @@ private struct MobileMatchupButtonStyle: ButtonStyle {
     }
 }
 
-/// A crisp red LED with a breathing halo. The red core stays steady so the
-/// status never blinks; only the light around it moves.
+/// On air, as a small flat red dot that breathes in and out. It had a halo
+/// and a glow; nothing in the app glows now but the pale rim that keeps a
+/// dark team badge readable.
 struct MobileLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var red: Color { LineupStyle.liveDot }
 
     var body: some View {
-        ZStack {
-            halo
-            Circle()
-                .fill(RadialGradient(stops: [
-                    .init(color: Color(red: 1, green: 0.58, blue: 0.62), location: 0),
-                    .init(color: red, location: 0.28),
-                    .init(color: Color(red: 0.58, green: 0.025, blue: 0.09), location: 1)
-                ], center: .topLeading, startRadius: 0, endRadius: 5))
-                .frame(width: 5, height: 5)
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.4))
-                .shadow(color: red.opacity(0.48), radius: 2.5)
+        let dot = Circle().fill(LineupStyle.liveDot).frame(width: 6, height: 6)
+        Group {
+            if reduceMotion {
+                dot
+            } else {
+                // A phase animator animates only the dot's opacity, so the
+                // dot never drifts when the row holding it moves.
+                dot.phaseAnimator([false, true]) { dot, dimmed in
+                    dot.opacity(dimmed ? 0.45 : 1)
+                } animation: { _ in
+                    .easeInOut(duration: 1.1)
+                }
+            }
         }
         .frame(width: 8, height: 8)
         .accessibilityHidden(true)
-    }
-
-    /// The halo keeps its own time: it grows and fades, then starts again.
-    ///
-    /// It was a repeating animation started as the dot appeared, and that
-    /// takes hold of anything else that changes at the same moment -- the
-    /// dot's place in its row included. Opening the Guide lays out and
-    /// reorders its rows just as their dots appear, so the dots slid to and
-    /// fro without end, in and out of the program cells that clip them, and
-    /// read as blinking until the rows were redrawn. A keyframe animator
-    /// animates only the halo's size and fade, and nothing it holds can move.
-    @ViewBuilder
-    private var halo: some View {
-        let ring = Circle().fill(red.opacity(0.3)).frame(width: 10, height: 10)
-        if reduceMotion {
-            ring.scaleEffect(0.75).opacity(0.34)
-        } else {
-            ring.keyframeAnimator(initialValue: 0.0, repeating: true) { ring, progress in
-                ring.scaleEffect(0.68 + 0.37 * progress).opacity(0.5 * (1 - progress))
-            } keyframes: { _ in
-                LinearKeyframe(1.0, duration: 1.8, timingCurve: .easeOut)
-            }
-        }
     }
 }
 

@@ -442,103 +442,30 @@ struct LineupCardAction: View {
 }
 
 struct LineupStatusDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let connected: Bool
 
     #if os(tvOS)
-    private static let size: CGFloat = 16
+    private static let size: CGFloat = 14
     #else
     private static let size: CGFloat = 9
     #endif
 
-    private var tint: Color {
-        connected ? Color(red: 0.29, green: 0.84, blue: 0.45) : Color.gray
-    }
-
-    var body: some View {
+    private var fill: Color {
         #if os(tvOS)
-        bead
+        Color(red: 0.29, green: 0.84, blue: 0.45)
         #else
-        // On the phone, a plain white dot when connected and a grey ring
-        // when not: no glass, no glow.
-        Circle().fill(connected ? LineupStyle.text : Color.clear)
-            .overlay(Circle().strokeBorder(LineupStyle.secondary, lineWidth: connected ? 0 : 1.5))
-            .frame(width: Self.size, height: Self.size)
-            .accessibilityLabel(connected ? "Connected" : "Not connected")
+        LineupStyle.text
         #endif
     }
 
-    private var bead: some View {
-        // A bead rather than a filled circle: a lit upper face, a deeper base,
-        // a hairline rim and one small specular. That is what reads as glass at
-        // nine points, where a material effect would show nothing at all.
-        // Every measurement below is a fraction of the bead rather than a
-        // number, because the television draws it at nearly twice the size and
-        // a specular highlight fixed at two and a half points would vanish
-        // there while the rim stayed hairline-thin.
-        Circle()
-            .fill(RadialGradient(colors: [tint.opacity(0.98), tint.opacity(0.58)],
-                                 center: UnitPoint(x: 0.34, y: 0.28),
-                                 startRadius: 0, endRadius: Self.size * 0.9))
-            .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: Self.size * 0.056))
-            .overlay(alignment: .topLeading) {
-                Circle().fill(.white.opacity(0.55))
-                    .frame(width: Self.size * 0.29, height: Self.size * 0.29)
-                    .blur(radius: Self.size * 0.067)
-                    .offset(x: Self.size * 0.167, y: Self.size * 0.144)
-            }
+    var body: some View {
+        // A plain dot when connected and a ring when not. It was a glossy
+        // bead with a glow and a pulsing halo; nothing in the app glows now
+        // but the pale rim that keeps a dark team badge readable.
+        Circle().fill(connected ? fill : Color.clear)
+            .overlay(Circle().strokeBorder(LineupStyle.secondary, lineWidth: connected ? 0 : 1.5))
             .frame(width: Self.size, height: Self.size)
-            .shadow(color: tint.opacity(connected ? 0.5 : 0), radius: Self.size / 3)
-            // Underneath, not over: the halo comes out from beneath the bead
-            // and travels outward, which is the only way round that reads as
-            // the dot giving something off. Drawn over the bead it washed the
-            // bead out instead, and the bead is the thing worth looking at.
-            //
-            // It also sits in a background rather than in the layout, so its
-            // travel can never move the name beside it.
-            .background { halo }
             .accessibilityLabel(connected ? "Connected" : "Not connected")
-    }
-
-    /// Where the halo is in its cycle.
-    ///
-    /// `home` is the bead's own size, and the bead is opaque and sits on top of
-    /// it, so the halo is invisible there -- it only becomes visible in the
-    /// travelling, which is the point: nothing appears out of thin air around
-    /// the dot, it comes out from under it.
-    private enum HaloPhase: Equatable { case home, out, back }
-
-    /// The pulse. Quiet on purpose: it leaves the bead, gets a little under
-    /// twice its size, and is gone. A breath, not a beacon.
-    @ViewBuilder
-    private var halo: some View {
-        if connected && !reduceMotion {
-            Circle()
-                .fill(tint)
-                .frame(width: Self.size, height: Self.size)
-                // A phase animator rather than a repeating animation driven by
-                // state: the cycle restarts itself, so there is no stale one to
-                // cancel and no way for two to overlap and send the halo
-                // inward, which is what the first attempt at this did.
-                .phaseAnimator([HaloPhase.home, .out, .back]) { circle, phase in
-                    circle
-                        .scaleEffect(phase == .out ? 1.9 : 1)
-                        .opacity(phase == .home ? 0.38 : 0)
-                } animation: { (phase: HaloPhase) -> Animation? in
-                    switch phase {
-                    // The travel, and the only part anyone sees.
-                    case .out: return .easeOut(duration: 1.9)
-                    // Home again while fully transparent, so the return trip
-                    // -- the one that would read as a halo moving inward --
-                    // happens where there is nothing to see.
-                    case .back: return .linear(duration: 0.01)
-                    // A beat between pulses. Also invisible: at the bead's own
-                    // size the bead covers it.
-                    case .home: return .easeIn(duration: 0.45)
-                    }
-                }
-                .allowsHitTesting(false)
-        }
     }
 }
 
