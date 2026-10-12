@@ -5439,6 +5439,10 @@ private struct MediaArtworkProgress: View {
 /// the one being added, and its sign-in is already there below it; on the
 /// phone, the sign-ins sit side by side and a swipe moves between them as a
 /// tap on a logo does.
+///
+/// All three sign-ins are built once, when the screen opens, and are only
+/// ever shown and hidden after that. Building one afresh on every move, text
+/// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
@@ -5446,12 +5450,11 @@ struct MediaServerSetupView: View {
     /// What has been typed for each kind, kept apart, so moving across to
     /// look at another does not carry one server's address into another's.
     @State private var forms: [MediaServerBrand: MediaServerSignIn] = [:]
-    #if os(tvOS)
-    /// Whether the last move went right, so the next sign-in comes in from
-    /// the side its logo is on.
-    @State private var forward = true
-    #else
+    #if !os(tvOS)
     @State private var page: MediaServerBrand? = .jellyfin
+    /// Held, not observed: a swipe moves the marker under the logos on every
+    /// frame, and only the logos should redraw for it.
+    @State private var swipe = MediaServerSwipe()
     #endif
 
     var body: some View {
@@ -5461,13 +5464,20 @@ struct MediaServerSetupView: View {
                 PageTitle(eyebrow: "Settings", title: "Add Media Server",
                           detail: "Move across to your server. Its sign-in follows.")
                 MediaServerPicker(selection: choice)
-                ZStack(alignment: .topLeading) {
-                    panel(for: software)
-                        .id(software)
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: forward ? 48 : -48)),
-                                                removal: .opacity))
+                // Laid over one another at one height, so the page never
+                // shifts as they change; the one shown fades and slides in
+                // from the side its logo is on.
+                MediaServerPanelStack {
+                    ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                        let shown = brand == software
+                        panel(for: brand)
+                            .opacity(shown ? 1 : 0)
+                            .offset(x: shown ? 0 : (order(of: brand) < order(of: software) ? -36 : 36))
+                            // A hidden sign-in never takes focus.
+                            .disabled(!shown)
+                            .accessibilityHidden(!shown)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
                 // Down from any logo lands here, the Plex one at the far
                 // right included, whatever sits directly beneath it.
                 .focusSection()
@@ -5488,24 +5498,36 @@ struct MediaServerSetupView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    MediaServerPicker(selection: choice)
+                    MediaServerPicker(selection: choice, swipe: swipe)
                         .padding(.horizontal, 16)
-                    // The sign-ins side by side, one to a page: a swipe moves
-                    // between servers as a tap on a logo does.
+                    // The sign-ins side by side, one to a page, all of one
+                    // height: a swipe moves between servers as a tap on a
+                    // logo does, and the marker under the logos follows the
+                    // finger.
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 0) {
                             ForEach(MediaServerBrand.allCases, id: \.self) { brand in
                                 panel(for: brand)
                                     .padding(.horizontal, 16)
                                     .containerRelativeFrame(.horizontal)
-                                    .id(brand)
                             }
                         }
                         .scrollTargetLayout()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background {
+                            GeometryReader { pages in
+                                Color.clear.preference(
+                                    key: MediaServerPagerPosition.self,
+                                    value: -pages.frame(in: .named("mediaServerPager")).minX
+                                        / max(pages.size.width / CGFloat(MediaServerBrand.allCases.count), 1))
+                            }
+                        }
                     }
                     .scrollTargetBehavior(.paging)
                     .scrollPosition(id: $page)
                     .scrollIndicators(.hidden)
+                    .coordinateSpace(name: "mediaServerPager")
+                    .onPreferenceChange(MediaServerPagerPosition.self) { swipe.progress = $0 }
                     if let error = media.errorMessage {
                         Text(error).font(.inter(.footnote)).foregroundStyle(LineupStyle.live)
                             .padding(.horizontal, 16)
@@ -5521,8 +5543,8 @@ struct MediaServerSetupView: View {
             .disabled(media.isAddingServer)
             .onChange(of: page) { _, brand in
                 guard let brand, brand != software else { return }
-                media.errorMessage = nil
-                withAnimation(.smooth(duration: 0.3)) { software = brand }
+                clearError()
+                software = brand
             }
         }
         #endif
@@ -5534,19 +5556,26 @@ struct MediaServerSetupView: View {
             software
         } set: { brand in
             guard brand != software else { return }
-            // One server's failure is not news on the next one's sign-in.
-            media.errorMessage = nil
+            clearError()
             #if os(tvOS)
-            let order = MediaServerBrand.allCases
-            forward = (order.firstIndex(of: brand) ?? 0) > (order.firstIndex(of: software) ?? 0)
-            withAnimation(.smooth(duration: 0.32)) { software = brand }
+            withAnimation(.smooth(duration: 0.3)) { software = brand }
             #else
-            withAnimation(.smooth(duration: 0.3)) {
-                software = brand
-                page = brand
-            }
+            software = brand
+            withAnimation(.smooth(duration: 0.35)) { page = brand }
             #endif
         }
+    }
+
+    /// One server's failure is not news on the next one's sign-in. Only a
+    /// message that is there is cleared: every write to the Library, even of
+    /// what it already holds, redraws everything that watches it, the whole
+    /// Library behind this screen included.
+    private func clearError() {
+        if media.errorMessage != nil { media.errorMessage = nil }
+    }
+
+    private func order(of brand: MediaServerBrand) -> Int {
+        MediaServerBrand.allCases.firstIndex(of: brand) ?? 0
     }
 
     @ViewBuilder private func panel(for brand: MediaServerBrand) -> some View {
@@ -5582,21 +5611,55 @@ struct MediaServerSignIn: Equatable {
     }
 }
 
+/// Every sign-in in one place, each given the height of the tallest, so the
+/// card stays the same size whichever is shown.
+private struct MediaServerPanelStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        return CGSize(width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+                      height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+        }
+    }
+}
+
+#if !os(tvOS)
+/// How far across the sign-ins the phone's pager sits, in pages.
+final class MediaServerSwipe: ObservableObject {
+    @Published var progress: CGFloat = 0
+}
+
+private struct MediaServerPagerPosition: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+#endif
+
 /// The three kinds of server, by their logos. On the television the one with
 /// focus is the one chosen, so moving across them is choosing.
 private struct MediaServerPicker: View {
     @Binding var selection: MediaServerBrand
-    @Namespace private var marker
     #if os(tvOS)
     @FocusState private var focused: MediaServerBrand?
+    #else
+    @ObservedObject var swipe: MediaServerSwipe
     #endif
 
     var body: some View {
+        #if os(tvOS)
         HStack(spacing: gap) {
             ForEach(MediaServerBrand.allCases, id: \.self) { brand in
-                #if os(tvOS)
-                let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-                tile(brand)
+                let chosen = selection == brand
+                let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+                tile(brand, chosen: chosen)
+                    .background(chosen ? LineupStyle.focused : LineupStyle.raised, in: shape)
+                    .overlay(shape.strokeBorder(chosen ? LineupStyle.text.opacity(0.6) : LineupStyle.line,
+                                                lineWidth: chosen ? 1.5 : 0.5))
                     .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
                     .focusable()
                     .focused($focused, equals: brand)
@@ -5604,14 +5667,10 @@ private struct MediaServerPicker: View {
                     .onTapGesture { selection = brand }
                     .scaleEffect(focused == brand ? LineupStyle.controlLift : 1)
                     .lineupShadow(.lifted, on: focused == brand)
+                    .zIndex(focused == brand ? 1 : 0)
                     .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused == brand)
-                #else
-                Button { selection = brand } label: { tile(brand) }
-                    .lineupFlatButton()
-                #endif
             }
         }
-        #if os(tvOS)
         // Coming back up from a sign-in returns to the logo it belongs to,
         // not to whichever logo happens to sit above the button just left.
         .defaultFocus($focused, selection, priority: .userInitiated)
@@ -5619,31 +5678,51 @@ private struct MediaServerPicker: View {
         .onChange(of: focused) { _, brand in
             if let brand { selection = brand }
         }
+        #else
+        HStack(spacing: gap) {
+            ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                Button { selection = brand } label: { tile(brand, chosen: selection == brand) }
+                    .lineupFlatButton()
+            }
+        }
+        .background { marker }
         #endif
     }
 
-    private func tile(_ brand: MediaServerBrand) -> some View {
-        let chosen = selection == brand
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        return VStack(spacing: labelGap) {
+    #if !os(tvOS)
+    /// The tiles' wells, and the chosen fill gliding across them as the
+    /// sign-ins below are swiped.
+    private var marker: some View {
+        GeometryReader { row in
+            let count = CGFloat(MediaServerBrand.allCases.count)
+            let width = (row.size.width - gap * (count - 1)) / count
+            let position = min(max(swipe.progress, 0), count - 1)
+            let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+            ZStack(alignment: .leading) {
+                HStack(spacing: gap) {
+                    ForEach(MediaServerBrand.allCases, id: \.self) { _ in
+                        shape.fill(LineupStyle.raised)
+                            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+                    }
+                }
+                shape.fill(LineupStyle.focused)
+                    .overlay(shape.strokeBorder(LineupStyle.text.opacity(0.6), lineWidth: 1.5))
+                    .frame(width: width)
+                    .offset(x: (width + gap) * position)
+            }
+        }
+    }
+    #endif
+
+    private func tile(_ brand: MediaServerBrand, chosen: Bool) -> some View {
+        VStack(spacing: labelGap) {
             MediaServerLogo(brand: brand).frame(width: logo, height: logo)
             Text(brand.name).font(.inter(labelSize, .semibold))
                 .foregroundStyle(chosen ? LineupStyle.text : LineupStyle.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, padding)
-        .background {
-            // The chosen tile's fill slides across to the next one chosen.
-            if chosen {
-                shape.fill(LineupStyle.focused)
-                    .overlay(shape.strokeBorder(LineupStyle.text.opacity(0.6), lineWidth: 1.5))
-                    .matchedGeometryEffect(id: "chosen", in: marker)
-            } else {
-                shape.fill(LineupStyle.raised)
-                    .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
-            }
-        }
-        .contentShape(shape)
+        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
     }
@@ -5685,7 +5764,9 @@ private struct MediaServerPanel<Content: View>: View {
             content
         }
         .padding(inset)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // As tall as it is given: beside or behind the other sign-ins, each
+        // card takes the tallest one's height.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.surface, in: shape)
         .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
     }
