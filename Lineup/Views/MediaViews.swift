@@ -1128,7 +1128,6 @@ private struct MediaCatalogsScreen: View {
         let blockHeight = tvShelfBlockHeight(for: rowShape)
         let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
         return ZStack(alignment: .topTrailing) {
-            TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight)
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
                 // Each row is a focus region the full width of the screen.
@@ -1157,6 +1156,12 @@ private struct MediaCatalogsScreen: View {
                 TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 100)
             }
         }
+        // Behind, as a background: whatever the artwork and the words about
+        // it measure, they are drawn in the screen's frame and can never
+        // resize it. In the stack, a picture or a block of words taller than
+        // the screen made the stack taller, and the whole screen -- shelf,
+        // Play and artwork -- jumped as the remote moved between titles.
+        .background { TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight) }
         .ignoresSafeArea()
         .defaultFocus($tvFocus, heroItems.isEmpty ? TVLibraryFocus.card(0) : TVLibraryFocus.hero)
         .onChange(of: tvFocus) { previous, place in
@@ -3272,12 +3277,12 @@ private struct TVMediaLibraryCanvas: View {
     let bottomInset: CGFloat
 
     var body: some View {
-        ZStack(alignment: .top) {
-            TVMediaCinematicBackdrop(item: preview.item)
-            TVMediaLibraryPreview(item: preview.item)
-                .padding(.bottom, bottomInset)
-                .allowsHitTesting(false)
-        }
+        TVMediaCinematicBackdrop(item: preview.item)
+            .overlay(alignment: .top) {
+                TVMediaLibraryPreview(item: preview.item, steady: true)
+                    .padding(.bottom, bottomInset)
+                    .allowsHitTesting(false)
+            }
     }
 }
 
@@ -3309,17 +3314,32 @@ private struct TVMediaCinematicBackdrop: View {
     let item: MediaItem?
 
     var body: some View {
-        ZStack {
-            LineupStyle.background
-            if let item {
-                LineupArtView(url: media.backdropURL(for: item, width: 1920)
-                              ?? media.imageURL(for: item, width: 1920), width: 1920) { loaded in
-                    if let loaded { loaded.resizable().scaledToFill() }
-                    else { Color.clear }
+        // The picture fills the ground and is cut to it. Drawn as an overlay
+        // it can't size the ground: filled straight into a stack, a picture
+        // not the screen's shape -- a poster where there is no backdrop --
+        // made the stack taller than the screen.
+        LineupStyle.background
+            .overlay {
+                if let item {
+                    LineupArtView(url: media.backdropURL(for: item, width: 1920)
+                                  ?? media.imageURL(for: item, width: 1920), width: 1920) { loaded in
+                        if let loaded { loaded.resizable().scaledToFill() }
+                        else { Color.clear }
+                    }
+                    .id(item.id)
+                    .transition(.opacity)
                 }
-                .id(item.id)
-                .transition(.opacity)
             }
+            .clipped()
+            .overlay { shade }
+            .animation(.easeInOut(duration: 0.32), value: item?.id)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+    }
+
+    /// Dark from the left for the words, and from the foot for the shelf.
+    private var shade: some View {
+        ZStack {
             LinearGradient(stops: [
                 .init(color: .black.opacity(0.9), location: 0),
                 .init(color: .black.opacity(0.58), location: 0.38),
@@ -3332,9 +3352,6 @@ private struct TVMediaCinematicBackdrop: View {
                 .init(color: LineupStyle.background.opacity(0.88), location: 1)
             ], startPoint: .top, endPoint: .bottom)
         }
-        .animation(.easeInOut(duration: 0.32), value: item?.id)
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
     }
 }
 
@@ -3344,6 +3361,12 @@ private struct TVMediaCinematicBackdrop: View {
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
     let item: MediaItem?
+    /// Browsing: every title takes the same room, told from the top, so
+    /// nothing moves as the remote goes from title to title or as a title's
+    /// ratings, details and cast arrive -- each has its place kept for it,
+    /// and only what is in it changes. The title page leaves this off and
+    /// sits its words on the actions beneath them.
+    var steady = false
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
@@ -3353,29 +3376,20 @@ private struct TVMediaLibraryPreview: View {
             if let item {
                 VStack(alignment: .leading, spacing: 13) {
                     titleLockup(item)
-                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
-                        MediaRatingChips(ratings: shown)
+                    ratingsRow(item)
+                    metadataLine(item)
+                    overviewText(item)
+                    if steady {
+                        Color.clear.frame(height: 44)
+                            .overlay(alignment: .leading) { castLine(item) }
+                    } else {
+                        castLine(item)
                     }
-                    if !metadata(item).isEmpty {
-                        Text(metadata(item).joined(separator: "  ·  "))
-                            .font(.inter(19, .semibold))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .lineLimit(1)
-                            .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
-                    }
-                    if let overview = item.overview, !overview.isEmpty {
-                        Text(overview)
-                            .font(.inter(18, .medium))
-                            .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(3)
-                            .frame(maxWidth: 820, alignment: .leading)
-                            .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
-                    }
-                    castLine(item)
                 }
                 .id(item.id)
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: steady ? .topLeading : .bottomLeading)
                 .padding(.horizontal, 72)
                 .padding(.top, 112)
                 .padding(.bottom, 24)
@@ -3404,6 +3418,41 @@ private struct TVMediaLibraryPreview: View {
             }
         }
         .frame(width: 620, height: 105, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func ratingsRow(_ item: MediaItem) -> some View {
+        let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item)
+        if let shown, !shown.isEmpty {
+            MediaRatingChips(ratings: shown)
+        } else if steady {
+            Color.clear.frame(height: MediaRatingMetrics.height)
+        }
+    }
+
+    @ViewBuilder
+    private func metadataLine(_ item: MediaItem) -> some View {
+        let parts = metadata(item)
+        if !parts.isEmpty || steady {
+            Text(parts.isEmpty ? " " : parts.joined(separator: "  ·  "))
+                .font(.inter(19, .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+                .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
+        }
+    }
+
+    @ViewBuilder
+    private func overviewText(_ item: MediaItem) -> some View {
+        let overview = item.overview ?? ""
+        if !overview.isEmpty || steady {
+            Text(overview.isEmpty ? " " : overview)
+                .font(.inter(18, .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(3, reservesSpace: steady)
+                .frame(maxWidth: 820, alignment: .leading)
+                .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
+        }
     }
 
     /// The year, the genres and the running time, under the ratings.
