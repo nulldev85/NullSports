@@ -47,7 +47,6 @@ struct MobileChannelBanner: View {
         .frame(maxWidth: 340, alignment: .leading)
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.72))
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
