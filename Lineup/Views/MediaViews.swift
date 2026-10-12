@@ -62,7 +62,11 @@ struct MediaServersView: View {
             Group {
                 if !media.hasAnySource {
                     ContentUnavailableView {
-                        Label("Add a Media Server", systemImage: "play.square.stack")
+                        Label {
+                            Text("Add a Media Server")
+                        } icon: {
+                            MediaServerLogo(brand: .jellyfin).frame(width: 52, height: 52)
+                        }
                     } description: {
                         Text("Connect a Jellyfin server to watch your own library here.")
                     } actions: {
@@ -748,8 +752,7 @@ private struct TVMediaEmptyState: View {
         HStack(spacing: 34) {
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(LineupStyle.surface)
-                Image(systemName: "play.square.stack.fill")
-                    .font(.inter(72, .light)).foregroundStyle(LineupStyle.lightPurple)
+                MediaServerLogo(brand: .jellyfin).frame(width: 84, height: 84)
             }
             .frame(width: 210, height: 150)
             VStack(alignment: .leading, spacing: 12) {
@@ -884,6 +887,7 @@ private struct MediaCatalogsScreen: View {
                         MediaGridScreen(title: "Search Results", sections: results.map { group in
                             MediaGridSection(id: group.serverID.uuidString,
                                              title: results.count > 1 ? group.serverName : nil,
+                                             brand: results.count > 1 ? media.serverBrand(of: group.serverID) : nil,
                                              items: group.items)
                         })
                     }
@@ -978,10 +982,15 @@ private struct MediaCatalogsScreen: View {
                     // Which server a shelf comes from, once there is more than
                     // one: two of them can each have a "Trending Movies".
                     if let server = media.serverName(for: catalog) {
-                        Text(server.uppercased())
-                            .font(.inter(10, .bold)).tracking(1.2)
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
-                            .lineLimit(1)
+                        HStack(spacing: 5) {
+                            if let brand = media.serverBrand(for: catalog) {
+                                MediaServerLogo(brand: brand).frame(width: 11, height: 11)
+                            }
+                            Text(server.uppercased())
+                                .font(.inter(10, .bold)).tracking(1.2)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer()
                     #if os(tvOS)
@@ -1327,10 +1336,15 @@ private struct MediaCatalogsScreen: View {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text(shelf.title).font(sectionTitleFont)
                 if let label = shelf.label {
-                    Text(label.uppercased())
-                        .font(.inter(10, .bold)).tracking(1.2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
-                        .lineLimit(1)
+                    HStack(spacing: 7) {
+                        if let brand = shelf.catalog.flatMap(media.serverBrand(for:)) {
+                            MediaServerLogo(brand: brand).frame(width: 16, height: 16)
+                        }
+                        Text(label.uppercased())
+                            .font(.inter(10, .bold)).tracking(1.2)
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 // Where this shelf is among them, and that up and down move
@@ -1797,6 +1811,8 @@ private struct MediaCatalogsScreen: View {
 private struct MediaGridSection: Identifiable {
     let id: String
     let title: String?
+    /// The logo of the server the section is named for.
+    var brand: MediaServerBrand? = nil
     let items: [MediaItem]
 }
 
@@ -1828,6 +1844,11 @@ private struct MediaGridScreen: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if let heading = section.title {
                             HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                if let brand = section.brand {
+                                    MediaServerLogo(brand: brand)
+                                        .frame(width: sectionLogoSize, height: sectionLogoSize)
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                }
                                 Text(heading).font(headingFont)
                                 Text(section.items.count == 1 ? "1 result" : "\(section.items.count) results")
                                     .font(.inter(13, .semibold))
@@ -1908,6 +1929,14 @@ private struct MediaGridScreen: View {
         .inter(24, .semibold)
         #else
         .inter(.title3, .bold)
+        #endif
+    }
+    /// A server's logo beside its section's heading, the heading's height.
+    private var sectionLogoSize: CGFloat {
+        #if os(tvOS)
+        24
+        #else
+        18
         #endif
     }
     private var horizontalPadding: CGFloat {
@@ -2007,6 +2036,8 @@ private struct MediaShelfPicker: View {
         let id: String
         let title: String
         let detail: String
+        /// The logo of the server the group is named for.
+        var brand: MediaServerBrand? = nil
         let items: [MediaItem]
     }
 
@@ -2022,12 +2053,13 @@ private struct MediaShelfPicker: View {
         let several = media.profiles.count > 1
         let servers = media.profiles.flatMap { server -> [Group] in
             let owner = several ? " · " + server.name.uppercased() : ""
+            let brand = several ? MediaServerBrand.of(server) : nil
             return [Group(id: server.id.uuidString + "|libraries", title: "LIBRARIES" + owner,
                           detail: several ? "Folders \(server.name) keeps itself" : "Folders this server keeps itself",
-                          items: media.availableLibraries(on: server)),
+                          brand: brand, items: media.availableLibraries(on: server)),
                     Group(id: server.id.uuidString + "|catalogs", title: "IMPORTED CATALOGS" + owner,
                           detail: several ? "Already on \(server.name), ready to shelve" : "Already on your server, ready to shelve",
-                          items: media.availableCatalogs(on: server))]
+                          brand: brand, items: media.availableCatalogs(on: server))]
         }
         // The IPTV provider's own categories, films and then shows.
         var provider: [Group] = []
@@ -2096,8 +2128,13 @@ private struct MediaShelfPicker: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            HStack(spacing: 7) {
+                                if let brand = group.brand {
+                                    MediaServerLogo(brand: brand).frame(width: 14, height: 14)
+                                }
+                                Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            }
                             Text(group.detail).font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
@@ -2150,9 +2187,15 @@ private struct MediaShelfPicker: View {
                     // it, which it then does in its own time.
                     ForEach(media.addonGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(addonHeading(group))
-                                .font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            HStack(spacing: 7) {
+                                if media.serverName(of: group.serverID) != nil,
+                                   let brand = media.serverBrand(of: group.serverID) {
+                                    MediaServerLogo(brand: brand).frame(width: 14, height: 14)
+                                }
+                                Text(addonHeading(group))
+                                    .font(.inter(12, .heavy)).tracking(1.6)
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            }
                             // The server re-imports every enabled catalog when
                             // asked, so this is minutes, not seconds. Saying so
                             // is the difference between waiting and giving up.
@@ -3946,10 +3989,19 @@ struct LibraryHeroSettingsView: View {
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
                 Text(catalog.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
-                Text("\(min(10, catalog.items.count)) featured title\(min(10, catalog.items.count) == 1 ? "" : "s")"
-                     + (media.serverName(for: catalog).map { " · " + $0 } ?? ""))
-                    .font(.inter(rowDetailSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                HStack(spacing: 6) {
+                    Text("\(min(10, catalog.items.count)) featured title\(min(10, catalog.items.count) == 1 ? "" : "s")"
+                         + (media.serverName(for: catalog) == nil ? "" : " · "))
+                    if let server = media.serverName(for: catalog) {
+                        if let brand = media.serverBrand(for: catalog) {
+                            MediaServerLogo(brand: brand).frame(width: rowDetailSize, height: rowDetailSize)
+                        }
+                        Text(server)
+                    }
+                }
+                .font(.inter(rowDetailSize))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                .lineLimit(1)
             }
             Spacer(minLength: 12)
             if media.heroCatalog?.id == catalog.id {
@@ -4002,6 +4054,14 @@ private enum StreamLookup {
         }
     }
 
+    /// The server's logo; the provider, not a media server, has none.
+    var brand: MediaServerBrand? {
+        switch self {
+        case .server(let server): MediaServerBrand.of(server)
+        case .provider: nil
+        }
+    }
+
     /// The tab it is listed under: a server by its name, the provider as
     /// VOD -- the name its streams are grouped under.
     var name: String {
@@ -4027,6 +4087,8 @@ private struct StreamServerStatus: Identifiable {
 
     let id: UUID
     let name: String
+    /// The server's logo; nil for VOD, which is the IPTV provider's.
+    var brand: MediaServerBrand? = nil
     var phase: Phase
 
     var detail: String {
@@ -4188,7 +4250,7 @@ private struct MediaSourcePicker: View {
         serverStatus = lookups.map { lookup -> StreamServerStatus in
             var phase = StreamServerStatus.Phase.looking
             if case .provider = lookup, let providerWait { phase = .preparing(providerWait) }
-            return StreamServerStatus(id: lookup.id, name: lookup.name, phase: phase)
+            return StreamServerStatus(id: lookup.id, name: lookup.name, brand: lookup.brand, phase: phase)
         }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
@@ -4518,7 +4580,7 @@ private struct MediaStreamBoard: View {
             HStack(spacing: Style.tabGap) {
                 tab(nil, title: "All", mark: allMark)
                 ForEach(statuses) { status in
-                    tab(status.name, title: status.name, mark: status.mark)
+                    tab(status.name, title: status.name, mark: status.mark, brand: status.brand)
                 }
             }
             .padding(.vertical, Style.tabLift)
@@ -4532,9 +4594,10 @@ private struct MediaStreamBoard: View {
         sources.isEmpty && statuses.contains(where: \.isWaiting) ? .looking : .count(sources.count)
     }
 
-    private func tab(_ value: String?, title: String, mark: MediaStreamTab.Mark) -> some View {
+    private func tab(_ value: String?, title: String, mark: MediaStreamTab.Mark,
+                     brand: MediaServerBrand? = nil) -> some View {
         Button { filter = value } label: {
-            MediaStreamTab(title: title, mark: mark, active: filter == value)
+            MediaStreamTab(title: title, mark: mark, active: filter == value, brand: brand)
         }
         .lineupFlatButton()
     }
@@ -4564,6 +4627,11 @@ private struct MediaStreamBoard: View {
 
     private func sectionHeader(_ section: MediaStreamSection, first: Bool) -> some View {
         HStack(alignment: .firstTextBaseline) {
+            if let brand = statuses.first(where: { $0.name == section.title })?.brand {
+                MediaServerLogo(brand: brand)
+                    .frame(width: Style.sectionSize + 2, height: Style.sectionSize + 2)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            }
             Text(section.title.uppercased())
                 .font(.inter(Style.sectionSize, .heavy)).tracking(Style.eyebrowTracking)
             Spacer()
@@ -4598,9 +4666,14 @@ private struct MediaStreamBoard: View {
             VStack(alignment: .leading, spacing: Style.lineGap * 2) {
                 ForEach(missing) { status in
                     VStack(alignment: .leading, spacing: Style.lineGap) {
-                        Text(status.failure == nil ? "\(status.name) doesn't have this title"
-                                                   : "\(status.name) didn't answer")
-                            .font(.inter(Style.noteSize, .semibold))
+                        HStack(spacing: 6) {
+                            if let brand = status.brand {
+                                MediaServerLogo(brand: brand).frame(width: Style.noteSize, height: Style.noteSize)
+                            }
+                            Text(status.failure == nil ? "\(status.name) doesn't have this title"
+                                                       : "\(status.name) didn't answer")
+                                .font(.inter(Style.noteSize, .semibold))
+                        }
                         if let why = status.tried ?? status.failure {
                             Text(why).font(.inter(Style.noteSize - 2)).lineLimit(2)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
@@ -4733,11 +4806,16 @@ private struct MediaStreamTab: View {
     let title: String
     let mark: Mark
     let active: Bool
+    /// The server's logo, ahead of its name.
+    var brand: MediaServerBrand? = nil
 
     private typealias Style = MediaStreamStyle
 
     var body: some View {
         HStack(spacing: Style.tabInnerGap) {
+            if let brand {
+                MediaServerLogo(brand: brand).frame(width: Style.tabSize, height: Style.tabSize)
+            }
             Text(title).font(.inter(Style.tabSize, .semibold)).lineLimit(1)
             markView
         }
@@ -5356,6 +5434,13 @@ private struct MediaArtworkProgress: View {
 
 struct MediaServerSetupView: View {
     @EnvironmentObject private var media: MediaLibrary
+    private var setupLogoSize: CGFloat {
+        #if os(tvOS)
+        56
+        #else
+        36
+        #endif
+    }
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var server = ""
@@ -5365,7 +5450,21 @@ struct MediaServerSetupView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Jellyfin-Compatible Server") {
+                // Which kind of server this signs in to, by its logo. Plex
+                // and Emby are a choice made here once Lineup can reach them.
+                Section {
+                    HStack(spacing: 14) {
+                        MediaServerLogo(brand: .jellyfin).frame(width: setupLogoSize, height: setupLogoSize)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(MediaServerBrand.jellyfin.name).font(.inter(.headline, .bold))
+                            Text("Jellyfin, and servers built on it")
+                                .font(.inter(.caption)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .combine)
+                }
+                Section("Sign In") {
                     TextField("Display name", text: $name)
                     TextField("Server address", text: $server)
                         #if !os(tvOS)
@@ -5518,7 +5617,11 @@ struct InitialSourceSetupView: View {
                     Label("Add IPTV Provider", systemImage: "dot.radiowaves.left.and.right")
                 }
                 Button { addingMedia = true } label: {
-                    Label("Add Media Server", systemImage: "play.square.stack")
+                    Label {
+                        Text("Add Media Server")
+                    } icon: {
+                        MediaServerLogo(brand: .jellyfin).frame(width: 30, height: 30)
+                    }
                 }
             }
             .lineupButtonStyle()
@@ -5529,8 +5632,12 @@ struct InitialSourceSetupView: View {
                         .frame(maxWidth: .infinity)
                 }
                 Button { addingMedia = true } label: {
-                    Label("Add Media Server", systemImage: "play.square.stack")
-                        .frame(maxWidth: .infinity)
+                    Label {
+                        Text("Add Media Server")
+                    } icon: {
+                        MediaServerLogo(brand: .jellyfin).frame(width: 20, height: 20)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .lineupButtonStyle()

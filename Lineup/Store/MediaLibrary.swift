@@ -238,6 +238,19 @@ final class MediaLibrary: ObservableObject {
 
     func serverName(for catalog: MediaCatalog) -> String? { serverName(of: catalog.root.serverID) }
 
+    /// The software a media server runs, for its logo beside its name. Nil
+    /// for the IPTV provider, which is not a media server, and for anything
+    /// whose server is gone.
+    func serverBrand(of serverID: UUID?) -> MediaServerBrand? {
+        guard let serverID, let profile = profiles.first(where: { $0.id == serverID }) else { return nil }
+        return MediaServerBrand.of(profile)
+    }
+
+    /// The logo for the server a shelf comes from -- wherever its name is shown.
+    func serverBrand(for catalog: MediaCatalog) -> MediaServerBrand? {
+        serverName(for: catalog) == nil ? nil : serverBrand(of: catalog.root.serverID)
+    }
+
     /// A shelf's name where a list of every shelf shows it: with more than one
     /// server, two of them can each have a "Movies".
     func shelfName(_ catalog: MediaCatalog) -> String {

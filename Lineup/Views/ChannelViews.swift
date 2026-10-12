@@ -4379,6 +4379,7 @@ struct AccountView: View {
         } else {
             AccountEmptySource(
                 symbol: "play.square.stack",
+                brand: .jellyfin,
                 kind: "MEDIA SERVER",
                 title: "No media server",
                 detail: "Connect your Jellyfin server to watch your own library."
@@ -4618,6 +4619,8 @@ private struct AccountSourceCard<Actions: View>: View {
 /// there if it were, holding the one action that connects it.
 private struct AccountEmptySource<Action: View>: View {
     let symbol: String
+    /// A media server's own mark, in place of the symbol.
+    var brand: MediaServerBrand? = nil
     let kind: String
     let title: String
     let detail: String
@@ -4626,7 +4629,7 @@ private struct AccountEmptySource<Action: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             HStack(alignment: .top, spacing: 18) {
-                AccountGlyph(symbol: symbol)
+                AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
                         .font(.inter(12, .bold)).tracking(2)
