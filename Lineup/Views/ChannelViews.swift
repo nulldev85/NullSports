@@ -120,29 +120,6 @@ struct LiveView: View {
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(LineupStyle.background.ignoresSafeArea())
-        // A game from the Top Shelf. At launch the schedule may not be in
-        // yet, so the link waits for it.
-        .onReceive(LineupLinkRouter.shared.$pending) { follow($0, in: library.gamesByLeague) }
-        .onReceive(library.$gamesByLeague) { follow(LineupLinkRouter.shared.pending, in: $0) }
-    }
-
-    /// A game asked for from outside the app: straight to full screen on its
-    /// channel, or to the channel list when it has none.
-    private func follow(_ link: LineupLink?, in games: [SportsLeague: [SportsGame]]) {
-        guard case .game(let id)? = link,
-              let game = games.values.joined().first(where: { $0.id == id }) else { return }
-        LineupLinkRouter.shared.pending = nil
-        multiviewPrimary = nil
-        multiviewPrimaryGame = nil
-        stopPreview()
-        guard let stream = library.resolvedStream(for: game) else {
-            handleUnmatchedSelection(game, startsMultiview: false)
-            return
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(180))
-            fullScreen = TVFullScreenItem(stream: stream, game: game)
-        }
     }
 
     private func select(_ game: SportsGame) {
@@ -2777,17 +2754,6 @@ struct GuideView: View {
                     }
                 }
                 .onChange(of: gridFocus?.streamID) { _, streamID in rest(on: streamID) }
-                // A channel asked for from outside the app plays full screen.
-                .onReceive(LineupLinkRouter.shared.$pending) { link in
-                    guard case .channel(let id)? = link, let stream = library.stream(withID: id) else { return }
-                    LineupLinkRouter.shared.pending = nil
-                    hoverTask?.cancel()
-                    stopPreview()
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(180))
-                        fullScreen = TVFullScreenItem(stream: stream)
-                    }
-                }
                 // Away from the Guide nothing plays, and coming back to it
                 // plays nothing until the remote rests on a channel.
                 .onChange(of: isActive) { _, active in

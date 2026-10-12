@@ -114,27 +114,6 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
 
-      - name: Check the Top Shelf extension is in the bundle
-        run: |
-          set -euo pipefail
-          # A missing or misdeclared extension is silent: the app builds and
-          # runs, and the home screen goes on showing the static image. So the
-          # bundle is the thing to check, as above.
-          app="build/Build/Products/Release-appletvos/Lineup.app"
-          appex="$app/PlugIns/LineupTopShelf.appex"
-          test -d "$appex"
-          plist="$appex/Info.plist"
-          test -f "$plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$plist")" = "com.apple.tv-top-shelf"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPrincipalClass' "$plist")" = "LineupTopShelf.ContentProvider"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.TopShelf"
-          # An extension's versions have to equal its app's.
-          for key in CFBundleVersion CFBundleShortVersionString; do
-            test "$(/usr/libexec/PlistBuddy -c "Print :$key" "$plist")" = "$(/usr/libexec/PlistBuddy -c "Print :$key" "$app/Info.plist")"
-          done
-          # The scheme the Top Shelf's items open the app with.
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Info.plist")" = "lineup"
-
       - name: Build for tvOS Simulator
         run: |
           set -euo pipefail

@@ -132,28 +132,6 @@ jobs:
           legacy_icons=$(find "$app" -maxdepth 1 -name 'AppIcon*.png')
           test -z "$legacy_icons"
 
-      - name: Check the widget extension is in the bundle
-        run: |
-          set -euo pipefail
-          # A missing or misdeclared extension is silent: the app runs and the
-          # widget is simply absent from the gallery. Release bundle where one
-          # was built, simulator bundle otherwise, as above.
-          app="build/Build/Products/Release-iphoneos/Lineup.app"
-          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
-          appex="$app/PlugIns/LineupWidget.appex"
-          test -d "$appex"
-          plist="$appex/Info.plist"
-          test -f "$plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$plist")" = "com.apple.widgetkit-extension"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS.Widget"
-          # An extension's versions have to equal its app's; LineupiOS sets its
-          # own, so project.yml repeats them on the widget.
-          for key in CFBundleVersion CFBundleShortVersionString; do
-            test "$(/usr/libexec/PlistBuddy -c "Print :$key" "$plist")" = "$(/usr/libexec/PlistBuddy -c "Print :$key" "$app/Info.plist")"
-          done
-          # The scheme the widget's rows open the app with.
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Info.plist")" = "lineup"
-
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'
         run: |

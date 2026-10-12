@@ -1166,16 +1166,6 @@ private struct MediaCatalogsScreen: View {
         // Play and artwork -- jumped as the remote moved between titles.
         .background { TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight) }
         .ignoresSafeArea()
-        // Something part-watched, from the Top Shelf: carried on as Continue
-        // Watching would carry it on.
-        .onReceive(LineupLinkRouter.shared.$pending) { link in
-            guard case .media(let profileID, let itemID)? = link,
-                  let record = media.continueWatching.first(where: {
-                      $0.profileID == profileID && $0.item.id == itemID
-                  }) else { return }
-            LineupLinkRouter.shared.pending = nil
-            if let page = pageItem(for: record.item, opensPages: true) { pushed = page } else { play(record.item) }
-        }
         .onChange(of: tvFocus) { previous, place in
             if place == .shelfAbove { cameUpFromRow(previous) } else { tvFocusChanged(to: place) }
         }

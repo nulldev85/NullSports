@@ -28,10 +28,8 @@ targets:
     platform: tvOS
     sources:
       - Lineup
-      - Shared
     dependencies:
       - package: VLCKitSPM
-      - target: LineupTopShelf
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
@@ -63,10 +61,8 @@ targets:
       - Lineup/Views/MediaViews.swift
       - Lineup/Views/SearchViews.swift
       - iPhone
-      - Shared
     dependencies:
       - package: VLCKitSPM
-      - target: LineupWidget
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
@@ -94,53 +90,6 @@ targets:
     scheme:
       testTargets:
         - LineupiOSTests
-  # The Apple TV Top Shelf: what Lineup shows above itself when it sits in the
-  # top row of the home screen. It reads the shelf the app writes into the
-  # App Group and nothing else, so it carries Shared and none of the app --
-  # no stores, no VLCKit. Listed as a dependency of Lineup, which is what
-  # embeds it in the app's PlugIns. Its versions are the project's, the same
-  # as the app's, and must stay that way.
-  LineupTopShelf:
-    type: app-extension
-    platform: tvOS
-    sources:
-      - TopShelf
-      - Shared
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.TopShelf
-        PRODUCT_NAME: LineupTopShelf
-        # A complete file, like the iPhone app's: NSExtension is a nested
-        # dictionary with no INFOPLIST_KEY_ form.
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: BuildAssets/LineupTopShelf-Info.plist
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: TopShelf/LineupTopShelf.entitlements
-        SKIP_INSTALL: YES
-  # The iPhone's Home Screen and Lock Screen widget, built the same way as
-  # the Top Shelf and embedded in LineupiOS the same way. An extension's
-  # versions must equal its app's, and LineupiOS sets its own rather than
-  # taking the project's, so they are repeated here: change one pair, change
-  # both.
-  LineupWidget:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - Widget
-      - Shared
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS.Widget
-        PRODUCT_NAME: LineupWidget
-        MARKETING_VERSION: "0.19.0"
-        CURRENT_PROJECT_VERSION: "90"
-        TARGETED_DEVICE_FAMILY: "1"
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: BuildAssets/LineupWidget-Info.plist
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: Widget/LineupWidget.entitlements
-        SKIP_INSTALL: YES
   LineupiOSTests:
     type: bundle.unit-test
     platform: iOS

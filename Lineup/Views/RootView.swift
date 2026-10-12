@@ -107,16 +107,6 @@ struct MainView: View {
         .toolbar(.visible, for: .tabBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
-        // A Top Shelf item opens the tab it belongs to; the tab itself plays
-        // it, and clears the link once it has.
-        .onReceive(LineupLinkRouter.shared.$pending) { link in
-            switch link {
-            case .game?: selectedTab = 0
-            case .channel?: selectedTab = 1
-            case .media?: selectedTab = 2
-            case nil: break
-            }
-        }
         // Beside the tab bar, where the set's own notices appear, over every
         // tab. A player covers it: they are all full-screen presentations.
         .overlay(alignment: .topTrailing) { DataRefreshPopup() }

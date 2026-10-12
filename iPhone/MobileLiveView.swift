@@ -303,10 +303,6 @@ struct MobileLiveView: View {
             } message: { selection in
                 Text("\(selection.stream.name) is playing now. Lineup can remember it for one of these teams.")
             }
-            // A game from the Home Screen widget. At launch the schedule may
-            // not be in yet, so the link waits for it.
-            .onReceive(LineupLinkRouter.shared.$pending) { followLink($0, in: library.gamesByLeague) }
-            .onReceive(library.$gamesByLeague) { followLink(LineupLinkRouter.shared.pending, in: $0) }
             .onChange(of: isActive) { _, active in
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
@@ -638,14 +634,6 @@ struct MobileLiveView: View {
             do { try await Task.sleep(for: .seconds(3)) } catch { return }
             if channelBanner == info { channelBanner = nil }
         }
-    }
-
-    /// A game asked for from outside the app, opened as a tap on it would.
-    private func followLink(_ link: LineupLink?, in games: [SportsLeague: [SportsGame]]) {
-        guard case .game(let id)? = link,
-              let game = games.values.joined().first(where: { $0.id == id }) else { return }
-        LineupLinkRouter.shared.pending = nil
-        open(game)
     }
 
     /// One of the viewer's teams' games, from an alert: on its channel in
