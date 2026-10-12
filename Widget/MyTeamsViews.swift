@@ -56,7 +56,7 @@ private struct MyTeamsSmallView: View {
             SmallGame(game: game, entry: entry)
                 .widgetURL(game.link.url)
         } else {
-            EmptyShelf(followsTeams: entry.followsTeams)
+            EmptyShelf(empty: entry.empty)
         }
     }
 }
@@ -146,7 +146,7 @@ private struct MyTeamsMediumView: View {
 
     var body: some View {
         if entry.games.isEmpty {
-            EmptyShelf(followsTeams: entry.followsTeams)
+            EmptyShelf(empty: entry.empty)
         } else {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(entry.games.prefix(3))) { game in
@@ -262,7 +262,7 @@ private struct MyTeamsRectangularView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("My Teams")
                     .font(.system(size: 15, weight: .semibold))
-                Text(entry.followsTeams ? "No games in the next two days" : "Follow teams in Lineup")
+                Text(entry.empty.shortMessage)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -309,16 +309,14 @@ private struct MyTeamsInlineView: View {
 // MARK: - Pieces
 
 private struct EmptyShelf: View {
-    let followsTeams: Bool
+    let empty: MyTeamsEmpty
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("My Teams")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(WidgetStyle.primary)
-            Text(followsTeams
-                 ? "No games for your teams in the next two days."
-                 : "Follow teams in Lineup to see their games here.")
+            Text(empty.message)
                 .font(.system(size: 12))
                 .foregroundStyle(WidgetStyle.secondary)
                 .minimumScaleFactor(0.85)

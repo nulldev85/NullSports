@@ -176,6 +176,12 @@ final class MobilePlaybackController: ObservableObject {
     /// When the engine started playing behind the shut gate: the sound has
     /// been held since then.
     private var heldSoundSince: TimeInterval?
+    /// VLC's picture behind the gate: when it first came up, the pictures
+    /// shown by then, and its size and how long it has held it.
+    private var vlcPictureUpAt: TimeInterval?
+    private var vlcPicturesAtUp = 0
+    private var vlcGateSize = CGSize.zero
+    private var vlcGateSizeSince: TimeInterval?
 
     // AVPlayer engine state.
     private var systemObservers: [NSKeyValueObservation] = []
@@ -515,6 +521,9 @@ final class MobilePlaybackController: ObservableObject {
         gateFrames = 0
         gateLastFrameAt = nil
         heldSoundSince = nil
+        vlcPictureUpAt = nil
+        vlcGateSize = .zero
+        vlcGateSizeSince = nil
         switch engine {
         case .system: systemPlayer.isMuted = true
         case .vlc: player.audio?.isMuted = true
@@ -564,7 +573,26 @@ final class MobilePlaybackController: ObservableObject {
             // unmuted; held again until the picture is there.
             if player.audio?.isMuted == false { player.audio?.isMuted = true }
             if player.hasVideoOut {
-                openStartGate("picture up")
+                // Shown once its shape has settled, so a first frame drawn
+                // before VLC knows it never shows stretched.
+                let pictures = player.media?.numberOfDisplayedPictures ?? 0
+                if vlcPictureUpAt == nil {
+                    vlcPictureUpAt = now
+                    vlcPicturesAtUp = pictures
+                }
+                let size = player.videoSize
+                if size != vlcGateSize {
+                    vlcGateSize = size
+                    vlcGateSizeSince = now
+                }
+                let steady = size.width > 0 && size.height > 0
+                    && now - (vlcGateSizeSince ?? now) >= StartTogether.vlcSettle
+                    && pictures - vlcPicturesAtUp >= StartTogether.vlcFramesToSettle
+                if steady {
+                    openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
+                } else if let upAt = vlcPictureUpAt, now - upAt > StartTogether.vlcSettleDeadline {
+                    openStartGate("picture up, shape not settled")
+                }
             } else if let since = heldSoundSince, now - since > StartTogether.soundAloneAfter {
                 openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
             }
@@ -1684,7 +1712,16 @@ final class MobileVideoHost: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         playerLayer?.opacity = held ? 0 : 1
+        // VLC draws into a view of its own inside this one.
+        for renderer in subviews where renderer !== stillPicture { renderer.alpha = held ? 0 : 1 }
         CATransaction.commit()
+    }
+
+    /// VLC adds its renderer once the stream's picture starts, which can be
+    /// after the picture was held: held from the moment it arrives.
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        if subview !== stillPicture { subview.alpha = pictureHeld ? 0 : 1 }
     }
 
     private var stillPicture: UIView?
@@ -1706,8 +1743,8 @@ final class MobileVideoHost: UIView {
               let still = snapshotView(afterScreenUpdates: false) else { return }
         still.frame = bounds
         still.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addSubview(still)
         stillPicture = still
+        addSubview(still)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for view in subviews where view !== still { view.isHidden = true }

@@ -151,6 +151,14 @@ enum StartTogether {
     /// ahead alone. A radio channel has no picture to wait for, and VLC
     /// cannot say so any sooner.
     static let soundAloneAfter: TimeInterval = 6
+    /// Once VLC's picture is up, how long its size must hold steady before
+    /// it shows. VLC can draw a stream's first frames before it has worked
+    /// out their shape, stretched to fill until it has.
+    static let vlcSettle: TimeInterval = 0.4
+    /// New pictures VLC must have shown, behind the gate, before it opens.
+    static let vlcFramesToSettle = 6
+    /// Shown this long after the picture first came up, settled or not.
+    static let vlcSettleDeadline: TimeInterval = 2
 
     /// The run of moving frames after one more new frame at `now`.
     static func frames(after count: Int, lastFrameAt: TimeInterval?, now: TimeInterval) -> Int {

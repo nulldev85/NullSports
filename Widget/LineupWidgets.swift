@@ -35,7 +35,8 @@ struct MyTeamsEntry: TimelineEntry {
     let date: Date
     /// The games to draw at `date`, live first.
     let games: [HomeShelfGame]
-    let followsTeams: Bool
+    /// What to say when there are no games to draw.
+    let empty: MyTeamsEmpty
     /// Each badge the entry draws, already shrunk, keyed by its address. A
     /// widget's views cannot load anything themselves, so whatever is not in
     /// here is drawn as the team's abbreviation instead.
@@ -55,7 +56,42 @@ struct MyTeamsEntry: TimelineEntry {
             awayScore: nil, homeScore: nil, awayRank: nil, homeRank: nil,
             start: date.addingTimeInterval(2 * 60 * 60), isLive: false, status: "",
             channelName: nil, isEvent: false, eventName: nil)
-        return MyTeamsEntry(date: date, games: [game], followsTeams: true, logos: [:])
+        return MyTeamsEntry(date: date, games: [game], empty: .noGames, logos: [:])
+    }
+}
+
+/// Why the widget has no games to show, which decides what it says instead.
+enum MyTeamsEmpty {
+    case noGames
+    case noTeams
+    /// The app has not written a shelf yet: installed, never opened since.
+    case notOpened
+    /// This install cannot open the App Group, so nothing the app writes
+    /// can reach the widget.
+    case unreachable
+
+    static func reading(_ shelf: HomeShelfSnapshot?) -> MyTeamsEmpty {
+        guard HomeShelfStore.fileURL != nil else { return .unreachable }
+        guard let shelf else { return .notOpened }
+        return shelf.followsTeams ? .noGames : .noTeams
+    }
+
+    var message: String {
+        switch self {
+        case .noGames: return "No games for your teams in the next two days."
+        case .noTeams: return "Follow teams in Lineup to see their games here."
+        case .notOpened: return "Open Lineup to bring your teams here."
+        case .unreachable: return "This install of Lineup can't share its games with widgets."
+        }
+    }
+
+    var shortMessage: String {
+        switch self {
+        case .noGames: return "No games in the next two days"
+        case .noTeams: return "Follow teams in Lineup"
+        case .notOpened: return "Open Lineup to load your teams"
+        case .unreachable: return "Can't reach Lineup's games"
+        }
     }
 }
 
@@ -77,10 +113,10 @@ struct MyTeamsProvider: TimelineProvider {
             return
         }
         let family = context.family
-        let follows = shelf?.followsTeams ?? !games.isEmpty
+        let empty = MyTeamsEmpty.reading(shelf)
         Task {
             let logos = await LogoLoader.load(Self.logoAddresses(for: [games], family: family))
-            completion(MyTeamsEntry(date: now, games: games, followsTeams: follows, logos: logos))
+            completion(MyTeamsEntry(date: now, games: games, empty: empty, logos: logos))
         }
     }
 
@@ -95,7 +131,7 @@ struct MyTeamsProvider: TimelineProvider {
     private static func timeline(now: Date, family: WidgetFamily) async -> Timeline<MyTeamsEntry> {
         let shelf = HomeShelfStore.read()
         let games = shelf?.games ?? []
-        let follows = shelf?.followsTeams ?? !games.isEmpty
+        let empty = MyTeamsEmpty.reading(shelf)
 
         // An entry for now, and one for each moment the picture changes on its
         // own: a game starting, which turns it live, and a game reaching its
@@ -107,7 +143,7 @@ struct MyTeamsProvider: TimelineProvider {
 
         let logos = await LogoLoader.load(logoAddresses(for: slates, family: family))
         let entries = dates.indices.map { index in
-            MyTeamsEntry(date: dates[index], games: slates[index], followsTeams: follows, logos: logos)
+            MyTeamsEntry(date: dates[index], games: slates[index], empty: empty, logos: logos)
         }
 
         // Ask again within half an hour, or as a game starts if that is

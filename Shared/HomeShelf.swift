@@ -19,8 +19,59 @@ import Foundation
 /// One identifier for both platforms: the Top Shelf and the widget each sit
 /// beside a different app, but neither ever reads the other's container, so
 /// there is nothing to keep apart.
+///
+/// A sideloaded install is signed again on the way onto the device, and the
+/// tool that signs it can give the group a name of its own -- AltStore adds
+/// the signer's team to the end and notes the new name in the Info.plist.
+/// The group that counts is the one this install can open, so it is looked
+/// for where a signer leaves it: the provisioning profile inside the bundle,
+/// then AltStore's note, then the name the project gives it. The app and its
+/// extension are signed together and find the same one.
 enum LineupAppGroup {
-    static let identifier = "group.com.nulldev85.NullSports"
+    /// The name the project gives the group.
+    static let declared = "group.com.nulldev85.NullSports"
+
+    /// The group this install can open, or the declared one if it can open
+    /// none, so a build without the group still has a name to fail on.
+    static let identifier: String = {
+        let fileManager = FileManager.default
+        return candidates(provisioned: provisionedGroups(), noted: notedGroups())
+            .first { fileManager.containerURL(forSecurityApplicationGroupIdentifier: $0) != nil } ?? declared
+    }()
+
+    static var containerURL: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
+    }
+
+    /// Every group worth trying, in order: the profile's, then the note's,
+    /// then the declared name; within that, one named for Lineup ahead of
+    /// any other the signer granted.
+    static func candidates(provisioned: [String], noted: [String]) -> [String] {
+        var seen = Set<String>()
+        let all = (provisioned + noted + [declared]).filter { !$0.isEmpty && seen.insert($0).inserted }
+        return all.filter { $0.hasPrefix(declared) } + all.filter { !$0.hasPrefix(declared) }
+    }
+
+    /// The groups granted by the profile a provisioning file carries: a
+    /// signed envelope with the profile inside it as a plain property list.
+    static func groups(inProvisioningProfile data: Data) -> [String] {
+        guard let start = data.range(of: Data("<?xml".utf8)) ?? data.range(of: Data("<plist".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let profile = try? PropertyListSerialization.propertyList(
+                  from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let entitlements = profile["Entitlements"] as? [String: Any] else { return [] }
+        return entitlements["com.apple.security.application-groups"] as? [String] ?? []
+    }
+
+    private static func provisionedGroups() -> [String] {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url) else { return [] }
+        return groups(inProvisioningProfile: data)
+    }
+
+    private static func notedGroups() -> [String] {
+        Bundle.main.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] ?? []
+    }
 }
 
 // MARK: - Links
@@ -222,10 +273,10 @@ struct HomeShelfMedia: Codable, Identifiable, Hashable, Sendable {
 enum HomeShelfStore {
     static let fileName = "home-shelf.json"
 
+    /// Nil when this install can open no App Group: signed without one, the
+    /// app has nowhere its extensions can read.
     static var fileURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: LineupAppGroup.identifier)?
-            .appendingPathComponent(fileName, isDirectory: false)
+        LineupAppGroup.containerURL?.appendingPathComponent(fileName, isDirectory: false)
     }
 
     static func read() -> HomeShelfSnapshot? {

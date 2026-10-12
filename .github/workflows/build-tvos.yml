@@ -175,6 +175,9 @@ jobs:
           fi
           xcrun simctl shutdown "$device"
 
+      - name: Carry the App Group the Top Shelf reads from
+        run: Tools/carry-app-group.sh build/Build/Products/Release-appletvos/Lineup.app
+
       - name: Package IPA
         run: |
           set -euo pipefail
