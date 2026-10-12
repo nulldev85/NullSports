@@ -6,8 +6,9 @@ import XCTest
 final class AppGroupTests: XCTestCase {
     /// A provisioning file as it arrives: the profile as a property list,
     /// wrapped in a signature's binary bytes on both sides.
-    private func provisioningFile(groups: [String]) -> Data {
+    private func provisioningFile(groups: [String], keychain: [String] = []) -> Data {
         let list = groups.map { "<string>\($0)</string>" }.joined()
+        let keychainList = keychain.map { "<string>\($0)</string>" }.joined()
         let profile = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -16,6 +17,7 @@ final class AppGroupTests: XCTestCase {
             <key>Entitlements</key><dict>
                 <key>application-identifier</key><string>TEAM123.com.nulldev85.NullSports.iOS</string>
                 <key>com.apple.security.application-groups</key><array>\(list)</array>
+                <key>keychain-access-groups</key><array>\(keychainList)</array>
             </dict>
         </dict></plist>
         """
@@ -36,5 +38,15 @@ final class AppGroupTests: XCTestCase {
                                                  noted: [declared + ".TEAM123"]),
                        [declared + ".TEAM123", declared, "group.other.app"])
         XCTAssertEqual(LineupAppGroup.candidates(provisioned: [], noted: []), [declared])
+    }
+
+    func testWithoutAGroupTheShelfMeetsTheWidgetInTheTeamsKeychain() {
+        let shared = provisioningFile(groups: [], keychain: ["TEAM123.*", "com.apple.token"])
+        let granted = LineupAppGroup.keychainGroups(inProvisioningProfile: shared)
+        XCTAssertEqual(granted, ["TEAM123.*", "com.apple.token"])
+        XCTAssertEqual(LineupSharedKeychain.sharedGroup(granted: granted), "TEAM123.*")
+        // A keychain narrowed to the app's own entry has nowhere to share.
+        XCTAssertNil(LineupSharedKeychain.sharedGroup(granted: ["TEAM123.com.nulldev85.NullSports.iOS"]))
+        XCTAssertNil(LineupSharedKeychain.sharedGroup(granted: []))
     }
 }

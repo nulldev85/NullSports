@@ -70,12 +70,14 @@ enum MyTeamsEmpty {
     /// can reach the widget.
     case unreachable
 
-    static func reading(_ shelf: HomeShelfSnapshot?) -> MyTeamsEmpty {
-        guard HomeShelfStore.fileURL != nil else { return .unreachable }
-        guard let shelf else { return .notOpened }
+    init(_ reading: HomeShelfStore.Reading) {
+        switch reading {
+        case .unreachable: self = .unreachable
+        case .nothingYet: self = .notOpened
         // A shelf from before it said whether teams were followed: any
         // games on it mean they were.
-        return (shelf.followsTeams ?? !shelf.games.isEmpty) ? .noGames : .noTeams
+        case .shelf(let shelf): self = (shelf.followsTeams ?? !shelf.games.isEmpty) ? .noGames : .noTeams
+        }
     }
 
     var message: String {
@@ -108,14 +110,14 @@ struct MyTeamsProvider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (MyTeamsEntry) -> Void) {
         let now = Date()
-        let shelf = HomeShelfStore.read()
-        let games = HomeShelfGame.current(shelf?.games ?? [], at: now)
+        let reading = HomeShelfStore.reading()
+        let games = HomeShelfGame.current(reading.shelf?.games ?? [], at: now)
         if context.isPreview && games.isEmpty {
             completion(.sample(at: now))
             return
         }
         let family = context.family
-        let empty = MyTeamsEmpty.reading(shelf)
+        let empty = MyTeamsEmpty(reading)
         Task {
             let logos = await LogoLoader.load(Self.logoAddresses(for: [games], family: family))
             completion(MyTeamsEntry(date: now, games: games, empty: empty, logos: logos))
@@ -131,9 +133,9 @@ struct MyTeamsProvider: TimelineProvider {
     }
 
     private static func timeline(now: Date, family: WidgetFamily) async -> Timeline<MyTeamsEntry> {
-        let shelf = HomeShelfStore.read()
-        let games = shelf?.games ?? []
-        let empty = MyTeamsEmpty.reading(shelf)
+        let reading = HomeShelfStore.reading()
+        let games = reading.shelf?.games ?? []
+        let empty = MyTeamsEmpty(reading)
 
         // An entry for now, and one for each moment the picture changes on its
         // own: a game starting, which turns it live, and a game reaching its

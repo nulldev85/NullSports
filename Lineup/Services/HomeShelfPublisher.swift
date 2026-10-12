@@ -57,11 +57,11 @@ final class HomeShelfPublisher {
         comparable.savedAt = Date(timeIntervalSinceReferenceDate: 0)
         guard let fingerprint = try? HomeShelfStore.encoded(comparable),
               fingerprint != lastWritten else { return }
-        // No container means a build without the App Group, where nothing
-        // could read the file anyway. Remembering the fingerprint regardless
-        // keeps it from rebuilding and re-encoding on every call.
+        // Nowhere shared means a build the extensions cannot read from
+        // anyway. Remembering the fingerprint regardless keeps it from
+        // rebuilding and re-encoding on every call.
         lastWritten = fingerprint
-        guard HomeShelfStore.fileURL != nil else { return }
+        guard HomeShelfStore.isShared else { return }
         HomeShelfStore.write(snapshot)
         #if os(tvOS)
         TVTopShelfContentProvider.topShelfContentDidChange()

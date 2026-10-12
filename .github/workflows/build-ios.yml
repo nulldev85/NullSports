@@ -154,10 +154,6 @@ jobs:
           # The scheme the widget's rows open the app with.
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Info.plist")" = "lineup"
 
-      - name: Carry the App Group the widget reads from
-        if: env.PACKAGES_IPA == 'true'
-        run: Tools/carry-app-group.sh build/Build/Products/Release-iphoneos/Lineup.app
-
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'
         run: |
