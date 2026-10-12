@@ -2424,8 +2424,16 @@ struct GuideView: View {
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
+    /// The channel playing in the preview. Resting on a channel plays it
+    /// there without sound; Select turns its sound on, and Select again
+    /// takes it full screen.
     @State private var previewPlaybackStream: XtreamStream?
     @State private var pinnedPreviewItem: GuideFocusItem?
+    /// Whether the preview's sound is on: only once its channel is chosen.
+    @State private var previewAudible = false
+    /// Waits for the remote to rest on a channel before playing it, so
+    /// passing through rows doesn't open a stream for each.
+    @State private var hoverTask: Task<Void, Never>?
     @State private var playbackTransitionID: UUID?
     /// What the preview goes back to playing when full screen closes.
     ///
@@ -2483,6 +2491,7 @@ struct GuideView: View {
                             categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                             quality: guideQuality(previewItem.stream),
                             previewURLs: previewPlaybackStream?.id == previewItem.stream.id ? library.playbackURLs(for: previewItem.stream) : nil,
+                            audible: previewAudible,
                             now: guideNow
                         )
                         .frame(height: 216)
@@ -2607,6 +2616,14 @@ struct GuideView: View {
                         catch { return }
                     }
                 }
+                .onChange(of: gridFocus?.streamID) { _, streamID in rest(on: streamID) }
+                // Away from the Guide nothing plays, and coming back to it
+                // plays nothing until the remote rests on a channel.
+                .onChange(of: isActive) { _, active in
+                    guard !active else { return }
+                    hoverTask?.cancel()
+                    stopPreview()
+                }
                 .onExitCommand {
                     if playbackTransitionID != nil {
                         // Menu during the handover: full screen never opens, so
@@ -2616,8 +2633,8 @@ struct GuideView: View {
                         playbackTransitionID = nil
                         resumeAfterFullscreen = nil
                     } else if previewPlaybackStream != nil {
-                        previewPlaybackStream = nil
-                        pinnedPreviewItem = nil
+                        hoverTask?.cancel()
+                        stopPreview()
                     } else if !previewHidden {
                         previewHidden = true
                     }
@@ -2743,12 +2760,60 @@ struct GuideView: View {
         guard let resume = resumeAfterFullscreen else { return }
         resumeAfterFullscreen = nil
         pinnedPreviewItem = resume
+        // It was being watched full screen, so it comes back with its sound.
+        previewAudible = true
         previewPlaybackStream = resume.stream
     }
 
+    /// The remote resting on a channel: once it has stayed a moment, the
+    /// channel plays in the preview without sound. Moving to another channel
+    /// stops the one playing at once, so the preview never shows a channel
+    /// the remote has left.
+    private func rest(on streamID: Int?) {
+        hoverTask?.cancel()
+        guard let streamID, streamID != -1, isActive, multiviewPrimary == nil,
+              previewPlaybackStream?.id != streamID else { return }
+        if previewPlaybackStream != nil { stopPreview() }
+        hoverTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+            guard gridFocus?.streamID == streamID, previewPlaybackStream == nil,
+                  let stream = filtered.first(where: { $0.id == streamID }) else { return }
+            startPreview(stream, audible: false)
+        }
+    }
+
+    private func startPreview(_ stream: XtreamStream, audible: Bool) {
+        let program = focusedGuideItem.flatMap { $0.stream.id == stream.id ? $0.program : nil }
+            ?? library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end })
+            ?? library.guidePrograms(for: stream).normalizedEPG().first
+            ?? CurrentProgram(
+                channelID: stream.epgChannelID ?? String(stream.id),
+                title: stream.name,
+                detail: "Live channel preview",
+                start: guideNow,
+                end: guideNow.addingTimeInterval(3600)
+            )
+        pinnedPreviewItem = GuideFocusItem(stream: stream, program: program)
+        previewAudible = audible
+        previewPlaybackStream = stream
+        previewHidden = false
+    }
+
+    private func stopPreview() {
+        previewPlaybackStream = nil
+        pinnedPreviewItem = nil
+        previewAudible = false
+    }
+
+    /// Select on a channel: playing without sound, its sound comes on;
+    /// with its sound on, it goes full screen; not playing yet, it starts
+    /// with its sound.
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
-            if previewPlaybackStream?.id == stream.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
+            hoverTask?.cancel()
+            if previewPlaybackStream?.id == stream.id, !previewAudible {
+                previewAudible = true
+            } else if previewPlaybackStream?.id == stream.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
                 // The preview's own player goes full screen, still playing,
                 // and the preview stays pinned behind it to come back to.
                 playbackTransitionID = nil
@@ -2771,23 +2836,14 @@ struct GuideView: View {
                 }
             } else {
                 playbackTransitionID = nil
-                let selectedProgram = focusedGuideItem.flatMap { $0.stream.id == stream.id ? $0.program : nil }
-                    ?? library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end })
-                    ?? library.guidePrograms(for: stream).normalizedEPG().first
-                    ?? CurrentProgram(
-                        channelID: stream.epgChannelID ?? String(stream.id),
-                        title: stream.name,
-                        detail: "Live channel preview",
-                        start: guideNow,
-                        end: guideNow.addingTimeInterval(3600)
-                    )
-                pinnedPreviewItem = GuideFocusItem(stream: stream, program: selectedProgram)
-                previewPlaybackStream = stream
-                previewHidden = false
+                startPreview(stream, audible: true)
             }
             return
         }
         guard primary.id != stream.id else { return }
+        // The two pictures open their own streams; the preview's would be a
+        // third connection for nothing.
+        stopPreview()
         multiviewPrimary = nil
         multiviewSession = MultiviewSession(primary: primary, secondary: stream,
                                            primaryGame: nil, secondaryGame: nil)
@@ -2873,6 +2929,8 @@ private struct GuidePreviewPanel: View {
     let categoryName: String
     let quality: String?
     let previewURLs: [URL]?
+    /// Whether the playing channel's sound is on.
+    let audible: Bool
     let now: Date
 
     private var progress: CGFloat {
@@ -2894,7 +2952,7 @@ private struct GuidePreviewPanel: View {
         HStack(alignment: .center, spacing: 34) {
             Group {
                 if let previewURLs {
-                    GuidePreviewVideo(channelID: item.stream.id, urls: previewURLs)
+                    GuidePreviewVideo(channelID: item.stream.id, urls: previewURLs, audible: audible)
                         .id(item.stream.id)
                 } else {
                     GuidePreviewArtwork(stream: item.stream)
@@ -2941,11 +2999,20 @@ private struct GuidePreviewPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("MENU HIDES THE PREVIEW")
-                .font(.inter(12, .bold)).tracking(1.6)
-                .foregroundStyle(GuidePalette.secondary.opacity(0.8))
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 8)
+            // Beside the picture, never over it: what Select does next.
+            VStack(alignment: .trailing, spacing: 6) {
+                if previewURLs != nil {
+                    Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
+                          systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
+                        .foregroundStyle(GuidePalette.text.opacity(0.85))
+                }
+                Text("MENU HIDES THE PREVIEW")
+                    .foregroundStyle(GuidePalette.secondary.opacity(0.8))
+            }
+            .font(.inter(12, .bold)).tracking(1.6)
+            .fixedSize()
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 8)
         }
     }
 }
@@ -2954,16 +3021,26 @@ private struct GuidePreviewVideo: View {
     @StateObject private var controller = VLCPlaybackController()
     let channelID: Int
     let urls: [URL]
+    /// Silent while the remote only rests on the channel; on once chosen.
+    let audible: Bool
 
     var body: some View {
         VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear {
-                // Back from full screen, where it played on: nothing to open.
-                guard !controller.isOpen else { return }
-                controller.start(urls: urls, muted: false)
+                // Back from full screen, where it played on: nothing to open,
+                // but its sound is on, as it was there.
+                guard !controller.isOpen else {
+                    // Written only if it differs: VLC on Apple TV restarts its
+                    // sound for every mute written.
+                    if controller.isMuted == audible { controller.setMuted(!audible) }
+                    return
+                }
+                controller.start(urls: urls, muted: !audible)
                 TVPreviewHandoff.previewing(channelID, in: controller)
             }
+            // Chosen: the same stream carries on, its sound turned on.
+            .onChange(of: audible) { _, on in controller.setMuted(!on) }
             .onDisappear { if !controller.lentToFullScreen { controller.stop() } }
     }
 }
