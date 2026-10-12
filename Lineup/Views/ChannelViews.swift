@@ -4350,6 +4350,7 @@ struct AccountView: View {
             let several = media.profiles.count > 1
             AccountSourceCard(
                 symbol: "play.square.stack",
+                brand: MediaServerBrand.shared(by: media.profiles),
                 kind: several ? "MEDIA SERVERS" : "MEDIA SERVER",
                 title: several ? "\(media.profiles.count) Jellyfin servers" : profile.name,
                 subtitle: several
@@ -4552,6 +4553,8 @@ private struct AccountStatusMark: View {
 /// what can be done with it, in that order from the top.
 private struct AccountSourceCard<Actions: View>: View {
     let symbol: String
+    /// A media server's own mark, in place of the symbol.
+    var brand: MediaServerBrand? = nil
     let kind: String
     let title: String
     let subtitle: String
@@ -4563,7 +4566,7 @@ private struct AccountSourceCard<Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             HStack(alignment: .top, spacing: 18) {
-                AccountGlyph(symbol: symbol)
+                AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
                         .font(.inter(12, .bold)).tracking(2)
@@ -4650,13 +4653,21 @@ private struct AccountEmptySource<Action: View>: View {
 /// A card's symbol, on a raised disc.
 private struct AccountGlyph: View {
     let symbol: String
+    /// A media server's own mark, drawn in the same plate instead.
+    var brand: MediaServerBrand? = nil
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 26, weight: .semibold))
-            .foregroundStyle(LineupStyle.text)
-            .frame(width: 64, height: 64)
-            .background(LineupStyle.raised, in: Circle())
+        Group {
+            if let brand {
+                MediaServerLogo(brand: brand).frame(width: 36, height: 36)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(LineupStyle.text)
+            }
+        }
+        .frame(width: 64, height: 64)
+        .background(LineupStyle.raised, in: Circle())
     }
 }
 
@@ -4671,6 +4682,7 @@ private struct AccountServerRow: View {
     var body: some View {
         let state = media.state(of: profile)
         HStack(spacing: 24) {
+            MediaServerLogo(brand: .of(profile)).frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupStyle.text)
                     .lineLimit(1)

@@ -312,9 +312,9 @@ private struct MediaServerRow: View {
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
             } icon: {
-                // The one red on the tab: the tick on a connected server.
-                Image(systemName: state.isConnected ? "checkmark.circle.fill" : "circle.dashed")
-                    .foregroundStyle(state.isConnected ? LineupStyle.liveDot : LineupStyle.secondary)
+                // The server's own mark. Whether it answers is said at the
+                // end of the row.
+                MediaServerLogo(brand: .of(profile)).frame(width: 26, height: 26)
             }
             Spacer(minLength: 8)
             Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))

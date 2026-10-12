@@ -190,6 +190,8 @@ struct LineupCardStat: Identifiable {
 /// lopsided.
 struct LineupAccountCard<Actions: View>: View {
     let symbol: String
+    /// A media server's own mark, in place of the symbol.
+    var brand: MediaServerBrand? = nil
     let title: String
     let subtitle: String
     let connected: Bool
@@ -255,8 +257,14 @@ struct LineupAccountCard<Actions: View>: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: glyphSize, weight: .semibold))
+            Group {
+                if let brand {
+                    MediaServerLogo(brand: brand).frame(width: glyph * 0.52, height: glyph * 0.52)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: glyphSize, weight: .semibold))
+                }
+            }
                 .frame(width: glyph, height: glyph)
                 #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
@@ -369,6 +377,7 @@ struct MediaServerAccountCard: View {
     var body: some View {
         LineupAccountCard(
             symbol: "play.square.stack.fill",
+            brand: MediaServerBrand.shared(by: media.profiles),
             title: title,
             subtitle: subtitle,
             connected: media.isConnected,
