@@ -4310,7 +4310,7 @@ struct AccountView: View {
                 symbol: "antenna.radiowaves.left.and.right",
                 kind: "IPTV PROVIDER",
                 title: profile.name,
-                subtitle: "\(profile.username) · \(profile.displayHost)",
+                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: library.channelsAreSyncing ? .busy("Updating")
                     : (library.streams.isEmpty ? .offline : .connected),
                 stats: [

@@ -351,7 +351,7 @@ struct ProviderAccountCard: View {
         LineupAccountCard(
             symbol: "antenna.radiowaves.left.and.right",
             title: profile.name,
-            subtitle: "\(profile.username) · \(profile.displayHost)",
+            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
             connected: ready,
             status: status,
             statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
