@@ -86,7 +86,7 @@ final class AppSearchTests: XCTestCase {
         XCTAssertEqual(current?.title, "Training Day 24/7")
         XCTAssertEqual(group, "24/7 Crime")
         XCTAssertEqual(try XCTUnwrap(AppSearchFormat.progress(of: hit, now: now)), 0.25, accuracy: 0.01)
-        XCTAssertEqual(AppSearchFormat.place(of: hit).path, ["Guide", "24/7 Crime"])
+        XCTAssertEqual(AppSearchFormat.place(of: hit).path, ["TV Guide", "24/7 Crime"])
     }
 
     // A film two servers have is one result naming both; a show is a show.
@@ -121,9 +121,9 @@ final class AppSearchTests: XCTestCase {
                        ["Library", "VOD", "Movies | 4K"])
         XCTAssertEqual(AppSearchFormat.place(of: AppSearchHit(
             id: "2", kind: .airing(upcoming, channel: crime, more: 0, group: nil))).path,
-                       ["Guide", "24/7 Training Day"])
+                       ["TV Guide", "24/7 Training Day"])
         XCTAssertEqual(AppSearchFormat.place(of: AppSearchHit(id: "3", kind: .game(later, channel: crime))).path,
-                       ["Live", "NBA"])
+                       ["Sports", "NBA"])
         XCTAssertNil(AppSearchFormat.badge(of: AppSearchHit(
             id: "2", kind: .airing(upcoming, channel: crime, more: 0, group: nil)), now: now),
                      "Only what is on now says NOW")

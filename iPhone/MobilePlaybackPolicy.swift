@@ -24,6 +24,11 @@ enum MobileEngineSelection {
     ///
     /// Query strings are irrelevant here — some providers append tokens — so
     /// this reads `pathExtension`, which already excludes the query.
+    ///
+    /// A channel's recording is addressed two ways, `…/timeshift/…/123.ts` and
+    /// `…/streaming/timeshift.php?…`, and both are transport streams whatever
+    /// the second one's name says. Neither is a playlist, so both fall to VLC
+    /// here, and `ordered` keeps the path form ahead of the script as given.
     static func engine(for url: URL) -> MobileStreamEngine {
         switch url.pathExtension.lowercased() {
         case "m3u8", "m3u": return .system
@@ -146,6 +151,14 @@ enum StartTogether {
     /// ahead alone. A radio channel has no picture to wait for, and VLC
     /// cannot say so any sooner.
     static let soundAloneAfter: TimeInterval = 6
+    /// Once VLC's picture is up, how long its size must hold steady before
+    /// it shows. VLC can draw a stream's first frames before it has worked
+    /// out their shape, stretched to fill until it has.
+    static let vlcSettle: TimeInterval = 0.4
+    /// New pictures VLC must have shown, behind the gate, before it opens.
+    static let vlcFramesToSettle = 6
+    /// Shown this long after the picture first came up, settled or not.
+    static let vlcSettleDeadline: TimeInterval = 2
 
     /// The run of moving frames after one more new frame at `now`.
     static func frames(after count: Int, lastFrameAt: TimeInterval?, now: TimeInterval) -> Int {
@@ -184,6 +197,75 @@ struct MobilePlaybackProgress: Equatable {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+/// Which way a sideways swipe across the full-screen picture changes channel.
+///
+/// The picture already answers a tap, which brings up the controls, and a
+/// pull downward, which closes the player. A swipe is told from both by being
+/// plainly sideways: half again as wide as it is tall, and long enough not to
+/// be a tap that wandered. The dismissal wants the opposite -- downward by
+/// 1.3 times its width -- so between the two rules lies a band where a
+/// diagonal drag does nothing, rather than the wrong thing.
+///
+/// Left is the next channel, down the list, as a page turns; right is the
+/// one before.
+enum MobileChannelSwipe: Equatable {
+    case next
+    case previous
+
+    /// Points the finger has to travel sideways.
+    static let minimumDistance: Double = 60
+    /// How many times wider than tall the swipe has to be.
+    static let dominance: Double = 1.5
+
+    /// Nil for anything that is not a channel change: too short, or not
+    /// sideways enough to be sure.
+    static func direction(width: Double, height: Double) -> MobileChannelSwipe? {
+        guard abs(width) > minimumDistance, abs(width) > abs(height) * dominance else { return nil }
+        return width < 0 ? .next : .previous
+    }
+
+    /// One place along the lineup: on for the next channel, back for the
+    /// previous one.
+    var step: Int { self == .next ? 1 : -1 }
+}
+
+/// Stepping through a screen's lineup of channels, round from the end to the
+/// start, as a remote's channel buttons do.
+enum MobileChannelLineup {
+    /// - Parameters:
+    ///   - current: where the channel on screen sits in the lineup, or nil
+    ///     when it is not in it -- a game's channel opened from an alert, say.
+    ///   - count: how many channels the lineup has.
+    ///   - step: +1 for the next channel, -1 for the previous one.
+    /// - Returns: the place to tune to, or nil for an empty lineup. A channel
+    ///   that is not in the lineup steps onto it from its top going forward
+    ///   and from its bottom going back.
+    static func index(from current: Int?, count: Int, step: Int) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current, current >= 0, current < count else { return step >= 0 ? 0 : count - 1 }
+        return ((current + step) % count + count) % count
+    }
+}
+
+/// How the player speaks of a recording: how far behind live it is, in the
+/// status badge and under the timeline.
+enum MobileCatchUpLabel {
+    /// "12 MIN", "1 HR", "1 HR 5 MIN".
+    static func duration(minutes: Int) -> String {
+        let minutes = max(0, minutes)
+        guard minutes >= 60 else { return "\(minutes) MIN" }
+        return "\(minutes / 60) HR" + (minutes % 60 == 0 ? "" : " \(minutes % 60) MIN")
+    }
+
+    /// Whole minutes a place in a recording is behind the present. Never
+    /// negative: a recording cannot be ahead of the broadcast.
+    static func minutesBehind(position: Date, now: Date) -> Int {
+        let seconds = now.timeIntervalSince(position)
+        guard seconds.isFinite, seconds > 0 else { return 0 }
+        return Int(seconds / 60)
     }
 }
 
