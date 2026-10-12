@@ -73,7 +73,9 @@ enum MyTeamsEmpty {
     static func reading(_ shelf: HomeShelfSnapshot?) -> MyTeamsEmpty {
         guard HomeShelfStore.fileURL != nil else { return .unreachable }
         guard let shelf else { return .notOpened }
-        return shelf.followsTeams ? .noGames : .noTeams
+        // A shelf from before it said whether teams were followed: any
+        // games on it mean they were.
+        return (shelf.followsTeams ?? !shelf.games.isEmpty) ? .noGames : .noTeams
     }
 
     var message: String {
