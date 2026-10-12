@@ -1151,9 +1151,12 @@ private struct MediaCatalogsScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .disabled(menuOpen)
             // At the top right of the artwork, clear of the title told on
-            // the left.
+            // the left, and wholly below the tab bar: Down from the tab bar
+            // lands on it. Higher up it sat partly under the tab bar, which
+            // the focus engine doesn't count as below it, and Down went on
+            // past it to Play.
             if let options {
-                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 100)
+                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 156)
             }
         }
         // Behind, as a background: whatever the artwork and the words about
@@ -1163,7 +1166,6 @@ private struct MediaCatalogsScreen: View {
         // Play and artwork -- jumped as the remote moved between titles.
         .background { TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight) }
         .ignoresSafeArea()
-        .defaultFocus($tvFocus, heroItems.isEmpty ? TVLibraryFocus.card(0) : TVLibraryFocus.hero)
         .onChange(of: tvFocus) { previous, place in
             if place == .shelfAbove { cameUpFromRow(previous) } else { tvFocusChanged(to: place) }
         }
