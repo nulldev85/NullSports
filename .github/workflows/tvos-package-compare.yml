@@ -32,8 +32,9 @@ jobs:
               CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD -quiet)
           done
       - name: Report
+        shell: bash {0}
         run: |
-          set -uo pipefail
+          set -u
           report() {
             app="$RUNNER_TEMP/$1/Build/Products/Release-appletvos/Lineup.app"
             bin="$app/Lineup"
@@ -42,7 +43,7 @@ jobs:
             echo "binary: $(stat -f %z "$bin") bytes"
             otool -h "$bin" | tail -1
             otool -l "$bin" | awk '/LC_SEGMENT_64/{s=1} s&&/segname/{n=$2} s&&/vmsize/{v=$2} s&&/filesize/{print "  seg", n, "vmsize", v, "filesize", $2; s=0}'
-            otool -l "$bin" | grep -A3 LC_CODE_SIGNATURE | tr -s ' ' | paste -sd' ' -
+            otool -l "$bin" | grep -A3 LC_CODE_SIGNATURE | tr -s ' ' | paste -sd' ' - || echo "  no LC_CODE_SIGNATURE"
             otool -l "$bin" | awk '/sectname __text/{t=1} t&&/offset/{print "  __text offset", $2; exit}'
             otool -l "$bin" | grep -c "cmd LC_" | sed 's/^/  load commands: /'
             vtool -show-build "$bin" 2>/dev/null | tr -s ' ' | paste -sd' ' -
