@@ -5,7 +5,9 @@ run-name: Compare tvOS packages · ${{ github.ref_name }} · ${{ github.sha }}
 # takes main's. This builds both the same way the IPA is built and prints how
 # the two bundles differ. Removed once the cause is found.
 on:
-  workflow_dispatch:
+  push:
+    branches: [claude/happy-mayer-dk0war]
+    paths: [.github/workflows/tvos-package-compare.yml]
 
 jobs:
   compare:
