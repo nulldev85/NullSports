@@ -65,9 +65,9 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
     /// One line on what signing in to it takes.
     var signInNote: String {
         switch self {
-        case .jellyfin: return "Jellyfin, and servers built on it"
-        case .emby: return "Emby Server, with your Emby user"
-        case .plex: return "Your Plex account, linked with a code"
+        case .jellyfin: return "Your Jellyfin user. Servers built on Jellyfin sign in the same way."
+        case .emby: return "Your Emby user, on your Emby Server."
+        case .plex: return "A short code links your account. No password needed."
         }
     }
 }
