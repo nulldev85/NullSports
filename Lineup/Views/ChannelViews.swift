@@ -6273,7 +6273,7 @@ struct PlayerView: View {
                 do { try await Task.sleep(for: .seconds(45)) } catch { return }
             }
         }
-        .onChange(of: controller.elapsed) { _, _ in reportProgress() }
+        .onReceive(controller.clock.$elapsed) { position in reportProgress(at: position) }
         // A film or an episode played to its end is saved as watched and the
         // player closes, as it would on the remote's Menu button.
         .onChange(of: controller.finished) { _, finished in
@@ -6454,11 +6454,12 @@ struct PlayerView: View {
         }
     }
 
-    private func reportProgress(force: Bool = false) {
+    private func reportProgress(force: Bool = false, at position: TimeInterval? = nil) {
         guard !isLive, controller.duration > 0 else { return }
-        guard force || abs(controller.elapsed - lastReportedPosition) >= 5 else { return }
-        lastReportedPosition = controller.elapsed
-        onProgress?(controller.elapsed, controller.duration)
+        let position = position ?? controller.elapsed
+        guard force || abs(position - lastReportedPosition) >= 5 else { return }
+        lastReportedPosition = position
+        onProgress?(position, controller.duration)
     }
 
     private func scheduleAutoHide() {
@@ -6556,10 +6557,12 @@ private struct TVPlayerChrome: View {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 9) {
                             if isLive && controller.catchUp == nil { PulsingLiveDot(size: 8) }
-                            Text(stateLabel)
-                                .font(.inter(15, .bold)).tracking(1.5)
-                                .foregroundStyle(isLive && controller.catchUp == nil
-                                                 ? LineupStyle.liveStatus : LineupStyle.mediaText)
+                            PlaybackClockReader(clock: controller.clock) {
+                                Text(stateLabel)
+                                    .font(.inter(15, .bold)).tracking(1.5)
+                                    .foregroundStyle(isLive && controller.catchUp == nil
+                                                     ? LineupStyle.liveStatus : LineupStyle.mediaText)
+                            }
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
@@ -6580,11 +6583,11 @@ private struct TVPlayerChrome: View {
                     LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
                     if !isLive && controller.duration > 0 {
-                        TVSeekBar(controller: controller, focus: focusedControl,
+                        TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
                                   onInteraction: onInteraction)
                     }
                     if showsTimeline {
-                        TVCatchUpBar(controller: controller, focus: focusedControl,
+                        TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
                                      onInteraction: onInteraction)
                     }
                     HStack(spacing: 14) {
@@ -6718,6 +6721,7 @@ private struct TVPlayerChrome: View {
 /// back to live. Up and down hand focus back to the controls.
 private struct TVCatchUpBar: View {
     @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
 
@@ -6901,6 +6905,7 @@ private struct TVGameAlertBanner: View {
 /// bar would keep focus and trap the viewer on it.
 private struct TVSeekBar: View {
     @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
 
@@ -7014,6 +7019,18 @@ private struct TVPlayerMenuLabel: View {
     }
 }
 
+/// Where playback has got to, for the views that show it and nothing else.
+@MainActor private final class PlaybackClock: ObservableObject {
+    @Published var elapsed: TimeInterval = 0
+}
+
+/// Redraws what it holds as playback moves, and nothing around it.
+private struct PlaybackClockReader<Content: View>: View {
+    @ObservedObject var clock: PlaybackClock
+    @ViewBuilder let content: () -> Content
+    var body: some View { content() }
+}
+
 @MainActor private final class VLCPlaybackController: ObservableObject {
     let player = VLCMediaPlayer()
     /// The view VLC draws into, for as long as this player lives. It is
@@ -7050,7 +7067,15 @@ private struct TVPlayerMenuLabel: View {
     @Published private(set) var selectedVideoTrackID: Int?
     /// Seconds. Zero duration means the item is not seekable, which is how a
     /// live channel presents, so the seek bar simply does not appear for it.
-    @Published private(set) var elapsed: TimeInterval = 0
+    ///
+    /// Kept in a clock of its own: it moves twice a second, and published
+    /// with the rest it redrew the whole player and every control on each
+    /// tick, which is what made moving through the controls catch.
+    let clock = PlaybackClock()
+    private(set) var elapsed: TimeInterval {
+        get { clock.elapsed }
+        set { if clock.elapsed != newValue { clock.elapsed = newValue } }
+    }
     @Published private(set) var duration: TimeInterval = 0
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
@@ -7302,7 +7327,7 @@ private struct TVPlayerMenuLabel: View {
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
         let length = Double(player.media?.length.intValue ?? 0) / 1000
-        if length > 0 { duration = length }
+        if length > 0, length != duration { duration = length }
         let time = Double(player.time.intValue) / 1000
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
@@ -7402,12 +7427,12 @@ private struct TVPlayerMenuLabel: View {
                 failover?.didPlay(id)
             }
         }
-        isPlaying = player.isPlaying
+        if isPlaying != player.isPlaying { isPlaying = player.isPlaying }
         if player.isPlaying && player.hasVideoOut {
-            reconnecting = false
+            if reconnecting { reconnecting = false }
             sawPicture = true
             let height = Int(player.videoSize.height)
-            if height > 0 { videoHeight = height }
+            if height > 0, height != videoHeight { videoHeight = height }
         }
         guard recover else { return }
         let reason: String
