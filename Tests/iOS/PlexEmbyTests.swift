@@ -34,9 +34,10 @@ final class PlexEmbyTests: XCTestCase {
         let json = """
         {"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"1201","type":"movie","title":"Dune: Part Two",
           "summary":"Paul unites with the Fremen.","year":2024,"thumb":"/library/metadata/1201/thumb/1",
-          "art":"/library/metadata/1201/art/1","duration":9960000,"viewOffset":4980000,"contentRating":"PG-13",
+          "art":"/library/metadata/1201/art/1","duration":9960000,"viewOffset":4980000,"contentRating":"gb/12A",
           "audienceRating":9.0,"rating":9.2,"ratingImage":"rottentomatoes://image.rating.ripe",
-          "Genre":[{"id":1,"tag":"Science Fiction"}],"Role":[{"tag":"Timothée Chalamet","role":"Paul"}],
+          "Genre":[{"id":1,"tag":"Science Fiction"}],"Role":[{"tag":"Timothée Chalamet","role":"Paul",
+            "thumb":"https://metadata-static.plex.tv/people/5d7768.jpg"}],
           "Director":[{"tag":"Denis Villeneuve"}],
           "Guid":[{"id":"imdb://tt15239678"},{"id":"tmdb://693134"},{"id":"tvdb://1"}],
           "Image":[{"type":"clearLogo","url":"/library/metadata/1201/clearLogo/1"}],
@@ -58,6 +59,28 @@ final class PlexEmbyTests: XCTestCase {
         XCTAssertTrue(item.hasLogo)
         XCTAssertEqual(try XCTUnwrap(item.userData?.playedPercentage), 50, accuracy: 0.01)
         XCTAssertEqual(item.people?.map(\.name), ["Timothée Chalamet", "Denis Villeneuve"])
+        XCTAssertEqual(item.officialRating, "12A")
+        // The title's own art paths are kept, and are what Plex is asked for.
+        XCTAssertEqual(item.imageTags?["Primary"], "/library/metadata/1201/thumb/1")
+        XCTAssertEqual(item.imageTags?["Logo"], "/library/metadata/1201/clearLogo/1")
+        XCTAssertEqual(item.backdropImageTags, ["/library/metadata/1201/art/1"])
+        let client = try PlexClient(serverURL: "http://plex.local:32400", token: "secret", clientID: "device")
+        XCTAssertEqual(query(of: client.artworkURL(for: item, type: "primary", maxWidth: 300))["url"],
+                       "/library/metadata/1201/thumb/1")
+        XCTAssertEqual(query(of: client.artworkURL(for: item, type: "backdrop", maxWidth: 1280))["url"],
+                       "/library/metadata/1201/art/1")
+        // A logo is fitted inside its box, never stretched to fill it, and
+        // stays a PNG so its edges stay clear.
+        let logo = query(of: client.artworkURL(for: item, type: "logo", maxWidth: 800))
+        XCTAssertEqual(logo["url"], "/library/metadata/1201/clearLogo/1")
+        XCTAssertEqual(logo["format"], "png")
+        XCTAssertNil(logo["minSize"])
+        // A cast photo is Plex's own address for it, asked for as it is.
+        let actor = try XCTUnwrap(item.people?.first)
+        XCTAssertEqual(actor.primaryImageTag, "plex")
+        XCTAssertEqual(client.imageURL(itemID: try XCTUnwrap(actor.personID), type: "primary", maxWidth: 300),
+                       URL(string: "https://metadata-static.plex.tv/people/5d7768.jpg"))
+        XCTAssertNil(item.people?.last?.primaryImageTag)
         let media = try XCTUnwrap(metadata(json).first?.media?.first)
         XCTAssertEqual(PlexClient.describe(media), "4K · HEVC · HDR10 · TRUEHD 7.1")
     }
@@ -66,7 +89,8 @@ final class PlexEmbyTests: XCTestCase {
         let json = """
         {"MediaContainer":{"Metadata":[{"ratingKey":"501","type":"episode","title":"Pilot","index":1,
           "parentIndex":1,"grandparentTitle":"Severance","grandparentRatingKey":"400","viewCount":1,
-          "originallyAvailableAt":"2022-02-18"},
+          "originallyAvailableAt":"2022-02-18","thumb":"/library/metadata/501/thumb/9",
+          "grandparentThumb":"/library/metadata/400/thumb/3","grandparentArt":"/library/metadata/400/art/3"},
           {"ratingKey":"400","type":"show","title":"Severance","childCount":2,"leafCount":19,
            "viewedLeafCount":19},
           {"ratingKey":"77","type":"collection","title":"Marvel","childCount":30}]}}
@@ -78,6 +102,15 @@ final class PlexEmbyTests: XCTestCase {
         XCTAssertEqual(items[0].parentIndexNumber, 1)
         XCTAssertEqual(items[0].productionYear, 2022)
         XCTAssertTrue(items[0].isPlayed)
+        // An episode's still is its own; its background and its poster in a
+        // row of posters are its show's.
+        XCTAssertEqual(items[0].imageTags?["Primary"], "/library/metadata/501/thumb/9")
+        XCTAssertEqual(items[0].backdropImageTags, ["/library/metadata/400/art/3"])
+        let client = try PlexClient(serverURL: "http://plex.local:32400", token: "secret", clientID: "device")
+        let poster = query(of: client.seriesPosterURL(for: items[0], maxWidth: 300))
+        XCTAssertEqual(poster["url"], "/library/metadata/400/thumb/3")
+        XCTAssertEqual(poster["height"], "450")
+        XCTAssertEqual(query(of: client.artworkURL(for: items[0], type: "primary", maxWidth: 320))["height"], "180")
         XCTAssertEqual(items[1].type, "Series")
         XCTAssertTrue(items[1].isPlayed)
         XCTAssertEqual(items[2].type, "BoxSet")
@@ -100,6 +133,23 @@ final class PlexEmbyTests: XCTestCase {
         let stream = try XCTUnwrap(client.playbackURL(itemID: "1201", mediaSourceID: "/library/parts/9/1700000000/file.mkv"))
         XCTAssertEqual(stream.path, "/library/parts/9/1700000000/file.mkv")
         XCTAssertTrue(stream.absoluteString.contains("X-Plex-Token=secret"))
+    }
+
+    func testAPlexServerShowsTheAddressItsCertificateNameSpells() {
+        let plex = MediaServerProfile(name: "Basement", serverURL: "https://192-168-1-50.abc123.plex.direct:32400",
+                                      username: "me", userID: "abc", software: .plex)
+        XCTAssertEqual(plex.displayHost, "192.168.1.50")
+        let relay = MediaServerProfile(name: "Basement", serverURL: "https://relay-1.abc123.plex.direct:8443",
+                                       username: "me", userID: "abc", software: .plex)
+        XCTAssertEqual(relay.displayHost, "relay-1.abc123.plex.direct")
+        let jellyfin = MediaServerProfile(name: "Home", serverURL: "http://jellyfin.local:8096",
+                                          username: "me", userID: "u1")
+        XCTAssertEqual(jellyfin.displayHost, "jellyfin.local")
+    }
+
+    private func query(of url: URL?) -> [String: String] {
+        guard let url, let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return [:] }
+        return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
     }
 
     func testAPlexServerIsTriedNearestFirstAndItsRelayLast() throws {

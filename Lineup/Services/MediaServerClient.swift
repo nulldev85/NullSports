@@ -26,6 +26,12 @@ protocol MediaServerClient: Sendable {
     func items(userID: String, providerIDs: [String: String], types: [String]) async throws -> [MediaItem]
     func search(userID: String, query: String, types: [String]) async throws -> [MediaItem]
     func imageURL(itemID: String, type: String, maxWidth: Int) -> URL?
+    /// A title's artwork, from what the title itself says about it. Jellyfin
+    /// and Emby name art by the item; Plex hands each item the paths of its
+    /// own art, and those are what it is asked for.
+    func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL?
+    /// An episode's show's poster.
+    func seriesPosterURL(for episode: MediaItem, maxWidth: Int) -> URL?
     func playbackURL(itemID: String, mediaSourceID: String?) -> URL?
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo
 
@@ -47,6 +53,16 @@ enum MediaServerQuery {
     static let titlePage = 500
     static let titlePages = 50
     static let searchTypes = ["Movie", "Series", "Episode", "Video"]
+}
+
+extension MediaServerClient {
+    func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL? {
+        imageURL(itemID: item.id, type: type, maxWidth: maxWidth)
+    }
+
+    func seriesPosterURL(for episode: MediaItem, maxWidth: Int) -> URL? {
+        episode.seriesID.flatMap { imageURL(itemID: $0, type: "primary", maxWidth: maxWidth) }
+    }
 }
 
 extension JellyfinClient: MediaServerClient {}

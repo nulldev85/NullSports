@@ -307,7 +307,7 @@ private struct MediaServerRow: View {
             Label {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(profile.name).font(.inter(.body, .semibold)).lineLimit(1)
-                    Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                    Text(profile.displayHost)
                         .font(.inter(.caption))
                         .foregroundStyle(.secondary).lineLimit(1)
                 }

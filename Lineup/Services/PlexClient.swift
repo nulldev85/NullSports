@@ -37,19 +37,20 @@ struct PlexClient: MediaServerClient {
     private static let sectionPrefix = "plex-section:"
     private static let recentPrefix = "plex-recent:"
     private static let collectionPrefix = "plex-collection:"
+    private static let onDeckID = "plex-ondeck"
 
     /// The rating key behind an id, for anything Plex keeps as metadata.
     static func ratingKey(of id: String) -> String? {
-        if id.hasPrefix(sectionPrefix) || id.hasPrefix(recentPrefix) { return nil }
+        if id.hasPrefix(sectionPrefix) || id.hasPrefix(recentPrefix) || id == onDeckID { return nil }
         if id.hasPrefix(collectionPrefix) { return String(id.dropFirst(collectionPrefix.count)) }
         return id
     }
 
     // MARK: Libraries
 
-    /// Each film and show library, twice: what was added to it lately --
-    /// first, so a newly added server opens on what is new -- and the whole
-    /// library in name order.
+    /// What Plex's own home screen offers: each film and show library's
+    /// recently added -- first, so a newly added server opens on what is
+    /// new -- then On Deck, then each whole library in name order.
     func views(userID: String) async throws -> [MediaItem] {
         let sections = try await videoSections()
         let recent = sections.map { section in
@@ -57,11 +58,13 @@ struct PlexClient: MediaServerClient {
                       name: "Recently Added " + section.title, type: "CollectionFolder",
                       overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
         }
+        let onDeck = MediaItem(id: Self.onDeckID, name: "On Deck", type: "CollectionFolder",
+                               overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
         let libraries = sections.map { section in
             MediaItem(id: Self.sectionPrefix + section.key, name: section.title, type: "CollectionFolder",
                       overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
         }
-        return recent + libraries
+        return recent + [onDeck] + libraries
     }
 
     private struct VideoSection {
@@ -106,6 +109,9 @@ struct PlexClient: MediaServerClient {
                     .metadata.map(Self.mediaItem)
             }
         }
+        if parentID == Self.onDeckID {
+            return try await get("/library/onDeck", query: page).metadata.map(Self.mediaItem)
+        }
         if parentID.hasPrefix(Self.collectionPrefix) {
             let key = String(parentID.dropFirst(Self.collectionPrefix.count))
             return try await get("/library/collections/\(key)/children", query: page).metadata.map(Self.mediaItem)
@@ -146,7 +152,7 @@ struct PlexClient: MediaServerClient {
     }
 
     func item(userID: String, itemID: String) async throws -> MediaItem {
-        if itemID.hasPrefix(Self.sectionPrefix) || itemID.hasPrefix(Self.recentPrefix) {
+        if itemID.hasPrefix(Self.sectionPrefix) || itemID.hasPrefix(Self.recentPrefix) || itemID == Self.onDeckID {
             guard let view = try await views(userID: userID).first(where: { $0.id == itemID }) else {
                 throw JellyfinError.server(404)
             }
@@ -249,26 +255,67 @@ struct PlexClient: MediaServerClient {
 
     // MARK: Artwork
 
-    /// A title's artwork, resized by the server to the width asked for.
-    /// "primary" is its poster (an episode's still), "backdrop" its art and
-    /// "logo" its clear logo, which keeps its transparency.
-    func imageURL(itemID: String, type: String, maxWidth: Int) -> URL? {
-        guard let key = Self.ratingKey(of: itemID) else { return nil }
-        let kind: String, height: Int
+    /// A title's artwork, by the paths Plex gave the title for it: its poster
+    /// (an episode's still), its background, its clear logo. A title that
+    /// came without one is asked for it by its rating key.
+    func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL? {
+        guard let key = Self.ratingKey(of: item.id) else { return nil }
         switch type.lowercased() {
-        case "backdrop": kind = "art"; height = maxWidth * 9 / 16
-        case "logo": kind = "clearLogo"; height = maxWidth / 2
-        default: kind = "thumb"; height = maxWidth * 3 / 2
+        case "backdrop":
+            return transcoded(item.backdropImageTags?.first ?? "/library/metadata/\(key)/art",
+                              kind: .background, width: maxWidth)
+        case "logo":
+            return transcoded(item.imageTags?["Logo"] ?? "/library/metadata/\(key)/clearLogo",
+                              kind: .logo, width: maxWidth)
+        default:
+            return transcoded(item.imageTags?["Primary"] ?? "/library/metadata/\(key)/thumb",
+                              kind: item.type == "Episode" ? .background : .poster, width: maxWidth)
         }
-        var query = [
-            URLQueryItem(name: "width", value: String(maxWidth)),
-            URLQueryItem(name: "height", value: String(height)),
-            URLQueryItem(name: "minSize", value: "1"),
-            URLQueryItem(name: "upscale", value: "1"),
-            URLQueryItem(name: "url", value: "/library/metadata/\(key)/\(kind)"),
-            URLQueryItem(name: "X-Plex-Token", value: token)
-        ]
-        if kind == "clearLogo" { query.append(URLQueryItem(name: "format", value: "png")) }
+    }
+
+    /// The show's poster, by the path the episode carries for it.
+    func seriesPosterURL(for episode: MediaItem, maxWidth: Int) -> URL? {
+        if let path = episode.imageTags?[Self.seriesPosterTag] {
+            return transcoded(path, kind: .poster, width: maxWidth)
+        }
+        return episode.seriesID.flatMap { imageURL(itemID: $0, type: "primary", maxWidth: maxWidth) }
+    }
+
+    /// Artwork by rating key -- or, for a person, the photo Plex named: a
+    /// path on the server, or Plex's own address for it.
+    func imageURL(itemID: String, type: String, maxWidth: Int) -> URL? {
+        if itemID.hasPrefix("http://") || itemID.hasPrefix("https://") { return URL(string: itemID) }
+        if itemID.hasPrefix("/") { return transcoded(itemID, kind: .poster, width: maxWidth) }
+        guard let key = Self.ratingKey(of: itemID) else { return nil }
+        switch type.lowercased() {
+        case "backdrop": return transcoded("/library/metadata/\(key)/art", kind: .background, width: maxWidth)
+        case "logo": return transcoded("/library/metadata/\(key)/clearLogo", kind: .logo, width: maxWidth)
+        default: return transcoded("/library/metadata/\(key)/thumb", kind: .poster, width: maxWidth)
+        }
+    }
+
+    /// The tag an episode keeps its show's poster path under.
+    static let seriesPosterTag = "SeriesPrimary"
+
+    private enum ArtKind { case poster, background, logo }
+
+    /// Plex's own resizer, so a card is sent a card's worth of picture. A
+    /// poster or a background fills its box; a logo is fitted inside it,
+    /// and stays a PNG so it keeps its transparency.
+    private func transcoded(_ path: String, kind: ArtKind, width: Int) -> URL? {
+        var query = [URLQueryItem(name: "width", value: String(width))]
+        switch kind {
+        case .poster:
+            query += [URLQueryItem(name: "height", value: String(width * 3 / 2)),
+                      URLQueryItem(name: "minSize", value: "1"), URLQueryItem(name: "upscale", value: "1")]
+        case .background:
+            query += [URLQueryItem(name: "height", value: String(width * 9 / 16)),
+                      URLQueryItem(name: "minSize", value: "1"), URLQueryItem(name: "upscale", value: "1")]
+        case .logo:
+            query += [URLQueryItem(name: "height", value: String(width / 2)),
+                      URLQueryItem(name: "format", value: "png")]
+        }
+        query += [URLQueryItem(name: "url", value: path), URLQueryItem(name: "X-Plex-Token", value: token)]
         return url("/photo/:/transcode", query: query)
     }
 
@@ -354,13 +401,22 @@ struct PlexClient: MediaServerClient {
         }
         let progress = (metadata.viewOffset ?? 0) > 0 && duration > 0
             ? Double(metadata.viewOffset ?? 0) / Double(duration) * 100 : nil
+        // The paths of the title's own art, which is what Plex is asked for.
         var tags: [String: String] = [:]
         if let thumb = metadata.thumb { tags["Primary"] = thumb }
-        if metadata.images?.contains(where: { $0.type == "clearLogo" }) == true { tags["Logo"] = "clearLogo" }
+        if let logo = metadata.images?.first(where: { $0.type == "clearLogo" }) {
+            tags["Logo"] = logo.url ?? "/library/metadata/\(metadata.ratingKey)/clearLogo"
+        }
+        if kind == "episode", let show = metadata.grandparentThumb { tags[seriesPosterTag] = show }
+        if kind == "season", let show = metadata.parentThumb { tags[seriesPosterTag] = show }
+        // An episode carries its show's background when it has none of its own.
+        let background = metadata.art ?? (kind == "episode" ? metadata.grandparentArt : nil)
         let critic = metadata.ratingImage?.contains("rottentomatoes") == true ? metadata.rating.map { $0 * 10 } : nil
         var people: [MediaPerson] = []
+        // A cast member's photo is named by its address, which Plex gives.
         people += (metadata.roles ?? []).map {
-            MediaPerson(personID: nil, name: $0.tag, role: $0.role, type: "Actor", primaryImageTag: nil)
+            MediaPerson(personID: $0.thumb, name: $0.tag, role: $0.role, type: "Actor",
+                        primaryImageTag: $0.thumb == nil ? nil : "plex")
         }
         people += (metadata.directors ?? []).map {
             MediaPerson(personID: nil, name: $0.tag, role: nil, type: "Director", primaryImageTag: nil)
@@ -377,7 +433,7 @@ struct PlexClient: MediaServerClient {
             primaryImageAspectRatio: kind == "episode" ? 16.0 / 9.0 : 2.0 / 3.0,
             childCount: kind == "season" ? metadata.leafCount : metadata.childCount,
             genres: metadata.genres.map { $0.map(\.tag) },
-            officialRating: metadata.contentRating,
+            officialRating: metadata.contentRating.map(Self.rating(fromContentRating:)),
             communityRating: metadata.audienceRating ?? (critic == nil ? metadata.rating : nil),
             criticRating: critic,
             runTimeTicks: duration > 0 ? Int64(duration) * 10_000 : nil,
@@ -388,12 +444,18 @@ struct PlexClient: MediaServerClient {
             seriesID: kind == "episode" ? metadata.grandparentRatingKey : (kind == "season" ? metadata.parentRatingKey : nil),
             userData: MediaUserData(played: played, isFavorite: nil, playedPercentage: progress),
             imageTags: tags.isEmpty ? nil : tags,
-            backdropImageTags: metadata.art.map { [$0] },
+            backdropImageTags: background.map { [$0] },
             studios: metadata.studio.map { [MediaNamedInfo(name: $0)] },
             productionLocations: metadata.countries.map { $0.map(\.tag) },
             people: people.isEmpty ? nil : people,
             providerIDs: providerIDs(from: metadata.guids)
         )
+    }
+
+    /// "gb/15" as "15": Plex prefixes a rating from outside the US with its
+    /// country, which a rating chip has no room for.
+    static func rating(fromContentRating value: String) -> String {
+        value.split(separator: "/").last.map(String.init) ?? value
     }
 
     /// "imdb://tt0111161" and the like, keyed as Jellyfin keys its own.
@@ -636,8 +698,10 @@ struct PlexHub: Decodable, Sendable {
 struct PlexTag: Decodable, Sendable, Hashable {
     let tag: String
     let role: String?
+    /// A person's photo: a path on the server or Plex's own address for it.
+    let thumb: String?
 
-    enum CodingKeys: String, CodingKey { case tag, role, id }
+    enum CodingKeys: String, CodingKey { case tag, role, id, thumb }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -647,6 +711,7 @@ struct PlexTag: Decodable, Sendable, Hashable {
         }
         self.tag = tag
         role = values.lenientString(.role)
+        thumb = values.lenientString(.thumb)
     }
 }
 
@@ -718,8 +783,11 @@ struct PlexMetadata: Decodable, Sendable {
     let parentIndex: Int?
     let parentTitle: String?
     let parentRatingKey: String?
+    let parentThumb: String?
     let grandparentTitle: String?
     let grandparentRatingKey: String?
+    let grandparentThumb: String?
+    let grandparentArt: String?
     let leafCount: Int?
     let viewedLeafCount: Int?
     let childCount: Int?
@@ -749,7 +817,8 @@ struct PlexMetadata: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case ratingKey, type, title, summary, year, thumb, art, index, parentIndex, parentTitle
-        case parentRatingKey, grandparentTitle, grandparentRatingKey, leafCount, viewedLeafCount
+        case parentRatingKey, parentThumb, grandparentTitle, grandparentRatingKey, grandparentThumb
+        case grandparentArt, leafCount, viewedLeafCount
         case childCount, viewCount, viewOffset, duration, originallyAvailableAt, contentRating
         case rating, audienceRating, ratingImage, studio
         case genres = "Genre", countries = "Country", roles = "Role", directors = "Director"
@@ -772,8 +841,11 @@ struct PlexMetadata: Decodable, Sendable {
         parentIndex = values.lenientInt(.parentIndex)
         parentTitle = values.lenientString(.parentTitle)
         parentRatingKey = values.lenientString(.parentRatingKey)
+        parentThumb = values.lenientString(.parentThumb)
         grandparentTitle = values.lenientString(.grandparentTitle)
         grandparentRatingKey = values.lenientString(.grandparentRatingKey)
+        grandparentThumb = values.lenientString(.grandparentThumb)
+        grandparentArt = values.lenientString(.grandparentArt)
         leafCount = values.lenientInt(.leafCount)
         viewedLeafCount = values.lenientInt(.viewedLeafCount)
         childCount = values.lenientInt(.childCount)

@@ -10,10 +10,13 @@ struct JellyfinClient: Sendable {
     let accessToken: String?
     let deviceID: String
     let software: MediaServerBrand
+    /// The signed-in user, for the one request Emby wants told whose it is.
+    let userID: String?
     private let session: URLSession
 
     init(serverURL: String, accessToken: String? = nil, deviceID: String,
-         software: MediaServerBrand = .jellyfin, session: URLSession = .shared) throws {
+         software: MediaServerBrand = .jellyfin, userID: String? = nil,
+         session: URLSession = .shared) throws {
         guard let url = Self.address(from: serverURL) else {
             throw JellyfinError.invalidServer
         }
@@ -21,6 +24,7 @@ struct JellyfinClient: Sendable {
         self.accessToken = accessToken
         self.deviceID = deviceID
         self.software = software
+        self.userID = userID
         self.session = session
     }
 
@@ -380,7 +384,10 @@ struct JellyfinClient: Sendable {
     /// server that resolves streams through addons -- AIOStreams asking every
     /// one of its sources -- can take most of a minute to answer.
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
-        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", timeout: 60)
+        // Emby works out which versions the user may play from the user it
+        // is told; Jellyfin from the token.
+        let query = software == .emby ? userID.map { [URLQueryItem(name: "UserId", value: $0)] } ?? [] : []
+        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", query: query, timeout: 60)
         value.httpBody = Data("{}".utf8)
         return try await send(value)
     }

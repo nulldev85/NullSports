@@ -21,6 +21,21 @@ struct MediaServerProfile: Codable, Identifiable, Equatable {
     }
 
     var brand: MediaServerBrand { software ?? .jellyfin }
+
+    /// The server's host as a person would know it. Plex reaches a server
+    /// through a certificate name that spells its address with dashes,
+    /// 192-168-1-50.<hash>.plex.direct, and that address is what is shown.
+    var displayHost: String {
+        guard let host = URL(string: serverURL)?.host else { return serverURL }
+        let labels = host.split(separator: ".")
+        if host.hasSuffix(".plex.direct"), let first = labels.first {
+            let octets = first.split(separator: "-", omittingEmptySubsequences: false)
+            if octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) {
+                return octets.joined(separator: ".")
+            }
+        }
+        return host
+    }
 }
 
 /// Which media server software a server is: how it is signed in to, how it

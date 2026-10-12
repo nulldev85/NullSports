@@ -4310,7 +4310,7 @@ struct AccountView: View {
                 symbol: "antenna.radiowaves.left.and.right",
                 kind: "IPTV PROVIDER",
                 title: profile.name,
-                subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                subtitle: "\(profile.username) · \(profile.displayHost)",
                 status: library.channelsAreSyncing ? .busy("Updating")
                     : (library.streams.isEmpty ? .offline : .connected),
                 stats: [
@@ -4355,7 +4355,7 @@ struct AccountView: View {
                 title: several ? "\(media.profiles.count) media servers" : profile.name,
                 subtitle: several
                     ? media.profiles.map(\.name).joined(separator: " · ")
-                    : "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+                    : "\(profile.username) · \(profile.displayHost)",
                 status: media.isLoading ? .busy("Connecting") : (media.isConnected ? .connected : .offline),
                 stats: [
                     AccountStat("Movies", media.libraryCounts?.movies),
@@ -4703,7 +4703,7 @@ private struct AccountServerRow: View {
 
     /// Its address, and what it holds once it has said.
     private func detail(_ state: MediaServerState) -> String {
-        var parts = [URL(string: profile.serverURL)?.host ?? profile.serverURL]
+        var parts = [profile.displayHost]
         if let counts = state.counts {
             parts.append("\(counts.movies.formatted()) movies")
             parts.append("\(counts.shows.formatted()) shows")

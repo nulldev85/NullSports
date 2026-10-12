@@ -1896,7 +1896,7 @@ final class MediaLibrary: ObservableObject {
         // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
         guard let profile = profile(for: item) else { return nil }
-        return try? client(for: profile).imageURL(itemID: item.id, type: "primary", maxWidth: width)
+        return try? client(for: profile).artworkURL(for: item, type: "primary", maxWidth: width)
     }
 
     /// Episode primary art is normally a 16:9 still. A mixed Continue Watching
@@ -1909,9 +1909,9 @@ final class MediaLibrary: ObservableObject {
                   let cover = ready.index.show(seriesID: seriesID, in: ready.catalog)?.cover else { return nil }
             return URL(string: cover)
         }
-        guard episode.type == "Episode", let seriesID = episode.seriesID,
+        guard episode.type == "Episode", episode.seriesID != nil,
               let profile = profile(for: episode) else { return nil }
-        return try? client(for: profile).imageURL(itemID: seriesID, type: "primary", maxWidth: width)
+        return try? client(for: profile).seriesPosterURL(for: episode, maxWidth: width)
     }
 
     // Asking for art the server did not report leaves a request to 404 behind
@@ -1919,13 +1919,13 @@ final class MediaLibrary: ObservableObject {
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
         if let backdrop = item.backdropURL { return URL(string: backdrop) }
         guard item.hasBackdrop, let profile = profile(for: item) else { return nil }
-        return try? client(for: profile).imageURL(itemID: item.id, type: "backdrop", maxWidth: width)
+        return try? client(for: profile).artworkURL(for: item, type: "backdrop", maxWidth: width)
     }
 
     func logoURL(for item: MediaItem, width: Int = 800) -> URL? {
         if let logo = item.logoArtworkURL { return URL(string: logo) }
         guard item.hasLogo, let profile = profile(for: item) else { return nil }
-        return try? client(for: profile).imageURL(itemID: item.id, type: "logo", maxWidth: width)
+        return try? client(for: profile).artworkURL(for: item, type: "logo", maxWidth: width)
     }
 
     // MARK: - Playback
@@ -2629,7 +2629,7 @@ final class MediaLibrary: ObservableObject {
             made = try PlexClient(serverURL: profile.serverURL, token: token, clientID: deviceID)
         case .jellyfin, .emby:
             made = try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID,
-                                      software: profile.brand)
+                                      software: profile.brand, userID: profile.userID)
         }
         clients[profile.id] = made
         return made

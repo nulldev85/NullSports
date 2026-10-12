@@ -351,7 +351,7 @@ struct ProviderAccountCard: View {
         LineupAccountCard(
             symbol: "antenna.radiowaves.left.and.right",
             title: profile.name,
-            subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
+            subtitle: "\(profile.username) · \(profile.displayHost)",
             connected: ready,
             status: status,
             statusTint: ready ? Color.green : LineupStyle.lightPurple.opacity(0.5),
@@ -410,7 +410,7 @@ struct MediaServerAccountCard: View {
     private var subtitle: String {
         guard media.profiles.count > 1 else {
             guard let profile = media.profiles.first else { return "" }
-            return "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)"
+            return "\(profile.username) · \(profile.displayHost)"
         }
         return media.profiles.map(\.name).joined(separator: " · ")
     }
