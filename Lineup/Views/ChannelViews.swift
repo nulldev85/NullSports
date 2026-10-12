@@ -22,6 +22,12 @@ struct LiveView: View {
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
+    /// Both teams have a saved channel and they disagree: which feed.
+    @State private var feedChoice: TVFeedChoice?
+    /// A channel picked for a game, held until the picker has gone.
+    @State private var pickedChannel: TVPickedChannel?
+    /// After a pick: just this game, or always for one of its teams.
+    @State private var scopingChannel: TVPickedChannel?
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -54,6 +60,9 @@ struct LiveView: View {
                         onStopPreview: stopPreview
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Hold Select on any game for its channel, wherever the
+                    // game's card is.
+                    .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -77,18 +86,45 @@ struct LiveView: View {
                     continuing: item.preview
                 )
             }
-            .sheet(item: $manualChannelGame) { game in
+            .sheet(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
                 ManualGameChannelPicker(game: game) { stream in
+                    pickedChannel = TVPickedChannel(game: game, stream: stream,
+                                                    startsMultiview: manualSelectionStartsMultiview)
                     manualChannelGame = nil
-                    library.saveGameSelection(stream, for: game)
-                    if manualSelectionStartsMultiview {
-                        stopPreview()
-                        multiviewPrimary = stream
-                        multiviewPrimaryGame = game
-                    } else {
-                        play(game, on: stream, manuallySelected: true)
+                }
+            }
+            // Both teams have a saved channel and they disagree -- the one
+            // case where a preference cannot answer on its own.
+            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
+                                titleVisibility: .visible, presenting: feedChoice) { choice in
+                Button(choice.home.channelName) { startFeed(choice.home, of: choice) }
+                Button(choice.away.channelName) { startFeed(choice.away, of: choice) }
+                Button("Choose Another Channel") {
+                    let game = choice.game
+                    let multiview = choice.startsMultiview
+                    feedChoice = nil
+                    // The dialog has to be gone before the picker comes up.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        chooseChannel(for: game, startsMultiview: multiview)
                     }
                 }
+                Button("Cancel", role: .cancel) { feedChoice = nil }
+            } message: { choice in
+                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
+            }
+            // After a pick: how long should it apply?
+            .confirmationDialog("Use this channel for…", isPresented: presenting($scopingChannel),
+                                titleVisibility: .visible, presenting: scopingChannel) { picked in
+                Button("Just This Game") { scopingChannel = nil }
+                ForEach(library.preferenceSides(for: picked.game)) { side in
+                    Button("Always for the \(side.role) (\(side.team))") {
+                        library.savePreference(picked.stream, for: side.key, teamName: side.team)
+                        scopingChannel = nil
+                    }
+                }
+            } message: { picked in
+                Text("\(picked.stream.name) is on now. Lineup can remember it for either team's games.")
             }
             .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
                 Button("OK", role: .cancel) { }
@@ -123,23 +159,77 @@ struct LiveView: View {
     }
 
     private func select(_ game: SportsGame) {
+        // On the monitor already: a second press takes that same picture
+        // full screen, on the channel it is showing.
         if previewGameID == game.id, let previewStream {
-            let resolved = library.resolvedStream(for: game)
-            if let resolved {
-                play(game, on: resolved)
-                return
-            }
-            if previewWasManuallySelected {
-                play(game, on: previewStream)
-                return
-            }
-        }
-        stopPreview()
-        guard let stream = library.resolvedStream(for: game) else {
-            handleUnmatchedSelection(game, startsMultiview: false)
+            play(game, on: previewStream)
             return
         }
-        play(game, on: stream)
+        stopPreview()
+        open(game, startsMultiview: false)
+    }
+
+    /// One game, one decision, made as the iPhone makes it: a channel chosen
+    /// for this game, then a team's saved channel where the guide says it is
+    /// carrying the game, then Lineup's own match -- and the picker when none
+    /// of those answers. `TeamChannelPreferences.resolve` decides.
+    private func open(_ game: SportsGame, startsMultiview: Bool) {
+        switch library.preferredChannel(for: game) {
+        case .syncing:
+            showsChannelSyncMessage = true
+        case let .play(streamID, _):
+            if let stream = library.stream(withID: streamID) {
+                start(game, on: stream, startsMultiview: startsMultiview)
+            } else {
+                chooseChannel(for: game, startsMultiview: startsMultiview)
+            }
+        case let .chooseFeed(home, away):
+            feedChoice = TVFeedChoice(game: game, home: home, away: away, startsMultiview: startsMultiview)
+        case .pick:
+            chooseChannel(for: game, startsMultiview: startsMultiview)
+        }
+    }
+
+    private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
+                       manuallySelected: Bool = false) {
+        if startsMultiview {
+            stopPreview()
+            multiviewPrimary = stream
+            multiviewPrimaryGame = game
+        } else {
+            play(game, on: stream, manuallySelected: manuallySelected)
+        }
+    }
+
+    private func startFeed(_ option: TeamFeedOption, of choice: TVFeedChoice) {
+        feedChoice = nil
+        guard let stream = library.stream(withID: option.streamID) else { return }
+        start(choice.game, on: stream, startsMultiview: choice.startsMultiview)
+    }
+
+    private func chooseChannel(for game: SportsGame, startsMultiview: Bool = false) {
+        manualSelectionStartsMultiview = startsMultiview
+        manualChannelGame = game
+    }
+
+    /// A channel came back from the picker: play it, remember it for this
+    /// game, and ask whether it should stick to either team.
+    private func applyPickedChannel() {
+        guard let picked = pickedChannel else { return }
+        pickedChannel = nil
+        library.saveGameSelection(picked.stream, for: picked.game)
+        // Fresh on the monitor, rather than taken full screen as a second
+        // press on a game already there would be.
+        if !picked.startsMultiview, previewGameID == picked.game.id { stopPreview() }
+        start(picked.game, on: picked.stream, startsMultiview: picked.startsMultiview, manuallySelected: true)
+        if !library.preferenceSides(for: picked.game).isEmpty { scopingChannel = picked }
+    }
+
+    /// Drives a dialog from an optional: SwiftUI clears the optional on
+    /// dismiss, which a constant binding cannot do.
+    private func presenting<T>(_ value: Binding<T?>) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue != nil },
+                set: { if !$0 { value.wrappedValue = nil } })
     }
 
     private func play(_ game: SportsGame, on stream: XtreamStream, manuallySelected: Bool = false) {
@@ -178,23 +268,7 @@ struct LiveView: View {
     }
 
     private func startMultiview(_ game: SportsGame) {
-        guard let stream = library.resolvedStream(for: game) else {
-            handleUnmatchedSelection(game, startsMultiview: true)
-            return
-        }
-        stopPreview()
-        multiviewPrimary = stream
-        multiviewPrimaryGame = game
-    }
-
-    private func handleUnmatchedSelection(_ game: SportsGame, startsMultiview: Bool) {
-        // Explain the initial refresh instead of opening a cached event slot.
-        if library.channelsAreSyncing && !library.automaticMatchingReady {
-            showsChannelSyncMessage = true
-        } else {
-            manualSelectionStartsMultiview = startsMultiview
-            manualChannelGame = game
-        }
+        open(game, startsMultiview: true)
     }
 
     private func stopPreview() {
@@ -205,6 +279,38 @@ struct LiveView: View {
     }
 }
 
+/// Both teams have a saved channel for a game, and they are not the same.
+private struct TVFeedChoice: Identifiable {
+    let game: SportsGame
+    let home: TeamFeedOption
+    let away: TeamFeedOption
+    let startsMultiview: Bool
+    var id: String { game.id }
+}
+
+/// A channel the viewer picked for a game.
+private struct TVPickedChannel: Identifiable {
+    let game: SportsGame
+    let stream: XtreamStream
+    let startsMultiview: Bool
+    var id: String { game.id + "." + String(stream.id) }
+}
+
+/// Opens the channel picker for a game, from wherever the game's card is.
+private struct LiveChooseChannelKey: EnvironmentKey {
+    static let defaultValue: ((SportsGame) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    fileprivate var liveChooseChannel: ((SportsGame) -> Void)? {
+        get { self[LiveChooseChannelKey.self] }
+        set { self[LiveChooseChannelKey.self] = newValue }
+    }
+}
+
+/// Choosing the channel to watch a game on, as the iPhone asks it: Lineup's
+/// own match and the teams' saved channels first, then the viewer's
+/// favorites, and every other channel a search away.
 private struct ManualGameChannelPicker: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
@@ -213,24 +319,145 @@ private struct ManualGameChannelPicker: View {
     let onSelect: (XtreamStream) -> Void
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("No verified channel").foregroundColor(LineupStyle.lightPurple).font(.inter(.title2))
-                Text("\(game.awayTeam) vs. \(game.homeTeam)").foregroundColor(LineupStyle.lightPurple)
-                Text("Listed network: \(game.broadcast.isEmpty ? "Unavailable" : game.broadcast). Choose a channel manually.").foregroundColor(LineupStyle.lightPurple)
-                    .foregroundStyle(LineupStyle.secondary)
+        let notes = suggestionNotes()
+        let suggested = suggestions()
+        let shown = Set(suggested.map(\.id))
+        let results = library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)
+            .filter { !shown.contains($0.id) }
+        HStack(alignment: .top, spacing: 64) {
+            summary
+                .frame(width: 520)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 22) {
                 TextField("Search channels", text: $query)
-                    .textFieldStyle(.plain).focusEffectDisabled()
-                List(library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)) { stream in
-                    Button(stream.name) { onSelect(stream) }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if suggested.isEmpty && results.isEmpty {
+                    VStack(spacing: 14) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 44)).foregroundStyle(LineupStyle.secondary)
+                        Text(query.isEmpty ? "No channels yet" : "Nothing matched \u{201C}\(query)\u{201D}")
+                            .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                        if query.isEmpty {
+                            Text("Refresh your TV Guide to load this provider's channels.")
+                                .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                            if !suggested.isEmpty {
+                                Section {
+                                    ForEach(suggested) { stream in
+                                        row(stream, note: notes[stream.id],
+                                            first: stream.id == suggested.first?.id)
+                                    }
+                                } header: { heading("Suggested") }
+                            }
+                            Section {
+                                ForEach(results) { stream in
+                                    row(stream, note: notes[stream.id],
+                                        first: suggested.isEmpty && stream.id == results.first?.id)
+                                }
+                            } header: { heading(query.isEmpty ? "All Channels" : "Results") }
+                        }
+                        // Room for a focused row's lift at both ends.
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 80)
+                    }
                 }
-                Button("Cancel") { dismiss() }
             }
-            .padding(40)
-            .foregroundStyle(LineupStyle.text)
-            .lineupButtonStyle()
-            .focusEffectDisabled()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .padding(.horizontal, 90)
+        .padding(.top, 70)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("CHOOSE A CHANNEL")
+                .font(.inter(16, .bold)).tracking(1.8).foregroundStyle(LineupStyle.secondary)
+            Text("\(game.awayTeam) vs. \(game.homeTeam)")
+                .font(.inter(44, .semibold)).foregroundStyle(LineupStyle.text)
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            Text(game.broadcast.isEmpty ? "No network listed" : "Listed on \(game.broadcast)")
+                .font(.inter(22)).foregroundStyle(LineupStyle.secondary)
+            Text("Suggested first: Lineup's own match, the channels saved for either team, and your favorites.")
+                .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+            Spacer(minLength: 24)
+            Button("Cancel", role: .cancel) { dismiss() }
+                .lineupButtonStyle()
+        }
+        .padding(.bottom, 60)
+    }
+
+    /// Why a suggested channel is suggested, by its id.
+    private func suggestionNotes() -> [Int: String] {
+        var notes: [Int: String] = [:]
+        for side in library.preferenceSides(for: game) {
+            if let saved = library.teamPreferences.preference(for: side.key) {
+                notes[saved.streamID] = "\(side.team)"
+            }
+        }
+        if let matched = library.verifiedStream(for: game) { notes[matched.id] = "Lineup's match" }
+        return notes
+    }
+
+    /// Lineup's match, the teams' saved channels, then favorites -- none of
+    /// them while a search is under way, which lists everything it finds.
+    private func suggestions() -> [XtreamStream] {
+        guard query.isEmpty else { return [] }
+        var seen: Set<Int> = []
+        var out: [XtreamStream] = []
+        func add(_ stream: XtreamStream?) {
+            if let stream, seen.insert(stream.id).inserted { out.append(stream) }
+        }
+        add(library.verifiedStream(for: game))
+        for side in library.preferenceSides(for: game) {
+            add(library.teamPreferences.preference(for: side.key).flatMap { library.stream(withID: $0.streamID) })
+        }
+        for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "") { add(favorite) }
+        return Array(out.prefix(8))
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.inter(16, .bold)).tracking(1.6).foregroundStyle(LineupStyle.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+            .background(LineupStyle.background)
+    }
+
+    private func row(_ stream: XtreamStream, note: String?, first: Bool) -> some View {
+        TVSelectable(scale: 1.015, fillRadius: 14, action: { onSelect(stream) }, requestInitialFocus: first) {
+            HStack(spacing: 18) {
+                ChannelLogo(url: stream.streamIcon, width: 80, height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(stream.name)
+                    .font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text).lineLimit(1)
+                Spacer(minLength: 12)
+                if let note {
+                    Text(note.uppercased())
+                        .font(.inter(14, .bold)).tracking(1).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10).frame(height: 26)
+                        .background(LineupStyle.raised, in: Capsule())
+                }
+                if library.isFavorite(stream) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 18)).foregroundStyle(LineupStyle.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 76)
+            .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .accessibilityLabel("Watch \(game.awayTeam) versus \(game.homeTeam) on \(stream.name)")
     }
 }
 
@@ -1656,6 +1883,7 @@ private struct LiveTag: View {
 private struct LiveGameMenu: ViewModifier {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var reminders: GameReminders
+    @Environment(\.liveChooseChannel) private var chooseChannel
     let game: SportsGame
     let isPrimary: Bool
     let onStartMultiview: () -> Void
@@ -1667,6 +1895,11 @@ private struct LiveGameMenu: ViewModifier {
                        systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
                     reminders.toggleGame(game)
                 }
+            }
+            // A channel of the viewer's own for this game, and whether to
+            // keep it for either team, as on iPhone.
+            if let chooseChannel {
+                Button("Choose Channel", systemImage: "list.bullet") { chooseChannel(game) }
             }
             ForEach(library.followableSides(of: game)) { team in
                 let following = library.isFollowing(team.key)
@@ -2520,6 +2753,7 @@ private struct EmptySchedule: View {
 private struct GameEventCard: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var reminders: GameReminders
+    @Environment(\.liveChooseChannel) private var chooseChannel
     @FocusState private var isFocused: Bool
     let event: SportsGame
     let multiviewPrimaryID: Int?
@@ -2597,6 +2831,9 @@ private struct GameEventCard: View {
                        systemImage: reminders.reminds(event) ? "bell.slash" : "bell") {
                     reminders.toggleGame(event)
                 }
+            }
+            if let chooseChannel {
+                Button("Choose Channel", systemImage: "list.bullet") { chooseChannel(event) }
             }
             // Following is offered wherever a game is, not only in the rail.
             // The rail is empty until somebody is followed, so a follow action
@@ -4222,6 +4459,7 @@ struct AccountView: View {
     @State private var addingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
+    @State private var managingTeamChannels = false
 
     private let columnWidth: CGFloat = 1400
     private let gutter: CGFloat = 24
@@ -4258,6 +4496,9 @@ struct AccountView: View {
             .sheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environmentObject(media)
             }
+            .sheet(isPresented: $managingTeamChannels) {
+                TVPreferredChannelsView().environmentObject(library)
+            }
         }
     }
 
@@ -4285,6 +4526,9 @@ struct AccountView: View {
                 mediaCard
             }
             .fixedSize(horizontal: false, vertical: true)
+            if library.activeProfile != nil {
+                preferredChannelsRow
+            }
             // Every server feeds the Library at once, so with more than one
             // the card above speaks for all of them and this list for each:
             // whether it answers, what it holds, and the way to remove it.
@@ -4301,6 +4545,33 @@ struct AccountView: View {
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(LineupStyle.line, lineWidth: 1))
             }
+        }
+    }
+
+    /// The channels saved for teams, one press from their list.
+    private var preferredChannelsRow: some View {
+        let count = library.teamPreferences.count
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeamChannels = true }) {
+            HStack(spacing: 20) {
+                Image(systemName: "star.square.on.square")
+                    .font(.system(size: 28, weight: .semibold)).foregroundStyle(LineupStyle.text)
+                    .frame(width: 52)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text(count == 0
+                         ? "None yet. Hold Select on a game and choose Choose Channel to save one for a team."
+                         : "\(count) \(count == 1 ? "team opens" : "teams open") on a saved channel")
+                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 96)
+            .background(LineupStyle.surface, in: shape)
+            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
         }
     }
 
@@ -4757,6 +5028,106 @@ private struct AccountTile<Destination: View>: View {
 /// A button on a card. Standard is a raised capsule, prominent adds a white
 /// edge for the one thing a card is asking for, and quiet is an outline for
 /// what removes something.
+/// The channels saved for teams: each team, the channel its games open on,
+/// and a press to forget it. The iPhone's Preferred Channels, on the
+/// television.
+private struct TVPreferredChannelsView: View {
+    @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var forgetting: TeamChannelEntry?
+    @State private var clearingAll = false
+
+    var body: some View {
+        let entries = library.teamPreferences.listed()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                PageTitle(eyebrow: "Settings", title: "Preferred Channels",
+                          detail: "Games for these teams open on the channel saved for them. If it is unavailable, Lineup uses its own match and keeps the preference.")
+                if entries.isEmpty {
+                    Text("No preferred channels yet. Hold Select on any game, choose Choose Channel, and Lineup can remember it for either team.")
+                        .font(.inter(22)).foregroundStyle(LineupStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(entries) { entry in
+                            TVSelectable(scale: 1.01, fillRadius: 16, action: { forgetting = entry },
+                                         requestInitialFocus: entry.id == entries.first?.id) {
+                                row(entry)
+                            }
+                        }
+                    }
+                }
+                HStack(spacing: 20) {
+                    if !entries.isEmpty {
+                        Button("Remove All", role: .destructive) { clearingAll = true }
+                    }
+                    Button("Done") { dismiss() }
+                }
+                .lineupButtonStyle()
+            }
+            .padding(.horizontal, 90)
+            .padding(.vertical, 56)
+        }
+        .background(LineupStyle.background.ignoresSafeArea())
+        .confirmationDialog("Forget this channel?",
+                            isPresented: Binding(get: { forgetting != nil },
+                                                 set: { if !$0 { forgetting = nil } }),
+                            titleVisibility: .visible, presenting: forgetting) { entry in
+            Button("Forget", role: .destructive) {
+                library.removePreference(for: entry.key)
+                forgetting = nil
+            }
+            Button("Cancel", role: .cancel) { forgetting = nil }
+        } message: { entry in
+            Text("\(name(of: entry)) games will open on Lineup's own match again.")
+        }
+        .confirmationDialog("Remove every preferred channel?", isPresented: $clearingAll,
+                            titleVisibility: .visible) {
+            Button("Remove All", role: .destructive) { library.removeAllPreferences() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+        }
+    }
+
+    private func name(of entry: TeamChannelEntry) -> String {
+        entry.preference.teamName.isEmpty ? entry.key.team : entry.preference.teamName
+    }
+
+    private func row(_ entry: TeamChannelEntry) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return HStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(name(of: entry)).font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                HStack(spacing: 10) {
+                    Text(entry.preference.channelName)
+                        .font(.inter(20)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    // A provider can drop a channel and carry it again later,
+                    // so this is a note, not a reason to delete the preference.
+                    if !library.preferenceChannelIsAvailable(entry.preference) {
+                        Text("UNAVAILABLE")
+                            .font(.inter(13, .bold)).tracking(0.8)
+                            .padding(.horizontal, 8).frame(height: 24)
+                            .background(LineupStyle.raised, in: Capsule())
+                            .foregroundStyle(LineupStyle.secondary)
+                    }
+                }
+            }
+            Spacer(minLength: 16)
+            Text(entry.key.league.uppercased())
+                .font(.inter(16, .bold)).tracking(1.2).foregroundStyle(LineupStyle.secondary)
+            Image(systemName: "trash")
+                .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+        }
+        .padding(.horizontal, 28)
+        .frame(height: 96)
+        .background(LineupStyle.surface, in: shape)
+        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Forget this team's channel")
+    }
+}
+
 private struct AccountButton: View {
     @Environment(\.isEnabled) private var enabled
     @FocusState private var isFocused: Bool

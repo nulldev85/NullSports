@@ -5514,20 +5514,11 @@ struct MediaServerSetupView: View {
                         }
                         .scrollTargetLayout()
                         .fixedSize(horizontal: false, vertical: true)
-                        .background {
-                            GeometryReader { pages in
-                                Color.clear.preference(
-                                    key: MediaServerPagerPosition.self,
-                                    value: -pages.frame(in: .named("mediaServerPager")).minX
-                                        / max(pages.size.width / CGFloat(MediaServerBrand.allCases.count), 1))
-                            }
-                        }
                     }
                     .scrollTargetBehavior(.paging)
                     .scrollPosition(id: $page)
                     .scrollIndicators(.hidden)
-                    .coordinateSpace(name: "mediaServerPager")
-                    .onPreferenceChange(MediaServerPagerPosition.self) { swipe.progress = $0 }
+                    .modifier(MediaServerPagerTracking(swipe: swipe))
                     if let error = media.errorMessage {
                         Text(error).font(.inter(.footnote)).foregroundStyle(LineupStyle.live)
                             .padding(.horizontal, 16)
@@ -5545,6 +5536,11 @@ struct MediaServerSetupView: View {
                 guard let brand, brand != software else { return }
                 clearError()
                 software = brand
+                // Without the pager's own position to follow, the marker
+                // glides to the page it settled on.
+                if #unavailable(iOS 18) {
+                    withAnimation(.smooth(duration: 0.3)) { swipe.progress = CGFloat(order(of: brand)) }
+                }
             }
         }
         #endif
@@ -5634,9 +5630,24 @@ final class MediaServerSwipe: ObservableObject {
     @Published var progress: CGFloat = 0
 }
 
-private struct MediaServerPagerPosition: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+/// Keeps the marker under the logos where the pager is, frame by frame, as a
+/// finger or a tap moves it. The pager says where it is itself: a reading
+/// taken from inside its pages was never passed on, which left the marker on
+/// the first logo.
+private struct MediaServerPagerTracking: ViewModifier {
+    let swipe: MediaServerSwipe
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                (geometry.contentOffset.x + geometry.contentInsets.leading) / max(geometry.containerSize.width, 1)
+            } action: { _, progress in
+                swipe.progress = progress
+            }
+        } else {
+            content
+        }
+    }
 }
 #endif
 
