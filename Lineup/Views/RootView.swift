@@ -78,11 +78,11 @@ struct MainView: View {
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Live", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
+                .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView(isActive: selectedTab == 1)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
+                .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
@@ -96,7 +96,7 @@ struct MainView: View {
                 .tag(4)
             AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Account", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
+                .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }
         // The four tabs are Lineup's primary navigation, not transient

@@ -113,8 +113,8 @@ struct MobileGuideView: View {
         switch filter {
         case .favorites: return "Favorites"
         case .recents: return "Recent"
-        case .all: return "Guide"
-        case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "Guide"
+        case .all: return "TV Guide"
+        case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
         }
     }
 
@@ -258,7 +258,7 @@ struct MobileGuideView: View {
                             Task { await library.reload() }
                         }.disabled(library.channelsAreSyncing)
                     } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityLabel("Guide options")
+                    .accessibilityLabel("TV Guide options")
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)

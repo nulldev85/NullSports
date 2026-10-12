@@ -354,7 +354,7 @@ struct ProviderAccountCard: View {
                 Task { await library.reload() }
             }
             .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-            LineupCardAction(title: "Guide", symbol: "calendar", action: openGuide)
+            LineupCardAction(title: "TV Guide", symbol: "calendar", action: openGuide)
         }
     }
 }
@@ -1172,6 +1172,42 @@ private struct MediaCatalogsScreen: View {
         .onChange(of: shelves.count) { _, count in
             if shelfIndex >= count { shelfIndex = max(0, count - 1) }
         }
+        .task(id: TVShelfPrefetchKey(index: index, count: shelves.count)) {
+            await prefetchShelves(around: index)
+        }
+    }
+
+    /// The column the remote is on in a shelf, or was left on.
+    private func column(in shelf: TVLibraryShelf) -> Int {
+        if case .card(let slot)? = tvFocus { return slot }
+        return shelfColumns[shelf.id] ?? 0
+    }
+
+    /// The cards whose art is fetched: what fits on screen from the column,
+    /// with a few either side to meet the remote.
+    private static func artWindow(around column: Int) -> ClosedRange<Int> {
+        max(0, column - 4)...(column + 10)
+    }
+
+    /// The shelves either side of the one shown are fetched at once, so a
+    /// press up or down finds their posters made; the first screenful of
+    /// every other shelf follows when the network has had a moment.
+    private func prefetchShelves(around index: Int) async {
+        let shelves = tvShelves
+        guard !shelves.isEmpty else { return }
+        func fetch(_ shelf: TVLibraryShelf, _ window: ClosedRange<Int>) {
+            let shape = MediaArtShape.forItems(shelf.items)
+            for slot in window where shelf.items.indices.contains(slot) {
+                let art = MediaItemCard.art(for: shelf.items[slot], shape: shape, in: media)
+                LineupArt.prefetch(art.url, pixels: art.pixels)
+            }
+        }
+        for neighbour in [index + 1, index - 1] where shelves.indices.contains(neighbour) {
+            let shelf = shelves[neighbour]
+            fetch(shelf, Self.artWindow(around: shelfColumns[shelf.id] ?? 0))
+        }
+        do { try await Task.sleep(for: .seconds(1.5)) } catch { return }
+        for shelf in shelves { fetch(shelf, 0...7) }
     }
 
     /// A strip the width of the screen along the top of the shelf, there to be
@@ -1295,10 +1331,13 @@ private struct MediaCatalogsScreen: View {
                 }
                 .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                 .scrollClipDisabled()
-                .onChange(of: tvFocus) { _, place in
-                    if case .card(let slot)? = place {
-                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(slot) }
-                    }
+                // Along the row the focus engine keeps the card in view by
+                // itself; scrolling here as well, on every press, moved the
+                // row twice and made it drag behind the remote. Only a new
+                // shelf, which lands on the card it was left on, is brought
+                // to it.
+                .onChange(of: shelf.id) { _, id in
+                    proxy.scrollTo(shelfColumns[id] ?? 0)
                 }
             }
         }
@@ -1308,6 +1347,9 @@ private struct MediaCatalogsScreen: View {
     private func tvCard(_ item: MediaItem, slot: Int, shelf: TVLibraryShelf, shape: MediaArtShape) -> some View {
         let focused = tvFocus == .card(slot)
         return MediaItemCard(item: item, shape: shape)
+            // Every card in the row is built, so focus can land on any of
+            // them; only those near where the remote is fetch their art.
+            .environment(\.lineupArtDeferred, !Self.artWindow(around: column(in: shelf)).contains(slot))
             .id(item.libraryKey)
             .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 24 : -24)))
             .environment(\.lineupTVSelectableFocused, focused)
@@ -1446,6 +1488,13 @@ private struct MediaCatalogsScreen: View {
             let item = shelf.items[slot]
             focusedCard = item
             preview(item, when: true)
+            // The titles either side, so the artwork is made before the
+            // remote gets there.
+            for neighbour in [slot - 1, slot + 1] where shelf.items.indices.contains(neighbour) {
+                if let art = backdropArt(for: shelf.items[neighbour]) {
+                    LineupArt.prefetch(art.url, pixels: art.pixels)
+                }
+            }
         case .hero?:
             if let heroItem, tvPreview.item?.libraryKey != heroItem.libraryKey {
                 showHero(at: heroIndex)
@@ -3240,18 +3289,28 @@ private final class TVMediaPreviewState: ObservableObject {
         let key = focusedItem.libraryKey
         if focused { focusedPosterIDs.insert(key) }
         else { focusedPosterIDs.remove(key) }
-        guard focused, item?.libraryKey != key else { return }
+        guard focused else { return }
+        // Back on the title already shown: whatever was about to replace it
+        // is no longer wanted.
         detailLoad?.cancel()
-        item = details[key] ?? focusedItem
-        guard details[key] == nil else { return }
-        detailLoad = Task { [weak self] in
-            // A swipe can cross several posters. The shelf item changes the
-            // art immediately; rich metadata waits for focus to settle.
+        guard item?.libraryKey != key else { return }
+        detailLoad = Task { @MainActor [weak self] in
+            // A swipe crosses several titles in a fraction of a second, and
+            // each one swapped the whole screen's artwork and words -- a
+            // full-screen picture fetched and decoded for a title the remote
+            // had already left, while the posters waited behind it. The room
+            // changes once the remote has stopped, which on a single press is
+            // too soon to notice.
+            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.item = self.details[key] ?? focusedItem
+            guard self.details[key] == nil else { return }
+            // Rich metadata waits a little longer again.
             do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
             guard !Task.isCancelled, let loaded = await load(focusedItem),
-                  !Task.isCancelled, self?.item?.libraryKey == key else { return }
-            self?.details[key] = loaded
-            self?.item = loaded
+                  !Task.isCancelled, self.item?.libraryKey == key else { return }
+            self.details[key] = loaded
+            self.item = loaded
         }
     }
 
@@ -3286,6 +3345,13 @@ private struct TVMediaLibraryCanvas: View {
                     .allowsHitTesting(false)
             }
     }
+}
+
+/// What the Library's prefetch follows: the shelf shown, and how many there
+/// are to fetch from.
+private struct TVShelfPrefetchKey: Equatable {
+    let index: Int
+    let count: Int
 }
 
 /// Where the Library's remote can be.
@@ -5148,19 +5214,33 @@ struct MediaItemCard: View {
     /// range, which is wider than the fixed width a shelf gives it. One size
     /// per shape means a title scrolled past in a shelf and met again in a
     /// grid is the same cached picture both times.
-    private var artWidth: CGFloat {
+    private var artWidth: CGFloat { Self.artWidth(shape) }
+    private var artworkURL: URL? {
+        Self.artworkURL(for: item, shape: shape, in: media)
+    }
+
+    /// The card's art, address and size, worked out without a card, so a
+    /// shelf can fetch it before the card is drawn and the card finds it
+    /// made (`LineupArt.prefetch`).
+    static func art(for item: MediaItem, shape: MediaArtShape, in media: MediaLibrary) -> (url: URL?, pixels: Int) {
+        (artworkURL(for: item, shape: shape, in: media), LineupArt.pixels(for: artWidth(shape)))
+    }
+
+    private static func artWidth(_ shape: MediaArtShape) -> CGFloat {
         #if os(tvOS)
         shape == .poster ? 310 : 460
         #else
         shape == .poster ? 210 : 300
         #endif
     }
-    private var artworkURL: URL? {
+
+    private static func artworkURL(for item: MediaItem, shape: MediaArtShape, in media: MediaLibrary) -> URL? {
+        let width = Int(artWidth(shape))
         if shape.isPoster, item.type == "Episode" {
-            return media.seriesPosterURL(for: item, width: Int(artWidth))
-                ?? media.imageURL(for: item, width: Int(artWidth))
+            return media.seriesPosterURL(for: item, width: width)
+                ?? media.imageURL(for: item, width: width)
         }
-        return media.imageURL(for: item, width: Int(artWidth))
+        return media.imageURL(for: item, width: width)
     }
     private var cardRadius: CGFloat {
         #if os(tvOS)

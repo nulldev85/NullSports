@@ -234,15 +234,21 @@ private struct ManualGameChannelPicker: View {
     }
 }
 
-/// A channel's past programmes that the provider kept, newest first and by
-/// day, to play from the start.
-private struct TVCatchUpSheet: View {
+/// A channel's past programmes that the provider kept, to play from the
+/// start: the whole screen, the list on the right by day, newest first, and
+/// what the focused programme is on the left.
+///
+/// Focus only ever moves up and down the list. The days are headings in it
+/// rather than a rail of their own, so there is nothing for a sideways press
+/// to land on by accident and change what is listed.
+private struct TVCatchUpScreen: View {
     @EnvironmentObject private var library: SportsLibrary
     let stream: XtreamStream
     let onSelect: (CatchUpProgramme) -> Void
     @State private var programmes: [CatchUpProgramme] = []
     @State private var loading = true
     @State private var failed = false
+    @State private var focused: CatchUpProgramme?
 
     private struct Day: Identifiable {
         let day: Date
@@ -259,49 +265,17 @@ private struct TVCatchUpSheet: View {
         }
     }
 
-    private func title(for day: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(day) { return "TODAY" }
-        if calendar.isDateInYesterday(day) { return "YESTERDAY" }
-        return day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()).uppercased()
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("CATCH UP").font(.inter(14, .bold)).tracking(2.2)
-                    .foregroundStyle(LineupStyle.secondary)
-                Text(stream.name).font(.inter(34, .bold)).foregroundStyle(LineupStyle.text)
-                    .lineLimit(1)
-            }
-            if loading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if programmes.isEmpty {
-                Text(failed ? "The provider didn't answer. Try again in a moment."
-                            : "Nothing from this channel has been kept to watch again yet.")
-                    .font(.inter(20, .medium))
-                    .foregroundStyle(LineupStyle.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(days) { group in
-                            Text(title(for: group.day))
-                                .font(.inter(15, .bold)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.secondary)
-                                .padding(.top, 18).padding(.leading, 4)
-                            ForEach(group.programmes) { programme in
-                                TVSelectable(scale: 1.01, action: { onSelect(programme) }) {
-                                    TVCatchUpRow(programme: programme)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 12).padding(.horizontal, 10)
-                }
-            }
+        HStack(alignment: .top, spacing: 64) {
+            TVCatchUpDetail(stream: stream, programme: focused ?? programmes.first,
+                            dayCount: days.count, programmeCount: programmes.count)
+                .frame(width: 600)
+                .frame(maxHeight: .infinity, alignment: .top)
+            list
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(60)
+        .padding(.horizontal, 90)
+        .padding(.top, 70)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.background.ignoresSafeArea())
         .task {
@@ -313,37 +287,263 @@ private struct TVCatchUpSheet: View {
             loading = false
         }
     }
+
+    @ViewBuilder
+    private var list: some View {
+        if loading {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if programmes.isEmpty {
+            VStack(spacing: 14) {
+                Image(systemName: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath")
+                    .font(.system(size: 44, weight: .regular))
+                    .foregroundStyle(LineupStyle.secondary)
+                Text(failed ? "The provider didn't answer" : "Nothing kept yet")
+                    .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(failed ? "Try again in a moment."
+                            : "Programmes from this channel will show here once the provider has kept them.")
+                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    .multilineTextAlignment(.center).frame(maxWidth: 520)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                    ForEach(days) { group in
+                        Section {
+                            ForEach(group.programmes) { programme in
+                                TVSelectable(scale: 1.015, fillRadius: 14,
+                                             action: { onSelect(programme) },
+                                             onFocusChange: { if $0 { focused = programme } },
+                                             requestInitialFocus: programme.id == programmes.first?.id) {
+                                    TVCatchUpRow(programme: programme)
+                                }
+                            }
+                        } header: {
+                            TVCatchUpDayHeader(day: group.day, count: group.programmes.count)
+                        }
+                    }
+                }
+                // Room for a focused row's lift at both ends of the list.
+                .padding(.horizontal, 14)
+                .padding(.bottom, 80)
+            }
+        }
+    }
 }
 
-/// One programme in the catch-up list: when it was on, and what it was.
+/// The left of the catch-up screen: the channel, then everything about the
+/// programme in focus. Nothing here takes focus.
+private struct TVCatchUpDetail: View {
+    let stream: XtreamStream
+    let programme: CatchUpProgramme?
+    let dayCount: Int
+    let programmeCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 18) {
+                ChannelLogo(url: stream.streamIcon, width: 96, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CATCH UP").font(.inter(13, .bold)).tracking(2.2)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(2).minimumScaleFactor(0.8)
+                }
+            }
+            if programmeCount > 0 {
+                Text("\(programmeCount) programmes over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
+                    .font(.inter(16, .medium)).foregroundStyle(LineupStyle.secondary)
+                    .padding(.top, 14)
+            }
+
+            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.vertical, 34)
+
+            if let programme {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(TVCatchUpFormat.when(programme))
+                        .font(.inter(15, .bold)).tracking(1.6)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(programme.title)
+                        .font(.inter(40, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(3).minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        TVCatchUpChip(text: TVCatchUpFormat.length(programme.duration))
+                        if programme.isOnNow { TVCatchUpOnNow() }
+                    }
+                    if programme.isOnNow {
+                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 5)
+                            .frame(maxWidth: 420)
+                    }
+                    if !programme.detail.isEmpty {
+                        Text(programme.detail)
+                            .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                            .lineSpacing(4)
+                            .lineLimit(8)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // A new programme's words replace the last one's at once: an
+                // animated swap would trail behind the remote.
+                .transaction { $0.animation = nil }
+            }
+
+            Spacer(minLength: 24)
+
+            HStack(spacing: 10) {
+                Image(systemName: "play.circle")
+                Text(programme?.isOnNow == true ? "Select to watch from the start, then catch up to live"
+                                                : "Select to watch from the start")
+            }
+            .font(.inter(17, .medium))
+            .foregroundStyle(LineupStyle.secondary)
+            .padding(.bottom, 60)
+        }
+    }
+}
+
+/// A day's heading in the list, pinned while its programmes scroll under it.
+private struct TVCatchUpDayHeader: View {
+    let day: Date
+    let count: Int
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(TVCatchUpFormat.dayTitle(day))
+                .font(.inter(16, .bold)).tracking(1.8)
+                .foregroundStyle(LineupStyle.text)
+            Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
+                .font(.inter(14, .semibold)).tracking(1.4)
+                .foregroundStyle(LineupStyle.secondary)
+            Spacer(minLength: 0)
+            Text(count == 1 ? "1 programme" : "\(count) programmes")
+                .font(.inter(14, .medium))
+                .foregroundStyle(LineupStyle.secondary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 22).padding(.bottom, 12)
+        // Opaque, so rows scrolling up under a pinned heading do not show
+        // through it.
+        .background(LineupStyle.background)
+    }
+}
+
+/// One programme in the catch-up list.
 private struct TVCatchUpRow: View {
     let programme: CatchUpProgramme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 24) {
-            Text("\(programme.start.formatted(date: .omitted, time: .shortened)) – \(programme.end.formatted(date: .omitted, time: .shortened))")
-                .font(.interDigits(18, .semibold))
-                .foregroundStyle(LineupStyle.secondary)
-                .frame(width: 230, alignment: .leading)
+        HStack(alignment: .center, spacing: 26) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    Text(programme.title).font(.inter(22, .semibold)).lineLimit(1)
-                    if programme.isOnNow {
-                        Text("ON NOW").font(.inter(12, .bold)).tracking(1.4)
-                            .foregroundStyle(LineupStyle.liveStatus)
-                    }
-                }
-                if !programme.detail.isEmpty {
-                    Text(programme.detail).font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                Text(programme.start.formatted(date: .omitted, time: .shortened))
+                    .font(.interDigits(22, .semibold))
+                    .foregroundStyle(LineupStyle.text)
+                Text(TVCatchUpFormat.length(programme.duration))
+                    .font(.inter(15, .medium))
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+            .frame(width: 128, alignment: .leading)
+
+            Rectangle().fill(LineupStyle.line).frame(width: 1, height: 46)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    if programme.isOnNow { TVCatchUpOnNow() }
+                    Text(programme.title)
+                        .font(.inter(23, .semibold))
+                        .foregroundStyle(LineupStyle.text)
                         .lineLimit(1)
                 }
+                if !programme.detail.isEmpty {
+                    Text(programme.detail)
+                        .font(.inter(16))
+                        .foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                if programme.isOnNow {
+                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 3)
+                        .padding(.top, 4)
+                }
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .foregroundStyle(LineupStyle.text)
-        .padding(.horizontal, 22).padding(.vertical, 16)
-        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 24).padding(.vertical, 18)
+        .frame(minHeight: 96)
+        .background(programme.isOnNow ? LineupStyle.focused : LineupStyle.raised,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// "ON NOW", red: catch-up's one status.
+private struct TVCatchUpOnNow: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
+            Text("ON NOW").font(.inter(13, .bold)).tracking(1.4)
+                .foregroundStyle(LineupStyle.liveStatus)
+        }
+    }
+}
+
+private struct TVCatchUpChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.inter(15, .semibold))
+            .foregroundStyle(LineupStyle.text)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(LineupStyle.raised, in: Capsule())
+    }
+}
+
+/// How far a programme still on has got, on a quiet track.
+private struct TVCatchUpProgress: View {
+    let fraction: Double
+    let height: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(LineupStyle.text.opacity(0.14))
+                Capsule().fill(LineupStyle.liveDot)
+                    .frame(width: max(height, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// The catch-up screen's words for times and lengths.
+private enum TVCatchUpFormat {
+    static func dayTitle(_ day: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return "TODAY" }
+        if calendar.isDateInYesterday(day) { return "YESTERDAY" }
+        return day.formatted(.dateTime.weekday(.wide)).uppercased()
+    }
+
+    /// "TODAY · 9:00 – 11:00 AM"
+    static func when(_ programme: CatchUpProgramme) -> String {
+        let day = dayTitle(Calendar.current.startOfDay(for: programme.start))
+        let start = programme.start.formatted(date: .omitted, time: .shortened)
+        let end = programme.end.formatted(date: .omitted, time: .shortened)
+        return "\(day)  ·  \(start) – \(end)"
+    }
+
+    /// "2 hr", "1 hr 30 min", "45 min"
+    static func length(_ duration: TimeInterval) -> String {
+        let minutes = max(1, Int((duration / 60).rounded()))
+        let hours = minutes / 60, rest = minutes % 60
+        if hours == 0 { return "\(rest) min" }
+        return rest == 0 ? "\(hours) hr" : "\(hours) hr \(rest) min"
+    }
+
+    static func elapsedFraction(_ programme: CatchUpProgramme, now: Date = Date()) -> Double {
+        guard programme.duration > 0 else { return 0 }
+        return min(1, max(0, now.timeIntervalSince(programme.start) / programme.duration))
     }
 }
 
@@ -2726,8 +2926,8 @@ struct GuideView: View {
                         continuing: item.preview
                     )
                 }
-                .sheet(item: $catchUpChannel) { stream in
-                    TVCatchUpSheet(stream: stream) { programme in
+                .fullScreenCover(item: $catchUpChannel) { stream in
+                    TVCatchUpScreen(stream: stream) { programme in
                         catchUpChannel = nil
                         watchRecording(of: stream, programme: programme)
                     }
@@ -3042,7 +3242,7 @@ private struct GuideControlBar: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(GuidePalette.line, lineWidth: 1))
             } else {
-                GuideTitleBlock(eyebrow: "GUIDE", title: title)
+                GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
@@ -3684,7 +3884,7 @@ private struct TVFavoritesOrderView: View {
                 Group {
                     if favorites.isEmpty {
                         ContentUnavailableView("No favorites", systemImage: "star",
-                            description: Text("Add channels to Favorites from the Guide."))
+                            description: Text("Add channels to Favorites from the TV Guide."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollViewReader { proxy in
@@ -4039,10 +4239,10 @@ struct AccountView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SETTINGS")
+            Text("LINEUP")
                 .font(.inter(13, .bold)).tracking(2.2)
                 .foregroundStyle(LineupStyle.secondary)
-            Text("Account")
+            Text("Settings")
                 .font(.inter(52, .bold))
                 .foregroundStyle(LineupStyle.text)
             Text("Your sources, your library, and how the app is running.")
@@ -4100,7 +4300,7 @@ struct AccountView: View {
                     Task { await library.reload() }
                 }
                 .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-                AccountButton(title: "Guide", symbol: "list.bullet.rectangle") { selectedTab = 1 }
+                AccountButton(title: "TV Guide", symbol: "list.bullet.rectangle") { selectedTab = 1 }
                 AccountButton(title: "Remove", symbol: "trash", quiet: true) {
                     library.removeActiveProfile()
                 }
