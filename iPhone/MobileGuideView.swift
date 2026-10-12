@@ -20,6 +20,12 @@ enum MobileGuideFilter: Hashable {
     }
 }
 
+/// A programme picked from the catch-up list, played once the list closes.
+private struct PendingRecording {
+    let stream: XtreamStream
+    let programme: CatchUpProgramme
+}
+
 struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
@@ -43,6 +49,18 @@ struct MobileGuideView: View {
     @State private var expanded = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
+    /// The channel before the one in the player, for Last Channel.
+    @State private var previousChannel: XtreamStream?
+    /// The channel just tuned to, named over the picture for a moment.
+    @State private var channelBanner: MobileChannelBannerInfo?
+    @State private var bannerTask: Task<Void, Never>?
+    /// The game an alert sent the player to, which a further alert about it
+    /// would be no news of.
+    @State private var watchingGame: SportsGame?
+    /// The channel whose past programmes are listed, and the one picked from
+    /// the list, played once the list has gone.
+    @State private var catchUpChannel: XtreamStream?
+    @State private var pendingRecording: PendingRecording?
     /// Lineup's own match for the game being picked for. Resolved once when the
     /// picker appears: `verifiedStream` revalidates against the guide, which is
     /// far too costly to run per row on every redraw.
@@ -157,7 +175,15 @@ struct MobileGuideView: View {
                                 videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
                                 onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
-                                onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) })
+                                onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
+                                // Up and down the list on screen, whatever it
+                                // is showing: favorites, a category, a search.
+                                onStepChannel: channelStepper(around: stream),
+                                lastChannelName: lastChannel?.name,
+                                onLastChannel: { if let last = lastChannel { tune(last) } },
+                                channelBanner: channelBanner,
+                                watchingGameID: watchingGame?.id,
+                                onWatchGame: { watchGame($0) })
                                 .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
@@ -271,6 +297,21 @@ struct MobileGuideView: View {
                 returnToNow()
                 if let game { recommendedStreamID = library.verifiedStream(for: game)?.id }
             }
+            // Played once the list has gone, so the player doesn't open
+            // under a sheet that is still closing.
+            .sheet(item: $catchUpChannel, onDismiss: {
+                guard let pending = pendingRecording else { return }
+                pendingRecording = nil
+                openRecording(pending.stream, programme: pending.programme)
+            }) { stream in
+                MobileCatchUpSheet(stream: stream) { programme in
+                    pendingRecording = PendingRecording(stream: stream, programme: programme)
+                    catchUpChannel = nil
+                }
+                .environmentObject(library)
+                .tint(LineupStyle.highlight)
+                .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
                     .environmentObject(library)
@@ -296,10 +337,82 @@ struct MobileGuideView: View {
         guard selectedStream?.id != stream.id else { return }
         // A new selection gets a new VLC session and surface. A stopped renderer
         // from an earlier tab visit must never become the next channel's output.
+        if let current = selectedStream { previousChannel = current }
+        watchingGame = nil
         playback.shutdown()
         playback = MobilePlaybackController()
         selectedStream = stream
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
+        playback.loadCatchUpSource(for: stream, from: library)
+    }
+
+    /// A recording rather than the channel live: a programme from the past,
+    /// or with nil the one on now from its start. Full screen, as something
+    /// chosen to sit and watch.
+    private func openRecording(_ stream: XtreamStream, programme: CatchUpProgramme?) {
+        if let current = selectedStream, current.id != stream.id { previousChannel = current }
+        watchingGame = nil
+        if selectedStream == nil {
+            // A fresh player for a fresh opening, as a new selection gets.
+            playback.shutdown()
+            playback = MobilePlaybackController()
+        }
+        selectedStream = stream
+        setExpanded(true)
+        let controller = playback
+        Task { await controller.openRecording(of: stream, programme: programme, from: library) }
+    }
+
+    /// The channel Last Channel goes back to: the one played before this,
+    /// else the last one watched anywhere.
+    private var lastChannel: XtreamStream? {
+        guard let current = selectedStream else { return nil }
+        if let previousChannel, previousChannel.id != current.id { return previousChannel }
+        return library.recentStreams.first { $0.id != current.id }
+    }
+
+    /// Steps along the list on screen from the channel playing, round from
+    /// the end to the start. Nil while picking a channel for a game, or with
+    /// nothing else in the list to step to.
+    private func channelStepper(around stream: XtreamStream) -> ((Int) -> Void)? {
+        guard game == nil else { return nil }
+        let lineup = channels
+        guard lineup.count > 1 else { return nil }
+        return { step in
+            let index = lineup.firstIndex { $0.id == stream.id }
+            let next = index.map { ($0 + step + lineup.count) % lineup.count } ?? (step > 0 ? 0 : lineup.count - 1)
+            tune(lineup[next])
+        }
+    }
+
+    /// Changes channel on the same player, so full screen stays full screen,
+    /// and names the new channel over the picture for a moment.
+    private func tune(_ stream: XtreamStream, for game: SportsGame? = nil) {
+        guard let current = selectedStream, current.id != stream.id || game != nil else { return }
+        if current.id != stream.id { previousChannel = current }
+        watchingGame = game
+        selectedStream = stream
+        playback.failover = nil
+        playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
+        playback.loadCatchUpSource(for: stream, from: library)
+        let info = MobileChannelBannerInfo(
+            stream: stream,
+            program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive })
+        channelBanner = info
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            if channelBanner == info { channelBanner = nil }
+        }
+    }
+
+    /// One of the viewer's teams' games, from an alert, on its channel. A
+    /// game with no channel yet is left for the Live tab, where one can be
+    /// chosen for it.
+    private func watchGame(_ game: SportsGame) {
+        GameAlertCenter.shared.dismiss()
+        guard let stream = library.resolvedStream(for: game) else { return }
+        tune(stream, for: game)
     }
 
     /// Expanding moves the video, the guide behind it, the navigation bar, the
@@ -475,6 +588,13 @@ struct MobileGuideView: View {
                 }
             } else {
                 Button("Add favorite", systemImage: "star") { library.addFavorite(stream) }
+            }
+            // A channel the provider records: what is on now from its start,
+            // and what it showed before.
+            if stream.hasCatchUp && game == nil {
+                Divider()
+                Button("Start Over", systemImage: "backward.end.fill") { openRecording(stream, programme: nil) }
+                Button("Catch Up", systemImage: "clock.arrow.circlepath") { catchUpChannel = stream }
             }
         }
     }

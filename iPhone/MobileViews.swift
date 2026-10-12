@@ -61,6 +61,11 @@ struct MainView: View {
             playing = nil
             inlinePlayerFullscreen = false
         }
+        // A game from the Home Screen widget opens on the Live tab, which
+        // plays it and clears the link.
+        .onReceive(LineupLinkRouter.shared.$pending) { link in
+            if case .game? = link { tab = 0 }
+        }
         .statusBarHidden(inlinePlayerFullscreen)
         .persistentSystemOverlays(inlinePlayerFullscreen ? .hidden : .automatic)
         .fullScreenCover(item: $playing) { stream in
