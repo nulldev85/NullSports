@@ -6284,6 +6284,12 @@ struct PlayerView: View {
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
         }
+        // Moving from one control to the next is using the controls. The
+        // countdown used to run from when they appeared, so they went away
+        // under a viewer still looking through them.
+        .onChange(of: focusedControl) { _, control in
+            if control != nil, controlsVisible { scheduleAutoHide() }
+        }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
         .animation(.easeInOut(duration: 0.22), value: channelBanner?.id)
         .animation(.easeInOut(duration: 0.3), value: visibleAlert?.id)
@@ -6458,8 +6464,9 @@ struct PlayerView: View {
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
         guard controller.isPlaying, !chooserOpen else { return }
+        // Counted from the last press, not from when the controls appeared.
         hideControlsTask = Task {
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
             guard !Task.isCancelled else { return }
             controlsVisible = false
             // Hand focus to the video surface as the chrome leaves, so the next
