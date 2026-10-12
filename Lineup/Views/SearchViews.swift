@@ -73,7 +73,9 @@ struct AppSearchView: View {
                        title: playback.channel.name,
                        program: library.guidePrograms(for: playback.channel).normalizedEPG().first { $0.isLive },
                        game: playback.game,
-                       channelID: playback.channel.id)
+                       channelID: playback.channel.id,
+                       channel: playback.channel,
+                       lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""))
         }
         #endif
     }
@@ -187,7 +189,7 @@ struct AppSearchView: View {
             return "Starts \(AppSearchFormat.day(program.start)) at \(time) on \(channel.name). Watch the channel now?"
         case .game(let game, let channel):
             guard let channel else {
-                return "No channel has been matched to this game yet. It will be on the Live tab once one is."
+                return "No channel has been matched to this game yet. It will be on the Sports tab once one is."
             }
             let time = game.start.formatted(date: .omitted, time: .shortened)
             return "Starts \(AppSearchFormat.day(game.start)) at \(time) on \(channel.name). Watch the channel now?"
@@ -810,11 +812,11 @@ enum AppSearchFormat {
         case .vod(_, let group):
             return Place(symbol: "play.square.stack", path: ["Library", "VOD"] + (group.map { [$0] } ?? []))
         case .game(let game, _):
-            return Place(symbol: "play.rectangle", path: ["Live", game.league.shortName])
+            return Place(symbol: "play.rectangle", path: ["Sports", game.league.shortName])
         case .channel(_, _, let group):
-            return Place(symbol: "list.bullet.rectangle", path: ["Guide"] + (group.map { [$0] } ?? []))
+            return Place(symbol: "list.bullet.rectangle", path: ["TV Guide"] + (group.map { [$0] } ?? []))
         case .airing(_, let channel, _, let group):
-            return Place(symbol: "list.bullet.rectangle", path: ["Guide"] + (group.map { [$0] } ?? [channel.name]))
+            return Place(symbol: "list.bullet.rectangle", path: ["TV Guide"] + (group.map { [$0] } ?? [channel.name]))
         }
     }
 

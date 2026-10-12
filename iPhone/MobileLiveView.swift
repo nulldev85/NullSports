@@ -18,6 +18,11 @@ struct MobileLiveView: View {
     /// The game the preview belongs to. Needed to offer "Choose another
     /// channel" and to scope a saved preference after the picker returns.
     @State private var previewGame: SportsGame?
+    /// The channel before the one in the preview, for Last Channel.
+    @State private var previousChannel: XtreamStream?
+    /// The channel just moved to, named over the picture for a moment.
+    @State private var channelBanner: MobileChannelBannerInfo?
+    @State private var bannerTask: Task<Void, Never>?
     /// Both teams have a usable preference and they disagree.
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
@@ -173,7 +178,14 @@ struct MobileLiveView: View {
                                     playback.start(urls: library.playbackURLs(for: stream),
                                                    channelID: stream.id)
                                 },
-                                onChooseChannel: chooseAnotherChannelAction
+                                onChooseChannel: chooseAnotherChannelAction,
+                                // Up and down the viewer's favourites.
+                                onStepChannel: channelStepper(around: stream),
+                                lastChannelName: lastChannel?.name,
+                                onLastChannel: { if let last = lastChannel { tune(last) } },
+                                channelBanner: channelBanner,
+                                watchingGameID: previewGame?.id,
+                                onWatchGame: { watchGame($0) }
                             )
                             .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
                                    alignment: .top)
@@ -552,30 +564,88 @@ struct MobileLiveView: View {
         setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
+        if let current = previewStream, current.id != stream.id { previousChannel = current }
         previewStream = stream
         previewGame = game
         // Failover only exists where there is a game to verify against. Without
         // it the controller retries this channel's own URLs and stops, which is
         // the right behaviour for plain channel playback.
-        if let game {
-            // Bound once, so the stored closures hold the library directly
-            // rather than a copy of this view.
-            let library = self.library
-            playback.failover = MobilePlaybackController.FailoverContext(
-                plan: { library.failoverPlan(for: game) },
-                urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
-                didSwitch: { channel in
-                    // Keep the on-screen channel in step with what is playing,
-                    // so metadata and Choose Another Channel stay truthful.
-                    if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
-                },
-                didPlay: { id in
-                    if let working = library.stream(withID: id) {
-                        library.saveGameSelection(working, for: game)
-                    }
-                })
-        }
+        if let game { playback.failover = failoverContext(for: game) }
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
+        playback.loadCatchUpSource(for: stream, from: library)
+    }
+
+    private func failoverContext(for game: SportsGame) -> MobilePlaybackController.FailoverContext {
+        // Bound once, so the stored closures hold the library directly
+        // rather than a copy of this view.
+        let library = self.library
+        return MobilePlaybackController.FailoverContext(
+            plan: { library.failoverPlan(for: game) },
+            urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
+            didSwitch: { channel in
+                // Keep the on-screen channel in step with what is playing,
+                // so metadata and Choose Another Channel stay truthful.
+                if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
+            },
+            didPlay: { id in
+                if let working = library.stream(withID: id) {
+                    library.saveGameSelection(working, for: game)
+                }
+            })
+    }
+
+    /// The channel Last Channel goes back to: the one played before this,
+    /// else the last one watched anywhere.
+    private var lastChannel: XtreamStream? {
+        guard let current = previewStream else { return nil }
+        if let previousChannel, previousChannel.id != current.id { return previousChannel }
+        return library.recentStreams.first { $0.id != current.id }
+    }
+
+    /// Steps through the viewer's favourites from the channel playing, round
+    /// from the end to the start. Nil with nothing else to step to.
+    private func channelStepper(around stream: XtreamStream) -> ((Int) -> Void)? {
+        let lineup = library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+        guard lineup.count > 1 || (lineup.count == 1 && lineup[0].id != stream.id) else { return nil }
+        return { step in
+            let index = lineup.firstIndex { $0.id == stream.id }
+            let next = index.map { ($0 + step + lineup.count) % lineup.count } ?? (step > 0 ? 0 : lineup.count - 1)
+            tune(lineup[next])
+        }
+    }
+
+    /// Changes channel on the same player, so full screen stays full screen,
+    /// and names the new channel over the picture for a moment. A game comes
+    /// with its own failover; a plain channel has none.
+    private func tune(_ stream: XtreamStream, for game: SportsGame? = nil) {
+        guard let current = previewStream, current.id != stream.id || game != nil else { return }
+        if current.id != stream.id { previousChannel = current }
+        previewStream = stream
+        previewGame = game
+        playback.failover = game.map { failoverContext(for: $0) }
+        playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
+        playback.loadCatchUpSource(for: stream, from: library)
+        let info = MobileChannelBannerInfo(
+            stream: stream,
+            program: library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive })
+        channelBanner = info
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            if channelBanner == info { channelBanner = nil }
+        }
+    }
+
+    /// One of the viewer's teams' games, from an alert: on its channel in
+    /// place when it has one, else opened as a tap on the game would.
+    private func watchGame(_ game: SportsGame) {
+        GameAlertCenter.shared.dismiss()
+        if case let .play(streamID, _) = library.preferredChannel(for: game),
+           let stream = library.stream(withID: streamID), previewStream != nil {
+            tune(stream, for: game)
+        } else {
+            open(game)
+        }
     }
 
     private func closePreview() {

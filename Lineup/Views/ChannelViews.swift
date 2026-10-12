@@ -71,6 +71,9 @@ struct LiveView: View {
                     program: library.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
                     game: item.game,
                     channelID: item.stream.id,
+                    channel: item.stream,
+                    // Up and Down go through the viewer's favourites.
+                    lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
                     continuing: item.preview
                 )
             }
@@ -228,6 +231,319 @@ private struct ManualGameChannelPicker: View {
             .lineupButtonStyle()
             .focusEffectDisabled()
         }
+    }
+}
+
+/// A channel's past programmes that the provider kept, to play from the
+/// start: the whole screen, the list on the right by day, newest first, and
+/// what the focused programme is on the left.
+///
+/// Focus only ever moves up and down the list. The days are headings in it
+/// rather than a rail of their own, so there is nothing for a sideways press
+/// to land on by accident and change what is listed.
+private struct TVCatchUpScreen: View {
+    @EnvironmentObject private var library: SportsLibrary
+    let stream: XtreamStream
+    let onSelect: (CatchUpProgramme) -> Void
+    @State private var programmes: [CatchUpProgramme] = []
+    @State private var loading = true
+    @State private var failed = false
+    @State private var focused: CatchUpProgramme?
+
+    private struct Day: Identifiable {
+        let day: Date
+        let programmes: [CatchUpProgramme]
+        var id: Date { day }
+    }
+
+    /// The programmes by the day they started, the latest day first.
+    private var days: [Day] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: programmes) { calendar.startOfDay(for: $0.start) }
+        return grouped.keys.sorted(by: >).map { day in
+            Day(day: day, programmes: (grouped[day] ?? []).sorted { $0.start > $1.start })
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 64) {
+            TVCatchUpDetail(stream: stream, programme: focused ?? programmes.first,
+                            dayCount: days.count, programmeCount: programmes.count)
+                .frame(width: 600)
+                .frame(maxHeight: .infinity, alignment: .top)
+            list
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .padding(.horizontal, 90)
+        .padding(.top, 70)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .task {
+            do {
+                programmes = try await library.catchUpProgrammes(for: stream)
+            } catch {
+                failed = true
+            }
+            loading = false
+        }
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if loading {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if programmes.isEmpty {
+            VStack(spacing: 14) {
+                Image(systemName: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath")
+                    .font(.system(size: 44, weight: .regular))
+                    .foregroundStyle(LineupStyle.secondary)
+                Text(failed ? "The provider didn't answer" : "Nothing kept yet")
+                    .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(failed ? "Try again in a moment."
+                            : "Programmes from this channel will show here once the provider has kept them.")
+                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    .multilineTextAlignment(.center).frame(maxWidth: 520)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                    ForEach(days) { group in
+                        Section {
+                            ForEach(group.programmes) { programme in
+                                TVSelectable(scale: 1.015, fillRadius: 14,
+                                             action: { onSelect(programme) },
+                                             onFocusChange: { if $0 { focused = programme } },
+                                             requestInitialFocus: programme.id == programmes.first?.id) {
+                                    TVCatchUpRow(programme: programme)
+                                }
+                            }
+                        } header: {
+                            TVCatchUpDayHeader(day: group.day, count: group.programmes.count)
+                        }
+                    }
+                }
+                // Room for a focused row's lift at both ends of the list.
+                .padding(.horizontal, 14)
+                .padding(.bottom, 80)
+            }
+        }
+    }
+}
+
+/// The left of the catch-up screen: the channel, then everything about the
+/// programme in focus. Nothing here takes focus.
+private struct TVCatchUpDetail: View {
+    let stream: XtreamStream
+    let programme: CatchUpProgramme?
+    let dayCount: Int
+    let programmeCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 18) {
+                ChannelLogo(url: stream.streamIcon, width: 96, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CATCH UP").font(.inter(13, .bold)).tracking(2.2)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(2).minimumScaleFactor(0.8)
+                }
+            }
+            if programmeCount > 0 {
+                Text("\(programmeCount) programmes over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
+                    .font(.inter(16, .medium)).foregroundStyle(LineupStyle.secondary)
+                    .padding(.top, 14)
+            }
+
+            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.vertical, 34)
+
+            if let programme {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(TVCatchUpFormat.when(programme))
+                        .font(.inter(15, .bold)).tracking(1.6)
+                        .foregroundStyle(LineupStyle.secondary)
+                    Text(programme.title)
+                        .font(.inter(40, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(3).minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        TVCatchUpChip(text: TVCatchUpFormat.length(programme.duration))
+                        if programme.isOnNow { TVCatchUpOnNow() }
+                    }
+                    if programme.isOnNow {
+                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 5)
+                            .frame(maxWidth: 420)
+                    }
+                    if !programme.detail.isEmpty {
+                        Text(programme.detail)
+                            .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                            .lineSpacing(4)
+                            .lineLimit(8)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // A new programme's words replace the last one's at once: an
+                // animated swap would trail behind the remote.
+                .transaction { $0.animation = nil }
+            }
+
+            Spacer(minLength: 24)
+
+            HStack(spacing: 10) {
+                Image(systemName: "play.circle")
+                Text(programme?.isOnNow == true ? "Select to watch from the start, then catch up to live"
+                                                : "Select to watch from the start")
+            }
+            .font(.inter(17, .medium))
+            .foregroundStyle(LineupStyle.secondary)
+            .padding(.bottom, 60)
+        }
+    }
+}
+
+/// A day's heading in the list, pinned while its programmes scroll under it.
+private struct TVCatchUpDayHeader: View {
+    let day: Date
+    let count: Int
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(TVCatchUpFormat.dayTitle(day))
+                .font(.inter(16, .bold)).tracking(1.8)
+                .foregroundStyle(LineupStyle.text)
+            Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
+                .font(.inter(14, .semibold)).tracking(1.4)
+                .foregroundStyle(LineupStyle.secondary)
+            Spacer(minLength: 0)
+            Text(count == 1 ? "1 programme" : "\(count) programmes")
+                .font(.inter(14, .medium))
+                .foregroundStyle(LineupStyle.secondary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 22).padding(.bottom, 12)
+        // Opaque, so rows scrolling up under a pinned heading do not show
+        // through it.
+        .background(LineupStyle.background)
+    }
+}
+
+/// One programme in the catch-up list.
+private struct TVCatchUpRow: View {
+    let programme: CatchUpProgramme
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 26) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(programme.start.formatted(date: .omitted, time: .shortened))
+                    .font(.interDigits(22, .semibold))
+                    .foregroundStyle(LineupStyle.text)
+                Text(TVCatchUpFormat.length(programme.duration))
+                    .font(.inter(15, .medium))
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+            .frame(width: 128, alignment: .leading)
+
+            Rectangle().fill(LineupStyle.line).frame(width: 1, height: 46)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    if programme.isOnNow { TVCatchUpOnNow() }
+                    Text(programme.title)
+                        .font(.inter(23, .semibold))
+                        .foregroundStyle(LineupStyle.text)
+                        .lineLimit(1)
+                }
+                if !programme.detail.isEmpty {
+                    Text(programme.detail)
+                        .font(.inter(16))
+                        .foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                if programme.isOnNow {
+                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 3)
+                        .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 24).padding(.vertical, 18)
+        .frame(minHeight: 96)
+        .background(programme.isOnNow ? LineupStyle.focused : LineupStyle.raised,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// "ON NOW", red: catch-up's one status.
+private struct TVCatchUpOnNow: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
+            Text("ON NOW").font(.inter(13, .bold)).tracking(1.4)
+                .foregroundStyle(LineupStyle.liveStatus)
+        }
+    }
+}
+
+private struct TVCatchUpChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.inter(15, .semibold))
+            .foregroundStyle(LineupStyle.text)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(LineupStyle.raised, in: Capsule())
+    }
+}
+
+/// How far a programme still on has got, on a quiet track.
+private struct TVCatchUpProgress: View {
+    let fraction: Double
+    let height: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(LineupStyle.text.opacity(0.14))
+                Capsule().fill(LineupStyle.liveDot)
+                    .frame(width: max(height, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// The catch-up screen's words for times and lengths.
+private enum TVCatchUpFormat {
+    static func dayTitle(_ day: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return "TODAY" }
+        if calendar.isDateInYesterday(day) { return "YESTERDAY" }
+        return day.formatted(.dateTime.weekday(.wide)).uppercased()
+    }
+
+    /// "TODAY · 9:00 – 11:00 AM"
+    static func when(_ programme: CatchUpProgramme) -> String {
+        let day = dayTitle(Calendar.current.startOfDay(for: programme.start))
+        let start = programme.start.formatted(date: .omitted, time: .shortened)
+        let end = programme.end.formatted(date: .omitted, time: .shortened)
+        return "\(day)  ·  \(start) – \(end)"
+    }
+
+    /// "2 hr", "1 hr 30 min", "45 min"
+    static func length(_ duration: TimeInterval) -> String {
+        let minutes = max(1, Int((duration / 60).rounded()))
+        let hours = minutes / 60, rest = minutes % 60
+        if hours == 0 { return "\(rest) min" }
+        return rest == 0 ? "\(hours) hr" : "\(hours) hr \(rest) min"
+    }
+
+    static func elapsedFraction(_ programme: CatchUpProgramme, now: Date = Date()) -> Double {
+        guard programme.duration > 0 else { return 0 }
+        return min(1, max(0, now.timeIntervalSince(programme.start) / programme.duration))
     }
 }
 
@@ -2442,6 +2758,11 @@ struct GuideView: View {
     /// so on the way back there is nothing left running to return to. This is
     /// what was pinned when it left, kept so it can be put back.
     @State private var resumeAfterFullscreen: GuideFocusItem?
+    /// The channel full screen moved to, if the viewer changed channel
+    /// there: the preview picks it up when full screen closes.
+    @State private var fullScreenChannel: XtreamStream?
+    /// A channel whose past programmes are being chosen from.
+    @State private var catchUpChannel: XtreamStream?
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -2524,6 +2845,8 @@ struct GuideView: View {
                                                 onPlay: { select(stream) },
                                                 onStartMultiview: { multiviewPrimary = stream },
                                                 onReorderFavorites: { reorderingFavorites = true },
+                                                onStartOver: { watchRecording(of: stream, programme: nil) },
+                                                onCatchUp: { catchUpChannel = stream },
                                                 onMoveFocus: { direction, focus in
                                                     moveGuideFocus(direction, from: focus, proxy: proxy)
                                                 },
@@ -2592,8 +2915,22 @@ struct GuideView: View {
                         urls: library.playbackURLs(for: item.stream),
                         title: item.stream.name,
                         program: library.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
+                        channelID: item.stream.id,
+                        channel: item.stream,
+                        // Up and Down go through the Guide's own list, as
+                        // it stands: the category or favourites on screen.
+                        lineup: filtered,
+                        recording: item.recording,
+                        startsOver: item.startsOver,
+                        onChannelChange: { fullScreenChannel = $0 },
                         continuing: item.preview
                     )
+                }
+                .fullScreenCover(item: $catchUpChannel) { stream in
+                    TVCatchUpScreen(stream: stream) { programme in
+                        catchUpChannel = nil
+                        watchRecording(of: stream, programme: programme)
+                    }
                 }
                 .fullScreenCover(item: $multiviewSession) { session in
                     MultiviewView(
@@ -2757,6 +3094,15 @@ struct GuideView: View {
     /// was carries on playing behind it and needs nothing put back.
     private func resumePreview() {
         previewHidden = false
+        // Moved to another channel in full screen: that channel carries on
+        // here, with its sound, as the one being watched.
+        if let changed = fullScreenChannel {
+            fullScreenChannel = nil
+            resumeAfterFullscreen = nil
+            hoverTask?.cancel()
+            startPreview(changed, audible: true)
+            return
+        }
         guard let resume = resumeAfterFullscreen else { return }
         resumeAfterFullscreen = nil
         pinnedPreviewItem = resume
@@ -2803,6 +3149,20 @@ struct GuideView: View {
         previewPlaybackStream = nil
         pinnedPreviewItem = nil
         previewAudible = false
+    }
+
+    /// A channel's recording full screen: a programme from the past, or with
+    /// none, the programme on now from its start. The preview's stream is
+    /// let go first -- two streams of one channel is two connections.
+    private func watchRecording(of stream: XtreamStream, programme: CatchUpProgramme?) {
+        hoverTask?.cancel()
+        stopPreview()
+        fullScreenChannel = nil
+        playbackTransitionID = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            fullScreen = TVFullScreenItem(stream: stream, recording: programme, startsOver: programme == nil)
+        }
     }
 
     /// Select on a channel: playing without sound, its sound comes on;
@@ -2882,7 +3242,7 @@ private struct GuideControlBar: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(GuidePalette.line, lineWidth: 1))
             } else {
-                GuideTitleBlock(eyebrow: "GUIDE", title: title)
+                GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
@@ -3360,6 +3720,10 @@ private struct GuideChannelRow: View {
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
     let onReorderFavorites: () -> Void
+    /// The programme on now from its start, and the channel's past
+    /// programmes: for a channel the provider records.
+    let onStartOver: () -> Void
+    let onCatchUp: () -> Void
     let onMoveFocus: (MoveCommandDirection, GuideGridFocus) -> Void
     let onFocusProgram: (CurrentProgram) -> Void
     private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
@@ -3411,6 +3775,10 @@ private struct GuideChannelRow: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
+            if stream.hasCatchUp {
+                Button("Start Over", systemImage: "backward.end.fill") { onStartOver() }
+                Button("Catch Up", systemImage: "clock.arrow.circlepath") { onCatchUp() }
+            }
             Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
                 onStartMultiview()
             }
@@ -3516,7 +3884,7 @@ private struct TVFavoritesOrderView: View {
                 Group {
                     if favorites.isEmpty {
                         ContentUnavailableView("No favorites", systemImage: "star",
-                            description: Text("Add channels to Favorites from the Guide."))
+                            description: Text("Add channels to Favorites from the TV Guide."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollViewReader { proxy in
@@ -3871,10 +4239,10 @@ struct AccountView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SETTINGS")
+            Text("LINEUP")
                 .font(.inter(13, .bold)).tracking(2.2)
                 .foregroundStyle(LineupStyle.secondary)
-            Text("Account")
+            Text("Settings")
                 .font(.inter(52, .bold))
                 .foregroundStyle(LineupStyle.text)
             Text("Your sources, your library, and how the app is running.")
@@ -3932,7 +4300,7 @@ struct AccountView: View {
                     Task { await library.reload() }
                 }
                 .disabled(library.channelsAreSyncing || library.isSwitchingProfile)
-                AccountButton(title: "Guide", symbol: "list.bullet.rectangle") { selectedTab = 1 }
+                AccountButton(title: "TV Guide", symbol: "list.bullet.rectangle") { selectedTab = 1 }
                 AccountButton(title: "Remove", symbol: "trash", quiet: true) {
                     library.removeActiveProfile()
                 }
@@ -5217,7 +5585,33 @@ struct PlayerView: View {
     /// For a Library title: its show, episode and details, which the stream
     /// URL and name alone cannot say.
     var synopsis: TVPlayerSynopsis? = nil
+    /// The channels Up and Down step through, in the order the screen it
+    /// was opened from lists them. Empty: Up and Down just bring up the
+    /// controls.
+    var lineup: [XtreamStream] = []
+    /// Told when the viewer moves to another channel, so the screen beneath
+    /// can show that channel when full screen closes.
+    var onChannelChange: ((XtreamStream) -> Void)? = nil
     @StateObject private var controller: VLCPlaybackController
+    @ObservedObject private var alerts = GameAlertCenter.shared
+    /// The channel on screen, which Up and Down change.
+    @State private var currentChannel: XtreamStream?
+    /// The channel before it, for Last Channel.
+    @State private var previousChannel: XtreamStream?
+    /// What the guide says is on the channel on screen.
+    @State private var channelProgram: CurrentProgram?
+    /// The game being watched, which an alert about it would be no news of.
+    @State private var watchingGame: SportsGame?
+    /// The channel just moved to, named for a moment over the picture.
+    @State private var channelBanner: XtreamStream?
+    @State private var bannerTask: Task<Void, Never>?
+    /// The viewer has moved off the channel full screen opened on. A
+    /// preview's player isn't given back playing someone else's channel.
+    @State private var channelChanged = false
+    /// Opened on a recording or from the programme's start rather than
+    /// live; each is acted on once, when the channel's recording is ready.
+    @State private var openingRecording: CatchUpProgramme?
+    @State private var openingStartOver: Bool
     /// The preview's player, already playing, rather than one of its own.
     /// It is not opened here, and closing full screen gives it back to the
     /// preview still playing rather than stopping it.
@@ -5243,6 +5637,9 @@ struct PlayerView: View {
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
+         channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
+         recording: CatchUpProgramme? = nil, startsOver: Bool = false,
+         onChannelChange: ((XtreamStream) -> Void)? = nil,
          continuing preview: TVPreviewHandoff? = nil) {
         self.urls = urls
         self.title = title
@@ -5253,8 +5650,29 @@ struct PlayerView: View {
         self.game = game
         self.channelID = channelID
         self.synopsis = synopsis
+        self.lineup = lineup
+        self.onChannelChange = onChannelChange
         _controller = StateObject(wrappedValue: preview?.controller ?? VLCPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
+        _currentChannel = State(initialValue: channel)
+        _channelProgram = State(initialValue: program)
+        _watchingGame = State(initialValue: game)
+        _openingRecording = State(initialValue: recording)
+        _openingStartOver = State(initialValue: startsOver)
+    }
+
+    /// An alert about a game other than the one being watched.
+    private var visibleAlert: GameAlert? {
+        guard isLive, let alert = alerts.current, alert.game.id != watchingGame?.id else { return nil }
+        return alert
+    }
+
+    /// The channel Last Channel goes back to: the one before this in full
+    /// screen, else the last one watched anywhere.
+    private var lastChannel: XtreamStream? {
+        guard isLive else { return nil }
+        if let previousChannel, previousChannel.id != currentChannel?.id { return previousChannel }
+        return library.recentStreams.first { $0.id != currentChannel?.id }
     }
 
     var body: some View {
@@ -5276,20 +5694,43 @@ struct PlayerView: View {
             //
             // Nothing consumes a direction while the chrome is up either, so
             // focus can move between the seek bar and the buttons.
+            //
+            // With the controls away, Up and Down change channel, Left and
+            // Right step back and on through a channel the provider records,
+            // and Select answers an alert when one is up.
             if !controlsVisible {
                 Color.clear
                     .contentShape(Rectangle())
                     .focusable()
                     .focused($surfaceFocused)
-                    .onMoveCommand { _ in revealControls(focus: true) }
-                    .onTapGesture { revealControls(focus: true) }
+                    .onMoveCommand(perform: moveWithControlsHidden)
+                    .onTapGesture {
+                        if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
+                    }
             }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
-                    program: program, synopsis: synopsis, isLive: isLive, controller: controller,
-                    focusedControl: $focusedControl, onInteraction: keepControlsVisible,
-                    onChooserChange: chooserChanged)
+                    program: channelProgram, synopsis: synopsis, isLive: isLive, controller: controller,
+                    focusedControl: $focusedControl, lastChannelName: lastChannel?.name,
+                    alert: visibleAlert, onInteraction: keepControlsVisible,
+                    onChooserChange: chooserChanged,
+                    onLastChannel: { if let lastChannel { tune(lastChannel) } },
+                    onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } })
                     .transition(.opacity)
+            }
+            if !controlsVisible, let channelBanner {
+                TVChannelBanner(stream: channelBanner, program: channelProgram)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 72).padding(.top, 56)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            if let alert = visibleAlert {
+                TVGameAlertBanner(alert: alert, selectWatches: !controlsVisible)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.horizontal, 72).padding(.top, 56)
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
             if urls.isEmpty {
                 Text("This stream is unavailable").font(.inter(.title2))
@@ -5301,8 +5742,7 @@ struct PlayerView: View {
             ManualGameChannelPicker(game: game) { chosen in
                 library.saveGameSelection(chosen, for: game)
                 choosingGame = nil
-                chosenTitle = chosen.name
-                controller.start(urls: library.playbackURLs(for: chosen), channelID: chosen.id)
+                tune(chosen, for: game)
             }
         }
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
@@ -5327,11 +5767,16 @@ struct PlayerView: View {
             TVPreviewHandoff.stopPreviews(except: controller)
             if continuesPreview && controller.isOpen {
                 PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
+            } else if openingRecording != nil || openingStartOver {
+                // Opened by the task below, once the channel's recording can
+                // be addressed.
+                PlaybackJournal.shared.note(openingNote)
             } else {
                 PlaybackJournal.shared.note(openingNote)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                                  channelID: channelID, isLive: isLive)
             }
+            if isLive, let currentChannel { library.recordRecentChannel(currentChannel) }
             if continuesPreview { controller.lentToFullScreen = true }
             revealControls(focus: true)
         }
@@ -5342,7 +5787,33 @@ struct PlayerView: View {
             }
             reportProgress(force: true)
             hideControlsTask?.cancel()
+            bannerTask?.cancel()
             finishPlayback()
+        }
+        // The channel's recording, once the server's time zone is known:
+        // Start Over, rewinding, and pausing live all need it.
+        .task(id: currentChannel?.id) {
+            guard isLive, let stream = currentChannel else { return }
+            let source = await library.catchUpSource(for: stream)
+            guard currentChannel?.id == stream.id else { return }
+            controller.catchUpSource = source
+            if let recording = openingRecording {
+                openingRecording = nil
+                if source != nil { controller.playRecording(of: recording) } else { startLive(stream) }
+            } else if openingStartOver {
+                openingStartOver = false
+                if controller.canStartOver { controller.startOver() } else { startLive(stream) }
+            }
+        }
+        // Scores kept fresh while a channel plays, wherever it was opened
+        // from, so an alert can say when one of the viewer's teams' games
+        // needs watching.
+        .task(id: isLive) {
+            guard isLive else { return }
+            while !Task.isCancelled {
+                library.refreshSchedule(includeTomorrow: false)
+                do { try await Task.sleep(for: .seconds(45)) } catch { return }
+            }
         }
         .onChange(of: controller.elapsed) { _, _ in reportProgress() }
         // A film or an episode played to its end is saved as watched and the
@@ -5356,14 +5827,98 @@ struct PlayerView: View {
             else { hideControlsTask?.cancel(); controlsVisible = true }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+        .animation(.easeInOut(duration: 0.22), value: channelBanner?.id)
+        .animation(.easeInOut(duration: 0.3), value: visibleAlert?.id)
     }
 
-    private func revealControls(focus: Bool = false) {
+    private func revealControls(focus: Bool = false, on control: TVPlayerControl = .playPause) {
         controlsVisible = true
         if focus {
-            Task { @MainActor in await Task.yield(); focusedControl = .playPause }
+            Task { @MainActor in await Task.yield(); focusedControl = control }
         }
         scheduleAutoHide()
+    }
+
+    /// A press while the controls are away. Up and Down move through the
+    /// channels in the order of the screen full screen came from; Left and
+    /// Right step back and on through a recorded channel and bring up its
+    /// timeline. Anything else brings up the controls.
+    private func moveWithControlsHidden(_ direction: MoveCommandDirection) {
+        switch direction {
+        case .up where !lineup.isEmpty:
+            flip(by: -1)
+        case .down where !lineup.isEmpty:
+            flip(by: 1)
+        case .left where isLive && controller.catchUpSource != nil:
+            controller.skip(by: -CatchUpPolicy.skip)
+            revealControls(focus: true, on: .scrubber)
+        case .right where isLive && controller.catchUp != nil:
+            controller.skip(by: CatchUpPolicy.skip)
+            revealControls(focus: true, on: .scrubber)
+        default:
+            revealControls(focus: true)
+        }
+    }
+
+    /// The next or previous channel in the list, round from the end to the
+    /// start. A channel not in the list starts from the top of it.
+    private func flip(by step: Int) {
+        guard !lineup.isEmpty else { return }
+        let index = lineup.firstIndex { $0.id == currentChannel?.id }
+        let next: Int
+        if let index {
+            next = (index + step + lineup.count) % lineup.count
+        } else {
+            next = step > 0 ? 0 : lineup.count - 1
+        }
+        tune(lineup[next])
+    }
+
+    /// Changes the channel in place: the same player, the controls left as
+    /// they are, the channel named over the picture for a moment.
+    private func tune(_ stream: XtreamStream, for game: SportsGame? = nil) {
+        guard stream.id != currentChannel?.id || game != nil else { return }
+        if let currentChannel, currentChannel.id != stream.id { previousChannel = currentChannel }
+        currentChannel = stream
+        channelChanged = true
+        watchingGame = game
+        chosenTitle = stream.name
+        channelProgram = library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+        controller.catchUpSource = nil
+        controller.failover = nil
+        if let game {
+            configureGameFailover(controller, game: game, library: library) { choosingGame = game }
+        }
+        PlaybackJournal.shared.note("Changed channel to " + stream.name)
+        startLive(stream)
+        library.recordRecentChannel(stream)
+        onChannelChange?(stream)
+        showChannelBanner(stream)
+    }
+
+    private func startLive(_ stream: XtreamStream) {
+        controller.start(urls: library.playbackURLs(for: stream), muted: controller.isMuted,
+                         channelID: stream.id, isLive: true)
+    }
+
+    /// One of the viewer's teams' games, from an alert: on its channel, or
+    /// the channel list to choose one when it has none.
+    private func watch(_ game: SportsGame) {
+        alerts.dismiss()
+        guard let stream = library.resolvedStream(for: game) else {
+            choosingGame = game
+            return
+        }
+        tune(stream, for: game)
+    }
+
+    private func showChannelBanner(_ stream: XtreamStream) {
+        channelBanner = stream
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            if channelBanner?.id == stream.id { channelBanner = nil }
+        }
     }
 
     /// The controls cleared at once, with focus handed to the picture so the
@@ -5395,6 +5950,14 @@ struct PlayerView: View {
         controller.watched = nil
         controller.failover = previewFailover
         controller.lentToFullScreen = false
+        controller.catchUpSource = nil
+        // A preview is given back its own channel, live, or nothing: moved
+        // to another channel or into a recording, the player stops, and the
+        // preview opens its channel again as it reappears.
+        if channelChanged || controller.catchUp != nil {
+            controller.stop()
+            return
+        }
         // A preview that has gone meanwhile has nowhere to show the picture,
         // and its sound would play on over whatever is there instead.
         if !controller.isShownOutsideFullScreen { controller.stop() }
@@ -5442,7 +6005,9 @@ struct PlayerView: View {
     }
 }
 
-private enum TVPlayerControl: Hashable { case scrubber, playPause, goLive, mute, subtitles, audio, video, quality }
+private enum TVPlayerControl: Hashable {
+    case scrubber, playPause, goLive, startOver, mute, lastChannel, alert, subtitles, audio, video, quality
+}
 
 private struct TVPlayerChrome: View {
     @State private var showingQuality = false
@@ -5455,10 +6020,37 @@ private struct TVPlayerChrome: View {
     let isLive: Bool
     @ObservedObject var controller: VLCPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
+    /// The channel Last Channel goes back to, when there is one.
+    let lastChannelName: String?
+    /// An alert about another game, offered as a button while it is up.
+    let alert: GameAlert?
     let onInteraction: () -> Void
     let onChooserChange: (Bool) -> Void
+    let onLastChannel: () -> Void
+    let onWatchAlert: () -> Void
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
+
+    /// The channel's timeline, while the provider records it: the programme
+    /// on now, or the one a recording is playing.
+    private var showsTimeline: Bool {
+        isLive && controller.catchUpSource != nil && (controller.catchUp != nil || controller.canStartOver)
+    }
+
+    /// LIVE, BEHIND LIVE, REPLAY, or for a film NOW PLAYING.
+    private var stateLabel: String {
+        guard isLive else { return "NOW PLAYING" }
+        guard let catchUp = controller.catchUp, let position = controller.catchUpPosition else {
+            return controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE"
+        }
+        // A programme from the past is a replay of a day, not a delay.
+        if controller.recordingEndsWithProgramme {
+            return "REPLAY · " + catchUp.programmeStart
+                .formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()).uppercased()
+        }
+        let behind = max(0, Int(Date().timeIntervalSince(position) / 60))
+        return behind < 1 ? "REPLAY" : "REPLAY · \(TVCatchUpBar.duration(minutes: behind)) BEHIND LIVE"
+    }
 
     /// A track's name as a control shows it: long stream descriptions are cut
     /// short so the row of controls keeps its shape.
@@ -5468,11 +6060,15 @@ private struct TVPlayerChrome: View {
 
     private var nowPlayingTitle: String {
         if let synopsis { return synopsis.title }
+        if let catchUp = controller.catchUp { return catchUp.title }
         guard let program, !program.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return title }
         return program.title
     }
     private var subtitle: String? {
         if let synopsis { return synopsis.subtitle }
+        if let catchUp = controller.catchUp {
+            return "\(title)  ·  \(catchUp.programmeStart.formatted(date: .omitted, time: .shortened)) – \(catchUp.programmeEnd.formatted(date: .omitted, time: .shortened))"
+        }
         guard let program else { return title == nowPlayingTitle ? nil : title }
         let time = "\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))"
         return title == nowPlayingTitle ? time : "\(title)  ·  \(time)"
@@ -5485,14 +6081,15 @@ private struct TVPlayerChrome: View {
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 9) {
-                            if isLive { PulsingLiveDot(size: 8) }
-                            Text(isLive ? (controller.isAtLiveEdge ? "LIVE" : "BEHIND LIVE") : "NOW PLAYING")
+                            if isLive && controller.catchUp == nil { PulsingLiveDot(size: 8) }
+                            Text(stateLabel)
                                 .font(.inter(15, .bold)).tracking(1.5)
-                                .foregroundStyle(isLive ? LineupStyle.liveStatus : LineupStyle.mediaText)
+                                .foregroundStyle(isLive && controller.catchUp == nil
+                                                 ? LineupStyle.liveStatus : LineupStyle.mediaText)
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
-                        if let detail = synopsis?.detail ?? program?.detail, !detail.isEmpty {
+                        if controller.catchUp == nil, let detail = synopsis?.detail ?? program?.detail, !detail.isEmpty {
                             Text(detail).font(.inter(16)).opacity(0.62).lineLimit(1)
                                 .frame(maxWidth: 1100, alignment: .leading)
                         }
@@ -5512,6 +6109,10 @@ private struct TVPlayerChrome: View {
                         TVSeekBar(controller: controller, focus: focusedControl,
                                   onInteraction: onInteraction)
                     }
+                    if showsTimeline {
+                        TVCatchUpBar(controller: controller, focus: focusedControl,
+                                     onInteraction: onInteraction)
+                    }
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
                             symbol: controller.isPlaying ? "pause.fill" : "play.fill", prominent: true,
@@ -5521,9 +6122,27 @@ private struct TVPlayerChrome: View {
                             badge: isLive && controller.isAtLiveEdge, focus: focusedControl, id: .goLive) {
                                 controller.goLive(); onInteraction()
                             }
+                        if isLive && controller.canStartOver {
+                            TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
+                                           focus: focusedControl, id: .startOver) {
+                                controller.startOver(); onInteraction()
+                            }
+                        }
                         TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
                             symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                             focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                        if let lastChannelName {
+                            TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
+                                           focus: focusedControl, id: .lastChannel) {
+                                onLastChannel(); onInteraction()
+                            }
+                        }
+                        if let alert {
+                            TVPlayerButton(title: "Watch " + TVGameAlertBanner.matchup(alert.game),
+                                           symbol: "sportscourt.fill", focus: focusedControl, id: .alert) {
+                                onWatchAlert(); onInteraction()
+                            }
+                        }
                         if !isLive && controller.subtitleTracks.count > 1 {
                             TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
                                 TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
@@ -5608,6 +6227,189 @@ private struct TVPlayerChrome: View {
         // If the controls go while a list is open -- playback failing takes
         // them away -- the player must not wait on a list that is gone.
         .onDisappear { if choosing { onChooserChange(false) } }
+    }
+}
+
+/// A recorded channel's timeline: the programme from its start to its end,
+/// lit as far as the broadcast has got, with the picture's place on it.
+///
+/// Left and right step ten seconds back and on -- from live, back goes into
+/// the recording, and on through a recording that reaches the present goes
+/// back to live. Up and down hand focus back to the controls.
+private struct TVCatchUpBar: View {
+    @ObservedObject var controller: VLCPlaybackController
+    let focus: FocusState<TVPlayerControl?>.Binding
+    let onInteraction: () -> Void
+
+    /// "12 MIN", "1 HR 5 MIN".
+    static func duration(minutes: Int) -> String {
+        minutes < 60 ? "\(minutes) MIN" : "\(minutes / 60) HR" + (minutes % 60 == 0 ? "" : " \(minutes % 60) MIN")
+    }
+
+    private func timelineSpan(now: Date) -> (start: Date, end: Date) {
+        if let catchUp = controller.catchUp { return (catchUp.programmeStart, catchUp.programmeEnd) }
+        if let programme = controller.catchUpSource?.programme(now) { return (programme.start, programme.end) }
+        return (now.addingTimeInterval(-1800), now)
+    }
+
+    private func fraction(_ time: Date, in span: (start: Date, end: Date)) -> CGFloat {
+        let length = span.end.timeIntervalSince(span.start)
+        guard length > 0 else { return 0 }
+        return CGFloat(min(1, max(0, time.timeIntervalSince(span.start) / length)))
+    }
+
+    private func caption(position: Date, now: Date) -> String {
+        guard let catchUp = controller.catchUp else { return "LIVE" }
+        if catchUp.programmeEnd <= now.addingTimeInterval(-60), position < catchUp.programmeEnd {
+            // A programme from the past: how far into it.
+            let seconds = max(0, Int(position.timeIntervalSince(catchUp.programmeStart)))
+            return PlaybackJournal.clock(TimeInterval(seconds))
+        }
+        let behind = max(0, Int(now.timeIntervalSince(position) / 60))
+        return behind < 1 ? "LIVE" : Self.duration(minutes: behind) + " BEHIND"
+    }
+
+    var body: some View {
+        let selected = focus.wrappedValue == .scrubber
+        let now = Date()
+        let span = timelineSpan(now: now)
+        let position = controller.catchUpPosition ?? now
+        let reached = fraction(now, in: span)
+        let place = controller.catchUp == nil ? reached : fraction(position, in: span)
+        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        VStack(spacing: 10) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(LineupStyle.lightPurple.opacity(0.14))
+                    // As far as the broadcast has got: the part that can be played.
+                    Capsule().fill(LineupStyle.lightPurple.opacity(0.32))
+                        .frame(width: max(0, geometry.size.width * reached))
+                    Capsule().fill(LineupStyle.lightPurple)
+                        .frame(width: max(0, geometry.size.width * place))
+                }
+            }
+            .frame(height: selected ? 10 : 6)
+            HStack {
+                Text(span.start.formatted(date: .omitted, time: .shortened))
+                Spacer(minLength: 0)
+                Text(caption(position: position, now: now))
+                    .foregroundStyle(LineupStyle.lightPurple)
+                Spacer(minLength: 0)
+                Text(span.end.formatted(date: .omitted, time: .shortened))
+            }
+            .font(.interDigits(15, .semibold))
+            .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
+        }
+        .padding(.horizontal, 26).padding(.vertical, 18)
+        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
+        .lineupFocusLayer(selected, in: panel)
+        .contentShape(Rectangle())
+        .focusable()
+        .focused(focus, equals: .scrubber)
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: controller.skip(by: -CatchUpPolicy.skip)
+            case .right: controller.skip(by: CatchUpPolicy.skip)
+            case .down, .up: focus.wrappedValue = .playPause
+            default: break
+            }
+            onInteraction()
+        }
+        .animation(.easeOut(duration: 0.18), value: selected)
+        .accessibilityLabel("Programme timeline")
+        .accessibilityValue(caption(position: position, now: now))
+    }
+}
+
+/// The channel just moved to, named over the picture for a moment: its
+/// mark, its name and what is on.
+private struct TVChannelBanner: View {
+    let stream: XtreamStream
+    let program: CurrentProgram?
+
+    var body: some View {
+        HStack(spacing: 18) {
+            LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 120) { loaded in
+                if let loaded {
+                    loaded.resizable().scaledToFit()
+                } else {
+                    Image(systemName: "tv").font(.system(size: 26, weight: .light)).opacity(0.6)
+                }
+            }
+            .frame(width: 84, height: 56)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    if let number = stream.num {
+                        Text(String(number)).font(.interDigits(20, .bold)).opacity(0.6)
+                    }
+                    Text(stream.name).font(.inter(26, .bold)).lineLimit(1)
+                }
+                if let program {
+                    Text(program.title).font(.inter(18, .semibold)).opacity(0.85).lineLimit(1)
+                    Text("\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))")
+                        .font(.interDigits(15, .medium)).opacity(0.6)
+                }
+            }
+        }
+        .foregroundStyle(LineupStyle.mediaText)
+        .padding(.horizontal, 26).padding(.vertical, 18)
+        .frame(maxWidth: 760, alignment: .leading)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous),
+                           fallback: Color.black.opacity(0.72), border: .clear)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One of the viewer's teams' games, breaking into the picture: what
+/// happened, the score, and -- with the controls away -- that Select goes
+/// to it.
+private struct TVGameAlertBanner: View {
+    let alert: GameAlert
+    let selectWatches: Bool
+
+    /// "BOS @ NYY", or an event's name.
+    static func matchup(_ game: SportsGame) -> String {
+        game.isEvent ? (game.eventName ?? game.league.shortName)
+            : "\(game.awayAbbreviation) @ \(game.homeAbbreviation)"
+    }
+
+    private var scoreline: String {
+        let game = alert.game
+        guard !game.isEvent, game.isLive, !game.awayScore.isEmpty, !game.homeScore.isEmpty else {
+            return Self.matchup(game)
+        }
+        return "\(game.awayAbbreviation) \(game.awayScore)  –  \(game.homeAbbreviation) \(game.homeScore)"
+    }
+
+    var body: some View {
+        let game = alert.game
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
+                Text(alert.headline.uppercased())
+                    .font(.inter(14, .bold)).tracking(1.4)
+                    .foregroundStyle(LineupStyle.liveStatus)
+                if !game.status.isEmpty {
+                    Text(game.status.uppercased())
+                        .font(.inter(14, .bold)).tracking(1.2).opacity(0.7)
+                        .lineLimit(1)
+                }
+            }
+            HStack(spacing: 14) {
+                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
+                Text(scoreline).font(.interDigits(26, .bold)).lineLimit(1)
+            }
+            if selectWatches {
+                Text("Press Select to watch").font(.inter(15, .semibold)).opacity(0.7)
+            }
+        }
+        .foregroundStyle(LineupStyle.mediaText)
+        .padding(.horizontal, 24).padding(.vertical, 18)
+        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous),
+                           fallback: Color.black.opacity(0.75), border: .clear)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(alert.headline). \(scoreline). \(game.status)")
     }
 }
 
@@ -5767,6 +6569,22 @@ private struct TVPlayerMenuLabel: View {
     /// live channel presents, so the seek bar simply does not appear for it.
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
+    /// How to play this channel's recording, while a channel the provider
+    /// records is playing live. Nil for a channel that isn't recorded, for a
+    /// film, and until the server's time zone is known.
+    @Published var catchUpSource: CatchUpSource?
+    /// Playing the channel's recording rather than the channel live: where
+    /// the stream starts and the programme its timeline is drawn across.
+    @Published private(set) var catchUp: CatchUpTimeline?
+    /// Where a skip is taking the recording, while it waits to see whether
+    /// another press follows before reopening the stream there.
+    @Published private(set) var skipTarget: Date?
+    /// A programme chosen from the past ends with it. Start Over, a pause and
+    /// a rewind carry on through whatever came next, up to live.
+    private(set) var recordingEndsWithProgramme = false
+    /// When a live channel the provider records was paused, to pick up from.
+    private var pausedAt: Date?
+    private var skipTask: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
     private var urlIndex = 0
@@ -5836,7 +6654,7 @@ private struct TVPlayerMenuLabel: View {
         VLCPlayerDisposal.release(player)
     }
 
-    var isAtLiveEdge: Bool { isPlaying && !pausedByUser }
+    var isAtLiveEdge: Bool { isPlaying && !pausedByUser && catchUp == nil }
     /// A stream has been opened and not stopped since.
     var isOpen: Bool { !urls.isEmpty }
     /// Whether a preview is still there to show the picture.
@@ -6056,6 +6874,7 @@ private struct TVPlayerMenuLabel: View {
     private func checkPlayback() {
         holdAudioLevel()
         updateProgress()
+        followRecordingIntoNextProgramme()
         refreshSubtitleTracks()
         refreshStreamTracks()
         restoreTrackChoices()
@@ -6130,9 +6949,13 @@ private struct TVPlayerMenuLabel: View {
         if !isLive, reopenPosition == nil, elapsed > 0 {
             reopenPosition = max(0, elapsed - 2)
         }
+        // A recording that stops is picked up from where it had got to --
+        // or, having reached the present or the end of its programme, isn't.
+        if catchUp != nil, recordingStopped() { return }
         guard var delay = retries.nextDelay() else {
             log(reason + ". Gave up after \(retries.attempts) tries")
-            if switchToNextChannel() { return }
+            // Another channel live is no answer to a recording that won't play.
+            if catchUp == nil, switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
             reconnecting = false
             holdScreenAwake()
@@ -6240,6 +7063,16 @@ private struct TVPlayerMenuLabel: View {
     /// channel, which took away its ending: a drop or the real end then
     /// started it over again.
     func goLive() {
+        if catchUp != nil || pausedAt != nil, let source = catchUpSource {
+            log("Back to live")
+            skipTask?.cancel()
+            skipTarget = nil
+            catchUp = nil
+            pausedAt = nil
+            start(urls: source.liveURLs, muted: muted, channelID: source.stream.id,
+                  resetFailover: false, isLive: true, keepTrackChoices: true)
+            return
+        }
         guard !urls.isEmpty else { return }
         log(isLive ? "Go Live chosen" : "Restart chosen")
         start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive,
@@ -6247,13 +7080,178 @@ private struct TVPlayerMenuLabel: View {
     }
     func togglePlayback() {
         pausedByUser.toggle()
-        if pausedByUser { player.pause() }
-        else {
+        if pausedByUser {
+            player.pause()
+            // A channel the provider records picks up from here, however
+            // long the pause: the broadcast doesn't wait, but its recording
+            // does.
+            if isLive, catchUp == nil, catchUpSource != nil { pausedAt = Date() }
+        } else if let pausedAt, catchUp == nil, catchUpSource != nil,
+                  Date().timeIntervalSince(pausedAt) >= CatchUpPolicy.resumeFromPauseAfter {
+            self.pausedAt = nil
+            log("Resumed from the pause, behind live")
+            rewindFromLive(to: pausedAt.addingTimeInterval(-CatchUpPolicy.liveLatency))
+            return
+        } else {
+            pausedAt = nil
             health = freshHealth()
             if retryAt == nil { player.play() }
         }
         isPlaying = player.isPlaying
         holdScreenAwake()
+    }
+
+    // MARK: Catch-up
+
+    /// What is on screen while a recording plays: a skip's destination while
+    /// it waits, else where the stream has got to.
+    var catchUpPosition: Date? {
+        guard let catchUp else { return nil }
+        return skipTarget ?? catchUp.position(playedSeconds: elapsed)
+    }
+
+    /// The programme from its start -- the one a recording is playing, or
+    /// the one on now when the provider records the channel and the guide
+    /// knows what is on.
+    var canStartOver: Bool {
+        guard isLive, let catchUpSource else { return false }
+        return catchUp != nil || catchUpSource.programme(Date()) != nil
+    }
+
+    /// The programme from its beginning: the one a recording is playing, or
+    /// the one on now, carrying on past its end.
+    func startOver() {
+        if let catchUp {
+            log("Start Over chosen")
+            playRecording(from: catchUp.programmeStart, programmeStart: catchUp.programmeStart,
+                          programmeEnd: catchUp.programmeEnd, title: catchUp.title,
+                          endsWithProgramme: recordingEndsWithProgramme)
+            return
+        }
+        guard let source = catchUpSource, let programme = source.programme(Date()) else { return }
+        log("Start Over chosen")
+        playRecording(from: programme.start, programmeStart: programme.start,
+                      programmeEnd: programme.end, title: programme.title, endsWithProgramme: false)
+    }
+
+    /// A programme from the past, from its start to its end.
+    func playRecording(of programme: CatchUpProgramme) {
+        log("Playing a recording from " + programme.start.formatted(date: .abbreviated, time: .shortened))
+        playRecording(from: programme.start, programmeStart: programme.start,
+                      programmeEnd: programme.end, title: programme.title,
+                      endsWithProgramme: programme.end <= Date())
+    }
+
+    /// Back or on by `seconds`. A film steps through itself. A channel the
+    /// provider records goes back into its recording, and a recording that
+    /// is brought up to the present goes back to live. Presses in quick
+    /// succession add up before the stream is reopened, so holding the
+    /// remote doesn't reopen it on every step.
+    func skip(by seconds: TimeInterval) {
+        guard isLive else { seek(by: seconds); return }
+        guard catchUpSource != nil else { return }
+        let now = Date()
+        guard let catchUp else {
+            // Already live: only back means anything.
+            guard seconds < 0 else { return }
+            rewindFromLive(to: now.addingTimeInterval(seconds - CatchUpPolicy.liveLatency))
+            return
+        }
+        var target = (catchUpPosition ?? now).addingTimeInterval(seconds)
+        if recordingEndsWithProgramme {
+            target = min(max(target, catchUp.programmeStart), catchUp.programmeEnd.addingTimeInterval(-5))
+        } else if now.timeIntervalSince(target) < CatchUpPolicy.liveTolerance {
+            goLive()
+            return
+        }
+        // Within the open stream, when the server lets it be moved through.
+        let offset = target.timeIntervalSince(catchUp.streamStart)
+        if skipTarget == nil, player.isSeekable, offset >= 0, offset <= max(elapsed, 0) + 60 {
+            player.time = VLCTime(int: Int32(offset * 1000))
+            elapsed = offset
+            return
+        }
+        skipTarget = target
+        skipTask?.cancel()
+        skipTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+            guard let self, let target = self.skipTarget, let catchUp = self.catchUp else { return }
+            self.skipTarget = nil
+            self.playRecording(from: target, programmeStart: catchUp.programmeStart,
+                               programmeEnd: catchUp.programmeEnd, title: catchUp.title,
+                               endsWithProgramme: self.recordingEndsWithProgramme)
+        }
+    }
+
+    /// From live into the recording, at a time just gone.
+    private func rewindFromLive(to time: Date) {
+        guard let source = catchUpSource else { return }
+        let programme = source.programme(time)
+        playRecording(from: time,
+                      programmeStart: programme?.start ?? CatchUpPolicy.minute(time),
+                      programmeEnd: programme?.end ?? Date().addingTimeInterval(30 * 60),
+                      title: programme?.title ?? source.stream.name,
+                      endsWithProgramme: false)
+    }
+
+    private func playRecording(from position: Date, programmeStart: Date, programmeEnd: Date,
+                               title: String, endsWithProgramme: Bool) {
+        guard let source = catchUpSource else { return }
+        let begin = CatchUpPolicy.minute(max(position, programmeStart.addingTimeInterval(-60)))
+        // A programme from the past is asked for to its end. Anything still
+        // being shown is asked for up to now, and picked up again from where
+        // it got to when that runs out.
+        let until = endsWithProgramme ? programmeEnd : Date()
+        let addresses = source.addresses(begin, until)
+        guard !addresses.isEmpty else { return }
+        skipTask?.cancel()
+        skipTarget = nil
+        recordingEndsWithProgramme = endsWithProgramme
+        pausedAt = nil
+        // `start` tries the last address first, as it does a channel's two.
+        start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
+              resetFailover: false, isLive: true, keepTrackChoices: true)
+        catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
+                                  title: title, streamStart: begin)
+    }
+
+    /// A recording's stream has stopped: the end of the programme, the
+    /// present caught up with, or a drop. True when it has been dealt with
+    /// here; false to reconnect, from where it had got to.
+    private func recordingStopped() -> Bool {
+        guard let catchUp, let source = catchUpSource else { return false }
+        let position = catchUp.position(playedSeconds: elapsed)
+        if recordingEndsWithProgramme, position >= catchUp.programmeEnd.addingTimeInterval(-30) {
+            log("The recording reached the end of the programme")
+            finish()
+            return true
+        }
+        if !recordingEndsWithProgramme, Date().timeIntervalSince(position) < CatchUpPolicy.liveTolerance {
+            log("Caught up with the channel")
+            goLive()
+            return true
+        }
+        let begin = CatchUpPolicy.minute(position)
+        let addresses = source.addresses(begin, recordingEndsWithProgramme ? catchUp.programmeEnd : Date())
+        guard !addresses.isEmpty else { return false }
+        // Stored in the order they are tried, as `start` leaves them.
+        urls = addresses
+        urlIndex = 0
+        elapsed = 0
+        self.catchUp = CatchUpTimeline(programmeStart: catchUp.programmeStart, programmeEnd: catchUp.programmeEnd,
+                                       title: catchUp.title, streamStart: begin)
+        return false
+    }
+
+    /// A recording that carries on past its programme's end takes the next
+    /// programme's name and timeline.
+    private func followRecordingIntoNextProgramme() {
+        guard let catchUp, !recordingEndsWithProgramme, let source = catchUpSource,
+              let position = catchUpPosition, position >= catchUp.programmeEnd,
+              let next = source.programme(position), next.start >= catchUp.programmeEnd.addingTimeInterval(-60)
+        else { return }
+        self.catchUp = CatchUpTimeline(programmeStart: next.start, programmeEnd: next.end,
+                                       title: next.title, streamStart: catchUp.streamStart)
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
@@ -6362,7 +7360,13 @@ private struct TVPlayerMenuLabel: View {
         }
         player.stop()
         player.media = nil
-        if !restarting { holdScreenAwake() }
+        if !restarting {
+            skipTask?.cancel()
+            skipTarget = nil
+            catchUp = nil
+            pausedAt = nil
+            holdScreenAwake()
+        }
     }
 
     /// When a player last let a stream go, and which, for the next player
@@ -6578,8 +7582,13 @@ private struct TVFullScreenItem: Identifiable {
     var game: SportsGame? = nil
     /// The preview's player, to carry on with rather than open the channel.
     var preview: TVPreviewHandoff? = nil
+    /// A programme from the past to play instead of the channel live.
+    var recording: CatchUpProgramme? = nil
+    /// The programme on now, from its beginning, instead of live.
+    var startsOver = false
     var id: Int { stream.id }
 }
+
 
 /// A preview's player, lent to full screen.
 ///

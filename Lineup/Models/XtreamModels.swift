@@ -50,8 +50,16 @@ struct XtreamStream: Codable, Identifiable, Hashable, Sendable {
     let streamIcon: String?
     let epgChannelID: String?
     let categoryID: String?
+    /// The provider records this channel, so what it showed can be played
+    /// again -- from the start of what is on now, or from a past programme.
+    var tvArchive: Bool = false
+    /// How many days back the provider keeps it.
+    var archiveDays: Int = 0
 
     var id: Int { streamID }
+
+    /// Whether anything this channel showed can be played again.
+    var hasCatchUp: Bool { tvArchive }
 
     enum CodingKeys: String, CodingKey {
         case num, name
@@ -60,6 +68,32 @@ struct XtreamStream: Codable, Identifiable, Hashable, Sendable {
         case streamIcon = "stream_icon"
         case epgChannelID = "epg_channel_id"
         case categoryID = "category_id"
+        case tvArchive = "tv_archive"
+        case archiveDays = "tv_archive_duration"
+    }
+}
+
+// In an extension, so the memberwise initializer stays.
+extension XtreamStream {
+    /// Every field as the synthesized decoder read it, so a list that read
+    /// before reads the same now, and the two catch-up fields however a panel
+    /// writes them: 1 or "1" or true, 7 or "7". A panel that leaves them out
+    /// has no catch-up.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        num = try values.decodeIfPresent(Int.self, forKey: .num)
+        name = try values.decode(String.self, forKey: .name)
+        streamType = try values.decodeIfPresent(String.self, forKey: .streamType)
+        streamID = try values.decode(Int.self, forKey: .streamID)
+        streamIcon = try values.decodeIfPresent(String.self, forKey: .streamIcon)
+        epgChannelID = try values.decodeIfPresent(String.self, forKey: .epgChannelID)
+        categoryID = try values.decodeIfPresent(String.self, forKey: .categoryID)
+        if let flag = try? values.decode(Bool.self, forKey: .tvArchive) {
+            tvArchive = flag
+        } else {
+            tvArchive = (values.lenientInt(.tvArchive) ?? 0) > 0
+        }
+        archiveDays = max(0, values.lenientInt(.archiveDays) ?? 0)
     }
 }
 
@@ -247,6 +281,51 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// The server's own clock, from the same answer as the account's details.
+/// Catch-up addresses are written in the server's local time, so this is
+/// what turns a programme's start into the address that plays it.
+struct XtreamServerInfo: Codable, Sendable {
+    let timezone: String?
+    let timestampNow: Int?
+    let timeNow: String?
+
+    enum CodingKeys: String, CodingKey {
+        case timezone
+        case timestampNow = "timestamp_now"
+        case timeNow = "time_now"
+    }
+
+    init(timezone: String?, timestampNow: Int?, timeNow: String?) {
+        self.timezone = timezone
+        self.timestampNow = timestampNow
+        self.timeNow = timeNow
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        timezone = values.lenientString(.timezone)
+        timestampNow = values.lenientInt(.timestampNow)
+        timeNow = values.lenientString(.timeNow)
+    }
+
+    /// The server's time zone: by name when it gives one Foundation knows,
+    /// otherwise worked out from its clock against the true time, to the
+    /// nearest quarter hour.
+    var timeZone: TimeZone? {
+        if let timezone, let zone = TimeZone(identifier: timezone) { return zone }
+        guard let timeNow, let timestampNow else { return nil }
+        let reader = DateFormatter()
+        reader.locale = Locale(identifier: "en_US_POSIX")
+        reader.timeZone = TimeZone(secondsFromGMT: 0)
+        reader.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        guard let wall = reader.date(from: timeNow) else { return nil }
+        let offset = wall.timeIntervalSince1970 - TimeInterval(timestampNow)
+        let quarters = (offset / 900).rounded()
+        guard abs(quarters) <= 14 * 4 else { return nil }
+        return TimeZone(secondsFromGMT: Int(quarters) * 900)
+    }
+}
+
 struct XtreamEnvelope: Codable {
     struct UserInfo: Codable {
         let auth: Int?
@@ -276,9 +355,19 @@ struct XtreamEnvelope: Codable {
     }
 
     let userInfo: UserInfo?
+    let serverInfo: XtreamServerInfo?
 
     enum CodingKeys: String, CodingKey {
         case userInfo = "user_info"
+        case serverInfo = "server_info"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        userInfo = try values.decodeIfPresent(UserInfo.self, forKey: .userInfo)
+        // Never a reason to refuse the account: a server that writes it
+        // oddly just has no clock to offer.
+        serverInfo = try? values.decodeIfPresent(XtreamServerInfo.self, forKey: .serverInfo)
     }
 }
 

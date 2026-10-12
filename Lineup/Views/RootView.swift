@@ -50,6 +50,12 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if library.hasProfile { library.refreshSchedule() }
         }
+        // Every refresh of the scores is looked at for the viewer's teams:
+        // a game starting, close at the end, or going to overtime is held
+        // for a player to show over the picture.
+        .onReceive(library.$gamesByLeague) { games in
+            GameAlertCenter.shared.observe(games.values.flatMap { $0 }, isFollowing: library.isFollowing)
+        }
         .alert("Couldn’t Connect", isPresented: Binding(
             get: { library.errorMessage != nil },
             set: { if !$0 { library.errorMessage = nil } }
@@ -72,11 +78,11 @@ struct MainView: View {
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Live", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
+                .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView(isActive: selectedTab == 1)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
+                .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
@@ -90,7 +96,7 @@ struct MainView: View {
                 .tag(4)
             AccountView(selectedTab: $selectedTab)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Account", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
+                .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }
         // The four tabs are Lineup's primary navigation, not transient

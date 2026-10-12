@@ -16,7 +16,7 @@ struct LineupApp: App {
         retireRemovedThemes()
         #if os(tvOS)
         applyLineupTabBarTheme()
-        PlaybackJournal.shared.note("App opened")
+        PlaybackJournal.shared.note("Lineup opened")
         #endif
     }
 

@@ -24,9 +24,20 @@ import UIKit
 enum LineupArt {
     /// Decoded, already sized to its cell. The cost is the pixels, so that is
     /// what the limit counts.
+    ///
+    /// The television draws at twice its point size, so one poster is over
+    /// two megabytes of pixels and the phone's 64 held about twenty-five: a
+    /// Library of a few shelves evicted its own first row before the last was
+    /// in, and every shelf came back to a fresh decode and a grey card. The
+    /// television keeps a Library's worth. NSCache still gives it all back
+    /// the moment the system asks for memory.
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.totalCostLimit = 64 * 1024 * 1024
+        #if os(tvOS)
+        cache.totalCostLimit = 320 * 1024 * 1024
+        #else
+        cache.totalCostLimit = 96 * 1024 * 1024
+        #endif
         return cache
     }()
 
@@ -101,6 +112,10 @@ enum LineupArt {
         configuration.urlCache = URLCache(memoryCapacity: 8 * 1024 * 1024,
                                           diskCapacity: 256 * 1024 * 1024)
         configuration.requestCachePolicy = .returnCacheDataElseLoad
+        // A shelf arriving is a dozen pictures from one server at once, and
+        // the default few connections made the last of them wait for the
+        // first.
+        configuration.httpMaximumConnectionsPerHost = 10
         return URLSession(configuration: configuration)
     }()
 
@@ -121,6 +136,17 @@ enum LineupArt {
     static func ready(_ url: URL?, pixels: Int) -> UIImage? {
         guard let url else { return nil }
         return cache.object(forKey: key(url, pixels))
+    }
+
+    /// Fetches and keeps a picture nobody is drawing yet -- the shelf above
+    /// or below, the title beside the one in focus -- so it is already made
+    /// when it is wanted. Low priority, so it never holds up a picture that
+    /// is on screen; already held or already coming, it does nothing.
+    static func prefetch(_ url: URL?, pixels: Int) {
+        guard let url else { return }
+        let key = key(url, pixels)
+        guard cache.object(forKey: key) == nil, !missing.contains(key as String) else { return }
+        Task(priority: .low) { _ = await load(url, pixels: pixels) }
     }
 
     static func load(_ url: URL, pixels: Int) async -> UIImage? {
@@ -198,6 +224,9 @@ struct LineupArtView<Content: View>: View {
     private let pixels: Int
     private let content: (Image?) -> Content
     @State private var loaded: UIImage?
+    /// Set on art far enough off screen that fetching it now would only hold
+    /// up the art that is on screen (see `lineupArtDeferred`).
+    @Environment(\.lineupArtDeferred) private var deferred
 
     /// - Parameter width: the width the art is drawn at, in points. It decides
     ///   what size is decoded and kept, so it should be the real drawn width
@@ -233,7 +262,7 @@ struct LineupArtView<Content: View>: View {
         ZStack {
             Color.clear
                 .frame(width: 0, height: 0)
-                .task(id: url) { await load() }
+                .task(id: LoadKey(url: url, deferred: deferred)) { await load() }
             // The cache is asked again here, not just in `init`. A view
             // rebuilt while its own load was in flight keeps its identity and
             // its empty state, so without this it would sit blank over a
@@ -242,9 +271,22 @@ struct LineupArtView<Content: View>: View {
         }
     }
 
+    private struct LoadKey: Equatable {
+        let url: URL?
+        let deferred: Bool
+    }
+
     private func load() async {
         guard let url else {
             if loaded != nil { loaded = nil }
+            return
+        }
+        // Deferring is about the network: a picture already made is drawn,
+        // one not made yet waits, and nothing shows in the meantime -- never
+        // the picture this view had for whatever title it showed before.
+        if deferred {
+            let held = LineupArt.ready(url, pixels: pixels)
+            if loaded !== held { loaded = held }
             return
         }
         // It may already be made -- by this view's own init, or by whichever
@@ -258,5 +300,20 @@ struct LineupArtView<Content: View>: View {
         // worse than showing none.
         if loaded != nil { loaded = nil }
         loaded = await LineupArt.load(url, pixels: pixels)
+    }
+}
+
+private struct LineupArtDeferredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Art under this waits to be fetched until it is cleared again. A row
+    /// built whole -- every card at once, so focus can land on any of them --
+    /// sets it on the cards well off screen, so the few that are visible are
+    /// not queued behind fifty that are not.
+    var lineupArtDeferred: Bool {
+        get { self[LineupArtDeferredKey.self] }
+        set { self[LineupArtDeferredKey.self] = newValue }
     }
 }

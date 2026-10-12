@@ -104,6 +104,49 @@ struct XtreamClient {
         return ["m3u8", "ts"].map { root.appendingPathComponent("\(stream.streamID).\($0)") }
     }
 
+    // MARK: - Catch-up
+
+    /// Where a channel's recording plays from, starting at `start` and
+    /// running `minutes`: the panel's path form first, which nearly every
+    /// panel answers, and its older script form after it.
+    ///
+    /// The start is written in the server's own time -- that is how panels
+    /// read it -- and to the minute, as finely as either form can say.
+    func catchUpURLs(for stream: XtreamStream, from start: Date, minutes: Int,
+                     serverTimeZone: TimeZone) -> [URL] {
+        guard let base = normalizedBaseURL else { return [] }
+        let stamp = CatchUpPolicy.addressStamp(start, in: serverTimeZone)
+        let path = base.appendingPathComponent("timeshift")
+            .appendingPathComponent(profile.username)
+            .appendingPathComponent(password)
+            .appendingPathComponent(String(minutes))
+            .appendingPathComponent(stamp)
+            .appendingPathComponent("\(stream.streamID).ts")
+        var urls = [path]
+        if var components = URLComponents(url: base.appendingPathComponent("streaming")
+                                            .appendingPathComponent("timeshift.php"),
+                                          resolvingAgainstBaseURL: false) {
+            components.queryItems = [
+                URLQueryItem(name: "username", value: profile.username),
+                URLQueryItem(name: "password", value: password),
+                URLQueryItem(name: "stream", value: String(stream.streamID)),
+                URLQueryItem(name: "start", value: stamp),
+                URLQueryItem(name: "duration", value: String(minutes))
+            ]
+            if let script = components.url { urls.append(script) }
+        }
+        return urls
+    }
+
+    /// One channel's listings as the provider keeps them for catch-up: days
+    /// back, each saying whether it was recorded.
+    func catchUpTable(streamID: Int) async throws -> XtreamArchiveTable {
+        let data = try await payload(action: "get_simple_data_table",
+            extra: [URLQueryItem(name: "stream_id", value: String(streamID))], timeout: 25)
+        do { return try JSONDecoder().decode(XtreamArchiveTable.self, from: data) }
+        catch { throw XtreamError.invalidResponse }
+    }
+
     /// The guide, or nil when the server sent the same bytes as last time.
     ///
     /// Identical bytes parse to an identical guide, so the comparison happens

@@ -116,8 +116,33 @@ final class MobilePlaybackController: ObservableObject {
     var isLive = true
     /// Where to put a title back once its stream has reopened.
     private var reopenPosition: TimeInterval?
-    /// A title played to its end. The player closes on it.
+    /// A title played to its end. The player closes on it. So does a
+    /// programme from the past played from the Catch Up list, at its end.
     @Published private(set) var finished = false
+
+    // Catch-up; see the section of that name below.
+    /// How to play this channel's recording, while a channel the provider
+    /// records is on. Nil for a channel that isn't recorded, for a title, and
+    /// until the server's time zone is known. Set by the screen that opened
+    /// the channel, which knows the stream; a change of channel -- the
+    /// viewer's or failover's -- leaves it behind.
+    @Published var catchUpSource: CatchUpSource?
+    /// Playing the channel's recording rather than the channel live: where
+    /// the open stream starts and the programme its timeline is drawn across.
+    @Published private(set) var catchUp: CatchUpTimeline?
+    /// Where a skip is taking the recording, while it waits to see whether
+    /// another press follows before reopening the stream there.
+    @Published private(set) var skipTarget: Date?
+    /// How far the open recording has played, in whole seconds as far as the
+    /// screen is concerned: the timeline and the badge show no finer, so a
+    /// finer number would only redraw them for nothing.
+    @Published private(set) var recordingElapsed: TimeInterval = 0
+    /// A programme chosen from the past ends with it. Start Over, a pause and
+    /// a rewind carry on through whatever came next, up to live.
+    private(set) var recordingEndsWithProgramme = false
+    /// When a live channel the provider records was paused, to pick up from.
+    private var pausedAt: Date?
+    private var skipTask: Task<Void, Never>?
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
     private var candidates: [URL] = []
@@ -151,6 +176,12 @@ final class MobilePlaybackController: ObservableObject {
     /// When the engine started playing behind the shut gate: the sound has
     /// been held since then.
     private var heldSoundSince: TimeInterval?
+    /// VLC's picture behind the gate: when it first came up, the pictures
+    /// shown by then, and its size and how long it has held it.
+    private var vlcPictureUpAt: TimeInterval?
+    private var vlcPicturesAtUp = 0
+    private var vlcGateSize = CGSize.zero
+    private var vlcGateSizeSince: TimeInterval?
 
     // AVPlayer engine state.
     private var systemObservers: [NSKeyValueObservation] = []
@@ -228,6 +259,8 @@ final class MobilePlaybackController: ObservableObject {
             ("start together", startGateOpen ? "open"
                 : "holding sound" + (heldSoundSince.map { String(format: " %.1fs", ProcessInfo.processInfo.systemUptime - $0) } ?? "")),
             ("loading", loading ? "yes" : "no"),
+            ("catch-up", catchUp.map { "replay from \($0.streamStart.formatted(date: .omitted, time: .shortened)) +\(Int(recordingElapsed))s" }
+                ?? (catchUpSource == nil ? "—" : "recorded, live")),
             ("error", error ?? "—")
         ]
     }
@@ -389,9 +422,17 @@ final class MobilePlaybackController: ObservableObject {
         diag.record("seek to \(Int(target))s of \(Int(current.duration))s via \(engine.rawValue)")
     }
 
+    /// Back or on by `seconds`. A title steps through itself. A channel the
+    /// provider records goes back into its recording, and a recording brought
+    /// up to the present goes back to live. Presses in quick succession add
+    /// up before the stream is reopened, so a run of taps opens it once.
     func skip(by seconds: Double) {
-        guard let current = progress else { return }
-        seek(to: current.position + seconds)
+        guard isLive else {
+            guard let current = progress else { return }
+            seek(to: current.position + seconds)
+            return
+        }
+        skipRecording(by: seconds)
     }
 
     // MARK: - Surface
@@ -480,6 +521,9 @@ final class MobilePlaybackController: ObservableObject {
         gateFrames = 0
         gateLastFrameAt = nil
         heldSoundSince = nil
+        vlcPictureUpAt = nil
+        vlcGateSize = .zero
+        vlcGateSizeSince = nil
         switch engine {
         case .system: systemPlayer.isMuted = true
         case .vlc: player.audio?.isMuted = true
@@ -529,7 +573,26 @@ final class MobilePlaybackController: ObservableObject {
             // unmuted; held again until the picture is there.
             if player.audio?.isMuted == false { player.audio?.isMuted = true }
             if player.hasVideoOut {
-                openStartGate("picture up")
+                // Shown once its shape has settled, so a first frame drawn
+                // before VLC knows it never shows stretched.
+                let pictures = player.media?.numberOfDisplayedPictures ?? 0
+                if vlcPictureUpAt == nil {
+                    vlcPictureUpAt = now
+                    vlcPicturesAtUp = pictures
+                }
+                let size = player.videoSize
+                if size != vlcGateSize {
+                    vlcGateSize = size
+                    vlcGateSizeSince = now
+                }
+                let steady = size.width > 0 && size.height > 0
+                    && now - (vlcGateSizeSince ?? now) >= StartTogether.vlcSettle
+                    && pictures - vlcPicturesAtUp >= StartTogether.vlcFramesToSettle
+                if steady {
+                    openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
+                } else if let upAt = vlcPictureUpAt, now - upAt > StartTogether.vlcSettleDeadline {
+                    openStartGate("picture up, shape not settled")
+                }
             } else if let since = heldSoundSince, now - since > StartTogether.soundAloneAfter {
                 openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
             }
@@ -611,7 +674,14 @@ final class MobilePlaybackController: ObservableObject {
         for url in MobileEngineSelection.ordered(urls) {
             diag.record("  candidate \(url.lastPathComponent) -> \(MobileEngineSelection.engine(for: url).rawValue)")
         }
+        // Also ends any recording: whatever opens next is live unless the
+        // recording itself is what is being opened, which says so afterwards.
         stop()
+        // A recording belongs to its channel. Another channel -- the viewer's
+        // choice or failover's -- leaves the last one's behind.
+        if let channelID, let source = catchUpSource, source.stream.id != channelID {
+            catchUpSource = nil
+        }
         requestedInitialPosition = initialPosition
         appliedInitialPosition = false
         reopenPosition = nil
@@ -646,6 +716,10 @@ final class MobilePlaybackController: ObservableObject {
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
                 self.sampleProgress()
+                // A recording's place is kept while it is paused too, so the
+                // timeline still reads right after a skip made without resuming.
+                self.sampleRecording()
+                self.followRecordingIntoNextProgramme()
                 if self.engine == .system, self.startGateOpen,
                    self.systemPlayer.timeControlStatus == .playing,
                    self.videoView?.playerLayer?.isReadyForDisplay == true {
@@ -931,7 +1005,22 @@ final class MobilePlaybackController: ObservableObject {
             case .vlc: player.pause()
             case .system: systemPlayer.pause()
             }
+            // A channel the provider records picks up from here, however
+            // long the pause: the broadcast doesn't wait, but its recording
+            // does.
+            if isLive, catchUp == nil, catchUpSource != nil { pausedAt = Date() }
         } else {
+            let pause = pausedAt
+            pausedAt = nil
+            // Paused for longer than the player's own buffer covers: on from
+            // the moment it was paused, by way of the recording. A pause
+            // shorter than that just plays on.
+            if let pause, catchUp == nil, catchUpSource != nil,
+               Date().timeIntervalSince(pause) >= CatchUpPolicy.resumeFromPauseAfter,
+               rewindFromLive(to: pause.addingTimeInterval(-CatchUpPolicy.liveLatency)) {
+                diag.record("catch-up: resumed from the pause, \(Int(Date().timeIntervalSince(pause)))s behind live")
+                return
+            }
             health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
             switch engine {
             case .vlc:
@@ -948,7 +1037,15 @@ final class MobilePlaybackController: ObservableObject {
     /// Reopens the same channel from scratch. Neither engine has a reliable
     /// "seek to live edge" for these streams, so the robust way to snap back to
     /// live after a pause (or a stall) is a fresh connection rather than a seek.
+    ///
+    /// From a recording, or a pause that would otherwise resume through one,
+    /// it is the channel's live addresses that are opened, not the recording's.
     func goLive() {
+        if catchUp != nil || pausedAt != nil, let source = catchUpSource {
+            diag.record("catch-up: back to live")
+            start(urls: source.liveURLs, channelID: source.stream.id, resetFailover: false)
+            return
+        }
         guard !originalURLs.isEmpty else { return }
         start(urls: originalURLs)
     }
@@ -968,11 +1065,16 @@ final class MobilePlaybackController: ObservableObject {
         if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 {
             reopenPosition = max(0, position - 2)
         }
+        // A recording that stops is picked up from where it had got to -- or,
+        // having reached the present or the end of its programme, isn't.
+        if catchUp != nil, recordingStopped() { return }
         guard var delay = retries.nextDelay(), !originalURLs.isEmpty else {
             // This channel's own URLs are spent — including the HLS-then-VLC
             // fallback, which happens inside `candidates` before ever reaching
-            // here. Only now is another channel worth trying.
-            if switchToNextChannel() { return }
+            // here. Only now is another channel worth trying. Never from a
+            // recording: another channel live is no answer to a programme the
+            // viewer went back for.
+            if catchUp == nil, switchToNextChannel() { return }
             loading = false
             error = "The stream disconnected. Tap Retry to reconnect."
             UIApplication.shared.isIdleTimerDisabled = false
@@ -1213,6 +1315,224 @@ final class MobilePlaybackController: ObservableObject {
         finished = true
     }
 
+    // MARK: - Catch-up
+
+    /// What is on screen while a recording plays: a skip's destination while
+    /// it waits, else where the stream has got to. Nil while live.
+    var catchUpPosition: Date? {
+        guard let catchUp else { return nil }
+        return skipTarget ?? catchUp.position(playedSeconds: recordingElapsed)
+    }
+
+    /// The programme from its start -- the one a recording is playing, or
+    /// the one on now when the provider records the channel and the guide
+    /// knows what is on.
+    var canStartOver: Bool {
+        guard isLive, let catchUpSource else { return false }
+        return catchUp != nil || catchUpSource.programme(Date()) != nil
+    }
+
+    /// Asks for this channel's recording, and keeps it if the channel is
+    /// still the one playing once the server has answered. Nothing is asked
+    /// for a channel the provider doesn't record.
+    func loadCatchUpSource(for stream: XtreamStream, from library: SportsLibrary) {
+        guard isLive, stream.hasCatchUp else { return }
+        Task { [weak self] in
+            let source = await library.catchUpSource(for: stream)
+            guard let self, self.currentChannelID == stream.id else { return }
+            self.catchUpSource = source
+        }
+    }
+
+    /// Opens a channel on its recording rather than live -- a programme from
+    /// the past, or with nil the one on now from its start -- once the
+    /// recording can be addressed, and the channel live when it can't.
+    ///
+    /// Nothing opens while the server is asked, so the channel is never
+    /// opened live only to be closed again a moment later. The player shows
+    /// it opening meanwhile, and a viewer who moves on in that time -- another
+    /// channel, or closing the player -- is not overruled when the answer
+    /// comes.
+    func openRecording(of stream: XtreamStream, programme: CatchUpProgramme?, from library: SportsLibrary) async {
+        let liveURLs = library.playbackURLs(for: stream)
+        // Whatever was open is closed now rather than left playing under the
+        // wait; `start` below or the next channel opens the next thing.
+        stop()
+        currentChannelID = stream.id
+        error = nil
+        loading = true
+        // Nil for a channel the provider doesn't record, without asking.
+        let source = await library.catchUpSource(for: stream)
+        guard currentChannelID == stream.id, monitor == nil else { return }
+        catchUpSource = source
+        if source != nil {
+            if let programme, playRecording(of: programme) { return }
+            if programme == nil, startOver() { return }
+        }
+        start(urls: liveURLs, channelID: stream.id)
+    }
+
+    /// The programme from its beginning: the one a recording is playing, or
+    /// the one on now, carrying on past its end.
+    @discardableResult
+    func startOver() -> Bool {
+        if let catchUp {
+            diag.record("catch-up: start over")
+            return playRecording(from: catchUp.programmeStart, programmeStart: catchUp.programmeStart,
+                                 programmeEnd: catchUp.programmeEnd, title: catchUp.title,
+                                 endsWithProgramme: recordingEndsWithProgramme)
+        }
+        guard let source = catchUpSource, let programme = source.programme(Date()) else { return false }
+        diag.record("catch-up: start over")
+        return playRecording(from: programme.start, programmeStart: programme.start,
+                             programmeEnd: programme.end, title: programme.title, endsWithProgramme: false)
+    }
+
+    /// A programme from the past, from its start to its end. One still on
+    /// carries on past where it was to live, as Start Over does.
+    @discardableResult
+    func playRecording(of programme: CatchUpProgramme) -> Bool {
+        diag.record("catch-up: playing a recording from \(programme.start.formatted(date: .abbreviated, time: .shortened))")
+        return playRecording(from: programme.start, programmeStart: programme.start,
+                             programmeEnd: programme.end, title: programme.title,
+                             endsWithProgramme: programme.end <= Date())
+    }
+
+    /// The live half of `skip(by:)`.
+    private func skipRecording(by seconds: Double) {
+        guard catchUpSource != nil else { return }
+        let now = Date()
+        guard let catchUp else {
+            // Already live: only back means anything.
+            guard seconds < 0 else { return }
+            rewindFromLive(to: now.addingTimeInterval(seconds - CatchUpPolicy.liveLatency))
+            return
+        }
+        var target = (catchUpPosition ?? now).addingTimeInterval(seconds)
+        if recordingEndsWithProgramme {
+            target = min(max(target, catchUp.programmeStart), catchUp.programmeEnd.addingTimeInterval(-5))
+        } else if now.timeIntervalSince(target) < CatchUpPolicy.liveTolerance {
+            goLive()
+            return
+        }
+        // Within the open stream, when the server lets it be moved through:
+        // no reconnect at all.
+        let offset = target.timeIntervalSince(catchUp.streamStart)
+        if skipTarget == nil, engine == .vlc, player.isSeekable, offset >= 0, offset <= max(recordingElapsed, 0) + 60 {
+            player.time = VLCTime(int: Int32(offset * 1000))
+            recordingElapsed = offset
+            diag.record("catch-up: moved \(Int(seconds))s within the open recording")
+            return
+        }
+        skipTarget = target
+        skipTask?.cancel()
+        skipTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+            guard let self, !Task.isCancelled, let target = self.skipTarget, let catchUp = self.catchUp else { return }
+            self.skipTarget = nil
+            self.playRecording(from: target, programmeStart: catchUp.programmeStart,
+                               programmeEnd: catchUp.programmeEnd, title: catchUp.title,
+                               endsWithProgramme: self.recordingEndsWithProgramme)
+        }
+    }
+
+    /// From live into the recording, at a time just gone.
+    @discardableResult
+    private func rewindFromLive(to time: Date) -> Bool {
+        guard let source = catchUpSource else { return false }
+        let programme = source.programme(time)
+        return playRecording(from: time,
+                             programmeStart: programme?.start ?? CatchUpPolicy.minute(time),
+                             programmeEnd: programme?.end ?? Date().addingTimeInterval(30 * 60),
+                             title: programme?.title ?? source.stream.name,
+                             endsWithProgramme: false)
+    }
+
+    /// Opens the recording from `position`. False, and nothing touched, when
+    /// there is nothing to address it with.
+    @discardableResult
+    private func playRecording(from position: Date, programmeStart: Date, programmeEnd: Date,
+                               title: String, endsWithProgramme: Bool) -> Bool {
+        guard let source = catchUpSource else { return false }
+        let begin = CatchUpPolicy.minute(max(position, programmeStart.addingTimeInterval(-60)))
+        // A programme from the past is asked for to its end. Anything still
+        // being shown is asked for up to now, and picked up again from where
+        // it got to when that runs out.
+        let until = endsWithProgramme ? programmeEnd : Date()
+        let addresses = source.addresses(begin, until)
+        guard !addresses.isEmpty else { return false }
+        diag.record("catch-up: recording from \(begin.formatted(date: .omitted, time: .shortened))\(endsWithProgramme ? " to the programme's end" : "")")
+        // In the order given, the path form first: both forms are transport
+        // streams, which VLC plays and `MobileEngineSelection` leaves in place.
+        start(urls: addresses, channelID: source.stream.id, resetFailover: false)
+        recordingEndsWithProgramme = endsWithProgramme
+        catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
+                                  title: title, streamStart: begin)
+        return true
+    }
+
+    /// A recording's stream has stopped: the end of the programme, the
+    /// present caught up with, or a drop. True when it has been dealt with
+    /// here; false to reconnect, from where it had got to.
+    private func recordingStopped() -> Bool {
+        guard let catchUp, let source = catchUpSource else { return false }
+        let position = catchUp.position(playedSeconds: recordingElapsed)
+        if recordingEndsWithProgramme, position >= catchUp.programmeEnd.addingTimeInterval(-30) {
+            diag.record("catch-up: the recording reached the end of the programme")
+            finishRecording()
+            return true
+        }
+        if !recordingEndsWithProgramme, Date().timeIntervalSince(position) < CatchUpPolicy.liveTolerance {
+            diag.record("catch-up: caught up with the channel")
+            goLive()
+            return true
+        }
+        let begin = CatchUpPolicy.minute(position)
+        let addresses = source.addresses(begin, recordingEndsWithProgramme ? catchUp.programmeEnd : Date())
+        guard !addresses.isEmpty else { return false }
+        // The reconnect that follows reads these, from the path form.
+        originalURLs = addresses
+        recordingElapsed = 0
+        self.catchUp = CatchUpTimeline(programmeStart: catchUp.programmeStart, programmeEnd: catchUp.programmeEnd,
+                                       title: catchUp.title, streamStart: begin)
+        return false
+    }
+
+    /// A recording that carries on past its programme's end takes the next
+    /// programme's name and timeline.
+    private func followRecordingIntoNextProgramme() {
+        guard let catchUp, !recordingEndsWithProgramme, let source = catchUpSource,
+              let position = catchUpPosition, position >= catchUp.programmeEnd,
+              let next = source.programme(position), next.start >= catchUp.programmeEnd.addingTimeInterval(-60)
+        else { return }
+        self.catchUp = CatchUpTimeline(programmeStart: next.start, programmeEnd: next.end,
+                                       title: next.title, streamStart: catchUp.streamStart)
+    }
+
+    /// How far the open recording has played. A stream that has dropped
+    /// reads its clock as nothing; the place it had got to stands until it
+    /// plays again, so neither the timeline nor the reconnect loses it.
+    private func sampleRecording() {
+        guard catchUp != nil, engine == .vlc else { return }
+        let played = Double(player.time.intValue) / 1000
+        if played <= 0, !player.isPlaying, recordingElapsed > 0 { return }
+        let seconds = max(0, played)
+        if Int(seconds) != Int(recordingElapsed) { recordingElapsed = seconds }
+    }
+
+    /// A programme from the past played to its end. The player closes on it,
+    /// as on the end of a title; `finish()` is a title's alone.
+    private func finishRecording() {
+        guard !finished else { return }
+        monitor?.cancel()
+        monitor = nil
+        retryAt = nil
+        isPlaying = false
+        loading = false
+        finished = true
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
+
     // MARK: - Teardown
 
     func stop() {
@@ -1233,6 +1553,14 @@ final class MobilePlaybackController: ObservableObject {
         shouldResume = false
         isPlaying = false
         resetSubtitles()
+        // The recording goes with the stream that played it. The channel's
+        // source stays: it describes the channel, not what was open on it.
+        skipTask?.cancel()
+        skipTask = nil
+        skipTarget = nil
+        catchUp = nil
+        pausedAt = nil
+        recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
         MobileAudioSession.deactivate()
     }
@@ -1244,6 +1572,7 @@ final class MobilePlaybackController: ObservableObject {
         failoverNotice = nil
         failover = nil
         currentChannelID = nil
+        catchUpSource = nil
         pendingWorkingChannelID = nil
         failoverState.reset()
         if let pip = pipController, pip.isPictureInPictureActive { pip.stopPictureInPicture() }
@@ -1383,7 +1712,16 @@ final class MobileVideoHost: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         playerLayer?.opacity = held ? 0 : 1
+        // VLC draws into a view of its own inside this one.
+        for renderer in subviews where renderer !== stillPicture { renderer.alpha = held ? 0 : 1 }
         CATransaction.commit()
+    }
+
+    /// VLC adds its renderer once the stream's picture starts, which can be
+    /// after the picture was held: held from the moment it arrives.
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        if subview !== stillPicture { subview.alpha = pictureHeld ? 0 : 1 }
     }
 
     private var stillPicture: UIView?
@@ -1405,8 +1743,8 @@ final class MobileVideoHost: UIView {
               let still = snapshotView(afterScreenUpdates: false) else { return }
         still.frame = bounds
         still.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addSubview(still)
         stillPicture = still
+        addSubview(still)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for view in subviews where view !== still { view.isHidden = true }

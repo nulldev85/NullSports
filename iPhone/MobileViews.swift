@@ -23,11 +23,11 @@ struct MainView: View {
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Live", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
+                .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
+                .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
                 .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
@@ -38,7 +38,7 @@ struct MainView: View {
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
                 .lineupThemeScope(selectedTheme)
-                .tabItem { Label("Account", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
+                .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         // Tab chrome remains neutral across themes; the selected asset changes
         // from outline to fill, with white providing the quiet emphasis.
@@ -546,7 +546,7 @@ private struct MobileAccountView: View {
             }
             .listStyle(.grouped)
             .scrollContentBackground(.hidden).background(LineupStyle.background)
-            .navigationTitle("Account")
+            .navigationTitle("Settings")
             .task {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
