@@ -50,6 +50,12 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if library.hasProfile { library.refreshSchedule() }
         }
+        // Every refresh of the scores is looked at for the viewer's teams:
+        // a game starting, close at the end, or going to overtime is held
+        // for a player to show over the picture.
+        .onReceive(library.$gamesByLeague) { games in
+            GameAlertCenter.shared.observe(games.values.flatMap { $0 }, isFollowing: library.isFollowing)
+        }
         .alert("Couldn’t Connect", isPresented: Binding(
             get: { library.errorMessage != nil },
             set: { if !$0 { library.errorMessage = nil } }
@@ -101,6 +107,16 @@ struct MainView: View {
         .toolbar(.visible, for: .tabBar)
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
+        // A Top Shelf item opens the tab it belongs to; the tab itself plays
+        // it, and clears the link once it has.
+        .onReceive(LineupLinkRouter.shared.$pending) { link in
+            switch link {
+            case .game?: selectedTab = 0
+            case .channel?: selectedTab = 1
+            case .media?: selectedTab = 2
+            case nil: break
+            }
+        }
         // Beside the tab bar, where the set's own notices appear, over every
         // tab. A player covers it: they are all full-screen presentations.
         .overlay(alignment: .topTrailing) { DataRefreshPopup() }

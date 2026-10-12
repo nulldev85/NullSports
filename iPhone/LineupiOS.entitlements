@@ -5,4 +5,6 @@
     <array><string>iCloud.com.nulldev85.Lineup</string></array>
     <key>com.apple.developer.icloud-services</key>
     <array><string>CloudKit</string></array>
+    <key>com.apple.security.application-groups</key>
+    <array><string>group.com.nulldev85.NullSports</string></array>
 </dict></plist>

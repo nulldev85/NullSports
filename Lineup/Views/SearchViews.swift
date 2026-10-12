@@ -73,7 +73,9 @@ struct AppSearchView: View {
                        title: playback.channel.name,
                        program: library.guidePrograms(for: playback.channel).normalizedEPG().first { $0.isLive },
                        game: playback.game,
-                       channelID: playback.channel.id)
+                       channelID: playback.channel.id,
+                       channel: playback.channel,
+                       lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""))
         }
         #endif
     }

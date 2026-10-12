@@ -44,6 +44,11 @@ private struct LibraryState: Codable, Sendable {
     let categoriesDigest: String?
     let streamsDigest: String?
     let guideDigest: String?
+    /// Which fields a channel list was read with. A list read before
+    /// channels carried catch-up was read without it, and the digest saying
+    /// "nothing changed" would keep it that way until the provider happened
+    /// to change its list; a different number throws the digest away.
+    var channelFormat: Int? = nil
 }
 
 /// The channels worth offering, and which league each belongs to.
@@ -78,6 +83,9 @@ private struct RestoredLibrary: Sendable {
 
 @MainActor
 final class SportsLibrary: ObservableObject {
+    /// The fields a cached channel list was read with: 2 since channels
+    /// carried catch-up. See `LibraryState.channelFormat`.
+    nonisolated static let channelFormat = 2
     @Published private(set) var isSwitchingProfile = false
     private let profileDefaults: UserDefaults
     @Published private(set) var profiles: [XtreamProfile] = []
@@ -482,7 +490,8 @@ final class SportsLibrary: ObservableObject {
             guideUpdatedAt = state?.guideUpdatedAt
             libraryUpdatedAt = state?.libraryUpdatedAt
             categoriesDigest = state?.categoriesDigest
-            streamsDigest = state?.streamsDigest
+            // A list read with older fields is read again, in full.
+            streamsDigest = state?.channelFormat == Self.channelFormat ? state?.streamsDigest : nil
             guideDigest = state?.guideDigest
             // Now the expensive half, with something already on screen. The
             // index and the matching below both read it, so it has to be in
@@ -819,7 +828,8 @@ final class SportsLibrary: ObservableObject {
                 }),
             categoriesDigest: categoriesDigest,
             streamsDigest: streamsDigest,
-            guideDigest: guideDigest
+            guideDigest: guideDigest,
+            channelFormat: Self.channelFormat
         )
         lastSavedMatchIdentities = identities
         lastSavedMatchDay = now
@@ -1961,6 +1971,87 @@ final class SportsLibrary: ObservableObject {
     func playbackURLs(for stream: XtreamStream) -> [URL] {
         guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
+    }
+
+    // MARK: - Catch-up
+
+    /// The server's time zone for the active provider, found once a session.
+    private var catchUpZoneCache: (profileID: UUID, zone: TimeZone)?
+
+    /// The server's time zone, which catch-up addresses are written in: as
+    /// the account's own details state it, else as a channel's catch-up
+    /// table shows it, else UTC, which is what most panels keep. Only a zone
+    /// the server gave is kept; a guess is tried again next time.
+    func catchUpTimeZone(for stream: XtreamStream? = nil) async -> TimeZone {
+        let utc = TimeZone(secondsFromGMT: 0) ?? .current
+        guard let profile = activeProfile, let password = password(for: profile) else { return utc }
+        if let catchUpZoneCache, catchUpZoneCache.profileID == profile.id { return catchUpZoneCache.zone }
+        let client = XtreamClient(profile: profile, password: password)
+        var zone = try? await client.authenticate().serverInfo?.timeZone
+        if zone == nil, let stream {
+            zone = try? await client.catchUpTable(streamID: stream.streamID).serverTimeZone
+        }
+        guard let zone else { return utc }
+        if activeProfile?.id == profile.id { catchUpZoneCache = (profile.id, zone) }
+        return zone
+    }
+
+    /// Where a channel's recording plays from, from `start` until `end`, in
+    /// the order the playback engines try addresses in (the same order as
+    /// `playbackURLs`: the one to try first is first).
+    func catchUpURLs(for stream: XtreamStream, from start: Date, until end: Date,
+                     in zone: TimeZone) -> [URL] {
+        guard let profile = activeProfile, let password = password(for: profile) else { return [] }
+        let begin = CatchUpPolicy.minute(start)
+        return XtreamClient(profile: profile, password: password).catchUpURLs(
+            for: stream, from: begin, minutes: CatchUpPolicy.minutes(from: begin, to: end),
+            serverTimeZone: zone)
+    }
+
+    /// How to play a channel's recording, once the server's time zone is
+    /// known. Nil for a channel the provider doesn't record.
+    func catchUpSource(for stream: XtreamStream) async -> CatchUpSource? {
+        guard stream.hasCatchUp else { return nil }
+        let zone = await catchUpTimeZone(for: stream)
+        let programmes = guidePrograms(for: stream).normalizedEPG()
+        return CatchUpSource(
+            stream: stream,
+            liveURLs: playbackURLs(for: stream),
+            addresses: catchUpAddresses(for: stream, in: zone),
+            programme: { time in programmes.first { $0.start <= time && time < $0.end } })
+    }
+
+    /// The recording's addresses from any start until any end, for a player
+    /// to call as it moves through the recording. The account is read once,
+    /// here, so the player can ask as often as it needs to.
+    func catchUpAddresses(for stream: XtreamStream, in zone: TimeZone) -> (Date, Date) -> [URL] {
+        guard let profile = activeProfile, let password = password(for: profile) else { return { _, _ in [] } }
+        let client = XtreamClient(profile: profile, password: password)
+        return { start, end in
+            let begin = CatchUpPolicy.minute(start)
+            return client.catchUpURLs(for: stream, from: begin,
+                                      minutes: CatchUpPolicy.minutes(from: begin, to: end),
+                                      serverTimeZone: zone)
+        }
+    }
+
+    /// What a channel showed that the provider kept, newest first, as far
+    /// back as it keeps it. A panel that marks no listing as kept, though the
+    /// channel says it records, is taken at the channel's word.
+    func catchUpProgrammes(for stream: XtreamStream) async throws -> [CatchUpProgramme] {
+        guard let profile = activeProfile, let password = password(for: profile) else { return [] }
+        let table = try await XtreamClient(profile: profile, password: password)
+            .catchUpTable(streamID: stream.streamID)
+        let now = Date()
+        let oldest = now.addingTimeInterval(-Double(max(1, stream.archiveDays)) * 86_400)
+        let past = table.listings.filter { $0.start < now && $0.end > oldest }
+        let kept = past.contains(where: \.hasArchive) ? past.filter(\.hasArchive) : past
+        var seen = Set<Date>()
+        return kept
+            .filter { seen.insert($0.start).inserted }
+            .map { CatchUpProgramme(streamID: stream.streamID, title: $0.title, detail: $0.detail,
+                                    start: $0.start, end: $0.end) }
+            .sorted { $0.start > $1.start }
     }
 
     /// The provider's password, read from the keychain once rather than on

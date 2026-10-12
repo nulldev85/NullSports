@@ -7,6 +7,7 @@ struct LineupApp: App {
     @StateObject private var media = MediaLibrary()
     @StateObject private var cloud = CloudSettingsSync.shared
     @StateObject private var reminders = GameReminders.shared
+    @StateObject private var links = LineupLinkRouter.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -28,6 +29,7 @@ struct LineupApp: App {
                 .environmentObject(reminders)
                 .environmentObject(cloud)
                 .environmentObject(library.refreshProgress)
+                .environmentObject(links)
                 // Inter for everything that never asked for a font of its own
                 // -- form rows, field text, a progress view's label. Without
                 // this they keep the system font and the app reads in two
@@ -51,7 +53,19 @@ struct LineupApp: App {
                 }
                 .onReceive(library.$gamesByLeague) { games in
                     reminders.updateGames(games.values.flatMap { $0 })
+                    publishHomeShelf()
                 }
+                // The Top Shelf and the Home Screen widget show a copy of the
+                // followed teams' games and Continue Watching, and the copy is
+                // only as current as the last time one of these changed.
+                .onReceive(library.$followedTeams) { _ in publishHomeShelf() }
+                .onReceive(media.$localPlayback) { _ in publishHomeShelf() }
+                .onChange(of: scenePhase) { _, phase in
+                    publishHomeShelf(immediately: phase != .active)
+                }
+                // A Top Shelf item or a widget opening the app. Only noted
+                // here; the screens that can act on it read it from `links`.
+                .onOpenURL { url in links.open(url) }
                 .task { await media.prepareProviderVOD() }
                 #if os(tvOS)
                 // "It stopped and went back to the menu" is often the screen
@@ -68,6 +82,13 @@ struct LineupApp: App {
                 }
                 #endif
         }
+    }
+
+    /// Leaving the front writes at once (see `HomeShelfPublisher.publish`);
+    /// everything else waits for the burst it belongs to to settle.
+    @MainActor
+    private func publishHomeShelf(immediately: Bool = false) {
+        HomeShelfPublisher.shared.publish(library: library, media: media, immediately: immediately)
     }
 }
 

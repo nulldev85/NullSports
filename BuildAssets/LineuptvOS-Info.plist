@@ -27,6 +27,20 @@
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<!-- lineup:// is how the Top Shelf and the Home Screen widget open the
+	     app at a particular game, channel or title. See LineupLink in
+	     Shared/HomeShelf.swift for the shapes it takes. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nulldev85.NullSports.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lineup</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSAppTransportSecurity</key>
