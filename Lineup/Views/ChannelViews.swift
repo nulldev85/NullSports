@@ -113,19 +113,7 @@ struct LiveView: View {
             } message: { choice in
                 Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
             }
-            // After a pick: how long should it apply?
-            .confirmationDialog("Use this channel for…", isPresented: presenting($scopingChannel),
-                                titleVisibility: .visible, presenting: scopingChannel) { picked in
-                Button("Just This Game") { scopingChannel = nil }
-                ForEach(library.preferenceSides(for: picked.game)) { side in
-                    Button("Always for the \(side.role) (\(side.team))") {
-                        library.savePreference(picked.stream, for: side.key, teamName: side.team)
-                        scopingChannel = nil
-                    }
-                }
-            } message: { picked in
-                Text("\(picked.stream.name) is on now. Lineup can remember it for either team's games.")
-            }
+            .channelScopePrompt($scopingChannel)
             .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -222,7 +210,7 @@ struct LiveView: View {
         // press on a game already there would be.
         if !picked.startsMultiview, previewGameID == picked.game.id { stopPreview() }
         start(picked.game, on: picked.stream, startsMultiview: picked.startsMultiview, manuallySelected: true)
-        if !library.preferenceSides(for: picked.game).isEmpty { scopingChannel = picked }
+        scopingChannel = library.asksScope(for: picked)
     }
 
     /// Drives a dialog from an optional: SwiftUI clears the optional on
@@ -294,6 +282,45 @@ private struct TVPickedChannel: Identifiable {
     let stream: XtreamStream
     let startsMultiview: Bool
     var id: String { game.id + "." + String(stream.id) }
+}
+
+/// After a channel is picked for a game: keep it for just this game, or
+/// always for either team -- the iPhone's question, asked wherever a channel
+/// is chosen on the television.
+private struct TVChannelScopePrompt: ViewModifier {
+    @EnvironmentObject private var library: SportsLibrary
+    @Binding var picked: TVPickedChannel?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Use this channel for…",
+                                   isPresented: Binding(get: { picked != nil },
+                                                        set: { if !$0 { picked = nil } }),
+                                   titleVisibility: .visible, presenting: picked) { choice in
+            Button("Just This Game") { picked = nil }
+            ForEach(library.preferenceSides(for: choice.game)) { side in
+                Button("Always for the \(side.role) (\(side.team))") {
+                    library.savePreference(choice.stream, for: side.key, teamName: side.team)
+                    picked = nil
+                }
+            }
+        } message: { choice in
+            Text("\(choice.stream.name) is on now. Lineup can remember it for either team's games.")
+        }
+    }
+}
+
+extension View {
+    fileprivate func channelScopePrompt(_ picked: Binding<TVPickedChannel?>) -> some View {
+        modifier(TVChannelScopePrompt(picked: picked))
+    }
+}
+
+extension SportsLibrary {
+    /// Whether a pick for this game has a team to be kept for.
+    fileprivate func asksScope(for picked: TVPickedChannel?) -> TVPickedChannel? {
+        guard let picked, !preferenceSides(for: picked.game).isEmpty else { return nil }
+        return picked
+    }
 }
 
 /// Opens the channel picker for a game, from wherever the game's card is.
@@ -1899,7 +1926,7 @@ private struct LiveGameMenu: ViewModifier {
             // A channel of the viewer's own for this game, and whether to
             // keep it for either team, as on iPhone.
             if let chooseChannel {
-                Button("Choose Channel", systemImage: "list.bullet") { chooseChannel(game) }
+                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(game) }
             }
             ForEach(library.followableSides(of: game)) { team in
                 let following = library.isFollowing(team.key)
@@ -2416,6 +2443,8 @@ private struct LiveSelectedPreview: View {
     @EnvironmentObject private var library: SportsLibrary
     @StateObject private var controller = VLCPlaybackController()
     @State private var choosingGame: SportsGame?
+    @State private var pickedChannel: TVPickedChannel?
+    @State private var scopingChannel: TVPickedChannel?
     let stream: XtreamStream
     let game: SportsGame?
     let urls: [URL]
@@ -2431,13 +2460,18 @@ private struct LiveSelectedPreview: View {
             controller.start(urls: urls, muted: false, channelID: stream.id)
             TVPreviewHandoff.previewing(stream.id, in: controller)
         }
-        .sheet(item: $choosingGame) { game in
+        .sheet(item: $choosingGame, onDismiss: {
+            scopingChannel = library.asksScope(for: pickedChannel)
+            pickedChannel = nil
+        }) { game in
             ManualGameChannelPicker(game: game) { chosen in
                 library.saveGameSelection(chosen, for: game)
+                pickedChannel = TVPickedChannel(game: game, stream: chosen, startsMultiview: false)
                 choosingGame = nil
                 controller.start(urls: library.playbackURLs(for: chosen), channelID: chosen.id)
             }
         }
+        .channelScopePrompt($scopingChannel)
         .onDisappear { if !controller.lentToFullScreen { controller.stop() } }
     }
 }
@@ -2833,7 +2867,7 @@ private struct GameEventCard: View {
                 }
             }
             if let chooseChannel {
-                Button("Choose Channel", systemImage: "list.bullet") { chooseChannel(event) }
+                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(event) }
             }
             // Following is offered wherever a game is, not only in the rail.
             // The rail is empty until somebody is followed, so a follow action
@@ -4560,7 +4594,7 @@ struct AccountView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
                     Text(count == 0
-                         ? "None yet. Hold Select on a game and choose Choose Channel to save one for a team."
+                         ? "None yet. Hold Select on a game and pick Choose Another Channel to save one for a team."
                          : "\(count) \(count == 1 ? "team opens" : "teams open") on a saved channel")
                         .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
                 }
@@ -5044,7 +5078,7 @@ private struct TVPreferredChannelsView: View {
                 PageTitle(eyebrow: "Settings", title: "Preferred Channels",
                           detail: "Games for these teams open on the channel saved for them. If it is unavailable, Lineup uses its own match and keeps the preference.")
                 if entries.isEmpty {
-                    Text("No preferred channels yet. Hold Select on any game, choose Choose Channel, and Lineup can remember it for either team.")
+                    Text("No preferred channels yet. Hold Select on any game, pick Choose Another Channel, and Lineup can remember it for either team.")
                         .font(.inter(22)).foregroundStyle(LineupStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -5487,6 +5521,8 @@ private struct MultiviewView: View {
     @State private var chromeVisible = true
     @State private var chromeTask: Task<Void, Never>?
     @State private var choosingChannel: MultiviewChannelChoice?
+    @State private var pickedChannel: TVPickedChannel?
+    @State private var scopingChannel: TVPickedChannel?
     @State private var chosenTitles: [Int: String] = [:]
     let primary: XtreamStream
     let secondary: XtreamStream
@@ -5536,15 +5572,20 @@ private struct MultiviewView: View {
         }
         .onPlayPauseCommand { switchLayout() }
         .onExitCommand(perform: back)
-        .sheet(item: $choosingChannel) { choice in
+        .sheet(item: $choosingChannel, onDismiss: {
+            scopingChannel = library.asksScope(for: pickedChannel)
+            pickedChannel = nil
+        }) { choice in
             ManualGameChannelPicker(game: choice.game) { chosen in
                 library.saveGameSelection(chosen, for: choice.game)
+                pickedChannel = TVPickedChannel(game: choice.game, stream: chosen, startsMultiview: false)
                 choosingChannel = nil
                 chosenTitles[choice.tile] = chosen.name
                 players.tiles[choice.tile].start(urls: library.playbackURLs(for: chosen),
                                                  muted: audibleTile != choice.tile, channelID: chosen.id)
             }
         }
+        .channelScopePrompt($scopingChannel)
     }
 
     private func tile(_ index: Int, screen: CGSize) -> some View {
@@ -6028,6 +6069,8 @@ struct PlayerView: View {
     /// What the preview does when its channel fails, put back with it.
     @State private var previewFailover: VLCPlaybackController.FailoverContext? = nil
     @State private var choosingGame: SportsGame? = nil
+    @State private var pickedChannel: TVPickedChannel? = nil
+    @State private var scopingChannel: TVPickedChannel? = nil
     @State private var chosenTitle: String? = nil
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>? = nil
@@ -6124,7 +6167,8 @@ struct PlayerView: View {
                     alert: visibleAlert, onInteraction: keepControlsVisible,
                     onChooserChange: chooserChanged,
                     onLastChannel: { if let lastChannel { tune(lastChannel) } },
-                    onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } })
+                    onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } },
+                    onChooseChannel: chooseChannelAction)
                     .transition(.opacity)
             }
             if !controlsVisible, let channelBanner {
@@ -6147,13 +6191,18 @@ struct PlayerView: View {
             }
         }
         .background(Color.black)
-        .sheet(item: $choosingGame) { game in
+        .sheet(item: $choosingGame, onDismiss: {
+            scopingChannel = library.asksScope(for: pickedChannel)
+            pickedChannel = nil
+        }) { game in
             ManualGameChannelPicker(game: game) { chosen in
                 library.saveGameSelection(chosen, for: game)
+                pickedChannel = TVPickedChannel(game: game, stream: chosen, startsMultiview: false)
                 choosingGame = nil
                 tune(chosen, for: game)
             }
         }
+        .channelScopePrompt($scopingChannel)
         .onPlayPauseCommand { controller.togglePlayback(); revealControls() }
         // Back clears the controls first, as Apple's own player does, and
         // closes the player from there. One press used to end the film even
@@ -6312,9 +6361,16 @@ struct PlayerView: View {
 
     /// One of the viewer's teams' games, from an alert: on its channel, or
     /// the channel list to choose one when it has none.
+    /// Offered while a game is on screen: another channel for it.
+    private var chooseChannelAction: (() -> Void)? {
+        guard isLive, let game = watchingGame else { return nil }
+        return { choosingGame = game }
+    }
+
     private func watch(_ game: SportsGame) {
         alerts.dismiss()
-        guard let stream = library.resolvedStream(for: game) else {
+        guard case let .play(streamID, _) = library.preferredChannel(for: game),
+              let stream = library.stream(withID: streamID) else {
             choosingGame = game
             return
         }
@@ -6415,7 +6471,7 @@ struct PlayerView: View {
 }
 
 private enum TVPlayerControl: Hashable {
-    case scrubber, playPause, goLive, startOver, mute, lastChannel, alert, subtitles, audio, video, quality
+    case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, alert, subtitles, audio, video, quality
 }
 
 private struct TVPlayerChrome: View {
@@ -6437,6 +6493,8 @@ private struct TVPlayerChrome: View {
     let onChooserChange: (Bool) -> Void
     let onLastChannel: () -> Void
     let onWatchAlert: () -> Void
+    /// Another channel for the game on screen, as on iPhone.
+    let onChooseChannel: (() -> Void)?
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -6544,6 +6602,12 @@ private struct TVPlayerChrome: View {
                             TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
                                            focus: focusedControl, id: .lastChannel) {
                                 onLastChannel(); onInteraction()
+                            }
+                        }
+                        if let onChooseChannel {
+                            TVPlayerButton(title: "Choose Channel", symbol: "list.bullet",
+                                           focus: focusedControl, id: .chooseChannel) {
+                                onChooseChannel(); onInteraction()
                             }
                         }
                         if let alert {
