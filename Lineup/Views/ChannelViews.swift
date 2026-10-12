@@ -2763,6 +2763,10 @@ struct GuideView: View {
     @State private var fullScreenChannel: XtreamStream?
     /// A channel whose past programmes are being chosen from.
     @State private var catchUpChannel: XtreamStream?
+    /// The preview's one player, kept for as long as the Guide is. Resting
+    /// on a channel opens it there and moving on stops it; nothing is built
+    /// or torn down as the remote moves (see `GuidePreviewVideo`).
+    @StateObject private var previewPlayer = VLCPlaybackController()
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -2808,6 +2812,7 @@ struct GuideView: View {
 
                     if !previewHidden, let previewItem = displayedPreviewItem {
                         GuidePreviewPanel(
+                            player: previewPlayer,
                             item: previewItem,
                             categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                             quality: guideQuality(previewItem.stream),
@@ -3285,6 +3290,7 @@ private struct GuideTitleBlock: View {
 /// What the remote is on, larger: the picture or the channel's mark, and the
 /// programme under it, in type that reads from the sofa.
 private struct GuidePreviewPanel: View {
+    let player: VLCPlaybackController
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
@@ -3312,8 +3318,8 @@ private struct GuidePreviewPanel: View {
         HStack(alignment: .center, spacing: 34) {
             Group {
                 if let previewURLs {
-                    GuidePreviewVideo(channelID: item.stream.id, urls: previewURLs, audible: audible)
-                        .id(item.stream.id)
+                    GuidePreviewVideo(controller: player, channelID: item.stream.id,
+                                      urls: previewURLs, audible: audible)
                 } else {
                     GuidePreviewArtwork(stream: item.stream)
                 }
@@ -3377,8 +3383,17 @@ private struct GuidePreviewPanel: View {
     }
 }
 
+/// The Guide's preview picture: the Guide's one player, on the channel the
+/// remote rests on.
+///
+/// It used to be a player of its own for every channel, built as the remote
+/// rested and thrown away as it moved on. Throwing a player away while its
+/// stream is still closing is what froze the screen: VLC finishes the close
+/// before the player can go, and parts of that wait on the main thread, so a
+/// slow stream held the whole Guide still for a second or two. One player
+/// that changes channel is never thrown away mid-close.
 private struct GuidePreviewVideo: View {
-    @StateObject private var controller = VLCPlaybackController()
+    @ObservedObject var controller: VLCPlaybackController
     let channelID: Int
     let urls: [URL]
     /// Silent while the remote only rests on the channel; on once chosen.
@@ -3387,21 +3402,30 @@ private struct GuidePreviewVideo: View {
     var body: some View {
         VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
-            .onAppear {
-                // Back from full screen, where it played on: nothing to open,
-                // but its sound is on, as it was there.
-                guard !controller.isOpen else {
-                    // Written only if it differs: VLC on Apple TV restarts its
-                    // sound for every mute written.
-                    if controller.isMuted == audible { controller.setMuted(!audible) }
-                    return
-                }
-                controller.start(urls: urls, muted: !audible)
-                TVPreviewHandoff.previewing(channelID, in: controller)
-            }
+            .onAppear { open() }
+            .onChange(of: channelID) { _, _ in open() }
             // Chosen: the same stream carries on, its sound turned on.
             .onChange(of: audible) { _, on in controller.setMuted(!on) }
-            .onDisappear { if !controller.lentToFullScreen { controller.stop() } }
+            .onDisappear {
+                // Lent to full screen, it plays on there. Already on another
+                // channel's preview, it is that preview's to stop.
+                guard !controller.lentToFullScreen, controller.previewChannelID == channelID else { return }
+                controller.stop()
+            }
+    }
+
+    private func open() {
+        // Back from full screen, where it played on: nothing to open, but
+        // its sound is on, as it was there.
+        if controller.isOpen, controller.previewChannelID == channelID {
+            // Written only if it differs: VLC on Apple TV restarts its sound
+            // for every mute written.
+            if controller.isMuted == audible { controller.setMuted(!audible) }
+            return
+        }
+        controller.previewChannelID = channelID
+        controller.start(urls: urls, muted: !audible)
+        TVPreviewHandoff.previewing(channelID, in: controller)
     }
 }
 
@@ -6546,6 +6570,9 @@ private struct TVPlayerMenuLabel: View {
     }()
     /// Every place showing this player, oldest first.
     private var hosts: [VLCSurfaceHost] = []
+    /// The channel a Guide preview last opened on this player, so the
+    /// preview can tell its own stream from one already moved on.
+    var previewChannelID: Int?
     /// Full screen has this preview's player for now. The preview neither
     /// stops it when it is covered nor opens it again when it is uncovered.
     var lentToFullScreen = false {
