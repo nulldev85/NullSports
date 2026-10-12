@@ -112,7 +112,7 @@ final class MediaLibrary: ObservableObject {
     private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
     /// and every poster on screen asks for one.
-    private var clients: [UUID: JellyfinClient] = [:]
+    private var clients: [UUID: any MediaServerClient] = [:]
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -312,7 +312,9 @@ final class MediaLibrary: ObservableObject {
 
     // MARK: - Servers
 
-    func addServer(name: String, serverURL: String, username: String, password: String) async -> Bool {
+    /// A Jellyfin or Emby server, signed in to with a user name and password.
+    func addServer(name: String, serverURL: String, username: String, password: String,
+                   software: MediaServerBrand = .jellyfin) async -> Bool {
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the user name is required. A Jellyfin-compatible server may have
         // no password set on the account, and the server itself is the right
@@ -325,15 +327,16 @@ final class MediaLibrary: ObservableObject {
         errorMessage = nil
         defer { isAddingServer = false }
         do {
-            let client = try JellyfinClient(serverURL: serverURL, deviceID: deviceID)
+            let client = try JellyfinClient(serverURL: serverURL, deviceID: deviceID, software: software)
             let authentication = try await client.authenticate(username: cleanUsername, password: password)
             let typedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let address = client.serverURL.absoluteString
             var profile = MediaServerProfile(
-                name: typedName.isEmpty ? "My Media" : typedName,
+                name: typedName.isEmpty ? software.name : typedName,
                 serverURL: address,
                 username: authentication.user.name,
-                userID: authentication.user.id
+                userID: authentication.user.id,
+                software: software
             )
             // Signing in again to a server that is already here is a new token
             // for it, not a second copy of every one of its shelves.
@@ -342,29 +345,70 @@ final class MediaLibrary: ObservableObject {
                 profile = MediaServerProfile(id: profiles[existing].id,
                     name: typedName.isEmpty ? profiles[existing].name : typedName,
                     serverURL: address, username: authentication.user.name,
-                    userID: authentication.user.id)
+                    userID: authentication.user.id, software: software)
             }
-            try MediaKeychainStore.save(token: authentication.accessToken, profileID: profile.id)
-            clients[profile.id] = nil
-            serverKinds[profile.id] = nil
-            if let existing {
-                profiles[existing] = profile
-            } else {
-                profiles.append(profile)
-                servers[profile.id] = MediaServerState()
-            }
-            persist()
-            // Its shelves before the sheet closes, so the Library already has
-            // them. What spans every server follows behind.
-            await loadServer(profile)
-            Task { [weak self] in
-                await self?.loadMDBListShelves()
-                await self?.loadAddonCatalogs(on: [profile])
-            }
+            try await adopt(profile, token: authentication.accessToken, replacing: existing)
             return true
         } catch {
             errorMessage = error.localizedDescription
             return false
+        }
+    }
+
+    /// The device's id as Plex counts devices, for linking it to a Plex account.
+    var plexClientID: String { deviceID }
+
+    /// A Plex server the linked account can reach, at the first of its
+    /// addresses that answers -- on the same network if it can be.
+    func addPlexServer(_ server: PlexAccount.Server, accountName: String) async -> Bool {
+        isAddingServer = true
+        errorMessage = nil
+        defer { isAddingServer = false }
+        guard let token = server.accessToken else {
+            errorMessage = "Plex didn't give Lineup access to \(server.name). Try linking again."
+            return false
+        }
+        guard let address = await PlexAccount.reachableAddress(of: server, clientID: deviceID) else {
+            errorMessage = "Couldn't reach \(server.name). Make sure it's running and that Remote Access is on, or that this device is on the same network."
+            return false
+        }
+        var profile = MediaServerProfile(name: server.name, serverURL: address.absoluteString,
+                                         username: accountName, userID: server.clientIdentifier,
+                                         software: .plex)
+        // The same server linked again is a new address and token for it.
+        let existing = profiles.firstIndex { $0.brand == .plex && $0.userID == server.clientIdentifier }
+        if let existing {
+            profile = MediaServerProfile(id: profiles[existing].id, name: server.name,
+                                         serverURL: address.absoluteString, username: accountName,
+                                         userID: server.clientIdentifier, software: .plex)
+        }
+        do {
+            try await adopt(profile, token: token, replacing: existing)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// A server signed in to: its token kept, it joins the list, and its
+    /// shelves load before the sheet closes so the Library already has them.
+    /// What spans every server follows behind.
+    private func adopt(_ profile: MediaServerProfile, token: String, replacing existing: Int?) async throws {
+        try MediaKeychainStore.save(token: token, profileID: profile.id)
+        clients[profile.id] = nil
+        serverKinds[profile.id] = nil
+        if let existing {
+            profiles[existing] = profile
+        } else {
+            profiles.append(profile)
+            servers[profile.id] = MediaServerState()
+        }
+        persist()
+        await loadServer(profile)
+        Task { [weak self] in
+            await self?.loadMDBListShelves()
+            await self?.loadAddonCatalogs(on: [profile])
         }
     }
 
@@ -473,7 +517,9 @@ final class MediaLibrary: ObservableObject {
             // as in the views above. Whatever a library already offers is the
             // library's.
             let known = Set(loaded.map(\.id))
-            let loadedCollections = ((try? await source.allCollections(userID: profile.userID)) ?? [])
+            let loadedCollections = ((try? await source.allCollections(
+                userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
+                maxPages: MediaServerQuery.collectionPages)) ?? [])
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
             let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
@@ -481,7 +527,9 @@ final class MediaLibrary: ObservableObject {
             let loadedCatalogs = await withTaskGroup(of: (Int, MediaCatalog).self) { group in
                 for (index, root) in selectedRoots.enumerated() {
                     group.addTask {
-                        let items = (try? await source.items(userID: profile.userID, parentID: root.id)) ?? []
+                        let items = (try? await source.items(userID: profile.userID, parentID: root.id,
+                                                             sortBy: MediaServerQuery.shelfSort,
+                                                             limit: MediaServerQuery.shelfLimit)) ?? []
                         return (index, MediaCatalog(root: root, items: items.map { $0.servedBy(profile.id) }))
                     }
                 }
@@ -553,7 +601,9 @@ final class MediaLibrary: ObservableObject {
             return catalogs.first { $0.id == parent.id }?.items ?? []
         }
         guard let profile = profile(for: parent) else { return [] }
-        return try await client(for: profile).items(userID: profile.userID, parentID: parent.id)
+        return try await client(for: profile).items(userID: profile.userID, parentID: parent.id,
+                                                    sortBy: MediaServerQuery.shelfSort,
+                                                    limit: MediaServerQuery.shelfLimit)
             .map { $0.servedBy(profile.id) }
     }
 
@@ -898,7 +948,9 @@ final class MediaLibrary: ObservableObject {
                 group.addTask {
                     guard let source else { return (index, .failure(JellyfinError.authenticationFailed)) }
                     do {
-                        let titles = try await source.allTitles(userID: profile.userID)
+                        let titles = try await source.allTitles(userID: profile.userID,
+                                                                pageSize: MediaServerQuery.titlePage,
+                                                                maxPages: MediaServerQuery.titlePages)
                         return (index, .success(titles.map { $0.servedBy(profile.id) }))
                     } catch {
                         return (index, .failure(error))
@@ -1479,7 +1531,8 @@ final class MediaLibrary: ObservableObject {
                 group.addTask {
                     guard let source else { return (index, .failure(JellyfinError.authenticationFailed)) }
                     do {
-                        let found = try await source.search(userID: profile.userID, query: term)
+                        let found = try await source.search(userID: profile.userID, query: term,
+                                                            types: MediaServerQuery.searchTypes)
                         return (index, .success(found.map { $0.servedBy(profile.id) }))
                     } catch {
                         return (index, .failure(error))
@@ -1530,7 +1583,9 @@ final class MediaLibrary: ObservableObject {
         guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
         var loaded: [MediaItem] = []
         do {
-            loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id)
+            loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id,
+                                                          sortBy: MediaServerQuery.shelfSort,
+                                                          limit: MediaServerQuery.shelfLimit)
                 .map { $0.servedBy(profile.id) }
         } catch {
             if !Self.isCancellation(error) { report(error, from: profile) }
@@ -1761,7 +1816,9 @@ final class MediaLibrary: ObservableObject {
         // want different things done about them.
         let latest = (try? await source.addonCatalogs(addonID: addonID))?
             .first { $0.catalogId == catalog.catalogId }
-        let collectionCount = ((try? await source.allCollections(userID: profile.userID)) ?? []).count
+        let collectionCount = ((try? await source.allCollections(
+            userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
+            maxPages: MediaServerQuery.collectionPages)) ?? []).count
         let state = latest?.enabled == true ? "switched on" : "switched off"
         let named = latest?.collectionId.map { "names collection " + $0 + " for it" }
             ?? "has not named a collection for it"
@@ -1783,7 +1840,7 @@ final class MediaLibrary: ObservableObject {
     /// falling back to the collection that carries the catalog's name for a
     /// server that imports it without ever naming it back.
     private func importedCollection(for catalog: NullfinCatalog, addonID: String,
-                                    source: JellyfinClient,
+                                    source: any MediaServerClient,
                                     profile: MediaServerProfile) async -> MediaItem? {
         if let id = catalog.collectionId,
            let item = try? await source.item(userID: profile.userID, itemID: id) {
@@ -1795,7 +1852,9 @@ final class MediaLibrary: ObservableObject {
            let item = try? await source.item(userID: profile.userID, itemID: id) {
             return item.servedBy(profile.id)
         }
-        return (try? await source.allCollections(userID: profile.userID))?
+        return (try? await source.allCollections(userID: profile.userID,
+                                                 pageSize: MediaServerQuery.collectionPage,
+                                                 maxPages: MediaServerQuery.collectionPages))?
             .first { $0.name.caseInsensitiveCompare(catalog.name) == .orderedSame }?
             .servedBy(profile.id)
     }
@@ -1837,7 +1896,7 @@ final class MediaLibrary: ObservableObject {
         // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
         guard let profile = profile(for: item) else { return nil }
-        return try? client(for: profile).imageURL(itemID: item.id, maxWidth: width)
+        return try? client(for: profile).imageURL(itemID: item.id, type: "primary", maxWidth: width)
     }
 
     /// Episode primary art is normally a 16:9 still. A mixed Continue Watching
@@ -1852,7 +1911,7 @@ final class MediaLibrary: ObservableObject {
         }
         guard episode.type == "Episode", let seriesID = episode.seriesID,
               let profile = profile(for: episode) else { return nil }
-        return try? client(for: profile).imageURL(itemID: seriesID, maxWidth: width)
+        return try? client(for: profile).imageURL(itemID: seriesID, type: "primary", maxWidth: width)
     }
 
     // Asking for art the server did not report leaves a request to 404 behind
@@ -1873,7 +1932,7 @@ final class MediaLibrary: ObservableObject {
 
     func playbackURL(for item: MediaItem) -> URL? {
         guard let profile = profile(for: item) else { return nil }
-        return try? client(for: profile).playbackURL(itemID: item.id)
+        return try? client(for: profile).playbackURL(itemID: item.id, mediaSourceID: nil)
     }
 
     /// The servers to ask for a title's streams: its own first, then every
@@ -2557,12 +2616,21 @@ final class MediaLibrary: ObservableObject {
         return value
     }
 
-    private func client(for profile: MediaServerProfile) throws -> JellyfinClient {
+    /// The client for a server, in the software's own terms: Plex its own
+    /// way, Jellyfin and Emby through the API they share.
+    private func client(for profile: MediaServerProfile) throws -> any MediaServerClient {
         if let made = clients[profile.id] { return made }
         guard let token = MediaKeychainStore.token(profileID: profile.id) else {
             throw JellyfinError.authenticationFailed
         }
-        let made = try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID)
+        let made: any MediaServerClient
+        switch profile.brand {
+        case .plex:
+            made = try PlexClient(serverURL: profile.serverURL, token: token, clientID: deviceID)
+        case .jellyfin, .emby:
+            made = try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID,
+                                      software: profile.brand)
+        }
         clients[profile.id] = made
         return made
     }

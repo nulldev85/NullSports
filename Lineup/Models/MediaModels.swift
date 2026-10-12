@@ -6,13 +6,54 @@ struct MediaServerProfile: Codable, Identifiable, Equatable {
     var serverURL: String
     var username: String
     var userID: String
+    /// The software the server runs. Saved only since Emby and Plex joined
+    /// Jellyfin, so a server saved before then reads as the Jellyfin it was.
+    var software: MediaServerBrand?
 
-    init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String) {
+    init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String,
+         software: MediaServerBrand = .jellyfin) {
         self.id = id
         self.name = name
         self.serverURL = serverURL
         self.username = username
         self.userID = userID
+        self.software = software
+    }
+
+    var brand: MediaServerBrand { software ?? .jellyfin }
+}
+
+/// Which media server software a server is: how it is signed in to, how it
+/// is asked for things, and the logo beside its name.
+enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
+    case jellyfin
+    case emby
+    case plex
+
+    static func of(_ profile: MediaServerProfile) -> MediaServerBrand { profile.brand }
+
+    /// The brand every one of these servers shares, or nil when they differ.
+    static func shared(by profiles: [MediaServerProfile]) -> MediaServerBrand? {
+        let brands = profiles.map(of)
+        guard let first = brands.first, brands.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
+
+    var name: String {
+        switch self {
+        case .jellyfin: return "Jellyfin"
+        case .emby: return "Emby"
+        case .plex: return "Plex"
+        }
+    }
+
+    /// One line on what signing in to it takes.
+    var signInNote: String {
+        switch self {
+        case .jellyfin: return "Jellyfin, and servers built on it"
+        case .emby: return "Emby Server, with your Emby user"
+        case .plex: return "Your Plex account, linked with a code"
+        }
     }
 }
 

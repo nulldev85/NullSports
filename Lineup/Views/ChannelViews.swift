@@ -4352,7 +4352,7 @@ struct AccountView: View {
                 symbol: "play.square.stack",
                 brand: MediaServerBrand.shared(by: media.profiles),
                 kind: several ? "MEDIA SERVERS" : "MEDIA SERVER",
-                title: several ? "\(media.profiles.count) Jellyfin servers" : profile.name,
+                title: several ? "\(media.profiles.count) media servers" : profile.name,
                 subtitle: several
                     ? media.profiles.map(\.name).joined(separator: " · ")
                     : "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
@@ -4379,10 +4379,9 @@ struct AccountView: View {
         } else {
             AccountEmptySource(
                 symbol: "play.square.stack",
-                brand: .jellyfin,
                 kind: "MEDIA SERVER",
                 title: "No media server",
-                detail: "Connect your Jellyfin server to watch your own library."
+                detail: "Connect your Jellyfin, Emby or Plex server to watch your own library."
             ) {
                 AccountButton(title: "Add Media Server", symbol: "plus", prominent: true) {
                     addingMediaServer = true

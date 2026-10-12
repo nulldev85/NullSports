@@ -65,10 +65,10 @@ struct MediaServersView: View {
                         Label {
                             Text("Add a Media Server")
                         } icon: {
-                            MediaServerLogo(brand: .jellyfin).frame(width: 52, height: 52)
+                            MediaServerLogoRow(size: 40)
                         }
                     } description: {
-                        Text("Connect a Jellyfin server to watch your own library here.")
+                        Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")
                     } actions: {
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
@@ -404,7 +404,7 @@ struct MediaServerAccountCard: View {
 
     private var title: String {
         guard media.profiles.count > 1 else { return media.profiles.first?.name ?? "Media Server" }
-        return "\(media.profiles.count) Jellyfin servers"
+        return "\(media.profiles.count) media servers"
     }
 
     private var subtitle: String {
@@ -752,13 +752,13 @@ private struct TVMediaEmptyState: View {
         HStack(spacing: 34) {
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(LineupStyle.surface)
-                MediaServerLogo(brand: .jellyfin).frame(width: 84, height: 84)
+                MediaServerLogoRow(size: 52)
             }
             .frame(width: 210, height: 150)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Connect your Jellyfin server and watch your own library on the big screen.")
+                Text("Connect your Jellyfin, Emby or Plex server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -5434,14 +5434,8 @@ private struct MediaArtworkProgress: View {
 
 struct MediaServerSetupView: View {
     @EnvironmentObject private var media: MediaLibrary
-    private var setupLogoSize: CGFloat {
-        #if os(tvOS)
-        56
-        #else
-        36
-        #endif
-    }
     @Environment(\.dismiss) private var dismiss
+    @State private var software: MediaServerBrand = .jellyfin
     @State private var name = ""
     @State private var server = ""
     @State private var username = ""
@@ -5450,53 +5444,52 @@ struct MediaServerSetupView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Which kind of server this signs in to, by its logo. Plex
-                // and Emby are a choice made here once Lineup can reach them.
+                // Which kind of server, by its logo. Jellyfin and Emby are
+                // signed in to with a user; Plex links an account.
                 Section {
-                    HStack(spacing: 14) {
-                        MediaServerLogo(brand: .jellyfin).frame(width: setupLogoSize, height: setupLogoSize)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(MediaServerBrand.jellyfin.name).font(.inter(.headline, .bold))
-                            Text("Jellyfin, and servers built on it")
-                                .font(.inter(.caption)).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .combine)
-                }
-                Section("Sign In") {
-                    TextField("Display name", text: $name)
-                    TextField("Server address", text: $server)
-                        #if !os(tvOS)
-                        .keyboardType(.URL).textContentType(.URL)
-                        #endif
-                    TextField("Username", text: $username)
-                    SecureField("Password", text: $password)
-                }
-                // The provider form has always had these and this one never
-                // did. A capitalised host or an autocorrected one is not the
-                // address anybody meant to type, and on a television, where
-                // every character costs a click, it is not obvious what went
-                // wrong either.
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                Section {
-                    Button(media.isAddingServer ? "Connecting…" : "Connect") {
-                        Task {
-                            if await media.addServer(name: name, serverURL: server,
-                                username: username, password: password) { dismiss() }
-                        }
-                    }
-                        .lineupButtonStyle()
-                    // A password is not required. Jellyfin-compatible servers
-                    // allow passwordless users, and some ship that way until an
-                    // operator sets one -- refusing to try left those servers
-                    // unreachable with the button simply dead.
-                    .disabled(media.isAddingServer
-                        || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    MediaServerPicker(selection: $software)
+                } header: {
+                    Text("Server")
                 } footer: {
-                    Text("Connect a Jellyfin server. The address can be just the host and port, like 192.168.1.50:8096. Leave the password blank for a user that has none. Every server you add feeds the Library together. Access tokens are stored securely in this device’s Keychain.")
+                    Text(software.signInNote)
+                }
+                if software == .plex {
+                    PlexLinkSection(onAdded: { dismiss() })
+                } else {
+                    Section("Sign In") {
+                        TextField("Display name", text: $name)
+                        TextField("Server address", text: $server)
+                            #if !os(tvOS)
+                            .keyboardType(.URL).textContentType(.URL)
+                            #endif
+                        TextField("Username", text: $username)
+                        SecureField("Password", text: $password)
+                    }
+                    // The provider form has always had these and this one never
+                    // did. A capitalised host or an autocorrected one is not the
+                    // address anybody meant to type, and on a television, where
+                    // every character costs a click, it is not obvious what went
+                    // wrong either.
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    Section {
+                        Button(media.isAddingServer ? "Connecting…" : "Connect") {
+                            Task {
+                                if await media.addServer(name: name, serverURL: server, username: username,
+                                                         password: password, software: software) { dismiss() }
+                            }
+                        }
+                            .lineupButtonStyle()
+                        // A password is not required. Jellyfin and Emby both
+                        // allow passwordless users, and some ship that way until
+                        // an operator sets one -- refusing to try left those
+                        // servers unreachable with the button simply dead.
+                        .disabled(media.isAddingServer
+                            || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } footer: {
+                        Text(footer)
+                    }
                 }
                 #if os(tvOS)
                 // A television draws no navigation bar, so the toolbar's
@@ -5516,6 +5509,185 @@ struct MediaServerSetupView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             #endif
             .disabled(media.isAddingServer)
+        }
+    }
+
+    private var footer: String {
+        let common = "Leave the password blank for a user that has none. Every server you add feeds the Library together. Access tokens are stored securely in this device’s Keychain."
+        switch software {
+        case .emby:
+            return "Emby's address, as its web app opens on: the host and port is enough, like 192.168.1.50:8096. " + common
+        default:
+            return "The address can be just the host and port, like 192.168.1.50:8096. " + common
+        }
+    }
+}
+
+/// The three kinds of server, by their logos, to choose which to add.
+private struct MediaServerPicker: View {
+    @Binding var selection: MediaServerBrand
+
+    var body: some View {
+        HStack(spacing: gap) {
+            ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                #if os(tvOS)
+                TVSelectable(scale: LineupStyle.controlLift, fillRadius: 16, action: { selection = brand }) {
+                    tile(brand)
+                }
+                #else
+                Button { selection = brand } label: { tile(brand) }
+                    .lineupFlatButton()
+                #endif
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func tile(_ brand: MediaServerBrand) -> some View {
+        let chosen = selection == brand
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return VStack(spacing: 8) {
+            MediaServerLogo(brand: brand).frame(width: logo, height: logo)
+            Text(brand.name).font(.inter(.subheadline, .semibold))
+                .foregroundStyle(chosen ? LineupStyle.text : LineupStyle.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, padding)
+        .background(chosen ? LineupStyle.focused : LineupStyle.raised, in: shape)
+        .overlay(shape.strokeBorder(chosen ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
+                                    lineWidth: chosen ? 1.5 : 0.5))
+        .contentShape(shape)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+    }
+
+    #if os(tvOS)
+    private var gap: CGFloat { 24 }
+    private var logo: CGFloat { 64 }
+    private var padding: CGFloat { 22 }
+    #else
+    private var gap: CGFloat { 10 }
+    private var logo: CGFloat { 34 }
+    private var padding: CGFloat { 12 }
+    #endif
+}
+
+/// Linking a Plex account, Plex's own way: a short code entered at
+/// plex.tv/link, then the account's servers to choose from.
+///
+/// No password passes through Lineup. The account's token comes back to the
+/// device that asked for the code, and each server's own token with it.
+private struct PlexLinkSection: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let onAdded: () -> Void
+
+    private enum Step {
+        case start
+        case waiting(code: String)
+        case finding
+        case choosing([PlexAccount.Server])
+        case failed(String)
+    }
+
+    @State private var step: Step = .start
+    @State private var accountName = "Plex"
+    @State private var linking: Task<Void, Never>?
+
+    var body: some View {
+        Section {
+            switch step {
+            case .start:
+                Button("Link Plex Account") { link() }
+                    .lineupButtonStyle()
+            case .waiting(let code):
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("On any phone or computer, go to")
+                        .font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+                    Text("plex.tv/link").font(.inter(.title2, .bold))
+                    Text("and enter this code:")
+                        .font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+                    Text(code).font(.interDigits(.largeTitle, .heavy)).tracking(8)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Waiting for Plex…").font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                    }
+                }
+                .padding(.vertical, 6)
+                #if !os(tvOS)
+                Link("Open plex.tv/link", destination: URL(string: "https://plex.tv/link")!)
+                #endif
+            case .finding:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Finding your Plex servers…").foregroundStyle(LineupStyle.secondary)
+                }
+            case .choosing(let servers):
+                ForEach(servers) { server in
+                    Button { add(server) } label: {
+                        HStack(spacing: 12) {
+                            MediaServerLogo(brand: .plex).frame(width: 30, height: 30)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(server.name).font(.inter(.body, .semibold))
+                                Text(server.owned == false ? "Shared with you" : "Your server")
+                                    .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .lineupButtonStyle()
+                }
+            case .failed(let message):
+                Text(message).foregroundStyle(.red)
+                Button("Try Again") { link() }
+                    .lineupButtonStyle()
+            }
+        } header: {
+            Text("Plex Account")
+        } footer: {
+            Text("Lineup never sees your Plex password. Linking lets it reach the servers your account can, including ones shared with you.")
+        }
+        .onDisappear { linking?.cancel() }
+    }
+
+    private func link() {
+        linking?.cancel()
+        linking = Task { @MainActor in
+            do {
+                let clientID = media.plexClientID
+                let pin = try await PlexAccount.requestPin(clientID: clientID)
+                step = .waiting(code: pin.code)
+                // A code lasts about a quarter of an hour. A check that fails
+                // on the way is asked again: one dropped request is no reason
+                // to send the viewer back for a new code.
+                let deadline = Date().addingTimeInterval(15 * 60)
+                var token: String?
+                while token == nil, Date() < deadline {
+                    try await Task.sleep(for: .seconds(2))
+                    token = (try? await PlexAccount.checkPin(pin.id, clientID: clientID))?.authToken
+                }
+                guard let token else {
+                    step = .failed("That code has expired. Get a new one and try again.")
+                    return
+                }
+                step = .finding
+                accountName = (try? await PlexAccount.user(token: token, clientID: clientID))?.displayName ?? "Plex"
+                let servers = try await PlexAccount.servers(token: token, clientID: clientID)
+                guard !servers.isEmpty else {
+                    step = .failed("This Plex account has no servers to add.")
+                    return
+                }
+                // One server is the one meant; several are a choice.
+                if servers.count == 1 { add(servers[0]) } else { step = .choosing(servers) }
+            } catch is CancellationError {
+            } catch {
+                step = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func add(_ server: PlexAccount.Server) {
+        Task { @MainActor in
+            if await media.addPlexServer(server, accountName: accountName) { onAdded() }
         }
     }
 }
@@ -5620,7 +5792,7 @@ struct InitialSourceSetupView: View {
                     Label {
                         Text("Add Media Server")
                     } icon: {
-                        MediaServerLogo(brand: .jellyfin).frame(width: 30, height: 30)
+                        MediaServerLogoRow(size: 26)
                     }
                 }
             }
@@ -5635,7 +5807,7 @@ struct InitialSourceSetupView: View {
                     Label {
                         Text("Add Media Server")
                     } icon: {
-                        MediaServerLogo(brand: .jellyfin).frame(width: 20, height: 20)
+                        MediaServerLogoRow(size: 18)
                     }
                     .frame(maxWidth: .infinity)
                 }

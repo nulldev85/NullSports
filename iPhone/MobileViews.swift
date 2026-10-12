@@ -462,7 +462,7 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Media Servers").lineupSectionHeader()
                 } footer: {
-                    Text("Lineup uses every Jellyfin server here together: their shelves, search and streams all appear in one Library.")
+                    Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
                 }.lineupCellRows()
                 Section {
                     NavigationLink {

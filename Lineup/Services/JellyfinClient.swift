@@ -1,21 +1,31 @@
 import Foundation
 
+/// A Jellyfin server, or an Emby one.
+///
+/// Emby's API is the one Jellyfin grew from. What differs for a client is
+/// where it lives -- under /emby on the server -- and that Emby reads the
+/// client's description from its own header name, so one client serves both.
 struct JellyfinClient: Sendable {
     let serverURL: URL
     let accessToken: String?
     let deviceID: String
+    let software: MediaServerBrand
     private let session: URLSession
 
     init(serverURL: String, accessToken: String? = nil, deviceID: String,
-         session: URLSession = .shared) throws {
+         software: MediaServerBrand = .jellyfin, session: URLSession = .shared) throws {
         guard let url = Self.address(from: serverURL) else {
             throw JellyfinError.invalidServer
         }
         self.serverURL = url
         self.accessToken = accessToken
         self.deviceID = deviceID
+        self.software = software
         self.session = session
     }
+
+    /// Where the API is on the server: Emby keeps it under /emby.
+    private var apiPrefix: String { software == .emby ? "emby/" : "" }
 
     /// What somebody typed, as an address to call.
     ///
@@ -383,7 +393,8 @@ struct JellyfinClient: Sendable {
 
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
                          timeout: TimeInterval = 20) throws -> URLRequest {
-        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(apiPrefix + path),
+                                             resolvingAgainstBaseURL: false) else {
             throw JellyfinError.invalidServer
         }
         components.queryItems = query.isEmpty ? nil : query
@@ -396,12 +407,15 @@ struct JellyfinClient: Sendable {
         var authorization = "MediaBrowser Client=\"Lineup\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""
         if let accessToken { authorization += ", Token=\"\(accessToken)\"" }
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        // Emby reads the same description from a header of its own name.
+        if software == .emby { request.setValue(authorization, forHTTPHeaderField: "X-Emby-Authorization") }
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         return request
     }
 
     private func authenticatedURL(path: String, query: [URLQueryItem]) -> URL? {
-        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else { return nil }
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(apiPrefix + path),
+                                             resolvingAgainstBaseURL: false) else { return nil }
         var values = query
         if let accessToken { values.append(URLQueryItem(name: "api_key", value: accessToken)) }
         components.queryItems = values
