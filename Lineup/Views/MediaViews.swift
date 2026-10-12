@@ -908,6 +908,7 @@ private struct MediaCatalogsScreen: View {
                         .padding(.bottom, 44)
                     }
                     .ignoresSafeArea(edges: .top)
+                    .task(id: catalogs.map(\.id)) { await prefetchShelfFronts() }
                     #endif
                 }
             }
@@ -1010,7 +1011,7 @@ private struct MediaCatalogsScreen: View {
                     let shape = MediaArtShape.forItems(catalog.items)
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: itemSpacing) {
-                            ForEach(catalog.items, id: \.libraryKey) { item in
+                            ForEach(Array(catalog.items.enumerated()), id: \.element.libraryKey) { index, item in
                                 Group {
                                     if item.opensPage {
                                         #if os(tvOS)
@@ -1032,6 +1033,8 @@ private struct MediaCatalogsScreen: View {
                                     }
                                 }
                                 .frame(width: cardWidth(shape))
+                                // The next few along, so a swipe finds them made.
+                                .onAppear { prefetch(catalog.items, after: index, shape: shape) }
                             }
                         }
                         .padding(.vertical, 8)
@@ -1039,6 +1042,30 @@ private struct MediaCatalogsScreen: View {
                     .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                     .lineupFocusRegion()
                 }
+            }
+        }
+    }
+
+    /// The cards just past one that has come into view.
+    private func prefetch(_ items: [MediaItem], after index: Int, shape: MediaArtShape) {
+        for next in (index + 1)..<min(items.count, index + 7) {
+            let art = MediaItemCard.art(for: items[next], shape: shape, in: media)
+            LineupArt.prefetch(art.url, pixels: art.pixels)
+        }
+    }
+
+    /// Every shelf's first screenful, fetched as the shelves arrive, so
+    /// scrolling down the Library finds posters already made rather than
+    /// starting each one as its row appears.
+    private func prefetchShelfFronts() async {
+        do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+        var rows: [[MediaItem]] = [continueWatching.map(\.item), favoriteTitles, favoriteEpisodes]
+        rows += catalogs.map(\.items)
+        for items in rows where !items.isEmpty {
+            let shape = MediaArtShape.forItems(items)
+            for item in items.prefix(6) {
+                let art = MediaItemCard.art(for: item, shape: shape, in: media)
+                LineupArt.prefetch(art.url, pixels: art.pixels)
             }
         }
     }
