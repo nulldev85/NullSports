@@ -949,7 +949,7 @@ final class SportsLibrary: ObservableObject {
     /// different feed would look first.
     func tennisCoverage(for game: SportsGame, now: Date = Date()) -> [XtreamStream] {
         guard game.league.isTennis else { return [] }
-        let tournament = Self.tournamentWords(game.venue)
+        let tournament = Self.tournamentWords(game.tennisTournament)
         var ranked: [(stream: XtreamStream, score: Int)] = []
         for stream in streams(for: game.league) {
             let name = stream.name.lowercased()
@@ -986,13 +986,26 @@ final class SportsLibrary: ObservableObject {
 
     func games(for league: SportsLeague?) -> [SportsGame] {
         let games = league.map { gamesByLeague[$0] ?? [] } ?? SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
-        return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
+        return games.filter { ($0.isLive || $0.isUpcoming) && isListed($0) }.sorted { $0.start < $1.start }
+    }
+
+    /// Whether a game has a card of its own.
+    ///
+    /// Every game does but a tennis match. A day of tennis is sixty matches
+    /// on a dozen courts, and the channels carry tournaments, not courts: a
+    /// match no channel names would only open the picker. So it is its
+    /// tournament's card that is listed and played, and a match is listed on
+    /// its own only once a channel names it -- or when a player in it is
+    /// followed, since that is a match someone asked to see.
+    func isListed(_ game: SportsGame) -> Bool {
+        guard game.league.isTennis, !game.isEvent else { return true }
+        return stream(for: game) != nil || isFollowing(game)
     }
 
     func scoreTickerGames() -> [SportsGame] {
         let today = Calendar.current.startOfDay(for: Date())
         let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-        let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
+        let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }.filter(isListed)
         return games
             .filter {
                 $0.start >= today && $0.start < tomorrow
@@ -1331,18 +1344,20 @@ final class SportsLibrary: ObservableObject {
         return listingConfirms ? 300 : nil
     }
 
-    /// Which channel to open for a tennis match, strongest evidence first.
+    /// Which channel carries a tennis card.
     ///
+    /// A match:
     /// - 400: the channel is named for the match -- a provider's event feed,
     ///   "ESPN+ 07: Sinner vs Alcaraz" -- and its guide says nothing else.
     /// - 300: the listing on now names both players.
+    ///
+    /// A tournament's card (see `SportsScheduleClient.tennisEventCards`):
     /// - 220 / 200: the listing on now is that tournament's tennis, named in
     ///   its title or only in its detail. A tennis broadcast follows a
-    ///   tournament rather than one match -- "Center Court Live: Shanghai",
-    ///   "Live Tennis: WTA Wuhan Open" -- so this is where the match is
-    ///   being shown, the way a team's game is on its network. A channel
-    ///   given over to that one tournament, saying so in its title, comes
-    ///   ahead of a magazine show that names it in passing.
+    ///   tournament -- "Center Court Live: Shanghai", "Live Tennis: WTA
+    ///   Wuhan Open" -- the way a team's game is on its network. A channel
+    ///   given over to that one tournament comes ahead of a show naming it
+    ///   in passing.
     nonisolated static func tennisScore(channel: String, listings: [CurrentProgram],
                                         game: SportsGame, now: Date) -> Int? {
         tennisScore(channel: ProfessionalChannelMatcher.prepare(
@@ -1359,6 +1374,11 @@ final class SportsLibrary: ObservableObject {
                                         game: SportsGame, now: Date) -> Int? {
         // Replays, highlights, radio and whip-around feeds are never a match.
         guard channel.eligible else { return nil }
+        let point = game.isLive ? now : max(now, game.start)
+        let current = channel.listings.filter { $0.start <= point && point < $0.end }
+        // A tournament's card is played on the channel showing the
+        // tournament; a match, only on one that names it.
+        if game.isEvent { return tournamentScore(current, channel: channel, tournament: game.tennisTournament) }
         // Surnames, as a listing writes them: "Sinner v Alcaraz", "de Minaur".
         func surname(_ abbreviation: String, _ name: String) -> String {
             ProfessionalChannelMatcher.normalize(abbreviation.isEmpty ? name : abbreviation)
@@ -1368,17 +1388,22 @@ final class SportsLibrary: ObservableObject {
         guard !away.isEmpty, !home.isEmpty, away != home else { return nil }
         let paddedAway = ProfessionalChannelMatcher.pad(away), paddedHome = ProfessionalChannelMatcher.pad(home)
         func namesBoth(_ padded: String) -> Bool { padded.contains(paddedAway) && padded.contains(paddedHome) }
-        let point = game.isLive ? now : max(now, game.start)
-        let current = channel.listings.filter { $0.start <= point && point < $0.end }
         let listingConfirms = current.contains { namesBoth($0.text) }
         // A feed named for the match, with a guide that says nothing else.
         let guideSilent = current.isEmpty || current.allSatisfy {
             ["", "live", "tennis", "live tennis", "no program information"].contains($0.title) && $0.detail.isEmpty
         }
         if namesBoth(channel.padded) && (listingConfirms || guideSilent) { return 400 }
-        if listingConfirms { return 300 }
+        return listingConfirms ? 300 : nil
+    }
+
+    /// A tournament on now: its tennis, named in the listing's title (220)
+    /// or only in its detail (200).
+    nonisolated private static func tournamentScore(_ current: [ProfessionalChannelMatcher.PreparedListing],
+                                                    channel: ProfessionalChannelMatcher.PreparedChannel,
+                                                    tournament name: String?) -> Int? {
         // The tournament, by the word a listing would use for it.
-        let tournament = tournamentWords(game.venue)
+        let tournament = tournamentWords(name)
             .map { ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize($0)) }
             .filter { $0.count > 2 }
         guard !tournament.isEmpty else { return nil }

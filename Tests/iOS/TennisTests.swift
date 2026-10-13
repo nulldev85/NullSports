@@ -253,13 +253,21 @@ final class TennisTests: XCTestCase {
         XCTAssertNil(SportsLibrary.tennisScore(channel: "Sinner Cam", listings: [], game: match, now: now))
     }
 
+    private func tournamentCard(_ name: String, league: SportsLeague = .atp) -> SportsGame {
+        SportsGame(
+            id: "tennis-event-\(name)", league: league, start: Date().addingTimeInterval(-3600),
+            awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
+            awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil, venue: "Round 1",
+            location: nil, status: "2 matches live", state: "in", broadcast: "", eventName: name)
+    }
+
     // The guide as a provider writes it, from a real Apple TV: a tennis
-    // broadcast follows the tournament, so that is what a match plays.
-    func testAMatchPlaysTheChannelShowingItsTournament() {
+    // broadcast follows the tournament, so the tournament's card plays it.
+    func testATournamentPlaysTheChannelShowingIt() {
         let now = Date()
-        let shanghai = live([TennisScore.SetGames(away: 2, home: 1)])
-        let wuhan = live([TennisScore.SetGames(away: 2, home: 1)],
-                         venue: "Dongfeng Voyah Wuhan Open \u{00B7} Round 1")
+        let shanghai = tournamentCard("Rolex Shanghai Masters")
+        let wuhan = tournamentCard("Dongfeng Voyah Wuhan Open", league: .wta)
         let centerCourt = [program("Center Court Live", "Shanghai-ATP Round of 16; Wuhan-WTA First Round")]
         let sky = [program("Live Tennis", "ATP Shanghai Masters & WTA Wuhan Open")]
         let wuhanOnly = [program("2026 Dongfeng Voyah Wuhan Open Tennis", "Early First Round")]
@@ -277,11 +285,40 @@ final class TennisTests: XCTestCase {
         XCTAssertNil(SportsLibrary.tennisScore(channel: "CA | Fresno | NBC KSEE",
                                                listings: [program("News", "Typhoon nears Shanghai")],
                                                game: shanghai, now: now))
-        // The players still outrank the tournament.
+        // One match is not on the channel because its tournament is: it
+        // takes a channel naming the players.
+        let match = live([TennisScore.SetGames(away: 2, home: 1)])
+        XCTAssertNil(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: centerCourt,
+                                               game: match, now: now))
         XCTAssertEqual(SportsLibrary.tennisScore(
             channel: "US: Tennis Channel",
             listings: [program("Center Court Live", "Shanghai: Jannik Sinner vs. Carlos Alcaraz")],
-            game: shanghai, now: now), 300)
+            game: match, now: now), 300)
+    }
+
+    // A tournament's day is one card a tour, live while any match is.
+    func testATournamentsDayIsOneCard() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(feed.utf8))
+        let event = try XCTUnwrap(envelope.events.first)
+        let games = try self.matches()
+        let cards = SportsScheduleClient.tennisEventCards(for: event, matches: games, calendar: calendar,
+                                                          now: day.addingTimeInterval(10 * 3600))
+        XCTAssertEqual(cards.count, 1)
+        let card = try XCTUnwrap(cards.first)
+        XCTAssertEqual(card.id, "tennis-event-713-2026-atp-20261013")
+        XCTAssertEqual(card.league, .atp)
+        XCTAssertTrue(card.isEvent)
+        XCTAssertEqual(card.eventName, "Rolex Shanghai Masters")
+        XCTAssertEqual(card.matchupLine, "Rolex Shanghai Masters")
+        XCTAssertEqual(card.venue, "Quarterfinal")
+        XCTAssertEqual(card.status, "1 match live")
+        XCTAssertTrue(card.isLive)
+        XCTAssertEqual(card.start, ISO8601DateFormatter().date(from: "2026-10-13T08:00:00Z"))
+        XCTAssertEqual(card.tennisTournament, "Rolex Shanghai Masters")
+        // A match's tournament is the first part of its venue.
+        XCTAssertEqual(games.first?.tennisTournament, "Rolex Shanghai Masters")
     }
 
     func testATournamentIsLookedForByItsOwnWord() {

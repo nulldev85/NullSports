@@ -171,11 +171,10 @@ struct MobileLeagueMenu: View {
 
     private func noun(_ entry: Entry, _ count: Int) -> String {
         let one: String
-        if entry.league?.isTennis == true { one = "MATCH" }
-        else if entry.league == .ufc { one = "EVENT" }
+        // A tennis tab lists tournaments, as UFC lists fight nights.
+        if entry.league?.isTennis == true || entry.league == .ufc { one = "EVENT" }
         else { one = "GAME" }
-        guard count != 1 else { return one }
-        return one == "MATCH" ? "MATCHES" : one + "S"
+        return count == 1 ? one : one + "S"
     }
 
     private func spokenTally(_ entry: Entry) -> String {

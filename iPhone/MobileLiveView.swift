@@ -261,7 +261,7 @@ struct MobileLiveView: View {
                 Button("OK", role: .cancel) { upcomingGame = nil }
             } message: {
                 if let game = upcomingGame {
-                    Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
+                    Text("\(game.matchupLine)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
                 }
             }
             .alert("Streams are still syncing…", isPresented: $showsChannelSyncMessage) {

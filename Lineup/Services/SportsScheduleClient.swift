@@ -218,7 +218,10 @@ struct SportsScheduleClient: Sendable {
                 for try await batch in group { all += batch }
                 return all
             }
-            let matches = events.flatMap { Self.tennisMatches(in: $0.event, tour: $0.tour, from: day, to: end) }
+            let matches = events.flatMap { entry -> [SportsGame] in
+                let found = Self.tennisMatches(in: entry.event, tour: entry.tour, from: day, to: end)
+                return found + Self.tennisEventCards(for: entry.event, matches: found, calendar: calendar)
+            }
             return .success(Dictionary(grouping: matches, by: \.id).values.compactMap(\.first)
                 .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start })
         } catch {
@@ -291,6 +294,56 @@ struct SportsScheduleClient: Sendable {
                     tennis: score.sets.isEmpty ? nil : score
                 )
             }
+        }
+    }
+
+    /// A tournament's day as one card, the way a fight night is one card.
+    ///
+    /// A tennis channel carries a tournament rather than a match: "Center
+    /// Court Live: Shanghai". So the tournament is what is listed and what
+    /// is played; a match has a card of its own only where a channel names
+    /// it, or for a player someone follows -- see `SportsLibrary.isListed`.
+    /// One card a tour a day: a major holds both tours' draws, and each
+    /// belongs under its own tab.
+    static func tennisEventCards(for event: TennisEnvelope.Event, matches: [SportsGame],
+                                 calendar: Calendar = .current, now: Date = Date()) -> [SportsGame] {
+        let dayKey = DateFormatter()
+        dayKey.locale = Locale(identifier: "en_US_POSIX")
+        dayKey.calendar = calendar
+        dayKey.timeZone = calendar.timeZone
+        dayKey.dateFormat = "yyyyMMdd"
+        let groups = Dictionary(grouping: matches) {
+            "\($0.league.rawValue)|\(dayKey.string(from: $0.state == "in" ? now : $0.start))"
+        }
+        return groups.compactMap { key, day -> SportsGame? in
+            guard let league = day.first?.league else { return nil }
+            let live = day.filter { $0.state == "in" }
+            let waiting = day.filter { $0.state == "pre" }.sorted { $0.start < $1.start }
+            let state = !live.isEmpty ? "in" : (!waiting.isEmpty ? "pre" : "post")
+            let start = live.map(\.start).min() ?? waiting.first?.start ?? day.map(\.start).min() ?? now
+            // The rounds being played that day, in draw order.
+            var rounds: [String] = []
+            for match in day.sorted(by: { $0.start < $1.start }) {
+                let round = match.venue?.components(separatedBy: " \u{00B7} ").dropFirst().first ?? ""
+                if !round.isEmpty, !rounds.contains(round) { rounds.append(round) }
+            }
+            var networks: [String] = []
+            for name in day.flatMap({ $0.broadcast.components(separatedBy: ", ") })
+            where !name.isEmpty && !networks.contains(name) { networks.append(name) }
+            let status: String
+            if !live.isEmpty { status = live.count == 1 ? "1 match live" : "\(live.count) matches live" }
+            else { status = waiting.count == 1 ? "1 match to play" : "\(waiting.count) matches to play" }
+            let tag = key.replacingOccurrences(of: "|", with: "-")
+            return SportsGame(
+                id: "tennis-event-\(event.id)-\(tag)", league: league, start: start,
+                awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
+                awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+                awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+                venue: rounds.isEmpty ? nil : rounds.prefix(2).joined(separator: " & "),
+                location: event.city, status: status, state: state,
+                broadcast: networks.joined(separator: ", "),
+                eventName: event.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
     }
 
@@ -537,16 +590,22 @@ struct TennisEnvelope: Decodable {
     enum CodingKeys: String, CodingKey { case events }
 
     struct Event: Decodable {
+        let id: String
         let name: String
+        /// Where it is played: "Shanghai, China PR".
+        let city: String?
         let groupings: [Grouping]
         /// Some tournaments list matches here rather than by draw.
         let competitions: [Competition]
 
-        enum CodingKeys: String, CodingKey { case name, groupings, competitions }
+        enum CodingKeys: String, CodingKey { case id, name, venue, groupings, competitions }
+        struct Place: Decodable { let displayName: String? }
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             name = (try? values.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            id = (try? values.decodeIfPresent(String.self, forKey: .id)) ?? name
+            city = (try? values.decodeIfPresent(Place.self, forKey: .venue))?.displayName
             groupings = (try? values.decodeIfPresent([Lenient<Grouping>].self, forKey: .groupings))?
                 .compactMap(\.value) ?? []
             competitions = (try? values.decodeIfPresent([Lenient<Competition>].self, forKey: .competitions))?

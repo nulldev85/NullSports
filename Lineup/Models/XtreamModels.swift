@@ -250,8 +250,19 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     /// player plays against someone.
     var sidesWord: String { league.isTennis ? "vs" : "at" }
     var sidesSymbol: String { league.isTennis ? "vs" : "@" }
-    /// "Bruins at Rangers", "Jannik Sinner vs Carlos Alcaraz".
-    var matchupLine: String { "\(awayTeam) \(sidesWord) \(homeTeam)" }
+    /// "Bruins at Rangers", "Jannik Sinner vs Carlos Alcaraz", or an
+    /// event's own name.
+    var matchupLine: String {
+        isEvent ? (eventName ?? league.shortName) : "\(awayTeam) \(sidesWord) \(homeTeam)"
+    }
+
+    /// The tournament a tennis card belongs to: an event card's own name, or
+    /// the first part of a match's "Tournament · Round".
+    var tennisTournament: String? {
+        guard league.isTennis else { return nil }
+        if isEvent { return eventName }
+        return venue?.components(separatedBy: " \u{00B7} ").first
+    }
 
     /// A card for an event rather than a single contest. UFC puts a night of
     /// bouts behind one broadcast, so naming one of them is both arbitrary and
