@@ -13,7 +13,7 @@ struct LineupApp: App {
         // Before anything is drawn: a view built ahead of this would ask for a
         // face the process does not have yet and get the system font instead.
         LineupFonts.register()
-        retireRemovedThemes()
+        forgetThemeChoice()
         #if os(tvOS)
         applyLineupTabBarTheme()
         PlaybackJournal.shared.note("Lineup opened")
@@ -71,16 +71,10 @@ struct LineupApp: App {
     }
 }
 
-/// Lineup used to offer five themes and now offers two. A device that still
-/// has one of the retired names stored would render in Signal -- the fallback
-/// for a name that no longer parses -- while the settings screen showed
-/// nothing selected, because the stored string matches no row. Rewriting the
-/// name at launch keeps the two in agreement.
-private func retireRemovedThemes() {
-    let defaults = UserDefaults.standard
-    guard let stored = defaults.string(forKey: LineupTheme.storageKey),
-          LineupTheme(rawValue: stored) == nil else { return }
-    defaults.set(LineupTheme.signal.rawValue, forKey: LineupTheme.storageKey)
+/// Lineup has one look now, and no theme to choose. The choice a device
+/// made when there were several is forgotten rather than left behind.
+private func forgetThemeChoice() {
+    UserDefaults.standard.removeObject(forKey: "lineup.appearance.theme")
 }
 
 #if os(tvOS)
