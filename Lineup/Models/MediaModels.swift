@@ -313,6 +313,41 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     // digits defeat the ISO parser, and only the day is ever shown. Reading the
     // date part directly avoids both the parser and a cached formatter.
     var formattedAirDate: String? { Self.formattedDate(premiereDate) }
+
+    /// Episodes the server does not have yet stand in Continue Watching
+    /// under ids of this kind, until the real one arrives.
+    static let upcomingPrefix = "upcoming:"
+    var isUpcomingPlaceholder: Bool { id.hasPrefix(Self.upcomingPrefix) }
+
+    /// When it first airs, read from the premiere date: a full timestamp
+    /// from a server or TVmaze, or a bare day from Plex.
+    var premiereDay: Date? {
+        guard let raw = premiereDate, raw.count >= 10 else { return nil }
+        if raw.count >= 19, let date = Self.timestampFormatter.date(from: String(raw.prefix(19))) { return date }
+        return Self.dayFormatter.date(from: String(raw.prefix(10)))
+    }
+
+    private static func utcFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = format
+        return formatter
+    }
+    private static let timestampFormatter = utcFormatter("yyyy-MM-dd'T'HH:mm:ss")
+    private static let dayFormatter = utcFormatter("yyyy-MM-dd")
+
+    /// Not on the air yet.
+    var isUnaired: Bool { premiereDay.map { $0 > Date() } ?? false }
+
+    /// What a card says over an episode that cannot be played yet: the day
+    /// it airs, or that it is on its way. Only an episode is asked, so a
+    /// shelf of films never reads a date at all.
+    var upcomingLabel: String? {
+        guard type == "Episode", isUpcomingPlaceholder || isUnaired else { return nil }
+        guard let day = premiereDay, day > Date() else { return "COMING SOON" }
+        return "AIRS " + day.formatted(.dateTime.month(.abbreviated).day()).uppercased()
+    }
     var formattedEndDate: String? { Self.formattedDate(endDate) }
 
     private static func formattedDate(_ raw: String?) -> String? {

@@ -6193,6 +6193,66 @@ struct TVPlayerSynopsis {
     let detail: String?
 }
 
+/// The episode after the one playing, offered in the player's last half
+/// minute. Choosing it plays it at once, on the best stream there is.
+struct TVNextEpisodeOffer {
+    /// Its season and number, as S02E05.
+    let code: String?
+    let title: String
+    let play: () -> Void
+}
+
+/// Next Episode, in the bottom corner over the picture: a panel with the
+/// panels' header, the episode's number and name, and Play Now. The whole
+/// card is the button; Back sends it away.
+private struct TVNextEpisodeCard: View {
+    let offer: TVNextEpisodeOffer
+    var focused: FocusState<Bool>.Binding
+    let play: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader("Next Episode", systemImage: "forward.end.fill")
+                .padding(.bottom, 14)
+            Rectangle().fill(LineupStyle.line).frame(height: 1)
+            VStack(alignment: .leading, spacing: 6) {
+                if let code = offer.code {
+                    Text(code).font(.interDigits(18, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                }
+                Text(offer.title).font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                    .lineLimit(2)
+            }
+            .padding(.top, 16)
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill").font(.system(size: 20, weight: .bold, design: .rounded))
+                Text("Play Now").font(.inter(22, .bold))
+            }
+            .foregroundStyle(LineupStyle.onHighlight)
+            .padding(.horizontal, 26).frame(height: 56)
+            .background(LineupStyle.highlight, in: Capsule())
+            .padding(.top, 20)
+        }
+        .padding(LineupPanelStyle.inset)
+        .frame(width: 520, alignment: .leading)
+        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+        .lineupFocusLayer(focused.wrappedValue, in: shape)
+        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+        .contentShape(shape)
+        .focusable()
+        .focused(focused)
+        .focusEffectDisabled()
+        .onTapGesture(perform: play)
+        .onExitCommand(perform: decline)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Next episode, \(offer.code.map { $0 + ", " } ?? "")\(offer.title)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -6214,6 +6274,11 @@ struct PlayerView: View {
     /// Told when the viewer moves to another channel, so the screen beneath
     /// can show that channel when full screen closes.
     var onChannelChange: ((XtreamStream) -> Void)? = nil
+    /// An episode's next one, offered in the last half minute.
+    var nextEpisode: TVNextEpisodeOffer? = nil
+    /// Told when the title played to its end, before the player closes, so
+    /// the screen beneath can lead on from it.
+    var onReachedEnd: (() -> Void)? = nil
     @StateObject private var controller: VLCPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
@@ -6252,6 +6317,11 @@ struct PlayerView: View {
     @State private var chooserOpen = false
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
+    /// In the last half minute of an episode with one after it.
+    @State private var nextEpisodeDue = false
+    /// The viewer pressed Back on Next Episode: it stays away.
+    @State private var nextEpisodeDeclined = false
+    @FocusState private var nextEpisodeFocused: Bool
     @State private var lastReportedPosition: TimeInterval = 0
     /// The player is closing because the viewer or the film said so. Any other
     /// way of going -- the screens around it torn down -- is noted in the log
@@ -6264,6 +6334,7 @@ struct PlayerView: View {
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
          recording: CatchUpProgramme? = nil, startsOver: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
+         nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
          continuing preview: TVPreviewHandoff? = nil) {
         self.urls = urls
         self.title = title
@@ -6276,6 +6347,8 @@ struct PlayerView: View {
         self.synopsis = synopsis
         self.lineup = lineup
         self.onChannelChange = onChannelChange
+        self.nextEpisode = nextEpisode
+        self.onReachedEnd = onReachedEnd
         _controller = StateObject(wrappedValue: preview?.controller ?? VLCPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
@@ -6356,6 +6429,14 @@ struct PlayerView: View {
                     .padding(.horizontal, 72).padding(.top, 56)
                     .allowsHitTesting(false)
                     .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            if showsNextEpisode, let nextEpisode {
+                TVNextEpisodeCard(offer: nextEpisode, focused: $nextEpisodeFocused,
+                                  play: { playNext(nextEpisode) },
+                                  decline: declineNextEpisode)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 80).padding(.bottom, 72)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
             if urls.isEmpty {
                 Text("This stream is unavailable").font(.inter(.title2))
@@ -6445,13 +6526,24 @@ struct PlayerView: View {
                 do { try await Task.sleep(for: .seconds(45)) } catch { return }
             }
         }
-        .onReceive(controller.clock.$elapsed) { position in reportProgress(at: position) }
+        .onReceive(controller.clock.$elapsed) { position in
+            reportProgress(at: position)
+            updateNextEpisode(at: position)
+        }
         // A film or an episode played to its end is saved as watched and the
-        // player closes, as it would on the remote's Menu button.
+        // player closes, as it would on the remote's Menu button; the screen
+        // beneath is told first, so it can lead on to what comes next.
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
+            onReachedEnd?()
             close(because: "Reached the end")
         }
+        // Next Episode takes the remote when it appears over the picture, so
+        // one press of Select plays it.
+        .onChange(of: showsNextEpisode) { _, shown in
+            if shown { nextEpisodeFocused = true }
+        }
+        .animation(.easeInOut(duration: 0.3), value: showsNextEpisode)
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -6573,6 +6665,31 @@ struct PlayerView: View {
             await Task.yield()
             surfaceFocused = true
         }
+    }
+
+    /// Next Episode is up: the last half minute of an episode with one after
+    /// it, with the controls away. They share the bottom of the screen, so
+    /// the card waits while the viewer is using them.
+    private var showsNextEpisode: Bool {
+        nextEpisode != nil && nextEpisodeDue && !nextEpisodeDeclined && !controlsVisible
+            && controller.error == nil
+    }
+
+    private func updateNextEpisode(at position: TimeInterval) {
+        guard nextEpisode != nil, !isLive else { return }
+        let remaining = controller.duration - position
+        let due = controller.duration > 90 && remaining <= 30 && remaining > 0
+        if due != nextEpisodeDue { nextEpisodeDue = due }
+    }
+
+    private func playNext(_ offer: TVNextEpisodeOffer) {
+        offer.play()
+        close(because: "Next episode")
+    }
+
+    private func declineNextEpisode() {
+        nextEpisodeDeclined = true
+        surfaceFocused = true
     }
 
     private func close(because reason: String) {

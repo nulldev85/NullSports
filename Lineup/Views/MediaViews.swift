@@ -950,6 +950,10 @@ private struct MediaCatalogsScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        // An episode that ended with nothing after it comes back here.
+        .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
+            pushed = nil
+        }
         .sheet(isPresented: $searchPresented) { searchSheet }
         #if os(tvOS)
         .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
@@ -4481,12 +4485,37 @@ private struct StreamServerStatus: Identifiable {
     }
 }
 
+extension Notification.Name {
+    /// An episode ended with nothing after it: the Library goes back to its
+    /// front page.
+    static let lineupReturnToLibraryFront = Notification.Name("Lineup.returnToLibraryFront")
+}
+
 private struct MediaSourcePicker: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
-    let item: MediaItem
+    /// The title the streams are for. An episode's end can move it on to the
+    /// next one, so the list follows the viewer from one to the next.
+    @State private var item: MediaItem
     /// Play from the beginning rather than from the saved place.
-    var startsOver = false
+    @State private var startsOver: Bool
+    /// The episode after this one, when there is one to play, for the
+    /// player's Next Episode and for where this one's end leads.
+    @State private var nextEpisode: MediaItem?
+    /// What the player's closing leads to, set as it closes.
+    @State private var advance: Advance?
+    /// Play the best stream as soon as it is known: Next Episode was chosen.
+    @State private var autoPicks = false
+
+    private enum Advance {
+        case playNext(MediaItem)
+        case reachedEnd
+    }
+
+    init(item: MediaItem, startsOver: Bool = false) {
+        _item = State(initialValue: item)
+        _startsOver = State(initialValue: startsOver)
+    }
     /// Set when the picker went straight to the only stream there was, so
     /// closing the player closes the picker too, rather than leaving a list
     /// of one to back out of.
@@ -4510,7 +4539,11 @@ private struct MediaSourcePicker: View {
         board
             .onExitCommand { dismiss() }
             .task(id: item.libraryKey) { await loadSources() }
-            .fullScreenCover(item: $selectedSource, onDismiss: { if playedOnlySource { dismiss() } }) { source in
+            .task(id: item.libraryKey) {
+                nextEpisode = nil
+                nextEpisode = await media.episodeAfter(item)
+            }
+            .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
                 playback(for: source)
             }
         #else
@@ -4525,6 +4558,56 @@ private struct MediaSourcePicker: View {
         .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
         #endif
     }
+
+    #if os(tvOS)
+    /// Where the player's closing leads. Next Episode plays the next one on
+    /// its best stream. An episode that ran to its end without it leads to
+    /// the next one's streams to choose from, or, with none after it, back to
+    /// the Library's front page. Backing out of the player is where it was.
+    private func playerClosed() {
+        let step = advance
+        advance = nil
+        switch step {
+        case .playNext(let next)?:
+            lead(to: next, playing: true)
+        case .reachedEnd?:
+            if let next = nextEpisode {
+                lead(to: next, playing: false)
+            } else if item.type == "Episode" {
+                dismiss()
+                // Once this screen has gone, so the pages under it are not
+                // taken away while it is still leaving.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NotificationCenter.default.post(name: .lineupReturnToLibraryFront, object: nil)
+                }
+            } else if playedOnlySource {
+                dismiss()
+            }
+        case nil:
+            if playedOnlySource { dismiss() }
+        }
+    }
+
+    private func lead(to next: MediaItem, playing: Bool) {
+        autoPicks = playing
+        playedOnlySource = false
+        startsOver = false
+        nextEpisode = nil
+        item = next
+    }
+
+    /// The best stream, as soon as it is known: the first place in the list's
+    /// order to answer with streams, once every place before it has answered
+    /// with none. Waiting for the slowest server would hold Next Episode up
+    /// for a stream that would be listed below the one in hand.
+    private static func bestSource(found: [Int: [MediaPlaybackSource]], places: Int) -> MediaPlaybackSource? {
+        for index in 0..<places {
+            guard let streams = found[index] else { return nil }
+            if let best = MediaStreamSection.sections(of: streams).first?.sources.first { return best }
+        }
+        return nil
+    }
+    #endif
 
     private var board: some View {
         MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
@@ -4606,6 +4689,7 @@ private struct MediaSourcePicker: View {
                 // The title's own place failing is the error for the screen.
                 // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
+                    found[index] = found[index] ?? []
                     if index == ownIndex { failure = problem }
                     if let miss = problem as? MediaLibrary.StreamLookupError {
                         serverStatus[index].phase = .notOnServer(tried: miss.tried)
@@ -4615,8 +4699,25 @@ private struct MediaSourcePicker: View {
                 }
                 sources = found.keys.sorted().flatMap { found[$0] ?? [] }
                 if !sources.isEmpty { loading = false }
+                #if os(tvOS)
+                if autoPicks, selectedSource == nil,
+                   let best = Self.bestSource(found: found, places: lookups.count) {
+                    autoPicks = false
+                    playedOnlySource = true
+                    // After a moment, as below: a cover asked for while this
+                    // screen is still arriving is dropped.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        if selectedSource == nil { selectedSource = best }
+                    }
+                }
+                #endif
             }
         }
+        #if os(tvOS)
+        // Nothing to play: the list says so, and the viewer chooses from here.
+        autoPicks = false
+        #endif
         guard !Task.isCancelled else { return }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
@@ -4689,7 +4790,13 @@ private struct MediaSourcePicker: View {
                        onProgress: { position, duration in
                            media.trackPlayback(of: item, position: position, duration: duration)
                        },
-                       synopsis: tvPlayerSynopsis)
+                       synopsis: tvPlayerSynopsis,
+                       nextEpisode: nextEpisode.map { next in
+                           TVNextEpisodeOffer(code: next.episodeCode, title: next.name) {
+                               advance = .playNext(next)
+                           }
+                       },
+                       onReachedEnd: { if advance == nil { advance = .reachedEnd } })
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #else
@@ -5629,6 +5736,17 @@ struct MediaItemCard: View {
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .lineupFocusLayer(artworkIsFocused, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+                // An episode the server does not have yet: the day it airs.
+                .overlay(alignment: .topLeading) {
+                    if let label = item.upcomingLabel {
+                        Text(label)
+                            .font(.inter(upcomingLabelSize, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                            .foregroundStyle(LineupStyle.text)
+                            .padding(.horizontal, upcomingLabelSize * 0.8).padding(.vertical, upcomingLabelSize * 0.4)
+                            .background(LineupPanelStyle.fill.opacity(0.92), in: Capsule())
+                            .padding(upcomingLabelSize * 0.8)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
@@ -5718,6 +5836,13 @@ struct MediaItemCard: View {
         18
         #else
         12
+        #endif
+    }
+    private var upcomingLabelSize: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        10
         #endif
     }
     private var titleFont: Font {
