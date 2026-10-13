@@ -648,7 +648,7 @@ private struct AppSearchBadge: View {
     var body: some View {
         Text(badge.text)
             .font(.inter(AppSearchMetrics.badgeSize, .heavy)).tracking(1.2)
-            .foregroundStyle(badge.live ? Color.white : LineupStyle.text)
+            .foregroundStyle(badge.live ? LineupStyle.onLive : LineupStyle.text)
             .padding(.horizontal, 10)
             .frame(height: AppSearchMetrics.badgeHeight)
             .background(Capsule().fill(badge.live ? LineupStyle.liveDot : LineupStyle.raised))

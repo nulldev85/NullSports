@@ -357,7 +357,7 @@ private struct AccountSourceRow: View {
                                 .foregroundStyle(.secondary).lineLimit(1)
                         }
                     } icon: {
-                        // The one red on the tab: the tick on the
+                        // The one accent on the tab: the tick on the
                         // provider in use.
                         Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(isActive ? LineupStyle.liveDot : LineupStyle.secondary)

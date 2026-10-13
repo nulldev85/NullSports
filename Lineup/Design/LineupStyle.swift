@@ -135,9 +135,9 @@ enum LineupStyle {
     /// brightest edge.
     static var liveSelectionBorder: Color {
         #if os(tvOS)
-        palette.selectionBorder
+        return palette.selectionBorder
         #else
-        LineupAccent.current.color
+        return LineupAccent.current.color
         #endif
     }
     static var background: Color { palette.background }
@@ -151,24 +151,24 @@ enum LineupStyle {
     /// its white.
     static var highlight: Color {
         #if os(tvOS)
-        palette.highlight
+        return palette.highlight
         #else
-        LineupAccent.current.color
+        return LineupAccent.current.color
         #endif
     }
     static var highlightSoft: Color {
         #if os(tvOS)
-        palette.highlightSoft
+        return palette.highlightSoft
         #else
-        LineupAccent.current.soft
+        return LineupAccent.current.soft
         #endif
     }
     /// Type set on the highlight, legible whatever accent was chosen.
     static var onHighlight: Color {
         #if os(tvOS)
-        palette.background
+        return palette.background
         #else
-        LineupAccent.current.onAccent
+        return LineupAccent.current.onAccent
         #endif
     }
     static var liveBorder: Color { highlight.opacity(0.72) }
@@ -188,20 +188,37 @@ enum LineupStyle {
     static var mediaSecondary: Color { secondary }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
-    /// Live and failing are red on the phone whatever its accent: a status
-    /// is not a matter of taste.
+    /// An error on the phone is red whatever its accent.
     static var live: Color {
         #if os(tvOS)
-        palette.highlight
+        return palette.highlight
         #else
-        liveDot
+        return broadcastRed
         #endif
     }
     static var warning: Color { palette.warning }
-    /// Broadcast red is identity, not theme decoration. A channel that is on
-    /// air uses the exact same red in every appearance and every theme.
-    static var liveDot: Color { rgb(0xFF3347) }
+    /// What is on air. On the phone it is the accent, so the live marks and
+    /// the active ones are one colour whatever the viewer chose -- Red by
+    /// default, which is the broadcast red it always was. The television
+    /// keeps the broadcast red.
+    static var liveDot: Color {
+        #if os(tvOS)
+        return broadcastRed
+        #else
+        return LineupAccent.current.color
+        #endif
+    }
     static var liveStatus: Color { liveDot }
+    /// Type set on a live mark, legible whatever the accent is.
+    static var onLive: Color {
+        #if os(tvOS)
+        return .white
+        #else
+        return LineupAccent.current.onAccent
+        #endif
+    }
+    /// The red of failure, which is not a matter of taste.
+    static var broadcastRed: Color { rgb(0xFF3347) }
     /// Confirmation -- a channel was found, a server answered.
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
