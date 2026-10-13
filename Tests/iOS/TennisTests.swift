@@ -73,7 +73,7 @@ final class TennisTests: XCTestCase {
     private func matches() throws -> [SportsGame] {
         let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(feed.utf8))
         return envelope.events.flatMap {
-            SportsScheduleClient.tennisMatches(in: $0, from: day,
+            SportsScheduleClient.tennisMatches(in: $0, tour: .atp, from: day,
                                                to: day.addingTimeInterval(86_400))
         }
     }
@@ -82,6 +82,31 @@ final class TennisTests: XCTestCase {
         let ids = Set(try matches().map(\.id))
         XCTAssertEqual(ids, ["tennis-1001", "tennis-1002"],
                        "doubles, qualifying, TBD rounds, unknown times and other days are left out")
+    }
+
+    // A major is on both scoreboards with both draws in it: the draw, not
+    // the feed, says whose tour a match is.
+    func testAMatchGoesUnderItsOwnTour() throws {
+        let major = """
+        {"events": [{"name": "US Open", "groupings": [
+          {"grouping": {"slug": "womens-singles"}, "competitions": [
+            {"id": "3001", "date": "2026-10-13T15:00Z", "timeValid": true, "type": {"slug": "womens-singles"},
+             "round": {"displayName": "Final"}, "status": {"type": {"state": "pre"}},
+             "competitors": [{"order": 1, "athlete": {"displayName": "Iga Swiatek"}},
+                             {"order": 2, "athlete": {"displayName": "Coco Gauff"}}]}]},
+          {"grouping": {"slug": "mens-singles"}, "competitions": [
+            {"id": "3002", "date": "2026-10-13T19:00Z", "timeValid": true, "type": {"slug": "mens-singles"},
+             "round": {"displayName": "Final"}, "status": {"type": {"state": "pre"}},
+             "competitors": [{"order": 1, "athlete": {"displayName": "Jannik Sinner"}},
+                             {"order": 2, "athlete": {"displayName": "Carlos Alcaraz"}}]}]}
+        ]}]}
+        """
+        let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(major.utf8))
+        let games = envelope.events.flatMap {
+            SportsScheduleClient.tennisMatches(in: $0, tour: .atp, from: day, to: day.addingTimeInterval(86_400))
+        }
+        XCTAssertEqual(games.first { $0.id == "tennis-3001" }?.league, .wta)
+        XCTAssertEqual(games.first { $0.id == "tennis-3002" }?.league, .atp)
     }
 
     func testALiveMatchReadsAsAScoreboardDoes() throws {
@@ -111,7 +136,7 @@ final class TennisTests: XCTestCase {
         let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(feed.utf8))
         let yesterday = day.addingTimeInterval(-86_400)
         let finished = envelope.events.flatMap {
-            SportsScheduleClient.tennisMatches(in: $0, from: yesterday, to: day)
+            SportsScheduleClient.tennisMatches(in: $0, tour: .atp, from: yesterday, to: day)
         }
         let match = try XCTUnwrap(finished.first { $0.id == "tennis-1003" })
         XCTAssertEqual(match.status, "Final \u{00B7} 6-2 6-3")
@@ -125,7 +150,7 @@ final class TennisTests: XCTestCase {
     // a match not yet begun is still to come, not on.
     func testAMatchWaitingForItsCourtIsUpcomingNotLive() {
         let waiting = SportsGame(
-            id: "t", league: .tennis, start: Date().addingTimeInterval(-2 * 3600),
+            id: "t", league: .atp, start: Date().addingTimeInterval(-2 * 3600),
             awayTeam: "Carlos Alcaraz", homeTeam: "Taylor Fritz", awayAbbreviation: "ALCARAZ",
             homeAbbreviation: "FRITZ", awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
             awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil, venue: nil,
@@ -149,7 +174,7 @@ final class TennisTests: XCTestCase {
     private func live(_ sets: [TennisScore.SetGames], bestOf: Int = 3) -> SportsGame {
         let score = TennisScore(sets: sets, bestOf: bestOf)
         return SportsGame(
-            id: "t", league: .tennis, start: Date().addingTimeInterval(-3600),
+            id: "t", league: .atp, start: Date().addingTimeInterval(-3600),
             awayTeam: "Jannik Sinner", homeTeam: "Carlos Alcaraz", awayAbbreviation: "SINNER",
             homeAbbreviation: "ALCARAZ", awayLogo: "", homeLogo: "",
             awayScore: String(score.awaySets), homeScore: String(score.homeSets),
@@ -205,9 +230,11 @@ final class TennisTests: XCTestCase {
     }
 
     func testTheLeagueIsFoundOnTennisChannels() {
-        XCTAssertTrue(SportsLeague.tennis.matches("US| TENNIS CHANNEL HD"))
-        XCTAssertTrue(SportsLeague.tennis.matches("beIN 4 | WTA Wuhan Open"))
-        XCTAssertTrue(SportsLeague.tennis.matches("Wimbledon 2026: Centre Court"))
-        XCTAssertFalse(SportsLeague.tennis.matches("US| NFL NETWORK HD"))
+        for tour in [SportsLeague.atp, .wta] {
+            XCTAssertTrue(tour.matches("US| TENNIS CHANNEL HD"))
+            XCTAssertTrue(tour.matches("beIN 4 | WTA Wuhan Open"))
+            XCTAssertTrue(tour.matches("Wimbledon 2026: Centre Court"))
+            XCTAssertFalse(tour.matches("US| NFL NETWORK HD"))
+        }
     }
 }

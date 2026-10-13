@@ -251,7 +251,7 @@ enum LineupStyle {
         case .nhl: return leagues.hockey
         case .mlb: return leagues.baseball
         case .ufc: return leagues.combat
-        case .tennis: return leagues.tennis
+        case .atp, .wta: return leagues.tennis
         }
     }
 }

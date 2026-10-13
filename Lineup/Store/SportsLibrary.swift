@@ -261,7 +261,7 @@ final class SportsLibrary: ObservableObject {
                     // counted, they would download the provider again every
                     // two minutes from first ball to last. A followed
                     // player's match is worth it; the rest are not.
-                    && (game.league != .tennis || isFollowing(game))
+                    && (!game.league.isTennis || isFollowing(game))
                     && ProviderRefreshPolicy.needsRefresh(gameStart: game.start,
                         providerFetchedAt: fetchedAt, now: now)
             }
@@ -948,10 +948,10 @@ final class SportsLibrary: ObservableObject {
     /// tournament now, then any showing tennis. Where someone would look
     /// first, offered in the channel picker -- never played on their own.
     func tennisCoverage(for game: SportsGame, now: Date = Date()) -> [XtreamStream] {
-        guard game.league == .tennis else { return [] }
+        guard game.league.isTennis else { return [] }
         let tournament = Self.tournamentWords(game.venue)
         var ranked: [(stream: XtreamStream, score: Int)] = []
-        for stream in streams(for: .tennis) {
+        for stream in streams(for: game.league) {
             let name = stream.name.lowercased()
             guard !["replay", "classic", "highlights", "radio"].contains(where: name.contains) else { continue }
             let showing = (programsByChannel[stream.epgChannelID ?? ""] ?? [])
@@ -1265,7 +1265,7 @@ final class SportsLibrary: ObservableObject {
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
-        if game.league == .tennis {
+        if game.league.isTennis {
             return tennisScore(channel: channel, game: game, now: now)
         }
         let score = ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
@@ -1822,7 +1822,7 @@ final class SportsLibrary: ObservableObject {
         // A team's short code names it; a tennis player's surname does not --
         // there are two Zverevs and two Williamses -- so a player is kept by
         // their whole name.
-        let byName = game.league == .tennis
+        let byName = game.league.isTennis
         return TeamChannelGame(league: game.league.rawValue,
                                homeTeam: game.homeTeam, homeAbbreviation: byName ? "" : game.homeAbbreviation,
                                awayTeam: game.awayTeam, awayAbbreviation: byName ? "" : game.awayAbbreviation)

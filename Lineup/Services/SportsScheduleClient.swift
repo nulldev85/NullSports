@@ -41,7 +41,7 @@ struct SportsScheduleClient: Sendable {
 
     /// The leagues with a feed of their own rather than a place in the
     /// combined schedule.
-    private static let ownFeeds: Set<SportsLeague> = [.ufc, .tennis]
+    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta]
 
     private static func adding(_ tennis: Result<[SportsGame], Error>, to snapshot: Snapshot) -> Snapshot {
         var games = snapshot.games
@@ -49,8 +49,9 @@ struct SportsScheduleClient: Sendable {
         var errors = [snapshot.errorMessage].compactMap { $0 }
         switch tennis {
         case .success(let matches):
-            games[.tennis] = matches
-            loaded.insert(.tennis)
+            games[.atp] = matches.filter { $0.league == .atp }
+            games[.wta] = matches.filter { $0.league == .wta }
+            loaded.formUnion([.atp, .wta])
         case .failure:
             errors.append("Tennis schedule unavailable.")
         }
@@ -199,13 +200,13 @@ struct SportsScheduleClient: Sendable {
         formatter.dateFormat = "yyyyMMdd"
         let last = calendar.date(byAdding: .day, value: -1, to: end) ?? day
         let range = formatter.string(from: day) + (days > 1 ? "-" + formatter.string(from: last) : "")
-        async let atp = tennisTour("atp", dates: range)
-        async let wta = tennisTour("wta", dates: range)
+        async let atp = tennisTour(.atp, dates: range)
+        async let wta = tennisTour(.wta, dates: range)
         do {
             // Both or neither: a schedule with one tour missing would replace
             // a complete one, and the next refresh is thirty seconds away.
             let events = try await atp + wta
-            let matches = events.flatMap { Self.tennisMatches(in: $0, from: day, to: end) }
+            let matches = events.flatMap { Self.tennisMatches(in: $0.event, tour: $0.tour, from: day, to: end) }
             return .success(Dictionary(grouping: matches, by: \.id).values.compactMap(\.first)
                 .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start })
         } catch {
@@ -213,8 +214,8 @@ struct SportsScheduleClient: Sendable {
         }
     }
 
-    private func tennisTour(_ tour: String, dates: String) async throws -> [TennisEnvelope.Event] {
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/tennis/\(tour)/scoreboard?dates=\(dates)") else {
+    private func tennisTour(_ tour: SportsLeague, dates: String) async throws -> [(tour: SportsLeague, event: TennisEnvelope.Event)] {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/tennis/\(tour.rawValue)/scoreboard?dates=\(dates)") else {
             throw ScheduleError.invalidURL
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
@@ -222,11 +223,15 @@ struct SportsScheduleClient: Sendable {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ScheduleError.noHTTPResponse }
         guard http.statusCode == 200 else { throw ScheduleError.httpStatus(http.statusCode) }
-        return try JSONDecoder().decode(TennisEnvelope.self, from: data).events
+        return try JSONDecoder().decode(TennisEnvelope.self, from: data).events.map { (tour: tour, event: $0) }
     }
 
     /// One tournament's matches in the window, as games.
-    static func tennisMatches(in event: TennisEnvelope.Event, from start: Date, to end: Date) -> [SportsGame] {
+    /// A major is on both tours' scoreboards with both draws in it, so a
+    /// match's tour is read from its draw; the feed it came in on settles
+    /// only a draw that does not say.
+    static func tennisMatches(in event: TennisEnvelope.Event, tour: SportsLeague,
+                              from start: Date, to end: Date) -> [SportsGame] {
         let tournament = event.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let groups: [(slug: String?, competitions: [TennisEnvelope.Competition])] =
             event.groupings.map { ($0.grouping?.slug, $0.competitions) } + [(nil, event.competitions)]
@@ -234,6 +239,8 @@ struct SportsScheduleClient: Sendable {
             group.competitions.compactMap { match -> SportsGame? in
                 let kind = (match.type?.slug ?? group.slug ?? "").lowercased()
                 guard kind.contains("singles") else { return nil }
+                // "womens-singles" holds "mens-singles", so women first.
+                let league: SportsLeague = kind.contains("women") ? .wta : (kind.contains("men") ? .atp : tour)
                 let round = match.round?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 guard !round.lowercased().contains("qualif") else { return nil }
                 let state = match.status?.type.state ?? "pre"
@@ -256,7 +263,7 @@ struct SportsScheduleClient: Sendable {
                 return SportsGame(
                     // ESPN numbers a match once across both tours, and a
                     // major is on both scoreboards: the id alone keeps it once.
-                    id: "tennis-\(match.id)", league: .tennis, start: date,
+                    id: "tennis-\(match.id)", league: league, start: date,
                     awayTeam: first.displayName, homeTeam: second.displayName,
                     awayAbbreviation: Self.surname(first), homeAbbreviation: Self.surname(second),
                     awayLogo: first.flag?.href ?? "", homeLogo: second.flag?.href ?? "",

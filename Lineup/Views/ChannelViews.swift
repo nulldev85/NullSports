@@ -2497,7 +2497,7 @@ private func liveStartWord(_ league: SportsLeague) -> String {
     case .nhl: "PUCK DROP"
     case .mlb: "FIRST PITCH"
     case .ufc: "MAIN CARD"
-    case .tennis: "FIRST SERVE"
+    case .atp, .wta: "FIRST SERVE"
     }
 }
 
@@ -2760,7 +2760,7 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
     case .ufc: "figure.martial.arts"
-    case .tennis: "tennisball.fill"
+    case .atp, .wta: "tennisball.fill"
     }
 }
 
@@ -2769,13 +2769,13 @@ private struct LeagueLogo: View {
     let size: CGFloat
 
     private var logoURL: URL? {
-        guard league != .ncaaf && league != .ufc && league != .tennis else { return nil }
+        guard league != .ncaaf && league != .ufc && !league.isTennis else { return nil }
         return URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
     }
 
     var body: some View {
         Group {
-            if league == .ufc || league == .tennis {
+            if league == .ufc || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in

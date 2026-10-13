@@ -231,7 +231,7 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         // A tennis match's time is when its court opens, not when it starts:
         // the third match on a court is listed at the first one's time and
         // goes on hours later. Only the feed can say it has begun.
-        guard league != .tennis else { return false }
+        guard !league.isTennis else { return false }
         let now = Date()
         let duration = isNFLRedZone ? Self.nflRedZoneWindow
             : (league == .ufc ? 9 * 60 * 60 : Self.longestPlausibleGame)
@@ -242,14 +242,14 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         guard state == "pre" else { return false }
         // Still to come until the feed says otherwise, for as long as a day
         // of play could keep it waiting -- see `isLive`.
-        if league == .tennis { return Date() < start.addingTimeInterval(Self.longestPlausibleGame * 2) }
+        if league.isTennis { return Date() < start.addingTimeInterval(Self.longestPlausibleGame * 2) }
         return start > Date()
     }
 
     /// Between the two sides: a team plays at another's ground, a tennis
     /// player plays against someone.
-    var sidesWord: String { league == .tennis ? "vs" : "at" }
-    var sidesSymbol: String { league == .tennis ? "vs" : "@" }
+    var sidesWord: String { league.isTennis ? "vs" : "at" }
+    var sidesSymbol: String { league.isTennis ? "vs" : "@" }
     /// "Bruins at Rangers", "Jannik Sinner vs Carlos Alcaraz".
     var matchupLine: String { "\(awayTeam) \(sidesWord) \(homeTeam)" }
 
@@ -294,7 +294,7 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         let city = Self.cleaned(self.location)
         // A tennis match's "venue" is its tournament and round, which says
         // nothing about the court, so it keeps both too.
-        let parts = isEvent || league == .tennis ? [venue, city].compactMap { $0 }
+        let parts = isEvent || league.isTennis ? [venue, city].compactMap { $0 }
             : [venue ?? city].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
@@ -439,10 +439,13 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb, ncaaf, ufc, tennis
+    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta
 
     var id: String { rawValue }
     var shortName: String { rawValue.uppercased() }
+    /// The men's tour and the women's: one sport, two tabs, each under its
+    /// own tour's mark the way every other league is under its own.
+    var isTennis: Bool { self == .atp || self == .wta }
     var fullName: String {
         switch self {
         case .nfl: "Football"
@@ -451,7 +454,8 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .nhl: "Hockey"
         case .mlb: "Baseball"
         case .ufc: "Mixed Martial Arts"
-        case .tennis: "Tennis"
+        case .atp: "Men's Tennis"
+        case .wta: "Women's Tennis"
         }
     }
     /// The theme owns the set. These were five literals mixed against one
@@ -484,7 +488,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
                 || text.has(Self.ncaafWords, Self.ncaafPhrases)
         case .ufc:
             return text.has(Self.ufcWords, Self.ufcPhrases)
-        case .tennis:
+        case .atp, .wta:
+            // Tennis channels carry both tours, so a channel for one is a
+            // channel to look at for the other.
             return text.has(Self.tennisWords, Self.tennisPhrases)
         default:
             return text.words.contains(rawValue)

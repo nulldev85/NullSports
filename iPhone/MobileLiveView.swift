@@ -805,7 +805,7 @@ private struct MobileMatchupRow: View {
                     // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
                         .foregroundStyle(LineupStyle.secondary)
-                        .accessibilityLabel(game.league == .tennis ? record : "Record: \(record)")
+                        .accessibilityLabel(game.league.isTennis ? record : "Record: \(record)")
                 }
             }
             Spacer(minLength: 3)

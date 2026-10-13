@@ -33,7 +33,7 @@ extension SportsGame {
         let away = Self.spokenName(awayTeam, rank: awayRank)
         let home = Self.spokenName(homeTeam, rank: homeRank)
         guard isLive else { return "\(away) \(sidesWord == "vs" ? "versus" : "at") \(home), \(when)\(network)" }
-        if league == .tennis {
+        if league.isTennis {
             return "\(away) versus \(home), sets \(awayScore) to \(homeScore), \(when)\(network)"
         }
         return "\(away) \(awayScore), \(home) \(homeScore), \(when)\(network)"

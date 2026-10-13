@@ -27,7 +27,7 @@ final class LeagueMatchingTests: XCTestCase {
             return words.contains("nba") || ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"].contains { value.contains($0) }
         case .nhl:
             return words.contains("nhl") || ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"].contains { value.contains($0) }
-        case .tennis:
+        case .atp, .wta:
             return ["tennis", "atp", "wta", "wimbledon", "us open", "roland garros", "roland-garros",
                     "french open", "australian open", "davis cup", "billie jean king cup", "laver cup",
                     "united cup", "masters 1000", "tennis channel"].contains { value.contains($0) }
