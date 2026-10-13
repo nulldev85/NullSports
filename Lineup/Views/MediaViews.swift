@@ -159,7 +159,7 @@ struct MediaServersView: View {
                 }
             }
             .disabled(media.removableShelves.isEmpty)
-            Button("Reorder Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
+            Button("Edit Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
                 .disabled(media.libraryRows.count < 2)
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
@@ -522,7 +522,7 @@ private struct TVMediaServersHome: View {
             })
         }
         if media.libraryRows.count > 1 {
-            options.append(TVLibraryOption(title: "Reorder Shelves", symbol: "arrow.up.arrow.down") {
+            options.append(TVLibraryOption(title: "Edit Shelves", symbol: "arrow.up.arrow.down") {
                 reorderingShelves = true
             })
         }
@@ -857,8 +857,9 @@ private struct MediaCatalogsScreen: View {
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
-    /// The Streaming Services row, then every shelf.
-    private var shownShelves: [MediaCatalog] { (media.streamingShelf.map { [$0] } ?? []) + catalogs }
+    /// The rows the Library comes with -- what is trending, the streaming
+    /// services -- then every shelf.
+    private var shownShelves: [MediaCatalog] { media.builtInShelves + catalogs }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #if os(tvOS)
@@ -924,7 +925,7 @@ private struct MediaCatalogsScreen: View {
                         }
                         #endif
                         ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
-                            description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                            description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
                     }
                 } else {
                     #if os(tvOS)
@@ -1004,6 +1005,7 @@ private struct MediaCatalogsScreen: View {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continueWatching.map(\.item), opensPages: true))
         }
+        rows += media.builtInShelves.map(PhoneRow.catalog)
         if !favoriteTitles.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.favorites, title: "Favorites",
                                items: favoriteTitles, opensPages: false))
@@ -1012,8 +1014,11 @@ private struct MediaCatalogsScreen: View {
             rows.append(.local(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
                                items: favoriteEpisodes, opensPages: false))
         }
-        rows += shownShelves.map(PhoneRow.catalog)
-        return media.arrangedShelves(rows, id: \.id)
+        rows += catalogs.map(PhoneRow.catalog)
+        return media.arrangedShelves(rows, id: \.id).map { row in
+            guard case .local(let id, let title, let items, let opensPages) = row else { return row }
+            return .local(id: id, title: media.shelfTitle(id: id, default: title), items: items, opensPages: opensPages)
+        }
     }
 
     @ViewBuilder
@@ -1033,7 +1038,7 @@ private struct MediaCatalogsScreen: View {
     private func catalogShelf(_ catalog: MediaCatalog) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(catalog.title).font(sectionTitleFont)
+                Text(media.shelfTitle(catalog)).font(sectionTitleFont)
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1186,24 +1191,32 @@ private struct MediaCatalogsScreen: View {
         var shelves: [TVLibraryShelf] = []
         if !continueWatching.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
-                                          label: "On this device", items: continueWatching.map(\.item),
+                                          label: nil, items: continueWatching.map(\.item),
                                           opensPages: true, catalog: nil))
         }
+        shelves += media.builtInShelves.map { catalog in
+            TVLibraryShelf(id: catalog.id, title: catalog.title, label: nil, items: catalog.items,
+                           opensPages: false, catalog: catalog)
+        }
         if !favoriteTitles.isEmpty {
-            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favorites, title: "Favorites", label: "On this device",
+            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favorites, title: "Favorites", label: nil,
                                           items: favoriteTitles, opensPages: false, catalog: nil))
         }
         if !favoriteEpisodes.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
-                                          label: "On this device", items: favoriteEpisodes,
+                                          label: nil, items: favoriteEpisodes,
                                           opensPages: false, catalog: nil))
         }
-        for catalog in shownShelves {
+        for catalog in catalogs {
             shelves.append(TVLibraryShelf(id: catalog.id, title: catalog.title,
                                           label: media.serverName(for: catalog), items: catalog.items,
                                           opensPages: false, catalog: catalog))
         }
-        return media.arrangedShelves(shelves, id: \.id)
+        return media.arrangedShelves(shelves, id: \.id).map { shelf in
+            TVLibraryShelf(id: shelf.id, title: media.shelfTitle(id: shelf.id, default: shelf.title),
+                           label: shelf.label, items: shelf.items, opensPages: shelf.opensPages,
+                           catalog: shelf.catalog)
+        }
     }
 
     private var heroItems: [MediaItem] {
@@ -1671,9 +1684,6 @@ private struct MediaCatalogsScreen: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(sectionTitleFont)
-                Text("ON THIS DEVICE")
-                    .font(.inter(10, .bold)).tracking(1.2)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
                 Spacer()
             }
             .padding(.horizontal, horizontalPadding)
@@ -1848,9 +1858,9 @@ private struct MediaCatalogsScreen: View {
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .inter(24, .semibold)
+        .inter(24, .heavy)
         #else
-        .inter(.title3, .bold)
+        .inter(.title3, .heavy)
         #endif
     }
     private var sectionTitleFontSize: CGFloat {
@@ -2017,10 +2027,33 @@ struct MediaBrowseDestination: View {
             StreamingServiceScreen(service: service)
         } else if item.id == StreamingService.rowID {
             StreamingServicesScreen()
+        } else if LibraryTrendingRow.row(id: item.id) != nil {
+            TrendingRowScreen(id: item.id, title: item.name)
         } else if item.hasDetailPage || item.isPlayable {
             MediaDetailScreen(item: item)
         } else {
             MediaFolderScreen(folder: item)
+        }
+    }
+}
+
+/// A trending row's See All: every title it holds, in the chart's order.
+private struct TrendingRowScreen: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let id: String
+    let title: String
+
+    var body: some View {
+        let items = media.trendingShelves.first { $0.id == id }?.items ?? []
+        if items.isEmpty {
+            ContentUnavailableView("Nothing to Play Yet", systemImage: "chart.line.uptrend.xyaxis",
+                description: Text("None of what is trending right now is on your servers or your IPTV provider."))
+                .mediaFocusAnchor()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(LineupStyle.background.ignoresSafeArea())
+        } else {
+            MediaGridScreen(title: title, items: items)
+                .background(LineupStyle.background.ignoresSafeArea())
         }
     }
 }
@@ -2141,7 +2174,7 @@ private struct MediaShelfPicker: View {
     }
 
     private var hasAnything: Bool {
-        !media.showsStreamingServices || !groups.isEmpty || !media.addonGroups.isEmpty
+        !media.hiddenBuiltInRows.isEmpty || !groups.isEmpty || !media.addonGroups.isEmpty
             || !media.availableMDBListCatalogs.isEmpty
     }
 
@@ -2188,7 +2221,7 @@ private struct MediaShelfPicker: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     // The Library's own row, back once it was taken away.
-                    if !media.showsStreamingServices {
+                    if !media.hiddenBuiltInRows.isEmpty {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("BUILT IN").font(.inter(12, .heavy)).tracking(1.6)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
@@ -2196,19 +2229,19 @@ private struct MediaShelfPicker: View {
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
-                        #if os(tvOS)
-                        TVSelectable(scale: LineupStyle.cardLift, fillRadius: 14,
-                                     action: { media.setShowsStreamingServices(true) }) {
-                            MediaShelfRow(title: StreamingService.rowTitle,
-                                          detail: "What each service has on that you can play", busy: false)
+                        ForEach(media.hiddenBuiltInRows) { row in
+                            #if os(tvOS)
+                            TVSelectable(scale: LineupStyle.cardLift, fillRadius: 14,
+                                         action: { media.setShowsBuiltInRow(row.id, true) }) {
+                                MediaShelfRow(title: row.title, detail: row.detail, busy: false)
+                            }
+                            #else
+                            Button { media.setShowsBuiltInRow(row.id, true) } label: {
+                                MediaShelfRow(title: row.title, detail: row.detail, busy: false)
+                            }
+                            .lineupFlatButton()
+                            #endif
                         }
-                        #else
-                        Button { media.setShowsStreamingServices(true) } label: {
-                            MediaShelfRow(title: StreamingService.rowTitle,
-                                          detail: "What each service has on that you can play", busy: false)
-                        }
-                        .lineupFlatButton()
-                        #endif
                     }
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 3) {
@@ -3226,16 +3259,16 @@ private struct MediaDetailScreen: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        .inter(40, .bold)
+        .inter(40, .heavy)
         #else
-        .inter(.title, .bold)
+        .inter(.title, .heavy)
         #endif
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .inter(24, .semibold)
+        .inter(24, .heavy)
         #else
-        .inter(.title3, .bold)
+        .inter(.title3, .heavy)
         #endif
     }
     private var episodeColumns: [GridItem] {
@@ -4030,7 +4063,7 @@ struct LibraryHeroSettingsView: View {
     private var groups: [ChoiceGroup] {
         var groups: [ChoiceGroup] = []
         let shelves = media.catalogs.filter { !$0.items.isEmpty }.map { catalog in
-            Choice(id: catalog.id, title: catalog.title,
+            Choice(id: catalog.id, title: media.shelfTitle(catalog),
                    detail: [featured(catalog.items.count), media.serverName(for: catalog)]
                        .compactMap { $0 }.joined(separator: " · "),
                    pick: .shelf(catalog))

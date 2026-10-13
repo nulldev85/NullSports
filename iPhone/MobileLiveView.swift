@@ -62,9 +62,9 @@ struct MobileLiveView: View {
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
         var mine: [SportsGame] = []
-        // With the tab already narrowed to followed teams, a section for them
-        // would be the whole list under a second heading.
-        let separatesMine = !onlyFollowed
+        // Followed teams' games sit in the list where their time puts them;
+        // My Teams narrows the list to them rather than lifting them out.
+        let separatesMine = false
         for game in all {
             if separatesMine, library.isFollowing(game) {
                 if game.isLive || game.isUpcoming { mine.append(game) }
@@ -226,8 +226,14 @@ struct MobileLiveView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 16)
                         .padding(.top, Self.headerHeight - 4)
-                        .transition(reduceMotion ? AnyTransition.opacity
-                                    : AnyTransition.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
+                        // Opens with a little growth from the pill; closes as
+                        // one flat layer fading out at once, so nothing in it
+                        // trails behind the panel.
+                        .compositingGroup()
+                        .transition(.asymmetric(
+                            insertion: reduceMotion ? AnyTransition.opacity
+                                : AnyTransition.scale(scale: 0.94, anchor: .topLeading).combined(with: .opacity),
+                            removal: AnyTransition.opacity.animation(.easeOut(duration: 0.14))))
                         .accessibilityAction(.escape) { setLeagueMenu(false) }
                     }
                 }
@@ -450,7 +456,7 @@ struct MobileLiveView: View {
             Spacer()
             Text(detail).tracking(1)
         }
-        .font(.inter(9, .bold))
+        .font(.inter(9, .heavy))
         .foregroundStyle(LineupStyle.secondary)
         .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
         .background(LineupStyle.background)

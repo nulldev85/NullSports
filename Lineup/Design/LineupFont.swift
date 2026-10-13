@@ -132,25 +132,27 @@ enum LineupFonts {
 }
 
 extension Font {
-    /// Inter at a fixed point size, which is how `.system(size:)` behaved:
-    /// the number on the screen is the number in the code.
+    // The app's type is SF Pro Rounded, the system's own rounded face. The
+    // helpers keep their names so every call site stays as it was.
+
+    /// The app's face at a fixed point size: the number on the screen is the
+    /// number in the code.
     static func inter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom(LineupFonts.face(for: weight), fixedSize: size)
+        .system(size: size, weight: weight, design: .rounded)
     }
 
-    /// Inter at a text style's size, growing with the viewer's text setting the
-    /// way the style it replaces did.
+    /// The app's face at a text style's size, growing with the viewer's text
+    /// setting.
     static func inter(_ style: Font.TextStyle, _ weight: Font.Weight? = nil) -> Font {
-        .custom(LineupFonts.face(for: weight ?? LineupFonts.weight(for: style)),
-                size: LineupFonts.size(for: style), relativeTo: style)
+        .system(style, design: .rounded, weight: weight ?? LineupFonts.weight(for: style))
     }
 
-    /// Inter with fixed-width figures, for clocks, scores and running times.
+    /// With fixed-width figures, for clocks, scores and running times.
     static func interDigits(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        LineupFonts.tabular(weight, size: size)
+        .system(size: size, weight: weight, design: .rounded).monospacedDigit()
     }
 
     static func interDigits(_ style: Font.TextStyle, _ weight: Font.Weight? = nil) -> Font {
-        LineupFonts.tabular(weight ?? LineupFonts.weight(for: style), style: style)
+        .system(style, design: .rounded, weight: weight ?? LineupFonts.weight(for: style)).monospacedDigit()
     }
 }

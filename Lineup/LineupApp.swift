@@ -17,6 +17,10 @@ struct LineupApp: App {
         #if os(tvOS)
         applyLineupTabBarTheme()
         PlaybackJournal.shared.note("Lineup opened")
+        #else
+        // Navigation titles are drawn by UIKit: set in the app's rounded face.
+        UINavigationBar.appearance().titleTextAttributes = [.font: roundedUIFont(17, .heavy)]
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: roundedUIFont(34, .heavy)]
         #endif
     }
 
@@ -141,12 +145,19 @@ private func tabBarLabels(in view: UIView) -> [UILabel] {
     (view as? UILabel).map { [$0] } ?? view.subviews.flatMap { tabBarLabels(in: $0) }
 }
 
-/// Inter at whatever size tvOS is drawing tab titles at, or nothing when there
+/// The app's rounded face at whatever size tvOS is drawing tab titles at, or nothing when there
 /// is no bar on screen to measure -- in which case the system font stays, which
 /// is the right answer over a wrong size.
 private func tabBarTitleFont(in bars: [UITabBar]) -> UIFont? {
     let sizes = bars.flatMap { tabBarLabels(in: $0) }.map(\.font.pointSize)
     guard let size = sizes.max() else { return nil }
-    return UIFont(name: LineupFonts.face(for: .semibold), size: size)
+    let base = UIFont.systemFont(ofSize: size, weight: .semibold)
+    return base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: size) } ?? base
 }
 #endif
+
+/// The system's rounded face, for the places UIKit draws text itself.
+func roundedUIFont(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+    let base = UIFont.systemFont(ofSize: size, weight: weight)
+    return base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: size) } ?? base
+}

@@ -55,6 +55,9 @@ struct MobileLeagueMenu: View {
     @State private var shown = false
 
     static let rowHeight: CGFloat = 52
+    /// Wide enough for "12 GAMES" and "1 EVENT", so every count ends on the
+    /// same line and the names keep the rest.
+    private static let tallyWidth: CGFloat = 78
     private static let inset: CGFloat = 6
 
     static func title(_ league: SportsLeague?) -> String {
@@ -75,10 +78,10 @@ struct MobileLeagueMenu: View {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                     row(entry)
                         .opacity(shown ? 1 : 0)
-                        .offset(y: shown || reduceMotion ? 0 : -8)
-                        .animation(reduceMotion ? .easeOut(duration: 0.15)
-                                   : .spring(response: 0.36, dampingFraction: 0.86).delay(Double(index) * 0.02),
-                                   value: shown)
+                        .offset(y: shown || reduceMotion ? 0 : -6)
+                        .animation(shown ? (reduceMotion ? .easeOut(duration: 0.15)
+                                   : .spring(response: 0.32, dampingFraction: 0.88).delay(Double(index) * 0.015))
+                                   : nil, value: shown)
                     // Every league, then each of them.
                     if index == 0 {
                         Rectangle().fill(LineupStyle.line).frame(height: 0.5)
@@ -121,8 +124,11 @@ struct MobileLeagueMenu: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .layoutPriority(1)
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
                 tally(entry)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: Self.tallyWidth, alignment: .trailing)
                 Image(systemName: "checkmark")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(LineupStyle.highlight)
