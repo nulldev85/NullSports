@@ -136,6 +136,18 @@ final class StreamingServicesTests: XCTestCase {
         XCTAssertEqual(slim.productionYear, 2021)
     }
 
+    func testTrendingRowKeepsTheChartOrderAndOnlyWhatPlays() {
+        let index = MDBListCatalogMatcher.Index([item("b", "Bravo", ids: ["Imdb": "tt2"]),
+                                                 item("a", "Alpha", ids: ["Imdb": "tt1"]),
+                                                 item("s", "Show", type: "Series", ids: ["Imdb": "tt9"])])
+        let chart = [entry("Alpha", imdb: "tt1"), entry("Missing", imdb: "tt5"), entry("Bravo", imdb: "tt2"),
+                     entry("Show", "show", imdb: "tt9"), entry("Alpha again", imdb: "tt1")]
+        XCTAssertEqual(LibraryTrendingRow.titles(from: chart, kind: .movie, resolve: index.match).map(\.id),
+                       ["a", "b"])
+        XCTAssertEqual(LibraryTrendingRow.titles(from: chart, kind: .show, resolve: index.match).map(\.id), ["s"])
+        XCTAssertEqual(LibraryTrendingRow.all.map(\.id), ["builtin:trending-movies", "builtin:trending-shows"])
+    }
+
     func testSnapshotRoundTrips() throws {
         let snapshot = StreamingServicesSnapshot(
             builtAt: Date(timeIntervalSince1970: 1_000), sources: [server.uuidString],

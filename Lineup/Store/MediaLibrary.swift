@@ -64,6 +64,13 @@ final class MediaLibrary: ObservableObject {
     }
     /// Whether the Streaming Services row is in the Library.
     @Published private(set) var showsStreamingServices = true
+    /// The trending rows' titles that play, by row id; built with the
+    /// Streaming Services row.
+    @Published private(set) var trendingTitles: [String: [MediaItem]] = [:] {
+        didSet { streamingVersion &+= 1 }
+    }
+    /// Trending rows the viewer has taken away.
+    @Published private(set) var hiddenTrendingRows: Set<String> = []
     /// The Library's rows in the order the viewer arranged them, by row id;
     /// see `LibraryShelfOrder`. Empty until they first move one.
     @Published private(set) var shelfOrder: [String] = []
@@ -121,6 +128,7 @@ final class MediaLibrary: ObservableObject {
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
+    private let trendingHiddenKey = "Lineup.trendingRows.hidden"
     private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     private let heroSourceKey = "Lineup.mediaHeroSource.v1"
@@ -154,6 +162,7 @@ final class MediaLibrary: ObservableObject {
     /// and on the television every move of the remote redraws the shelves --
     /// costs a comparison rather than a pass over every title.
     private var streamingShelfMemo: (key: String, shelf: MediaCatalog?)?
+    private var trendingShelvesMemo: (key: String, shelves: [MediaCatalog])?
     private var streamingTitlesMemo: (key: String, titles: [String: StreamingServiceTitles]) = ("", [:])
     /// Every server's films and shows, as last fetched, kept a few minutes so
     /// the MDBList shelves and the Streaming Services row share one fetch.
@@ -219,6 +228,7 @@ final class MediaLibrary: ObservableObject {
             localFavorites = saved.map { Self.marked($0) }
         }
         showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         restoreStreamingSnapshot()
         let listsRestored = restoreMDBListSnapshot()
@@ -359,7 +369,7 @@ final class MediaLibrary: ObservableObject {
 
     /// The shelves a viewer can take away: every one, and the Streaming
     /// Services row while it is up.
-    var removableShelves: [MediaCatalog] { (streamingShelf.map { [$0] } ?? []) + catalogs }
+    var removableShelves: [MediaCatalog] { builtInShelves + catalogs }
 
     /// A missing or removed choice falls back to the first populated shelf.
     /// That keeps the hub useful immediately while leaving the actual saved
@@ -1877,6 +1887,8 @@ final class MediaLibrary: ObservableObject {
     func removeShelf(_ catalog: MediaCatalog) {
         if catalog.id == StreamingService.rowID {
             setShowsStreamingServices(false)
+        } else if LibraryTrendingRow.row(id: catalog.id) != nil {
+            setShowsTrendingRow(catalog.id, false)
         } else if ProviderItem(id: catalog.root.id) != nil, let provider = catalog.root.serverID {
             providerShelves.removeAll { $0.id == catalog.id }
             saveProviderShelfIDs(savedProviderShelfIDs(for: provider).filter { $0 != catalog.root.id },
@@ -3090,6 +3102,7 @@ final class MediaLibrary: ObservableObject {
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         if heroListCatalog?.id != selectedHeroCatalogID { refreshHeroList() }
         if !arriving.isEmpty { await reload(servers: arriving) }
     }
@@ -3140,6 +3153,55 @@ extension MediaLibrary {
         return shelf
     }
 
+    /// The trending rows the Library shows, in their order, each with the
+    /// titles the connected sources can play.
+    var trendingShelves: [MediaCatalog] {
+        let key = streamingMemoKey + "|" + hiddenTrendingRows.sorted().joined(separator: ",")
+        if let memo = trendingShelvesMemo, memo.key == key { return memo.shelves }
+        let sources = recordSources
+        let shelves = LibraryTrendingRow.all.compactMap { row -> MediaCatalog? in
+            guard !hiddenTrendingRows.contains(row.id) else { return nil }
+            let items = (trendingTitles[row.id] ?? []).filter { item in item.serverID.map { sources.contains($0) } ?? false }
+            return items.isEmpty ? nil : MediaCatalog(root: row.root, items: items)
+        }
+        trendingShelvesMemo = (key, shelves)
+        return shelves
+    }
+
+    /// The rows the Library comes with, in their default order: what is
+    /// trending, then the streaming services.
+    var builtInShelves: [MediaCatalog] { trendingShelves + (streamingShelf.map { [$0] } ?? []) }
+
+    /// The built-in rows the viewer has taken away, for Add Shelf to offer.
+    var hiddenBuiltInRows: [BuiltInRow] {
+        var rows = LibraryTrendingRow.all.filter { hiddenTrendingRows.contains($0.id) }
+            .map { BuiltInRow(id: $0.id, title: $0.title, detail: "What is trending on Trakt that you can play") }
+        if !showsStreamingServices {
+            rows.append(BuiltInRow(id: StreamingService.rowID, title: StreamingService.rowTitle,
+                                   detail: "What each service has on that you can play"))
+        }
+        return rows
+    }
+
+    struct BuiltInRow: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let detail: String
+    }
+
+    /// Puts a built-in row back, or takes it away.
+    func setShowsBuiltInRow(_ id: String, _ shown: Bool) {
+        if id == StreamingService.rowID { setShowsStreamingServices(shown) }
+        else { setShowsTrendingRow(id, shown) }
+    }
+
+    func setShowsTrendingRow(_ id: String, _ shown: Bool) {
+        if shown { hiddenTrendingRows.remove(id) } else { hiddenTrendingRows.insert(id) }
+        defaults.set(hiddenTrendingRows.sorted(), forKey: trendingHiddenKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        if shown { refreshStreamingServicesIfNeeded() }
+    }
+
     /// What one service has on that the connected sources can play.
     func streamingTitles(for service: StreamingService) -> StreamingServiceTitles {
         let key = streamingMemoKey
@@ -3177,7 +3239,8 @@ extension MediaLibrary {
     /// shelves have loaded, waits a moment more so their posters are fetched
     /// first, and does its matching off the main thread.
     func refreshStreamingServicesIfNeeded(force: Bool = false) {
-        guard showsStreamingServices, streamingLoad == nil else { return }
+        let wanted = showsStreamingServices || LibraryTrendingRow.all.contains { !hiddenTrendingRows.contains($0.id) }
+        guard wanted, streamingLoad == nil else { return }
         let sources = recordSources.map(\.uuidString).sorted()
         guard !sources.isEmpty else { return }
         streamingLoad = Task(priority: .utility) { [weak self] in
@@ -3192,7 +3255,7 @@ extension MediaLibrary {
         await adoptRestoredStreaming()
         if !force {
             if let built = streamingBuiltAt, Calendar.current.isDateInToday(built),
-               sources == streamingSources { return }
+               sources == streamingSources, !trendingTitles.isEmpty { return }
             if let failed = streamingFailedAt, Date().timeIntervalSince(failed) < 15 * 60 { return }
             do { try await Task.sleep(for: .seconds(3)) } catch { return }
         }
@@ -3204,7 +3267,8 @@ extension MediaLibrary {
     /// shows, then whatever an AIOStreams server answers for by the title's
     /// ids. An entry found nowhere is left off, so every poster plays.
     private func buildStreamingServices(sources: [String]) async {
-        let paths = Array(Set(StreamingService.all.flatMap { $0.lists.map(\.path) })).sorted()
+        let paths = Array(Set(StreamingService.all.flatMap { $0.lists.map(\.path) }
+                              + LibraryTrendingRow.all.flatMap(\.lists))).sorted()
         let lists = await Self.fetchStreamingLists(paths)
         guard !Task.isCancelled else { return }
         guard !lists.isEmpty else { streamingFailedAt = Date(); return }
@@ -3224,6 +3288,16 @@ extension MediaLibrary {
                         if wanted[key] == nil { wanted[key] = entry }
                     }
                 }
+            }
+        }
+        // Each trending row's chart, from the first of its lists to answer.
+        let charts = Dictionary(uniqueKeysWithValues: LibraryTrendingRow.all.compactMap { row in
+            row.lists.lazy.compactMap { lists[$0] }.first.map { (row.id, $0) }
+        })
+        for row in LibraryTrendingRow.all {
+            for entry in (charts[row.id] ?? []).prefix(LibraryTrendingRow.depth) {
+                let key = StreamingCatalogBuilder.key(of: entry)
+                if wanted[key] == nil { wanted[key] = entry }
             }
         }
         let entries = Array(wanted.values)
@@ -3277,13 +3351,26 @@ extension MediaLibrary {
                                                       latest: listEntries(service, .show, .latest),
                                                       resolve: resolve))
         }
+        var trending: [String: [MediaItem]] = [:]
+        for row in LibraryTrendingRow.all {
+            // A row whose lists did not answer keeps what it had.
+            guard let chart = charts[row.id] else {
+                if let previous = trendingTitles[row.id] { trending[row.id] = previous }
+                continue
+            }
+            trending[row.id] = LibraryTrendingRow.titles(from: chart, kind: row.kind, resolve: resolve)
+        }
         // Nothing playable anywhere, where there was something before, is a
         // source that did not answer rather than a day with nothing on.
-        if built.values.allSatisfy(\.isEmpty), streamingServices.values.contains(where: { !$0.isEmpty }) {
+        let nothing = built.values.allSatisfy(\.isEmpty) && trending.values.allSatisfy(\.isEmpty)
+        let hadSomething = streamingServices.values.contains(where: { !$0.isEmpty })
+            || trendingTitles.values.contains(where: { !$0.isEmpty })
+        if nothing, hadSomething {
             streamingFailedAt = Date()
             return
         }
         streamingServices = built
+        trendingTitles = trending
         streamingBuiltAt = Date()
         streamingSources = sources
         streamingFailedAt = nil
@@ -3364,7 +3451,7 @@ extension MediaLibrary {
     private func persistStreamingSnapshot() {
         guard let builtAt = streamingBuiltAt else { return }
         let snapshot = StreamingServicesSnapshot(builtAt: builtAt, sources: streamingSources,
-                                                 services: streamingServices)
+                                                 services: streamingServices, trending: trendingTitles)
         let url = Self.streamingSnapshotURL
         Task.detached(priority: .utility) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
@@ -3390,6 +3477,7 @@ extension MediaLibrary {
         guard let restore = streamingRestore, let snapshot = await restore.value,
               streamingBuiltAt == nil else { return }
         streamingServices = snapshot.services
+        trendingTitles = snapshot.trending ?? [:]
         streamingBuiltAt = snapshot.builtAt
         streamingSources = snapshot.sources
     }
@@ -3410,7 +3498,14 @@ extension MediaLibrary {
 
     /// Every row the Library has on it now, in the viewer's order.
     var libraryRows: [LibraryRow] {
-        var rows: [LibraryRow] = []
+        var rows: [LibraryRow] = trendingShelves.map { shelf in
+            LibraryRow(id: shelf.id, title: shelf.title, detail: "Trending on Trakt",
+                       symbol: "chart.line.uptrend.xyaxis", brand: nil)
+        }
+        if let streaming = streamingShelf {
+            rows.append(LibraryRow(id: streaming.id, title: streaming.title,
+                                   detail: "\(streaming.items.count) services", symbol: "play.tv", brand: nil))
+        }
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                    detail: "On this device", symbol: "play.circle", brand: nil))
@@ -3423,10 +3518,6 @@ extension MediaLibrary {
         if favorites.contains(where: { $0.type == "Episode" }) {
             rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
                                    detail: "On this device", symbol: "heart.text.square", brand: nil))
-        }
-        if let streaming = streamingShelf {
-            rows.append(LibraryRow(id: streaming.id, title: streaming.title,
-                                   detail: "\(streaming.items.count) services", symbol: "play.tv", brand: nil))
         }
         for catalog in catalogs {
             let symbol: String

@@ -243,6 +243,50 @@ extension StreamingSort {
     }
 }
 
+/// A row the Library comes with, of what is trending on Trakt: films or
+/// shows, read from MDBList's public copies of Trakt's charts, which are
+/// refreshed through the day. Only what the viewer's sources can play is
+/// kept, as on the Streaming Services row.
+struct LibraryTrendingRow: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let kind: StreamingTitle.Kind
+    /// The list to read, then one to fall back on if it does not answer.
+    let lists: [String]
+
+    static let movies = LibraryTrendingRow(id: "builtin:trending-movies", title: "Trending Movies", kind: .movie,
+                                           lists: ["ba11in0nabudget/trakt-trending-movies",
+                                                   "ahmed2250/trakt-trending-movies-now"])
+    static let shows = LibraryTrendingRow(id: "builtin:trending-shows", title: "Trending Shows", kind: .show,
+                                          lists: ["ba11in0nabudget/trakt-trending-shows",
+                                                  "ahmed2250/trakt-trending-tv-shows-now"])
+    /// In the order the Library shows them, first of all its rows.
+    static let all = [movies, shows]
+
+    /// How far down the chart is read, and how many titles a row keeps.
+    static let depth = 60
+    static let rowLimit = 30
+
+    /// The row's shelf root: See All on it opens every title.
+    var root: MediaItem {
+        MediaItem(id: id, name: title, type: "TrendingList", overview: nil, productionYear: nil,
+                  primaryImageAspectRatio: nil, childCount: nil)
+    }
+
+    static func row(id: String) -> LibraryTrendingRow? { all.first { $0.id == id } }
+
+    /// The chart's titles that play, in the chart's order, each once.
+    static func titles(from entries: [MDBListCatalogItem], kind: StreamingTitle.Kind,
+                       resolve: (MDBListCatalogItem) -> MediaItem?) -> [MediaItem] {
+        var seen: Set<String> = []
+        let wanted = kind == .movie ? "movie" : "show"
+        return entries.filter { $0.mediaType == wanted }.prefix(depth)
+            .compactMap(resolve)
+            .filter { seen.insert($0.libraryKey).inserted }
+            .prefix(rowLimit).map { $0 }
+    }
+}
+
 /// The row's own record of its last build, kept on the device.
 struct StreamingServicesSnapshot: Codable, Sendable {
     var builtAt: Date
@@ -250,6 +294,9 @@ struct StreamingServicesSnapshot: Codable, Sendable {
     /// again rather than waiting for tomorrow.
     var sources: [String]
     var services: [String: StreamingServiceTitles]
+    /// The trending rows' titles, by row id. Missing from a snapshot written
+    /// before there were any.
+    var trending: [String: [MediaItem]]? = nil
 }
 
 /// Turns the lists' entries into titles the viewer can play, and gathers
