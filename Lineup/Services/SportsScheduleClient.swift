@@ -194,7 +194,10 @@ struct SportsScheduleClient: Sendable {
     /// drawn are left out; nobody looks for those on a sports channel.
     private func tennisSchedule(from day: Date, days: Int) async -> Result<[SportsGame], Error> {
         let calendar = Calendar.current
-        let end = calendar.date(byAdding: .day, value: days, to: day) ?? day.addingTimeInterval(Double(days) * 86_400)
+        // Today and tomorrow whatever is asked for: each day's answer holds
+        // its tournaments whole, so tomorrow's matches come with today's, and
+        // a tournament's card stays the same card from one refresh to the next.
+        let end = calendar.date(byAdding: .day, value: 2, to: day) ?? day.addingTimeInterval(2 * 86_400)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
@@ -220,7 +223,7 @@ struct SportsScheduleClient: Sendable {
             }
             let matches = events.flatMap { entry -> [SportsGame] in
                 let found = Self.tennisMatches(in: entry.event, tour: entry.tour, from: day, to: end)
-                return found + Self.tennisEventCards(for: entry.event, matches: found, calendar: calendar)
+                return found + Self.tennisEventCards(for: entry.event, matches: found)
             }
             return .success(Dictionary(grouping: matches, by: \.id).values.compactMap(\.first)
                 .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start })
@@ -297,50 +300,42 @@ struct SportsScheduleClient: Sendable {
         }
     }
 
-    /// A tournament's day as one card, the way a fight night is one card.
+    /// A tournament as one card, the way a fight night is one card.
     ///
     /// A tennis channel carries a tournament rather than a match: "Center
     /// Court Live: Shanghai". So the tournament is what is listed and what
     /// is played; a match has a card of its own only where a channel names
     /// it, or for a player someone follows -- see `SportsLibrary.isListed`.
-    /// One card a tour a day: a major holds both tours' draws, and each
-    /// belongs under its own tab.
-    static func tennisEventCards(for event: TennisEnvelope.Event, matches: [SportsGame],
-                                 calendar: Calendar = .current, now: Date = Date()) -> [SportsGame] {
-        let dayKey = DateFormatter()
-        dayKey.locale = Locale(identifier: "en_US_POSIX")
-        dayKey.calendar = calendar
-        dayKey.timeZone = calendar.timeZone
-        dayKey.dateFormat = "yyyyMMdd"
-        let groups = Dictionary(grouping: matches) {
-            "\($0.league.rawValue)|\(dayKey.string(from: $0.state == "in" ? now : $0.start))"
-        }
-        return groups.compactMap { key, day -> SportsGame? in
-            guard let league = day.first?.league else { return nil }
-            let live = day.filter { $0.state == "in" }
-            let waiting = day.filter { $0.state == "pre" }.sorted { $0.start < $1.start }
-            let state = !live.isEmpty ? "in" : (!waiting.isEmpty ? "pre" : "post")
-            let start = live.map(\.start).min() ?? waiting.first?.start ?? day.map(\.start).min() ?? now
-            // The rounds being played that day, in draw order.
+    ///
+    /// One card for the whole tournament, not one a day: a tournament in
+    /// China plays through an American night, and a card a day split one
+    /// session into "today" and "tomorrow". It is live while any match is,
+    /// and otherwise waits on the next one. A major holds both tours' draws,
+    /// and each belongs under its own tour's tab.
+    static func tennisEventCards(for event: TennisEnvelope.Event, matches: [SportsGame]) -> [SportsGame] {
+        Dictionary(grouping: matches, by: \.league).compactMap { league, draw -> SportsGame? in
+            let live = draw.filter { $0.state == "in" }.sorted { $0.start < $1.start }
+            let waiting = draw.filter { $0.state == "pre" }.sorted { $0.start < $1.start }
+            guard let next = live.first ?? waiting.first else { return nil }
+            // The rounds on court now, else the ones coming up.
             var rounds: [String] = []
-            for match in day.sorted(by: { $0.start < $1.start }) {
+            for match in live + waiting {
                 let round = match.venue?.components(separatedBy: " \u{00B7} ").dropFirst().first ?? ""
                 if !round.isEmpty, !rounds.contains(round) { rounds.append(round) }
             }
             var networks: [String] = []
-            for name in day.flatMap({ $0.broadcast.components(separatedBy: ", ") })
+            for name in draw.flatMap({ $0.broadcast.components(separatedBy: ", ") })
             where !name.isEmpty && !networks.contains(name) { networks.append(name) }
             let status: String
             if !live.isEmpty { status = live.count == 1 ? "1 match live" : "\(live.count) matches live" }
             else { status = waiting.count == 1 ? "1 match to play" : "\(waiting.count) matches to play" }
-            let tag = key.replacingOccurrences(of: "|", with: "-")
             return SportsGame(
-                id: "tennis-event-\(event.id)-\(tag)", league: league, start: start,
+                id: "tennis-event-\(event.id)-\(league.rawValue)", league: league, start: next.start,
                 awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
                 awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
                 awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
                 venue: rounds.isEmpty ? nil : rounds.prefix(2).joined(separator: " & "),
-                location: event.city, status: status, state: state,
+                location: event.city, status: status, state: live.isEmpty ? "pre" : "in",
                 broadcast: networks.joined(separator: ", "),
                 eventName: event.name.trimmingCharacters(in: .whitespacesAndNewlines)
             )

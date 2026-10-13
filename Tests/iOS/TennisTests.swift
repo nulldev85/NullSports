@@ -299,23 +299,29 @@ final class TennisTests: XCTestCase {
             game: match, now: now), 300)
     }
 
-    // A tournament's day is one card a tour, live while any match is.
-    func testATournamentsDayIsOneCard() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    // A tournament is one card a tour, live while any match is -- however
+    // many days and time zones its matches cross.
+    func testATournamentIsOneCard() throws {
         let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(feed.utf8))
         let event = try XCTUnwrap(envelope.events.first)
         let games = try self.matches()
-        let cards = SportsScheduleClient.tennisEventCards(for: event, matches: games, calendar: calendar,
-                                                          now: day.addingTimeInterval(10 * 3600))
+        // Tomorrow's match too: still the same tournament, still one card.
+        let tomorrow = SportsGame(
+            id: "tennis-9", league: .atp, start: day.addingTimeInterval(30 * 3600),
+            awayTeam: "Taylor Fritz", homeTeam: "Ben Shelton", awayAbbreviation: "FRITZ",
+            homeAbbreviation: "SHELTON", awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+            venue: "Rolex Shanghai Masters \u{00B7} Semifinal", location: nil, status: "",
+            state: "pre", broadcast: "", eventName: nil)
+        let cards = SportsScheduleClient.tennisEventCards(for: event, matches: games + [tomorrow])
         XCTAssertEqual(cards.count, 1)
         let card = try XCTUnwrap(cards.first)
-        XCTAssertEqual(card.id, "tennis-event-713-2026-atp-20261013")
+        XCTAssertEqual(card.id, "tennis-event-713-2026-atp")
         XCTAssertEqual(card.league, .atp)
         XCTAssertTrue(card.isEvent)
         XCTAssertEqual(card.eventName, "Rolex Shanghai Masters")
         XCTAssertEqual(card.matchupLine, "Rolex Shanghai Masters")
-        XCTAssertEqual(card.venue, "Quarterfinal")
+        XCTAssertEqual(card.venue, "Quarterfinal & Semifinal")
         XCTAssertEqual(card.status, "1 match live")
         XCTAssertTrue(card.isLive)
         XCTAssertEqual(card.start, ISO8601DateFormatter().date(from: "2026-10-13T08:00:00Z"))

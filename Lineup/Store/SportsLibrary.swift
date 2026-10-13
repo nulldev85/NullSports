@@ -1077,7 +1077,11 @@ final class SportsLibrary: ObservableObject {
                         } else {
                             // This fetch only covers today; keep the tomorrow games
                             // already on hand instead of discarding them.
-                            let keptTomorrow = (previousGames[league] ?? []).filter { $0.start >= tomorrowStart }
+                            // A game the fetch did bring is never kept twice: a
+                            // tennis tournament's card moves to tomorrow and back.
+                            let freshIDs = Set(fresh.map(\.id))
+                            let keptTomorrow = (previousGames[league] ?? [])
+                                .filter { $0.start >= tomorrowStart && !freshIDs.contains($0.id) }
                             games[league] = (fresh + keptTomorrow).sorted { $0.start < $1.start }
                         }
                     }
