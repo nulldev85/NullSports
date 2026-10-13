@@ -17,8 +17,10 @@ struct GameAlert: Identifiable, Equatable, Sendable {
     var headline: String {
         switch kind {
         case .started: "Underway"
-        case .closeLate: "Close game"
-        case .overtime: "Overtime"
+        // Tennis has no clock to run down: what a viewer is told is that one
+        // set will settle it, and that one tiebreak will.
+        case .closeLate: game.league == .tennis ? "Deciding set" : "Close game"
+        case .overtime: game.league == .tennis ? "Final-set tiebreak" : "Overtime"
         }
     }
 }
@@ -66,6 +68,10 @@ enum GameAlertRules {
     /// Past regulation: overtime, a shootout, or extra innings.
     static func isOvertime(_ game: SportsGame) -> Bool {
         guard game.isLive, !game.isEvent else { return false }
+        if game.league == .tennis {
+            guard let score = game.tennis, score.isDecidingSet, let set = score.current else { return false }
+            return set.away >= 6 && set.home >= 6
+        }
         let moment = moment(of: game.status)
         if game.league == .mlb { return (moment.period ?? 0) >= 10 }
         return moment.overtime
@@ -75,7 +81,9 @@ enum GameAlertRules {
     /// quarter within a possession or so, a third period within a goal, the
     /// eighth inning on within two runs.
     static func isCloseLate(_ game: SportsGame) -> Bool {
-        guard game.isLive, !game.isEvent, let margin = margin(of: game) else { return false }
+        guard game.isLive, !game.isEvent else { return false }
+        if game.league == .tennis { return game.tennis?.isDecidingSet ?? false }
+        guard let margin = margin(of: game) else { return false }
         let moment = moment(of: game.status)
         guard !moment.overtime, let period = moment.period else { return false }
         let late = moment.clockSeconds.map { $0 <= 5 * 60 } ?? false
@@ -84,7 +92,7 @@ enum GameAlertRules {
         case .nfl, .ncaaf: return period >= 4 && late && margin <= 8
         case .nhl: return period >= 3 && (moment.clockSeconds.map { $0 <= 10 * 60 } ?? false) && margin <= 1
         case .mlb: return period >= 8 && margin <= 2
-        case .ufc: return false
+        case .ufc, .tennis: return false
         }
     }
 

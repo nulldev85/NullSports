@@ -730,9 +730,9 @@ private struct MobileMatchupRow: View {
                     }
                 } else {
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
-                         record: game.awayRecord, score: game.awayScore)
+                         record: game.awayRecord, score: game.awayScore, isAway: true)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
-                         record: game.homeRecord, score: game.homeScore)
+                         record: game.homeRecord, score: game.homeScore, isAway: false)
                     if let whereItIs { place(whereItIs) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -789,7 +789,8 @@ private struct MobileMatchupRow: View {
             .lineLimit(1).truncationMode(.tail)
     }
 
-    private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String) -> some View {
+    private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String,
+                      isAway: Bool) -> some View {
         HStack(spacing: 9) {
             // The disc went first and the ring that replaced it goes now: both
             // drew a circle around a mark that is not one. The badge lights
@@ -801,13 +802,16 @@ private struct MobileMatchupRow: View {
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
+                    // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
                         .foregroundStyle(LineupStyle.secondary)
-                        .accessibilityLabel("Record: \(record)")
+                        .accessibilityLabel(game.league == .tennis ? record : "Record: \(record)")
                 }
             }
             Spacer(minLength: 3)
-            if game.isLive {
+            if game.isLive, let sets = game.tennis {
+                TennisSetColumns(score: sets, isAway: isAway, size: 17)
+            } else if game.isLive {
                 Text(score).font(.interDigits(.title3, .bold))
             }
         }

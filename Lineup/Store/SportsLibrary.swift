@@ -256,6 +256,12 @@ final class SportsLibrary: ObservableObject {
         return gamesByLeague.values.contains { games in
             games.contains { game in
                 (game.isLive || game.isUpcoming) && gameStreamCache[game.id] == nil
+                    // A day of tennis starts a match somewhere every few
+                    // minutes, and most never get a channel of their own:
+                    // counted, they would download the provider again every
+                    // two minutes from first ball to last. A followed
+                    // player's match is worth it; the rest are not.
+                    && (game.league != .tennis || isFollowing(game))
                     && ProviderRefreshPolicy.needsRefresh(gameStart: game.start,
                         providerFetchedAt: fetchedAt, now: now)
             }
@@ -938,6 +944,43 @@ final class SportsLibrary: ObservableObject {
         leagueStreamCache[league] ?? []
     }
 
+    /// For a tennis match no channel names: the channels showing its
+    /// tournament now, then any showing tennis. Where someone would look
+    /// first, offered in the channel picker -- never played on their own.
+    func tennisCoverage(for game: SportsGame, now: Date = Date()) -> [XtreamStream] {
+        guard game.league == .tennis else { return [] }
+        let tournament = Self.tournamentWords(game.venue)
+        var ranked: [(stream: XtreamStream, score: Int)] = []
+        for stream in streams(for: .tennis) {
+            let name = stream.name.lowercased()
+            guard !["replay", "classic", "highlights", "radio"].contains(where: name.contains) else { continue }
+            let showing = (programsByChannel[stream.epgChannelID ?? ""] ?? [])
+                .filter { $0.start <= now && now < $0.end }
+                .map { ($0.title + " " + $0.detail).lowercased() }.joined(separator: " ")
+            var score = 0
+            if !tournament.isEmpty, tournament.contains(where: showing.contains) { score += 4 }
+            if showing.contains("tennis") || showing.contains("atp") || showing.contains("wta") { score += 2 }
+            if name.contains("tennis") { score += 1 }
+            if score > 0 { ranked.append((stream, score)) }
+        }
+        return ranked.sorted { $0.score == $1.score ? $0.stream.id < $1.stream.id : $0.score > $1.score }
+            .prefix(6).map(\.stream)
+    }
+
+    /// What a listing would call a tournament: "Rolex Shanghai Masters" is
+    /// "shanghai"; "US Open" has no word of its own, so it is the name.
+    nonisolated static func tournamentWords(_ venue: String?) -> [String] {
+        let name = (venue ?? "").components(separatedBy: " \u{00B7} ").first?.lowercased() ?? ""
+        let common: Set<String> = ["open", "masters", "championships", "championship", "cup", "tennis", "rolex",
+                                   "mutua", "presented", "classic", "international", "internationals", "grand", "prix",
+                                   "trophy", "tournament", "final", "finals", "with", "the"]
+        let words = name.components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 4 && !common.contains($0) }
+        if !words.isEmpty { return words }
+        let whole = name.trimmingCharacters(in: .whitespaces)
+        return whole.isEmpty ? [] : [whole]
+    }
+
     func games(for league: SportsLeague?) -> [SportsGame] {
         let games = league.map { gamesByLeague[$0] ?? [] } ?? SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
         return games.filter { $0.isLive || $0.isUpcoming }.sorted { $0.start < $1.start }
@@ -1222,6 +1265,9 @@ final class SportsLibrary: ObservableObject {
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
         }
+        if game.league == .tennis {
+            return tennisScore(channel: channel, game: game, now: now)
+        }
         let score = ProfessionalChannelMatcher.score(channel: channel, game: preparedGame, now: now)
         if game.league == .nhl {
             return NHLChannelPolicy.adjustedScore(score, channel: stream.name,
@@ -1279,6 +1325,51 @@ final class SportsLibrary: ObservableObject {
                 && normalized($0.detail).isEmpty
         }
         if identifiesCard(name) && (listingConfirms || guideSilent) { return 400 }
+        return listingConfirms ? 300 : nil
+    }
+
+    /// A tennis match is on a channel when the channel names both players --
+    /// a provider's event feed, "ESPN+ 07: Sinner vs Alcaraz" -- or the
+    /// listing on now does.
+    ///
+    /// A tennis channel showing the tournament is not enough. Tennis Channel
+    /// carries a dozen matches a day from the same event, one court at a
+    /// time, and sending someone there for a match on another court is the
+    /// guess this app refuses to make for any sport. Unmatched, the match
+    /// opens the channel picker, which starts with the tennis channels.
+    nonisolated static func tennisScore(channel: String, listings: [CurrentProgram],
+                                        game: SportsGame, now: Date) -> Int? {
+        tennisScore(channel: ProfessionalChannelMatcher.prepare(
+            channel: channel,
+            listings: ProfessionalChannelMatcher.prepare(
+                listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) })),
+            game: game, now: now)
+    }
+
+    /// The same, on a channel the matching pass has already prepared: its
+    /// name and listings normalized once, rather than once for each of the
+    /// day's sixty matches.
+    nonisolated static func tennisScore(channel: ProfessionalChannelMatcher.PreparedChannel,
+                                        game: SportsGame, now: Date) -> Int? {
+        // Replays, highlights, radio and whip-around feeds are never a match.
+        guard channel.eligible else { return nil }
+        // Surnames, as a listing writes them: "Sinner v Alcaraz", "de Minaur".
+        func surname(_ abbreviation: String, _ name: String) -> String {
+            ProfessionalChannelMatcher.normalize(abbreviation.isEmpty ? name : abbreviation)
+        }
+        let away = surname(game.awayAbbreviation, game.awayTeam)
+        let home = surname(game.homeAbbreviation, game.homeTeam)
+        guard !away.isEmpty, !home.isEmpty, away != home else { return nil }
+        let paddedAway = ProfessionalChannelMatcher.pad(away), paddedHome = ProfessionalChannelMatcher.pad(home)
+        func namesBoth(_ padded: String) -> Bool { padded.contains(paddedAway) && padded.contains(paddedHome) }
+        let point = game.isLive ? now : max(now, game.start)
+        let current = channel.listings.filter { $0.start <= point && point < $0.end }
+        let listingConfirms = current.contains { namesBoth($0.text) }
+        // A feed named for the match, with a guide that says nothing else.
+        let guideSilent = current.isEmpty || current.allSatisfy {
+            ["", "live", "tennis", "live tennis", "no program information"].contains($0.title) && $0.detail.isEmpty
+        }
+        if namesBoth(channel.padded) && (listingConfirms || guideSilent) { return 400 }
         return listingConfirms ? 300 : nil
     }
 
@@ -1728,9 +1819,13 @@ final class SportsLibrary: ObservableObject {
 
     /// The teams in a game, in the form the pure preference model works with.
     nonisolated private static func preferenceGame(_ game: SportsGame) -> TeamChannelGame {
-        TeamChannelGame(league: game.league.rawValue,
-                        homeTeam: game.homeTeam, homeAbbreviation: game.homeAbbreviation,
-                        awayTeam: game.awayTeam, awayAbbreviation: game.awayAbbreviation)
+        // A team's short code names it; a tennis player's surname does not --
+        // there are two Zverevs and two Williamses -- so a player is kept by
+        // their whole name.
+        let byName = game.league == .tennis
+        return TeamChannelGame(league: game.league.rawValue,
+                               homeTeam: game.homeTeam, homeAbbreviation: byName ? "" : game.homeAbbreviation,
+                               awayTeam: game.awayTeam, awayAbbreviation: byName ? "" : game.awayAbbreviation)
     }
 
     /// What tapping this game should do. The decision itself lives in

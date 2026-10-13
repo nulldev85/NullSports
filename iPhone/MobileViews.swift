@@ -741,7 +741,7 @@ private struct MatchDiagnosticsView: View {
         let stream = library.stream(for: game)
         let evidence = library.matchEvidence(for: game)
         return VStack(alignment: .leading, spacing: 5) {
-            Text("\(game.awayTeam) at \(game.homeTeam)").font(.inter(.subheadline, .semibold))
+            Text(game.matchupLine).font(.inter(.subheadline, .semibold))
             Text("\(game.league.shortName) \u{00B7} \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
                 .font(.inter(.caption)).foregroundStyle(.secondary)
             if let stream {

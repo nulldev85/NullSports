@@ -762,7 +762,7 @@ enum AppSearchFormat {
         if let event = game.eventName?.trimmingCharacters(in: .whitespacesAndNewlines), !event.isEmpty {
             return event
         }
-        return game.awayTeam + " at " + game.homeTeam
+        return game.matchupLine
     }
 
     static func badge(of hit: AppSearchHit, now: Date = Date()) -> Badge? {
