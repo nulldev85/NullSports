@@ -1,23 +1,5 @@
 import SwiftUI
 
-/// A league's mark, or the grid that stands for every league, in one frame.
-struct MobileLeagueMark: View {
-    let league: SportsLeague?
-    let size: CGFloat
-
-    var body: some View {
-        if let league {
-            MobileLeagueLogo(league: league, size: size)
-        } else {
-            Image(systemName: "square.grid.2x2.fill")
-                .font(.system(size: size * 0.62))
-                .foregroundStyle(LineupStyle.lightPurple)
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        }
-    }
-}
-
 /// The sport the Sports tab is showing, on one pill. A strip of eight logos
 /// asked to be read; this says the one that is chosen, and the rest are a
 /// tap away.
@@ -28,8 +10,10 @@ struct MobileLeagueMenuButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
-                MobileLeagueMark(league: league, size: 22)
+            HStack(spacing: 8) {
+                // A league's mark when one is chosen. Every league needs no
+                // icon: the words say it, and the pill stays small.
+                if let league { MobileLeagueLogo(league: league, size: 22) }
                 Text(MobileLeagueMenu.title(league))
                     .font(.inter(15, .semibold))
                     .foregroundStyle(LineupStyle.text)
@@ -39,7 +23,7 @@ struct MobileLeagueMenuButton: View {
                     .foregroundStyle(LineupStyle.secondary)
                     .rotationEffect(.degrees(isOpen ? -180 : 0))
             }
-            .padding(.leading, 9).padding(.trailing, 13)
+            .padding(.leading, league == nil ? 14 : 10).padding(.trailing, 12)
             .frame(height: 36)
             .background(isOpen ? LineupStyle.focused : LineupStyle.raised, in: Capsule())
             .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
@@ -70,7 +54,7 @@ struct MobileLeagueMenu: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    static let rowHeight: CGFloat = 56
+    static let rowHeight: CGFloat = 52
     private static let inset: CGFloat = 6
 
     static func title(_ league: SportsLeague?) -> String {
@@ -119,10 +103,15 @@ struct MobileLeagueMenu: View {
         let isSelected = entry.league == selected
         let quiet = entry.games == 0 && !isSelected
         return Button { onChoose(entry.league) } label: {
-            HStack(spacing: 12) {
-                MobileLeagueMark(league: entry.league, size: 26)
-                    .frame(width: 40, height: 40)
-                    .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(spacing: 11) {
+                // The mark straight on the panel, as it sits on a game's
+                // card. Every league has none; its name keeps to the column
+                // the leagues' names start on, as a system menu does.
+                Group {
+                    if let league = entry.league { MobileLeagueLogo(league: league, size: 28) }
+                    else { Color.clear }
+                }
+                .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Self.title(entry.league))
                         .font(.inter(15, .semibold)).foregroundStyle(LineupStyle.text)
