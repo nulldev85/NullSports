@@ -91,7 +91,7 @@ final class GameReminders: ObservableObject {
             #if os(tvOS)
             content.badge = 1
             #else
-            content.title = "\(game.awayTeam) at \(game.homeTeam)"
+            content.title = game.matchupLine
             content.body = "Starts at \(game.start.formatted(date: .omitted, time: .shortened)) in Lineup."
             content.sound = .default
             content.userInfo = ["gameID": game.id]

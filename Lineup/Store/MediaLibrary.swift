@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// What one connected server has put in the Library, and how its last load
 /// went. Every server keeps its own, so one that is slow or offline costs the
@@ -80,6 +81,18 @@ final class MediaLibrary: ObservableObject {
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
     @Published private(set) var localPlayback: [LocalMediaPlayback] = []
+    /// Where each episode falls in its show, counted through every season,
+    /// keyed by server and show: what "8 of 16" on a poster is read from.
+    @Published private(set) var episodeOrders: [String: SeriesEpisodeOrder] = [:]
+    private var episodeOrderLoads: Set<String> = []
+    /// The title playing now, as it last reported. Held here rather than in
+    /// the published list, which redrew the whole Library behind the player
+    /// every five seconds and wrote every record to disk as often; it joins
+    /// the list on a change that matters, every half minute, and when the
+    /// player closes or the app leaves the screen.
+    private var heldPlayback: LocalMediaPlayback?
+    private var lastPlaybackCommit = Date.distantPast
+    private var lifecycleObservers: [NSObjectProtocol] = []
     @Published private(set) var localFavorites: [LocalMediaFavorite] = []
 
     private let defaults: UserDefaults
@@ -177,6 +190,12 @@ final class MediaLibrary: ObservableObject {
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
+        }
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            lifecycleObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.flushLocalPlayback() }
+            })
         }
     }
 
@@ -423,6 +442,7 @@ final class MediaLibrary: ObservableObject {
         serverKinds[profile.id] = nil
         profiles.removeAll { $0.id == profile.id }
         servers[profile.id] = nil
+        if heldPlayback?.profileID == profile.id { heldPlayback = nil }
         localPlayback.removeAll { $0.profileID == profile.id }
         persistLocalPlayback()
         localFavorites.removeAll { $0.profileID == profile.id }
@@ -977,6 +997,7 @@ final class MediaLibrary: ObservableObject {
 
     func localPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
         guard let profileID = serverID(of: item) else { return nil }
+        if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { return held }
         return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
     }
 
@@ -1030,21 +1051,114 @@ final class MediaLibrary: ObservableObject {
         playbackStatus(for: item, record: displayedPlaybackRecord(for: item))
     }
 
-    /// One lookup supplies every piece a shelf card needs. Keeping this work
-    /// together matters when dozens of cards enter during a fast scroll: the
-    /// older view independently searched tracking history for the progress
-    /// line, the checkmark, and then the label again.
-    func cardPlaybackPresentation(for item: MediaItem)
-        -> (fraction: Double, label: String, watched: Bool)? {
+    /// What a card shows of where the viewer is: a play mark, a bar and a
+    /// few words on the art, and for a show the episode under way along the
+    /// card's bottom edge. A show -- its poster, or an episode standing in
+    /// for it -- counts episodes ("8 of 16"); a film or an episode's own
+    /// still counts time.
+    func cardPlayback(for item: MediaItem, asShow: Bool) -> MediaCardPlayback? {
         let record = displayedPlaybackRecord(for: item)
-        if let record, record.completed || record.fraction > 0 || record.isUpNext == true,
-           let label = playbackStatus(for: item, record: record) {
-            return (record.completed ? 1 : record.fraction, label,
-                    record.completed || item.isPlayed)
+        guard let record else {
+            guard isWatched(item) else { return nil }
+            return MediaCardPlayback(fraction: 1, label: "Watched", watched: true, episodeFraction: nil,
+                                     spoken: (item.episodeCode.map { $0 + ", " } ?? "") + "watched")
         }
-        guard isWatched(item),
-              let label = playbackStatus(for: item, record: record) else { return nil }
-        return (1, label, true)
+        let tracked = record.item
+        let showLike = asShow && tracked.type == "Episode"
+        if showLike {
+            let place = episodePlace(of: tracked)
+            let code = Self.shortCode(tracked)
+            let label = place.map { "\($0.number) of \($0.total)" } ?? code ?? "Next"
+            if record.completed {
+                // Finished the last episode: the show is done.
+                if let place, place.number < place.total {
+                    return MediaCardPlayback(fraction: Double(place.number) / Double(place.total), label: label,
+                                             watched: false, episodeFraction: nil,
+                                             spoken: "Episode \(label), watched")
+                }
+                return MediaCardPlayback(fraction: 1, label: "Watched", watched: true, episodeFraction: nil,
+                                         spoken: "Watched")
+            }
+            if record.isUpNext == true {
+                let done = place.map { Double($0.number - 1) / Double($0.total) } ?? 0
+                return MediaCardPlayback(fraction: done, label: label, watched: false, episodeFraction: nil,
+                                         spoken: "Up next, episode \(label)")
+            }
+            let episode = record.fraction
+            let through = place.map { (Double($0.number - 1) + episode) / Double($0.total) } ?? episode
+            return MediaCardPlayback(fraction: through, label: label, watched: false,
+                                     episodeFraction: place == nil ? nil : episode,
+                                     spoken: "Episode \(label), " + Self.timeLeft(record, long: true))
+        }
+        if record.completed || (record.explicitlyUnwatched != true && isWatched(item) && record.fraction == 0) {
+            return MediaCardPlayback(fraction: 1, label: "Watched", watched: true, episodeFraction: nil,
+                                     spoken: "Watched")
+        }
+        if record.isUpNext == true {
+            return MediaCardPlayback(fraction: 0, label: "Up next", watched: false, episodeFraction: nil,
+                                     spoken: "Up next")
+        }
+        guard record.fraction > 0 else { return nil }
+        return MediaCardPlayback(fraction: record.fraction, label: Self.timeLeft(record, long: false),
+                                 watched: false, episodeFraction: nil, spoken: Self.timeLeft(record, long: true))
+    }
+
+    /// "S1 · E8", short enough to sit beside a bar.
+    nonisolated private static func shortCode(_ episode: MediaItem) -> String? {
+        guard let number = episode.indexNumber else { return nil }
+        return "S\(episode.parentIndexNumber ?? 1) · E\(number)"
+    }
+
+    /// "42m left", "1h 12m left" -- or, said aloud, in words.
+    nonisolated private static func timeLeft(_ record: LocalMediaPlayback, long: Bool) -> String {
+        let minutes = max(1, Int(ceil(max(0, record.duration - record.position) / 60)))
+        if long { return minutes == 1 ? "1 minute left" : "\(minutes) minutes left" }
+        guard minutes >= 60 else { return "\(minutes)m left" }
+        let rest = minutes % 60
+        return rest == 0 ? "\(minutes / 60)h left" : "\(minutes / 60)h \(rest)m left"
+    }
+
+    /// Where an episode falls in its show, counted through every season and
+    /// leaving specials out -- or nil until the show's episodes are known,
+    /// which this asks for the first time it is wanted.
+    func episodePlace(of episode: MediaItem) -> (number: Int, total: Int)? {
+        guard episode.type == "Episode", let key = episodeOrderKey(for: episode) else { return nil }
+        if let order = episodeOrders[key] {
+            guard let number = order.positions[episode.id] else { return nil }
+            return (number, order.total)
+        }
+        requestEpisodeOrder(key: key, for: episode)
+        return nil
+    }
+
+    private func episodeOrderKey(for episode: MediaItem) -> String? {
+        guard let profileID = serverID(of: episode), let seriesID = episode.seriesID, !seriesID.isEmpty
+        else { return nil }
+        return profileID.uuidString + "|" + seriesID
+    }
+
+    /// One fetch per show per session, made after the card asking has been
+    /// drawn: a card asks while it is being drawn, and the answer must not
+    /// change the Library under it in the same pass.
+    private func requestEpisodeOrder(key: String, for episode: MediaItem) {
+        guard !episodeOrderLoads.contains(key), ProviderItem(id: episode.id) == nil,
+              let profile = profile(for: episode), let seriesID = episode.seriesID,
+              let client = try? client(for: profile) else { return }
+        episodeOrderLoads.insert(key)
+        Task { [weak self] in
+            guard let episodes = try? await client.episodes(userID: profile.userID, seriesID: seriesID),
+                  let self, self.contains(profile) else { return }
+            self.learnEpisodeOrder(episodes.map { $0.servedBy(profile.id) })
+        }
+    }
+
+    /// A show's episodes, as where each one falls. Internal for tests.
+    func learnEpisodeOrder(_ episodes: [MediaItem]) {
+        let ordered = LocalEpisodeProgressionPolicy.ordered(episodes).filter { ($0.parentIndexNumber ?? 1) > 0 }
+        guard let first = ordered.first, let key = episodeOrderKey(for: first) else { return }
+        var positions: [String: Int] = [:]
+        for (index, value) in ordered.enumerated() { positions[value.id] = index + 1 }
+        episodeOrders[key] = SeriesEpisodeOrder(total: ordered.count, positions: positions)
     }
 
     private func playbackStatus(for item: MediaItem, record: LocalMediaPlayback?) -> String? {
@@ -1097,6 +1211,33 @@ final class MediaLibrary: ObservableObject {
         let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
         let record = LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
+        // Another title's progress is never held over this one's.
+        if let held = heldPlayback, held.id != record.id { commitHeldPlayback() }
+        let stored = localPlayback.first { $0.id == record.id }
+        // A first record, a finish, or a change from Up Next or unwatched is
+        // a change the Library should show at once; the minute-by-minute
+        // creep of a position is not.
+        let changesState = stored == nil || stored?.completed != completed
+            || stored?.isUpNext == true || stored?.explicitlyUnwatched == true
+        heldPlayback = record
+        if changesState || Date().timeIntervalSince(lastPlaybackCommit) >= 30 {
+            commitHeldPlayback()
+        }
+    }
+
+    /// The title playing now, into the Library and onto disk. The player
+    /// calls this as it closes; the app does as it leaves the screen.
+    func flushLocalPlayback() {
+        commitHeldPlayback()
+    }
+
+    private func commitHeldPlayback() {
+        guard let record = heldPlayback else { return }
+        heldPlayback = nil
+        lastPlaybackCommit = Date()
+        let profileID = record.profileID
+        let item = record.item
+        let completed = record.completed
         let wasCompleted = localPlayback.first(where: { $0.id == record.id })?.completed == true
         if let index = localPlayback.firstIndex(where: { $0.id == record.id }) {
             localPlayback[index] = record
@@ -1119,6 +1260,7 @@ final class MediaLibrary: ObservableObject {
 
     func clearLocalPlayback() {
         let connected = recordSources
+        if let held = heldPlayback, connected.contains(held.profileID) { heldPlayback = nil }
         localPlayback.removeAll { connected.contains($0.profileID) }
         persistLocalPlayback()
     }
@@ -1133,7 +1275,19 @@ final class MediaLibrary: ObservableObject {
     /// progress record.
     func removeFromContinueWatching(_ item: MediaItem) {
         guard let profileID = serverID(of: item) else { return }
+        if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { heldPlayback = nil }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
+        // A show sits in Continue Watching as one card, whichever of its
+        // episodes put it there. Taking only the one shown left a generated
+        // Up Next behind, and the show came straight back. What was finished
+        // stays in History.
+        if item.type == "Episode" {
+            let key = Self.seriesKey(for: item)
+            localPlayback.removeAll { record in
+                record.profileID == profileID && record.item.type == "Episode" && !record.completed
+                    && Self.seriesKey(for: record.item) == key
+            }
+        }
         persistLocalPlayback()
     }
 

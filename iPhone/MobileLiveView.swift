@@ -33,7 +33,8 @@ struct MobileLiveView: View {
         get { playbackSlot.controller }
         nonmutating set { playbackSlot.controller = newValue }
     }
-    @Namespace private var selection
+    /// The sports list, dropped from the pill under the masthead.
+    @State private var leagueMenuOpen = false
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
@@ -144,7 +145,7 @@ struct MobileLiveView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         masthead(slate)
-                        leagueTabs
+                        leagueBar
                         if previewStream != nil {
                             Color.clear.frame(height: 4 + videoHeight + metadataHeight)
                             if let watching {
@@ -205,6 +206,30 @@ struct MobileLiveView: View {
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
+
+                    if leagueMenuOpen && !fillsScreen {
+                        // Everything under the header steps back. The pill
+                        // stays in reach: it is how the list closes, too.
+                        Color.black.opacity(0.45)
+                            .padding(.top, Self.headerHeight)
+                            .onTapGesture { setLeagueMenu(false) }
+                            .transition(.opacity)
+                            .accessibilityHidden(true)
+                        MobileLeagueMenu(entries: leagueEntries(), selected: league,
+                                         maxHeight: viewport.size.height - Self.headerHeight - 20) { choice in
+                            withAnimation(.easeInOut(duration: 0.18)) { league = choice }
+                            setLeagueMenu(false)
+                        }
+                        // A column hung from the pill, down the left side:
+                        // it opens where the thumb already is.
+                        .frame(width: min(316, viewport.size.width - 32))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                        .padding(.top, Self.headerHeight - 4)
+                        .transition(reduceMotion ? AnyTransition.opacity
+                                    : AnyTransition.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
+                        .accessibilityAction(.escape) { setLeagueMenu(false) }
+                    }
                 }
             }
             .background(LineupStyle.background)
@@ -214,7 +239,10 @@ struct MobileLiveView: View {
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             // Turning the phone needs no animation of its own: the rotation
             // already carries everything that follows from it.
-            .onChange(of: fillsScreen) { _, value in onFullscreenChange(value) }
+            .onChange(of: fillsScreen) { _, value in
+                onFullscreenChange(value)
+                if value { leagueMenuOpen = false }
+            }
             .onChange(of: sideways) { _, value in
                 // A preview made full screen by hand, then turned on its side,
                 // comes back upright as the preview, not as full screen.
@@ -233,7 +261,7 @@ struct MobileLiveView: View {
                 Button("OK", role: .cancel) { upcomingGame = nil }
             } message: {
                 if let game = upcomingGame {
-                    Text("\(game.awayTeam) vs. \(game.homeTeam)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
+                    Text("\(game.matchupLine)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
                 }
             }
             .alert("Streams are still syncing…", isPresented: $showsChannelSyncMessage) {
@@ -306,8 +334,8 @@ struct MobileLiveView: View {
             .onChange(of: isActive) { _, active in
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
-                if active { playback.resume() }
-                else if !playback.pictureInPictureActive { closePreview() }
+                if active { playback.resume() } else { leagueMenuOpen = false }
+                if !active && !playback.pictureInPictureActive { closePreview() }
             }
             .onChange(of: playback.isPlaying) { _, playing in
                 // Genuinely playing, not merely selected: a channel that never
@@ -354,64 +382,66 @@ struct MobileLiveView: View {
         .frame(height: Self.mastheadHeight, alignment: .bottom)
     }
 
-    private var leagueTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 25) {
-                if !library.followedTeams.isEmpty { followedTab }
-                leagueTab(value: nil)
-                ForEach(SportsLeague.allCases) { leagueTab(value: $0) }
-            }.padding(.horizontal, 20)
+    /// The sport on a pill, and My Teams beside it once there is anyone to
+    /// follow.
+    private var leagueBar: some View {
+        HStack(spacing: 10) {
+            MobileLeagueMenuButton(league: league, isOpen: leagueMenuOpen) {
+                setLeagueMenu(!leagueMenuOpen)
+            }
+            Spacer(minLength: 0)
+            if !library.followedTeams.isEmpty { followedChip }
         }
+        .padding(.horizontal, 16)
         .frame(height: Self.leagueStripHeight)
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
+        .sensoryFeedback(.selection, trigger: league)
+        .sensoryFeedback(.selection, trigger: onlyFollowed)
+    }
+
+    private func setLeagueMenu(_ open: Bool) {
+        guard leagueMenuOpen != open else { return }
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            leagueMenuOpen = open
+        }
+    }
+
+    /// Every league with what it has on, counted once for the open list.
+    private func leagueEntries() -> [MobileLeagueMenu.Entry] {
+        let all = library.games(for: nil).filter { !onlyFollowed || library.isFollowing($0) }
+        var games: [SportsLeague: Int] = [:]
+        var live: [SportsLeague: Int] = [:]
+        for game in all {
+            games[game.league, default: 0] += 1
+            if game.isLive { live[game.league, default: 0] += 1 }
+        }
+        return [MobileLeagueMenu.Entry(league: nil, games: all.count, live: live.values.reduce(0, +))]
+            + SportsLeague.allCases.map {
+                MobileLeagueMenu.Entry(league: $0, games: games[$0] ?? 0, live: live[$0] ?? 0)
+            }
     }
 
     /// Only appears once there is somebody to follow. An empty filter is a
     /// control that can only disappoint.
-    private var followedTab: some View {
+    private var followedChip: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { onlyFollowed.toggle() }
         } label: {
-            Image(systemName: onlyFollowed ? "star.fill" : "star")
-                .font(.system(size: 19))
-                .foregroundStyle(onlyFollowed ? LineupStyle.highlight : LineupStyle.lightPurple)
-                .opacity(onlyFollowed ? 1 : 0.38)
-                .frame(minWidth: 44, minHeight: 48)
-                .overlay(alignment: .bottom) {
-                    if onlyFollowed {
-                        Rectangle().fill(LineupStyle.highlight).frame(height: 2)
-                    }
-                }
+            HStack(spacing: 6) {
+                Image(systemName: onlyFollowed ? "star.fill" : "star")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("My Teams").font(.inter(13, .semibold))
+            }
+            .foregroundStyle(onlyFollowed ? LineupStyle.onHighlight : LineupStyle.secondary)
+            .padding(.horizontal, 13)
+            .frame(height: 36)
+            .background(onlyFollowed ? LineupStyle.highlight : LineupStyle.raised, in: Capsule())
+            .overlay(Capsule().strokeBorder(onlyFollowed ? .clear : LineupStyle.line, lineWidth: 0.5))
+            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MobileCardButtonStyle())
         .accessibilityLabel("My teams")
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
-    }
-
-    private func leagueTab(value: SportsLeague?) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) { league = value }
-        } label: {
-            Group {
-                if let value {
-                    MobileLeagueLogo(league: value, size: 32)
-                } else {
-                    Image(systemName: "square.grid.2x2.fill").font(.system(size: 21))
-                        .foregroundStyle(LineupStyle.lightPurple)
-                }
-            }
-                .opacity(league == value ? 1 : 0.38)
-                .frame(minWidth: 44, minHeight: 48)
-                .overlay(alignment: .bottom) {
-                    if league == value {
-                        Rectangle().fill(LineupStyle.highlight).frame(height: 2)
-                            .matchedGeometryEffect(id: "leagueUnderline", in: selection)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(value?.shortName ?? "All sports")
-        .accessibilityAddTraits(league == value ? .isSelected : [])
     }
 
     private func sectionTitle(_ title: String, detail: String) -> some View {
@@ -467,7 +497,7 @@ struct MobileLiveView: View {
                 if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
                     ContentUnavailableView("Nothing for your teams",
                         systemImage: "star",
-                        description: Text("None of the teams you follow are playing in this range. Tap the star again to see everything."))
+                        description: Text("None of the teams you follow are playing in this range. Tap My Teams again to see everything."))
                         .padding(.top, 40)
                 } else if slate.all.isEmpty && !library.isScheduleLoading {
                     ContentUnavailableView(
@@ -718,10 +748,11 @@ private struct MobileMatchupRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
                     VStack(alignment: .leading, spacing: 4) {
+                        // An event has no teams to show, so its league's
+                        // mark stands where their crests would: the tour on
+                        // a tennis tournament, UFC on a fight night.
                         HStack(spacing: 9) {
-                            if game.isNFLRedZone {
-                                MobileLeagueLogo(league: .nfl, size: 28)
-                            }
+                            MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 28)
                             Text(game.eventName ?? "")
                                 .font(.inter(.body, .semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)
@@ -730,9 +761,9 @@ private struct MobileMatchupRow: View {
                     }
                 } else {
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
-                         record: game.awayRecord, score: game.awayScore)
+                         record: game.awayRecord, score: game.awayScore, isAway: true)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
-                         record: game.homeRecord, score: game.homeScore)
+                         record: game.homeRecord, score: game.homeScore, isAway: false)
                     if let whereItIs { place(whereItIs) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -789,7 +820,8 @@ private struct MobileMatchupRow: View {
             .lineLimit(1).truncationMode(.tail)
     }
 
-    private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String) -> some View {
+    private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String,
+                      isAway: Bool) -> some View {
         HStack(spacing: 9) {
             // The disc went first and the ring that replaced it goes now: both
             // drew a circle around a mark that is not one. The badge lights
@@ -801,13 +833,16 @@ private struct MobileMatchupRow: View {
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     .multilineTextAlignment(.leading)
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
+                    // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
                         .foregroundStyle(LineupStyle.secondary)
-                        .accessibilityLabel("Record: \(record)")
+                        .accessibilityLabel(game.league.isTennis ? record : "Record: \(record)")
                 }
             }
             Spacer(minLength: 3)
-            if game.isLive {
+            if game.isLive, let sets = game.tennis {
+                TennisSetColumns(score: sets, isAway: isAway, size: 17)
+            } else if game.isLive {
                 Text(score).font(.interDigits(.title3, .bold))
             }
         }

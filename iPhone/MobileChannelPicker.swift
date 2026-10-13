@@ -24,6 +24,9 @@ struct MobileChannelPicker: View {
         if let matched = library.verifiedStream(for: game), seen.insert(matched.id).inserted {
             out.append(matched)
         }
+        for showing in library.tennisCoverage(for: game) where seen.insert(showing.id).inserted {
+            out.append(showing)
+        }
         for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
         where seen.insert(favorite.id).inserted {
             out.append(favorite)
