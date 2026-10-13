@@ -1039,7 +1039,7 @@ private struct MediaCatalogsScreen: View {
         VStack(alignment: .leading, spacing: shelfStackSpacing) {
             #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
-                Text(media.shelfTitle(catalog)).font(sectionTitleFont)
+                TVShelfTitle(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id))
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1423,7 +1423,7 @@ private struct MediaCatalogsScreen: View {
         let shape = MediaArtShape.forItems(shelf.items)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text(shelf.title).font(sectionTitleFont)
+                TVShelfTitle(title: shelf.title, symbol: Self.shelfSymbol(shelf.id))
                 if let label = shelf.label {
                     HStack(spacing: 7) {
                         if let brand = shelf.catalog.flatMap(media.serverBrand(for:)) {
@@ -1706,7 +1706,7 @@ private struct MediaCatalogsScreen: View {
         VStack(alignment: .leading, spacing: shelfStackSpacing) {
             #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(sectionTitleFont)
+                TVShelfTitle(title: title, symbol: Self.shelfSymbol(id))
                 Spacer()
             }
             .padding(.horizontal, horizontalPadding)
@@ -3129,7 +3129,7 @@ private struct MediaDetailScreen: View {
     @ViewBuilder
     private func detailSectionTitle(_ title: String, symbol: String) -> some View {
         #if os(tvOS)
-        Text(title).font(sectionTitleFont)
+        TVShelfTitle(title: title, symbol: symbol)
             .padding(.horizontal, horizontalPadding)
         #else
         PhoneShelfHeader(title: title, symbol: symbol) { EmptyView() }
@@ -6608,6 +6608,29 @@ private struct PhoneShelfHeader<Accessory: View>: View {
             Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
         }
         .padding(.horizontal, LineupPanelStyle.inset)
+    }
+}
+#endif
+
+#if os(tvOS)
+/// A shelf's title on the television: the panels' icon and heavy caption in
+/// light grey, at the size it is read at across a room.
+private struct TVShelfTitle: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
+                .accessibilityHidden(true)
+            Text(title.uppercased())
+                .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
+                .tracking(LineupPanelStyle.headerTracking)
+        }
+        .foregroundStyle(LineupPanelStyle.caption)
+        .lineLimit(1)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 #endif

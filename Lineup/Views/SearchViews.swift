@@ -326,12 +326,10 @@ struct AppSearchView: View {
     private func sectionHeader(_ title: String, symbol: String, count: Int,
                                seeAll kind: AppSearchCategory?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            #if !os(tvOS)
             Image(systemName: symbol)
                 .font(.system(size: Metrics.headerSize, weight: .bold, design: .rounded))
                 .padding(.trailing, -4)
                 .accessibilityHidden(true)
-            #endif
             Text(title.uppercased())
                 .font(.inter(Metrics.headerSize, .heavy)).tracking(Metrics.headerTracking)
             Text("\(count)")
@@ -350,7 +348,7 @@ struct AppSearchView: View {
             }
         }
         #if os(tvOS)
-        .foregroundStyle(LineupStyle.secondary)
+        .foregroundStyle(LineupPanelStyle.caption)
         .padding(.horizontal, Metrics.inset)
         #else
         // A panel's header: light grey caption over the panel's hairline.
@@ -908,8 +906,8 @@ private enum AppSearchMetrics {
     static let bottomInset: CGFloat = 80
     static let sectionGap: CGFloat = 54
     static let headerGap: CGFloat = 18
-    static let headerSize: CGFloat = 16
-    static let headerTracking: CGFloat = 2.2
+    static let headerSize: CGFloat = 22
+    static let headerTracking: CGFloat = 0.6
     static let chipGap: CGFloat = 16
     static let chipSize: CGFloat = 22
     static let chipHeight: CGFloat = 56

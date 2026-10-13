@@ -400,7 +400,7 @@ private struct ManualGameChannelPicker: View {
         HStack(alignment: .center, spacing: 28) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("CHOOSE A CHANNEL")
-                    .font(.inter(16, .bold)).tracking(1.8).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
                 Text("\(game.awayTeam) vs. \(game.homeTeam)")
                     .font(.inter(40, .semibold)).foregroundStyle(LineupStyle.text)
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -453,7 +453,7 @@ private struct ManualGameChannelPicker: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title.uppercased())
-                    .font(.inter(16, .bold)).tracking(1.6).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 16)
                 Text(streams.count == 1 ? "1 channel" : "\(streams.count.formatted()) channels")
@@ -686,7 +686,7 @@ private struct TVCatchUpDetail: View {
                 ChannelLogo(url: stream.streamIcon, width: 96, height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("CATCH UP").font(.inter(13, .bold)).tracking(2.2)
+                    Text("CATCH UP").font(.inter(13, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupStyle.text)
                         .lineLimit(2).minimumScaleFactor(0.8)
@@ -703,7 +703,7 @@ private struct TVCatchUpDetail: View {
             if let programme {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(TVCatchUpFormat.when(programme))
-                        .font(.inter(15, .bold)).tracking(1.6)
+                        .font(.inter(15, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(programme.title)
                         .font(.inter(40, .bold)).foregroundStyle(LineupStyle.text)
@@ -752,10 +752,10 @@ private struct TVCatchUpDayHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(TVCatchUpFormat.dayTitle(day))
-                .font(.inter(16, .bold)).tracking(1.8)
+                .font(.inter(16, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.text)
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
-                .font(.inter(14, .semibold)).tracking(1.4)
+                .font(.inter(14, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 0)
             Text(count == 1 ? "1 programme" : "\(count) programmes")
@@ -822,7 +822,7 @@ private struct TVCatchUpOnNow: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
-            Text("ON NOW").font(.inter(13, .bold)).tracking(1.4)
+            Text("ON NOW").font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.liveStatus)
         }
     }
@@ -903,8 +903,8 @@ private struct LiveBoardRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("EXPLORE").foregroundColor(LineupStyle.lightPurple).font(.inter(12, .bold)).tracking(3)
-                .foregroundStyle(LiveBoardStyle.muted).padding(.bottom, 8)
+            Text("EXPLORE").font(.inter(16, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption).padding(.bottom, 8)
             LiveBoardLeagueButton(title: "All sports", league: nil, selected: selectedLeague == nil,
                 onEnterGames: onEnterGames) { selectedLeague = nil; onChoose() }
             ForEach(SportsLeague.allCases) { league in
@@ -1327,18 +1327,18 @@ private struct LiveSlate: View {
     private var header: some View {
         HStack(spacing: 14) {
             LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 32)
-            Text(game.league.shortName).font(.inter(17, .bold)).tracking(2.4)
+            Text(game.league.shortName).font(.inter(17, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.text)
             if let network = nonempty(game.broadcast) {
                 Rectangle().fill(LivePalette.secondary.opacity(0.5)).frame(width: 1, height: 18)
-                Text(network.uppercased()).font(.inter(17, .bold)).tracking(1.6)
+                Text(network.uppercased()).font(.inter(17, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary).lineLimit(1)
             }
             Spacer(minLength: 20)
             if game.isLive {
                 LiveOnAirTag()
             } else {
-                Text(liveDayLabel(game.start)).font(.inter(15, .bold)).tracking(2.4)
+                Text(liveDayLabel(game.start)).font(.inter(15, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary)
             }
         }
@@ -1365,7 +1365,7 @@ private struct LiveSlate: View {
         } else {
             let parts = liveTimeParts(game.start)
             VStack(spacing: 4) {
-                Text(liveStartWord(game.league)).font(.inter(15, .bold)).tracking(3.2)
+                Text(liveStartWord(game.league)).font(.inter(15, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary)
                 (Text(parts.time).font(.interDigits(84, .semibold)).foregroundColor(LivePalette.text)
                  + Text(parts.period.map { " " + $0 } ?? "").font(.inter(32, .semibold))
@@ -1530,7 +1530,7 @@ private struct LiveOnAirTag: View {
     var body: some View {
         HStack(spacing: 7) {
             Circle().fill(.white).frame(width: 7, height: 7)
-            Text("LIVE").font(.inter(14, .heavy)).tracking(2)
+            Text("LIVE").font(.inter(14, .heavy)).tracking(0.6)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12).frame(height: 30)
@@ -1547,7 +1547,7 @@ private struct LiveStatusCapsule: View {
         HStack(spacing: 11) {
             PulsingLiveDot(size: 9)
             Text(status.isEmpty ? "LIVE" : status.uppercased())
-                .font(.inter(18, .bold)).tracking(1.8)
+                .font(.inter(18, .heavy)).tracking(0.6)
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(LivePalette.text)
@@ -1568,7 +1568,7 @@ private struct LiveActionHint: View {
                 Image(systemName: hint == .secondGame ? "rectangle.split.2x1.fill" : "play.fill")
                     .font(.system(size: 14, weight: .bold))
                 Text(hint == .secondGame ? "SELECT TO WATCH SIDE BY SIDE" : "SELECT TO PREVIEW")
-                    .font(.inter(15, .bold)).tracking(2.2)
+                    .font(.inter(15, .heavy)).tracking(0.6)
             }
             .foregroundStyle(LivePalette.text)
             .padding(.horizontal, 22).frame(height: 44)
@@ -1649,7 +1649,7 @@ private struct LiveFlank: View {
                 VStack(spacing: 12) {
                     LiveCrest(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
                               size: min(92, proxy.size.width * 0.5))
-                    Text(abbreviation).font(.inter(20, .bold)).tracking(1.6)
+                    Text(abbreviation).font(.inter(20, .heavy)).tracking(0.6)
                         .foregroundStyle(LivePalette.secondary)
                     if game.isLive, !score.isEmpty {
                         Text(score).font(.interDigits(56, .bold))
@@ -1671,7 +1671,7 @@ private struct LiveTallyChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(LivePalette.onAir).frame(width: 8, height: 8)
-            Text("PREVIEW").font(.inter(13, .bold)).tracking(2)
+            Text("PREVIEW").font(.inter(13, .heavy)).tracking(0.6)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12).frame(height: 30)
@@ -1803,17 +1803,18 @@ private struct LiveEyebrow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Text(title).font(.inter(15, .bold)).tracking(2.6).foregroundStyle(LivePalette.secondary)
+            Text(title.uppercased()).font(.inter(20, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption)
             Spacer(minLength: 10)
             if live > 0 {
                 Circle().fill(LivePalette.onAir).frame(width: 7, height: 7)
-                Text("\(live) LIVE").font(.inter(14, .bold)).tracking(1.4)
+                Text("\(live) LIVE").font(.inter(14, .heavy)).tracking(0.6)
                     .foregroundStyle(LineupStyle.liveStatus)
             } else if let detail {
-                Text(detail).font(.inter(14, .bold)).tracking(1.4).foregroundStyle(LivePalette.secondary)
+                Text(detail).font(.inter(14, .heavy)).tracking(0.6).foregroundStyle(LivePalette.secondary)
             }
         }
-        .frame(height: 26)
+        .frame(height: 30)
     }
 }
 
@@ -1848,7 +1849,7 @@ private struct LiveMyTeamsEmpty: View {
                             Text(team.name).font(.inter(17, .semibold))
                                 .foregroundStyle(LivePalette.text).lineLimit(1)
                             Spacer(minLength: 8)
-                            Text("NO GAME").font(.inter(12, .bold)).tracking(1.4)
+                            Text("NO GAME").font(.inter(12, .heavy)).tracking(0.6)
                                 .foregroundStyle(LivePalette.secondary)
                         }
                         .padding(.vertical, 10)
@@ -1983,7 +1984,7 @@ private struct LiveTag: View {
         HStack(spacing: 6) {
             Image(systemName: symbol).font(.system(size: 11, weight: .bold))
             if !compact {
-                Text(title).font(.inter(12, .heavy)).tracking(1.4)
+                Text(title).font(.inter(12, .heavy)).tracking(0.6)
             }
         }
         .foregroundStyle(LineupStyle.background)
@@ -2097,7 +2098,7 @@ private struct LiveMatchupBoard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Choose a second game").font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
                     Text("MULTIVIEW  ·  FIRST GAME  \((firstGame.map(liveHeadline) ?? multiviewTitle).uppercased())")
-                        .font(.inter(13, .bold)).tracking(1.6)
+                        .font(.inter(13, .heavy)).tracking(0.6)
                         .foregroundStyle(LivePalette.secondary).lineLimit(1)
                 }
             } else {
@@ -2158,7 +2159,7 @@ private struct LiveBoardCount: View {
                 Text("\(live) LIVE").foregroundStyle(LineupStyle.liveStatus)
             }
         }
-        .font(.inter(14, .bold)).tracking(1.5)
+        .font(.inter(14, .heavy)).tracking(0.6)
         .foregroundStyle(LivePalette.secondary)
     }
 }
@@ -2379,7 +2380,7 @@ private struct LiveMatchupCard: View {
     private var topLine: some View {
         HStack(spacing: 10) {
             LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-            Text(game.league.shortName).font(.inter(15, .bold)).tracking(1.6)
+            Text(game.league.shortName).font(.inter(15, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.secondary)
             Spacer(minLength: 0)
         }
@@ -2466,7 +2467,7 @@ private struct LiveMatchupCard: View {
             Spacer(minLength: 8)
             clock.layoutPriority(2)
         }
-        .font(.inter(13, .bold)).tracking(1.4)
+        .font(.inter(13, .heavy)).tracking(0.6)
         .foregroundStyle(LivePalette.text)
         .frame(height: 24)
     }
@@ -2636,7 +2637,7 @@ private struct LiveTicker: View {
             // The crawl's bug, in the theme's own colour, the way a broadcast
             // brands the corner its scores come in from.
             Text("SCORES")
-                .font(.inter(13, .heavy)).tracking(2.4)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.background)
                 .padding(.horizontal, 12).frame(height: 26)
                 .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -2691,7 +2692,7 @@ private struct LiveTicker: View {
         HStack(spacing: cardSpacing) {
             if displayedEvents.isEmpty {
                 Text("NO LIVE OR FINAL SCORES YET")
-                    .font(.inter(16, .bold)).tracking(2.2)
+                    .font(.inter(16, .heavy)).tracking(0.6)
                     .foregroundStyle(LineupStyle.secondary).lineLimit(1)
                     .frame(width: 400, alignment: .leading)
             } else {
@@ -2700,7 +2701,7 @@ private struct LiveTicker: View {
                 ForEach(displayedEvents) { game in
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(game.league.shortName)
-                            .font(.inter(14, .bold)).tracking(1.6)
+                            .font(.inter(14, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                             .frame(width: 62, alignment: .leading)
                         Text(game.awayAbbreviation)
@@ -2719,7 +2720,7 @@ private struct LiveTicker: View {
                             .font(.interDigits(22, .bold)).foregroundStyle(LineupStyle.text)
                             .frame(width: 48, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL")
-                            .font(.inter(14, .bold)).tracking(1.4)
+                            .font(.inter(14, .heavy)).tracking(0.6)
                             .foregroundStyle(game.isLive ? LineupStyle.liveStatus : LineupStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -2834,7 +2835,7 @@ private struct ScheduleSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 if title == "Live now" { Circle().fill(LineupStyle.text).frame(width: 9, height: 9) }
-                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.5)
+                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .heavy)).tracking(0.6)
                     .foregroundStyle(title == "Live now" ? LineupStyle.text : LineupStyle.secondary)
                 Text("(\(events.count))").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
                 Rectangle().fill(LineupStyle.line).frame(height: 1)
@@ -3617,7 +3618,7 @@ private struct GuideControlBar: View {
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
-                .font(.inter(13, .bold)).tracking(1.6)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(GuidePalette.secondary)
             Rectangle().fill(GuidePalette.line).frame(width: 1, height: 26)
             Text(now.formatted(date: .omitted, time: .shortened))
@@ -3644,7 +3645,7 @@ private struct GuideTitleBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(eyebrow)
-                .font(.inter(13, .bold)).tracking(2.2)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(GuidePalette.secondary).lineLimit(1)
             Text(title)
                 .font(.inter(32, .bold))
@@ -3698,10 +3699,10 @@ private struct GuidePreviewPanel: View {
                 HStack(spacing: 12) {
                     if item.program.isLive { GuideLiveTag() }
                     Text(item.stream.name.uppercased())
-                        .font(.inter(14, .bold)).tracking(1.6)
+                        .font(.inter(14, .heavy)).tracking(0.6)
                         .foregroundStyle(GuidePalette.text).lineLimit(1)
                     Text(categoryName.uppercased())
-                        .font(.inter(14, .bold)).tracking(1.6)
+                        .font(.inter(14, .heavy)).tracking(0.6)
                         .foregroundStyle(GuidePalette.secondary).lineLimit(1)
                     if let quality { GuideTinyBadge(title: quality) }
                     if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
@@ -3718,7 +3719,7 @@ private struct GuidePreviewPanel: View {
                         GuideProgressBar(progress: progress).frame(width: 220, height: 4)
                         if let remaining {
                             Text(remaining)
-                                .font(.inter(13, .bold)).tracking(1.4)
+                                .font(.inter(13, .heavy)).tracking(0.6)
                                 .foregroundStyle(GuidePalette.secondary)
                         }
                     }
@@ -3741,7 +3742,7 @@ private struct GuidePreviewPanel: View {
                 Text("MENU HIDES THE PREVIEW")
                     .foregroundStyle(GuidePalette.secondary.opacity(0.8))
             }
-            .font(.inter(12, .bold)).tracking(1.6)
+            .font(.inter(12, .heavy)).tracking(0.6)
             .fixedSize()
             .frame(maxHeight: .infinity, alignment: .bottom)
             .padding(.bottom, 8)
@@ -3897,9 +3898,9 @@ private struct GuideSidebarHeading: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.inter(13, .bold)).tracking(2.2)
-            .foregroundStyle(GuidePalette.secondary)
+        Text(title.uppercased())
+            .font(.inter(16, .heavy)).tracking(LineupPanelStyle.headerTracking)
+            .foregroundStyle(LineupPanelStyle.caption)
             .lineLimit(1)
             .padding(.leading, 16)
             .frame(height: 40, alignment: .bottomLeading)
@@ -3979,7 +3980,7 @@ private struct GuideTimelineHeader: View {
             // has it. There is no line down the grid for it: how far each
             // programme on now has run is washed across its own cell.
             VStack(spacing: 2) {
-                Text("NOW").font(.inter(12, .bold)).tracking(1.4)
+                Text("NOW").font(.inter(12, .heavy)).tracking(0.6)
                     .foregroundStyle(GuidePalette.secondary)
                 Text(now.formatted(date: .omitted, time: .shortened))
                     .font(.interDigits(17, .semibold))
@@ -4252,7 +4253,7 @@ private struct TVFavoritesOrderView: View {
                 HStack(alignment: .center, spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR CHANNELS")
-                            .font(.inter(13, .bold)).tracking(2.2)
+                            .font(.inter(13, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                         Text("Arrange Favorites")
                             .font(.inter(46, .bold))
@@ -4553,7 +4554,7 @@ private struct GuideLiveTag: View {
         HStack(spacing: 7) {
             GuideLiveDot(size: 10)
             Text("LIVE")
-                .font(.inter(14, .heavy)).tracking(1.6)
+                .font(.inter(14, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.liveStatus)
         }
     }
@@ -4634,7 +4635,7 @@ struct AccountView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("LINEUP")
-                .font(.inter(13, .bold)).tracking(2.2)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Text("Settings")
                 .font(.inter(52, .bold))
@@ -4887,11 +4888,21 @@ private struct AccountSectionHeading: View {
     let title: String
     init(_ title: String) { self.title = title }
 
+    /// Each section's icon, by its name.
+    private var symbol: String {
+        switch title {
+        case "SOURCES": "antenna.radiowaves.left.and.right"
+        case "LIBRARY": "rectangle.stack"
+        case "DIAGNOSTICS": "waveform.path.ecg"
+        default: "info.circle"
+        }
+    }
+
+    // The panels' header: icon and heavy caption in light grey, a hairline
+    // under them.
     var body: some View {
-        HStack(spacing: 18) {
-            Text(title)
-                .font(.inter(13, .bold)).tracking(2.4)
-                .foregroundStyle(LineupStyle.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            LineupPanelHeader(title, systemImage: symbol)
             Rectangle().fill(LineupStyle.line).frame(height: 1)
         }
     }
@@ -4937,7 +4948,7 @@ private struct AccountStatusMark: View {
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 9, height: 9)
             }
             Text(status.title.uppercased())
-                .font(.inter(13, .bold)).tracking(1.6)
+                .font(.inter(13, .heavy)).tracking(0.6)
         }
         .foregroundStyle(tint)
         .fixedSize()
@@ -4969,7 +4980,7 @@ private struct AccountSourceCard<Actions: View>: View {
                 AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -4991,7 +5002,7 @@ private struct AccountSourceCard<Actions: View>: View {
                             .font(.interDigits(34, .bold)).foregroundStyle(LineupStyle.text)
                             .lineLimit(1).minimumScaleFactor(0.7)
                         Text(stat.label.uppercased())
-                            .font(.inter(12, .bold)).tracking(1.6)
+                            .font(.inter(12, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                             .lineLimit(1)
                     }
@@ -5031,7 +5042,7 @@ private struct AccountEmptySource<Action: View>: View {
                 AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -5345,7 +5356,7 @@ private struct AccountLinkCard<Destination: View>: View {
                 AccountGlyph(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -5410,7 +5421,7 @@ private struct TVPlaybackJournalView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(journal.days) { day in
                         Text(day.name.uppercased())
-                            .font(.inter(13, .bold)).tracking(2.2)
+                            .font(.inter(13, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                             .padding(.top, 18)
                         ForEach(Array(day.entries.enumerated()), id: \.offset) { _, entry in
@@ -5531,7 +5542,7 @@ private struct AccountRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 24) {
             Text(label.uppercased())
-                .font(.inter(13, .bold)).tracking(1.8)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 12)
             Text(value)
@@ -6654,7 +6665,7 @@ private struct TVPlayerChrome: View {
                             if isLive && controller.catchUp == nil { PulsingLiveDot(size: 8) }
                             PlaybackClockReader(clock: controller.clock) {
                                 Text(stateLabel)
-                                    .font(.inter(15, .bold)).tracking(1.5)
+                                    .font(.inter(15, .heavy)).tracking(0.6)
                                     .foregroundStyle(isLive && controller.catchUp == nil
                                                      ? LineupStyle.liveStatus : LineupStyle.mediaText)
                             }
@@ -6967,7 +6978,7 @@ private struct TVGameAlertBanner: View {
             HStack(spacing: 10) {
                 Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
                 Text(alert.headline.uppercased())
-                    .font(.inter(14, .bold)).tracking(1.4)
+                    .font(.inter(14, .heavy)).tracking(0.6)
                     .foregroundStyle(LineupStyle.liveStatus)
                 if !game.status.isEmpty {
                     Text(game.status.uppercased())

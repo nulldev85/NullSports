@@ -53,9 +53,11 @@ fileprivate extension LineupPalette {
     /// secondary and white for what matters. The games and their teams bring
     /// the colour, and red is kept for the one thing that is live.
     static let television = LineupPalette(
-        accent: rgb(0xF5F5F7), background: rgb(0x1A1A1C), surface: rgb(0x242427),
-        raised: rgb(0x2E2E32), sidebar: rgb(0x151517), selected: rgb(0x29292C),
-        focused: rgb(0x3A3A3E), warning: rgb(0xC7C7CC),
+        // The phone's ground and panels: black, with near-black cards on it.
+        // Focus is still the white layer over whatever is chosen.
+        accent: rgb(0xF5F5F7), background: rgb(0x000000), surface: rgb(0x1C1C1D),
+        raised: rgb(0x1C1C1D), sidebar: rgb(0x0E0E0F), selected: rgb(0x2C2C2E),
+        focused: rgb(0x2C2C2E), warning: rgb(0xC7C7CC),
         highlight: rgb(0xFFFFFF), highlightSoft: rgb(0xD1D1D6),
         selectionBorder: rgb(0xFFFFFF),
         positive: rgb(0xF5F5F7), logoPlate: rgb(0xF2F2F7),
@@ -127,6 +129,73 @@ private func rgb(_ value: UInt32) -> Color {
     )
 }
 
+/// The panels: a black ground with near-black cards on it, big soft corners,
+/// and a header inside each card -- an icon and a heavy rounded caption in
+/// light grey, over a hairline. Measured off a reference screen, not picked
+/// by eye, so every screen that uses them agrees to the point. The television
+/// takes the same look at the size it is read at, across a room.
+enum LineupPanelStyle {
+    #if os(tvOS)
+    static let radius: CGFloat = 32
+    static let margin: CGFloat = 80
+    static let inset: CGFloat = 30
+    static let gap: CGFloat = 28
+    /// The header's caption and icon.
+    static let headerSize: CGFloat = 22
+    static let headerTracking: CGFloat = 0.6
+    #else
+    static let radius: CGFloat = 24
+    /// Card edge to screen edge.
+    static let margin: CGFloat = 20
+    /// Card edge to what is in it, the header and its hairline included.
+    static let inset: CGFloat = 20
+    /// Card to card.
+    static let gap: CGFloat = 14
+    static let headerSize: CGFloat = 15
+    static let headerTracking: CGFloat = 0.4
+    #endif
+    static let fill = rgb(0x1C1C1D)
+    /// Inside a card: a bar's empty track, a pressed row.
+    static let well = rgb(0x2C2C2D)
+    static let divider = rgb(0x2C2C2D)
+    /// Headers and body copy. White is kept for the numbers and names a card
+    /// is about, so they stand out from the words around them.
+    static let caption = rgb(0xCCCCCC)
+    static let quiet = rgb(0x98989E)
+    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+}
+
+/// A panel's own header: icon, upper-case title, and whatever the panel puts
+/// on the right, such as See All.
+struct LineupPanelHeader<Accessory: View>: View {
+    let title: String
+    var systemImage: String?
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
+                    .accessibilityHidden(true)
+            }
+            Text(title.uppercased())
+                .font(.inter(LineupPanelStyle.headerSize, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .foregroundStyle(LineupPanelStyle.caption)
+    }
+}
+
+extension LineupPanelHeader where Accessory == EmptyView {
+    init(_ title: String, systemImage: String? = nil) {
+        self.init(title: title, systemImage: systemImage) { EmptyView() }
+    }
+}
+
 enum LineupStyle {
     #if os(tvOS)
     private static var palette: LineupPalette { .television }
@@ -183,7 +252,7 @@ enum LineupStyle {
         #if os(tvOS)
         // The light grey: a solid colour rather than white at an opacity, so
         // it reads the same over a card, a row or the picture.
-        return rgb(0xA1A1A6)
+        return rgb(0x98989E)
         #else
         return lightPurple.opacity(0.66)
         #endif
@@ -505,60 +574,6 @@ extension View {
     }
 }
 
-/// The phone's panels: a black ground with near-black cards on it, big soft
-/// corners, and a header inside each card -- an icon and a heavy rounded
-/// caption in light grey, over a hairline. Measured off a reference screen,
-/// not picked by eye, so every screen that uses them agrees to the point.
-enum LineupPanelStyle {
-    static let radius: CGFloat = 24
-    /// Card edge to screen edge.
-    static let margin: CGFloat = 20
-    /// Card edge to what is in it, the header and its hairline included.
-    static let inset: CGFloat = 20
-    /// Card to card.
-    static let gap: CGFloat = 14
-    static let fill = rgb(0x1C1C1D)
-    /// Inside a card: a bar's empty track, a pressed row.
-    static let well = rgb(0x2C2C2D)
-    static let divider = rgb(0x2C2C2D)
-    /// Headers and body copy. White is kept for the numbers and names a card
-    /// is about, so they stand out from the words around them.
-    static let caption = rgb(0xCCCCCC)
-    static let quiet = rgb(0x98989E)
-    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
-}
-
-/// A panel's own header: icon, upper-case title, and whatever the panel puts
-/// on the right, such as See All.
-struct LineupPanelHeader<Accessory: View>: View {
-    let title: String
-    var systemImage: String?
-    @ViewBuilder var accessory: () -> Accessory
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .accessibilityHidden(true)
-            }
-            Text(title.uppercased())
-                .font(.inter(15, .heavy)).tracking(0.4)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            accessory()
-        }
-        .foregroundStyle(LineupPanelStyle.caption)
-    }
-}
-
-extension LineupPanelHeader where Accessory == EmptyView {
-    init(_ title: String, systemImage: String? = nil) {
-        self.init(title: title, systemImage: systemImage) { EmptyView() }
-    }
-}
-
 /// A card with a header, a hairline, and its content under them. `padded`
 /// gives the content the card's insets. Rows that carry their own -- a list
 /// of games divided by hairlines, a row of posters that scrolls beneath the
@@ -834,13 +849,14 @@ struct PageTitle: View {
     }
 }
 
-/// A group's caption over a list of choices: on the phone the panels'
-/// header type, light grey and heavy; on the television its own small caps.
+/// A group's caption over a list of choices, in the panels' header type:
+/// light grey and heavy, at each platform's size.
 struct LineupGroupHeading: ViewModifier {
     func body(content: Content) -> some View {
         #if os(tvOS)
-        content.font(.inter(12, .heavy)).tracking(1.6)
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+        content.font(.inter(18, .heavy)).tracking(LineupPanelStyle.headerTracking)
+            .textCase(.uppercase)
+            .foregroundStyle(LineupPanelStyle.caption)
         #else
         content.font(.inter(15, .heavy)).tracking(0.4)
             .textCase(.uppercase)
