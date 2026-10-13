@@ -255,11 +255,11 @@ struct LibraryTrendingRow: Identifiable, Hashable, Sendable {
     let lists: [String]
 
     static let movies = LibraryTrendingRow(id: "builtin:trending-movies", title: "Trending Movies", kind: .movie,
-                                           lists: ["ba11in0nabudget/trakt-trending-movies",
-                                                   "ahmed2250/trakt-trending-movies-now"])
+                                           lists: ["snoak/trending-movies",
+                                                   "ba11in0nabudget/trakt-trending-movies"])
     static let shows = LibraryTrendingRow(id: "builtin:trending-shows", title: "Trending Shows", kind: .show,
-                                          lists: ["ba11in0nabudget/trakt-trending-shows",
-                                                  "ahmed2250/trakt-trending-tv-shows-now"])
+                                          lists: ["snoak/trakt-s-trending-shows",
+                                                  "ba11in0nabudget/trakt-trending-shows"])
     /// In the order the Library shows them, first of all its rows.
     static let all = [movies, shows]
 
