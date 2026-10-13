@@ -5,24 +5,18 @@ struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
         Group {
             if library.hasProfile || media.hasProfile {
-                // MainView holds the selected tab, so the theme scope goes
-                // inside it, around each tab's content. Re-identifying from
-                // here would take the tab with it and move the viewer off the
-                // settings screen they just used.
                 MainView()
             } else {
-                InitialSourceSetupView().lineupThemeScope(selectedTheme)
+                InitialSourceSetupView()
             }
         }
         .foregroundStyle(LineupStyle.text)
         .tint(LineupStyle.highlight)
         .background(LineupStyle.background.ignoresSafeArea())
-        .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         #if os(tvOS)
         // Every focusable surface in this app draws its own focus -- a filled
         // background, a lift, a border. tvOS's plate was drawn on top of that,
@@ -31,7 +25,6 @@ struct RootView: View {
         // it here covers the whole tree, including controls added later, rather
         // than relying on every call site to remember.
         .focusEffectDisabled()
-        .onChange(of: selectedTheme) { _, _ in applyLineupTabBarTheme() }
         // Again once there is a window: the pass in the app's initialiser runs
         // before any tab bar exists, and the bar's own font is read off a label
         // it has laid out.
@@ -70,32 +63,24 @@ struct RootView: View {
 #if os(tvOS)
 struct MainView: View {
     @State private var selectedTab = 0
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
-        // Each tab's content is scoped, not the TabView: the bar and the
-        // selection survive a switch, and only what is painted is redrawn.
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView(isActive: selectedTab == 1)
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
                 .tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView()
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(4)
             AccountView(selectedTab: $selectedTab)
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }

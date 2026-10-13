@@ -16,7 +16,7 @@ final class CloudSettingsSync: ObservableObject {
     private let syncedKeys = [
         "NullSports.profiles", "NullSports.activeProfile", "NullSports.mediaServers",
         "NullSports.activeMediaServer", "NullSports.mediaShelves", "Lineup.mediaHeroCatalog.v1", "NullSports.favoriteStreams",
-        "lineup.appearance.theme", "Lineup.manualGameReminders",
+        "Lineup.manualGameReminders",
         "Lineup.reminderLeadMinutes", "Lineup.morningDigest"
     ]
     private var isApplying = false

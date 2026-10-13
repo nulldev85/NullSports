@@ -13,35 +13,26 @@ struct MainView: View {
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var inlinePlayerFullscreen = false
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     var body: some View {
-        // Each tab's content is scoped to the theme, not the TabView: the bar
-        // and the selected tab survive a switch, and only what is painted is
-        // redrawn. The guide keeps its own identity on the active profile,
-        // which the theme scope sits outside of.
+        // The guide keeps its own identity on the active profile.
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView { playing = $0 }
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
-                .lineupThemeScope(selectedTheme)
                 .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
-        // Tab chrome remains neutral across themes; the selected asset changes
-        // from outline to fill, with white providing the quiet emphasis.
+        // Tab chrome stays neutral; the selected asset changes from outline
+        // to fill, with white providing the quiet emphasis.
         .tint(.white)
         .lineupTabBarBackground(LineupStyle.background)
         // Over every tab while channels, the guide and the matches refresh.
@@ -54,7 +45,6 @@ struct MainView: View {
                     .padding(.top, 4)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: selectedTheme)
         .preferredColorScheme(.dark)
         .ignoresSafeArea(inlinePlayerFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in
@@ -394,7 +384,6 @@ private struct MobileAccountView: View {
     @State private var removingMediaProfile: MediaServerProfile?
     @State private var clearingPreferences = false
     @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
-    @AppStorage(LineupTheme.storageKey) private var selectedTheme = LineupTheme.signal.rawValue
 
     /// Counts rather than the lists themselves, so the row says whether there
     /// is anything behind it without reproducing it.
@@ -498,37 +487,6 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Use your MDBList movie and show lists as Library shelves.")
                 }.lineupCellRows()
-                Section {
-                    // Collapsed rather than pushed. A theme screen of its own
-                    // dismissed itself as the palette changed underneath it,
-                    // which is why this picker stays inline; a disclosure row
-                    // gives back the height without putting it on a screen that
-                    // can be torn down mid-redraw.
-                    DisclosureGroup {
-                        Picker("Theme", selection: $selectedTheme) {
-                            ForEach(LineupTheme.allCases) { theme in
-                                HStack(spacing: 12) {
-                                    LineupThemeSwatch(theme: theme)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(theme.name)
-                                        Text(theme.detail).font(.inter(.caption))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .tag(theme.rawValue)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        .labelsHidden()
-                    } label: {
-                        LabeledContent("Theme", value: LineupTheme(rawValue: selectedTheme)?.name ?? "Signal")
-                    }
-                } header: {
-                    Text("Appearance").lineupSectionHeader()
-                } footer: {
-                    Text("Syncs through iCloud.")
-                }
-                .lineupCellRows()
                 // What is left once the provider card carries the channel
                 // count, the sync state and the refresh button: three facts
                 // about the app rather than a drawer of odds and ends, which
@@ -551,7 +509,6 @@ private struct MobileAccountView: View {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
-            .onChange(of: selectedTheme) { _, _ in CloudSettingsSync.shared.localSettingsChanged() }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)
                     .environmentObject(library)
