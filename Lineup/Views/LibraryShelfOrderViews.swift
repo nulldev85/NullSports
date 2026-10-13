@@ -1,14 +1,19 @@
 import SwiftUI
 
-/// Moving the Library's rows into the order the viewer wants them.
+/// Moving the Library's rows into the order the viewer wants them, and
+/// naming them as they like.
 ///
-/// The phone drags them, as any list on iPhone is reordered. The television
-/// has no drag: a row is picked up with Select, carried with up and down,
-/// and set down with Select again.
+/// The phone drags them, as any list on iPhone is reordered, and a tap
+/// renames one. The television has no drag: a row is picked up with Select,
+/// carried with up and down, and set down with Select again; holding Select
+/// renames it.
 struct LibraryShelfOrderSheet: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MediaLibrary.LibraryRow] = []
+    /// The row being renamed, and the name being typed for it.
+    @State private var renaming: MediaLibrary.LibraryRow?
+    @State private var newName = ""
     #if os(tvOS)
     /// The row being carried, if one is.
     @State private var carrying: String?
@@ -32,21 +37,37 @@ struct LibraryShelfOrderSheet: View {
         withAnimation(.easeInOut(duration: 0.25)) { rows = media.libraryRows }
     }
 
+    private func startRenaming(_ row: MediaLibrary.LibraryRow) {
+        newName = row.title
+        renaming = row
+    }
+
+    /// The typed name, or with nothing typed, the row's own back.
+    private func rename(_ row: MediaLibrary.LibraryRow, to name: String) {
+        let original = row.originalTitle ?? row.title
+        media.renameShelf(id: row.id, to: name.trimmingCharacters(in: .whitespaces) == original ? "" : name)
+        rows = media.libraryRows
+        renaming = nil
+    }
+
     #if !os(tvOS)
     private var phone: some View {
         NavigationStack {
             List {
                 Section {
                     ForEach(rows) { row in
-                        LibraryShelfOrderRow(row: row)
-                            .listRowBackground(LineupStyle.raised)
+                        Button { startRenaming(row) } label: {
+                            LibraryShelfOrderRow(row: row)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(LineupStyle.raised)
                     }
                     .onMove { from, to in
                         rows.move(fromOffsets: from, toOffset: to)
                         save()
                     }
                 } footer: {
-                    Text("Drag a row to move it. Your iPhone and Apple TV share this order.")
+                    Text("Tap a row to rename it, or drag it to move it. Your iPhone and Apple TV share these.")
                         .font(.inter(12))
                         .foregroundStyle(LineupStyle.secondary)
                 }
@@ -54,7 +75,7 @@ struct LibraryShelfOrderSheet: View {
             .environment(\.editMode, .constant(.active))
             .scrollContentBackground(.hidden)
             .background(LineupStyle.background.ignoresSafeArea())
-            .navigationTitle("Reorder Shelves")
+            .navigationTitle("Edit Shelves")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -67,6 +88,19 @@ struct LibraryShelfOrderSheet: View {
         }
         .tint(LineupStyle.highlight)
         .onAppear { rows = media.libraryRows }
+        .alert("Rename Shelf", isPresented: Binding(get: { renaming != nil },
+                                                   set: { if !$0 { renaming = nil } }),
+               presenting: renaming) { row in
+            TextField(row.originalTitle ?? row.title, text: $newName)
+                .textInputAutocapitalization(.words)
+            Button("Save") { rename(row, to: newName) }
+            if row.title != (row.originalTitle ?? row.title) {
+                Button("Use Original Name") { rename(row, to: "") }
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        } message: { row in
+            Text("Originally “\(row.originalTitle ?? row.title)”.")
+        }
     }
     #endif
 
@@ -75,9 +109,9 @@ struct LibraryShelfOrderSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("REORDER SHELVES").font(.inter(12, .heavy)).tracking(1.6)
+                    Text("EDIT SHELVES").font(.inter(12, .heavy)).tracking(1.6)
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-                    Text(carrying == nil ? "Select a row to pick it up"
+                    Text(carrying == nil ? "Select a row to move it · hold Select to rename it"
                                          : "Move it up or down, then select to set it down")
                         .font(.inter(22, .semibold)).lineLimit(1)
                         .contentTransition(.opacity)
@@ -121,6 +155,12 @@ struct LibraryShelfOrderSheet: View {
             rows = media.libraryRows
             focused = rows.first?.id
         }
+        .sheet(item: $renaming) { row in
+            TVShelfRenameSheet(row: row, name: $newName,
+                               onSave: { rename(row, to: newName) },
+                               onRestore: { rename(row, to: "") },
+                               onCancel: { renaming = nil })
+        }
     }
 
     private func televisionRow(_ row: MediaLibrary.LibraryRow, index: Int) -> some View {
@@ -143,6 +183,11 @@ struct LibraryShelfOrderSheet: View {
             .focusEffectDisabled()
             .onTapGesture {
                 if isCarried { setDown() } else { carrying = row.id }
+            }
+            .contextMenu {
+                if carrying == nil {
+                    Button("Rename", systemImage: "pencil") { startRenaming(row) }
+                }
             }
             .onMoveCommand { direction in
                 guard isCarried else { return }
@@ -245,6 +290,50 @@ private struct LibraryShelfOrderRow: View {
 }
 
 #if os(tvOS)
+/// Naming a row on the television: its name to type over, and the way back
+/// to its own.
+private struct TVShelfRenameSheet: View {
+    let row: MediaLibrary.LibraryRow
+    @Binding var name: String
+    let onSave: () -> Void
+    let onRestore: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("RENAME SHELF").font(.inter(12, .heavy)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("Originally “\(row.originalTitle ?? row.title)”")
+                    .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+            }
+            TextField(row.originalTitle ?? row.title, text: $name)
+                .font(.inter(26, .semibold))
+                .onSubmit(onSave)
+            HStack(spacing: 18) {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: onSave) {
+                    LibraryShelfOrderChip(title: "Save", symbol: "checkmark")
+                }
+                if row.title != (row.originalTitle ?? row.title) {
+                    TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: onRestore) {
+                        LibraryShelfOrderChip(title: "Use Original Name", symbol: "arrow.uturn.backward")
+                    }
+                }
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: onCancel) {
+                    LibraryShelfOrderChip(title: "Cancel", symbol: "xmark")
+                }
+            }
+            .lineupFocusRegion()
+        }
+        .padding(60)
+        .frame(maxWidth: 900, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.lightPurple)
+        .onExitCommand(perform: onCancel)
+    }
+}
+
 /// A small control in the reorder screen's heading.
 private struct LibraryShelfOrderChip: View {
     let title: String

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Choosing the phone's accent: ten presets on a colour wheel, any hue
-/// between them by dragging round it, and a colour of one's own from the
-/// eyedropper in the middle. Nothing changes until Done -- the card at the top
-/// shows the app in the colour being tried.
+/// Choosing the phone's accent, laid out like any other settings sheet: the
+/// app in the colour being tried, the ten presets as plain swatches, then a
+/// colour of one's own by its code or from the mixer, and the ones kept.
+/// Nothing changes until Done.
 struct MobileAccentPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: String
@@ -28,36 +28,37 @@ struct MobileAccentPicker: View {
         let accent = LineupAccent.accent(forHex: draft)
         NavigationStack {
             ScrollView {
-                VStack(spacing: 26) {
+                VStack(alignment: .leading, spacing: 28) {
                     AccentPreviewCard(accent: accent)
-                    AccentWheel(hex: $draft, onCustom: { mixing = true })
-                        .frame(maxWidth: 330)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                    VStack(spacing: 12) {
-                        Text(accent.name).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
-                            .animation(nil, value: draft)
-                        hexEntry(accent)
+                    section("Color", trailing: accent.isPreset ? accent.name : nil) {
+                        swatchGrid
+                    }
+                    section("Custom") {
+                        VStack(spacing: 0) {
+                            hexRow
+                            Divider().overlay(LineupStyle.line).padding(.leading, 16)
+                            mixRow(accent)
+                            Divider().overlay(LineupStyle.line).padding(.leading, 16)
+                            saveRow(accent)
+                        }
                     }
                     if !saved.isEmpty {
-                        savedRow
-                    }
-                    Text("Tap a color or turn the dial for any shade between. Tap the center to mix your own.")
-                        .font(.inter(.footnote)).foregroundStyle(LineupStyle.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                    if draft != LineupAccent.red.hex {
-                        Button("Reset to Red") {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = LineupAccent.red.hex }
+                        section("My colors", footer: "Touch and hold one to remove it.") {
+                            savedRow
                         }
-                        .font(.inter(.subheadline, .semibold))
-                        .foregroundStyle(LineupStyle.text)
+                    }
+                    if draft != LineupAccent.red.hex {
+                        Button("Reset to Red") { choose(LineupAccent.red.hex) }
+                            .font(.inter(.subheadline, .medium))
+                            .foregroundStyle(LineupStyle.secondary)
+                            .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 12)
+                .padding(.top, 8)
                 .padding(.bottom, 32)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(LineupStyle.background)
             .navigationTitle("Accent Color")
             .navigationBarTitleDisplayMode(.inline)
@@ -75,15 +76,13 @@ struct MobileAccentPicker: View {
                     .foregroundStyle(accent.color)
                 }
             }
-            // The wheel and the chart keep the code in step; typing waits for
-            // Apply, so a half-typed code is never read as a colour.
+            // The swatches and the mixer keep the code in step; typing waits
+            // for Return, so a half-typed code is never read as a colour.
             .onChange(of: draft) { _, value in
                 if !typingHex { hexText = value }
             }
             .sheet(isPresented: $mixing) {
-                AccentColorChart(hex: draft) { chosen in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = chosen }
-                }
+                AccentColorChart(hex: draft) { chosen in choose(chosen) }
             }
         }
         .presentationBackground(LineupStyle.background)
@@ -92,13 +91,55 @@ struct MobileAccentPicker: View {
 }
 
 extension MobileAccentPicker {
-    /// The code of the colour being tried, to read, or to type one in and
-    /// keep among the saved colours.
-    fileprivate func hexEntry(_ accent: LineupAccent) -> some View {
-        let valid = LineupAccent.normalized(hexText) != nil
-        let canSave = !accent.isPreset && !saved.contains(accent.hex)
-        return HStack(spacing: 10) {
-            HStack(spacing: 4) {
+    /// A plain heading, the content in one grey panel, and a line under it.
+    fileprivate func section<Content: View>(_ title: String, trailing: String? = nil, footer: String? = nil,
+                                            @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                if let trailing { Text(trailing).foregroundStyle(LineupStyle.secondary) }
+            }
+            .font(.inter(.subheadline, .semibold))
+            .foregroundStyle(LineupStyle.text)
+            .padding(.horizontal, 4)
+            content()
+                .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if let footer {
+                Text(footer)
+                    .font(.inter(.footnote))
+                    .foregroundStyle(LineupStyle.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    fileprivate func choose(_ hex: String) {
+        withAnimation(.easeOut(duration: 0.18)) { draft = hex }
+    }
+
+    /// The ten presets, five to a row.
+    fileprivate var swatchGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+            ForEach(LineupAccent.presets) { preset in
+                Button { choose(preset.hex) } label: {
+                    AccentSwatch(color: preset.color, selected: preset.hex == draft)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(preset.name)
+                .accessibilityAddTraits(preset.hex == draft ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
+    }
+
+    /// The colour's code, to read or to type a new one.
+    fileprivate var hexRow: some View {
+        HStack(spacing: 12) {
+            Text("Hex").foregroundStyle(LineupStyle.text)
+            Spacer(minLength: 8)
+            HStack(spacing: 2) {
                 Text("#").foregroundStyle(LineupStyle.secondary)
                 TextField("FF3347", text: $hexText)
                     .focused($typingHex)
@@ -112,85 +153,83 @@ extension MobileAccentPicker {
                         let cleaned = String(value.uppercased().filter(\.isHexDigit).prefix(6))
                         if cleaned != value { hexText = cleaned }
                     }
-                if typingHex {
-                    Button("Apply", action: applyHex)
-                        .font(.inter(.subheadline, .semibold))
-                        .foregroundStyle(valid ? LineupStyle.text : LineupStyle.secondary)
-                        .disabled(!valid)
-                }
+                    .fixedSize()
             }
-            .font(.interDigits(.body, .semibold))
+            .font(.interDigits(.body, .medium))
             .foregroundStyle(LineupStyle.text)
-            .padding(.horizontal, 14)
-            .frame(height: 46)
-            .frame(maxWidth: 230)
-            .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Button {
-                if typingHex { applyHex() }
-                save(draft)
-            } label: {
-                Label("Save", systemImage: "plus")
-                    .font(.inter(.subheadline, .semibold))
-                    .padding(.horizontal, 14)
-                    .frame(height: 46)
-                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(canSave || typingHex ? LineupStyle.text : LineupStyle.secondary)
-            .disabled(!(canSave || typingHex))
-            .accessibilityLabel("Save this color")
         }
+        .font(.inter(.body))
+        .padding(.horizontal, 16)
+        .frame(height: 50)
+    }
+
+    /// Into the mixer, with the colour being tried beside it.
+    fileprivate func mixRow(_ accent: LineupAccent) -> some View {
+        Button { mixing = true } label: {
+            HStack(spacing: 12) {
+                Text("Mix a color").foregroundStyle(LineupStyle.text)
+                Spacer(minLength: 8)
+                Circle().fill(accent.color).frame(width: 22, height: 22)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+            .font(.inter(.body))
+            .padding(.horizontal, 16)
+            .frame(height: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Keeps a colour of one's own among My colors.
+    fileprivate func saveRow(_ accent: LineupAccent) -> some View {
+        let canSave = !accent.isPreset && !saved.contains(accent.hex)
+        return Button {
+            if typingHex { applyHex() }
+            save(draft)
+        } label: {
+            HStack {
+                Text(saved.contains(accent.hex) ? "Saved to My Colors" : "Save to My Colors")
+                Spacer()
+            }
+            .font(.inter(.body))
+            .foregroundStyle(canSave || typingHex ? accent.color : LineupStyle.secondary)
+            .padding(.horizontal, 16)
+            .frame(height: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!(canSave || typingHex))
     }
 
     /// The colours kept, newest first: a tap tries one, a long press offers
     /// to forget it.
     fileprivate var savedRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("SAVED")
-                .font(.inter(.caption2, .bold)).tracking(1.4)
-                .foregroundStyle(LineupStyle.secondary)
-            ScrollView(.horizontal) {
-                HStack(spacing: 12) {
-                    ForEach(saved, id: \.self) { hex in
-                        let swatch = LineupAccent.accent(forHex: hex)
-                        let chosen = hex == draft
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = hex }
-                        } label: {
-                            Circle()
-                                .fill(swatch.color)
-                                .overlay(Circle().strokeBorder(.white, lineWidth: chosen ? 3 : 1))
-                                .overlay {
-                                    if chosen {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundStyle(swatch.onAccent)
-                                    }
-                                }
-                                .frame(width: 38, height: 38)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Remove", systemImage: "trash", role: .destructive) { forget(hex) }
-                        }
-                        .accessibilityLabel("Saved color #\(hex)")
+        ScrollView(.horizontal) {
+            HStack(spacing: 10) {
+                ForEach(saved, id: \.self) { hex in
+                    Button { choose(hex) } label: {
+                        AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
                     }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Remove", systemImage: "trash", role: .destructive) { forget(hex) }
+                    }
+                    .accessibilityLabel("Saved color #\(hex)")
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 2)
             }
-            .scrollIndicators(.hidden)
-            Text("Touch and hold a saved color to remove it.")
-                .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 12)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrollIndicators(.hidden)
     }
 
     /// The typed code, as the colour being tried -- or, if it is not a
     /// colour, the field put back to the one that is.
     fileprivate func applyHex() {
         if let typed = LineupAccent.normalized(hexText) {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = typed }
+            choose(typed)
             hexText = typed
         } else {
             hexText = draft
@@ -213,6 +252,24 @@ extension MobileAccentPicker {
             savedRaw = LineupAccent.joined(saved.filter { $0 != hex })
         }
         CloudSettingsSync.shared.localSettingsChanged()
+    }
+}
+
+/// One colour: a flat dot, and a ring around it, clear of its edge, when it
+/// is the one chosen.
+private struct AccentSwatch: View {
+    let color: Color
+    let selected: Bool
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 34, height: 34)
+            .padding(4)
+            .overlay(Circle().strokeBorder(selected ? LineupStyle.text : .clear, lineWidth: 2))
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .animation(.easeOut(duration: 0.15), value: selected)
     }
 }
 
@@ -265,284 +322,6 @@ private struct AccentPreviewCard: View {
             .overlay(alignment: .bottom) {
                 if selected { Rectangle().fill(accent.color).frame(height: 2) }
             }
-    }
-}
-
-/// The accent dial, set out like a watch face: the ten presets round a dark
-/// face where the hours would be, the track that joins them holding every
-/// shade between, a chapter ring of fine ticks, and the colour chosen in the
-/// middle -- a tap there mixes one of your own.
-///
-/// It is turned as much as tapped. Dragging round the track moves through the
-/// shades with a light click every six degrees, as a bezel would, and settles
-/// on a preset with a firmer one as it passes. The selection ring travels
-/// round the dial to what is chosen, the short way, rather than jumping.
-private struct AccentWheel: View {
-    @Binding var hex: String
-    let onCustom: () -> Void
-    /// The selection ring's place in degrees from the top, kept unwrapped so
-    /// it always goes the short way round.
-    @State private var ringAngle: Double = 0
-    @State private var dragging = false
-    /// The detent the drag is on, for the light click as it moves.
-    @State private var detent = 0
-    /// The preset the dial last settled on, for the firmer one.
-    @State private var settled: String?
-
-    private static let presets = LineupAccent.presets
-    private static var step: Double { 360 / Double(presets.count) }
-    private static let detents = 60
-    /// Every shade between the presets, which is what the track draws and
-    /// what a drag along it chooses.
-    private static let track = Gradient(stops:
-        presets.enumerated().map { Gradient.Stop(color: $0.element.color, location: Double($0.offset) / Double(presets.count)) }
-        + [Gradient.Stop(color: presets[0].color, location: 1)])
-
-    var body: some View {
-        GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            let trackRadius = side / 2 - side * 0.085
-            let gem = side * 0.092
-            let accent = LineupAccent.accent(forHex: hex)
-            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            ZStack {
-                face(side: side)
-                // The track: the presets, and every shade between them.
-                Circle()
-                    .stroke(AngularGradient(gradient: Self.track, center: .center,
-                                            startAngle: .degrees(-90), endAngle: .degrees(270)),
-                            lineWidth: side * 0.03)
-                    .frame(width: trackRadius * 2, height: trackRadius * 2)
-                    .overlay(
-                        Circle().stroke(.black.opacity(0.4), lineWidth: 0.75)
-                            .frame(width: trackRadius * 2 + side * 0.03, height: trackRadius * 2 + side * 0.03)
-                    )
-                chapterRing(side: side, trackRadius: trackRadius)
-                    .allowsHitTesting(false)
-                ForEach(Array(Self.presets.enumerated()), id: \.element.id) { index, preset in
-                    Button {
-                        choose(preset, at: index)
-                    } label: {
-                        AccentGem(color: preset.color)
-                            .frame(width: gem, height: gem)
-                            .scaleEffect(preset.hex == hex ? 1.08 : 1)
-                    }
-                    .buttonStyle(AccentPressStyle())
-                    .position(point(degrees: Double(index) * Self.step, radius: trackRadius, center: center))
-                    .accessibilityLabel(preset.name)
-                    .accessibilityAddTraits(preset.hex == hex ? .isSelected : [])
-                }
-                selection(accent: accent, gem: gem, trackRadius: trackRadius)
-                    .position(center)
-                    .allowsHitTesting(false)
-                centre(accent: accent, side: side)
-                    .position(center)
-            }
-            .contentShape(Circle())
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 3)
-                    .onChanged { value in
-                        // Only a drag that starts on the track turns the dial.
-                        let start = hypot(value.startLocation.x - center.x, value.startLocation.y - center.y)
-                        guard start > trackRadius - side * 0.12, start < side / 2 + side * 0.06 else { return }
-                        if !dragging { dragging = true }
-                        turn(to: value.location, center: center)
-                    }
-                    .onEnded { _ in dragging = false }
-            )
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .sensoryFeedback(.selection, trigger: detent)
-        .sensoryFeedback(trigger: settled) { _, new in
-            new == nil ? nil : SensoryFeedback.impact(weight: .medium, intensity: 0.7)
-        }
-        .onAppear { ringAngle = Self.angle(for: hex) }
-        .onChange(of: hex) { _, value in
-            guard !dragging else { return }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                ringAngle = unwrapped(Self.angle(for: value))
-            }
-        }
-    }
-
-    /// The dark face, lit a little from above, sitting a step proud of the
-    /// sheet.
-    private func face(side: CGFloat) -> some View {
-        Circle()
-            .fill(LineupStyle.surface)
-            .overlay(
-                Circle().fill(RadialGradient(colors: [.white.opacity(0.06), .clear],
-                                             center: UnitPoint(x: 0.5, y: 0.22),
-                                             startRadius: 0, endRadius: side * 0.7))
-            )
-            .overlay(Circle().strokeBorder(LineupStyle.line, lineWidth: 1))
-            .overlay(
-                // The inner face the colour sits on.
-                Circle().strokeBorder(LineupStyle.line, lineWidth: 1)
-                    .frame(width: side * 0.56, height: side * 0.56)
-            )
-            .shadow(color: .black.opacity(0.55), radius: 22, y: 12)
-    }
-
-    /// Fine ticks inside the track, as a watch's chapter ring has, every six
-    /// degrees, with the presets' places left to the presets.
-    private func chapterRing(side: CGFloat, trackRadius: CGFloat) -> some View {
-        Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let outer = trackRadius - side * 0.055
-            for index in 0..<Self.detents where index % (Self.detents / Self.presets.count) != 0 {
-                let radians = Double(index) / Double(Self.detents) * 2 * .pi - .pi / 2
-                let half = index % 3 == 0
-                let inner = outer - side * (half ? 0.03 : 0.018)
-                var tick = Path()
-                tick.move(to: CGPoint(x: center.x + cos(radians) * inner, y: center.y + sin(radians) * inner))
-                tick.addLine(to: CGPoint(x: center.x + cos(radians) * outer, y: center.y + sin(radians) * outer))
-                context.stroke(tick, with: .color(.white.opacity(half ? 0.3 : 0.16)),
-                               style: StrokeStyle(lineWidth: half ? 1.4 : 1, lineCap: .round))
-            }
-        }
-    }
-
-    /// A thin ring round what is chosen, set off from it by a gap. Between
-    /// the presets it carries a bead of the shade itself.
-    private func selection(accent: LineupAccent, gem: CGFloat, trackRadius: CGFloat) -> some View {
-        ZStack {
-            if !accent.isPreset {
-                AccentGem(color: accent.color)
-                    .frame(width: gem * (dragging ? 1.12 : 0.9), height: gem * (dragging ? 1.12 : 0.9))
-            }
-            Circle()
-                .strokeBorder(.white, lineWidth: 2)
-                .frame(width: gem + 14, height: gem + 14)
-                .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
-        }
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: dragging)
-        .offset(y: -trackRadius)
-        .rotationEffect(.degrees(ringAngle))
-    }
-
-    /// The colour chosen, as a lens in the middle of the face, with the
-    /// eyedropper on it: a tap mixes a colour of one's own.
-    private func centre(accent: LineupAccent, side: CGFloat) -> some View {
-        let lens = side * 0.27
-        return Button(action: onCustom) {
-            VStack(spacing: side * 0.028) {
-                ZStack {
-                    AccentGem(color: accent.color)
-                    Image(systemName: "eyedropper.halffull")
-                        .font(.system(size: lens * 0.3, weight: .semibold))
-                        .foregroundStyle(accent.onAccent.opacity(0.92))
-                }
-                .frame(width: lens, height: lens)
-                .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
-                Text("MIX YOUR OWN")
-                    .font(.inter(9, .bold)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.secondary)
-            }
-        }
-        .buttonStyle(AccentPressStyle())
-        .accessibilityLabel("Mix a custom color")
-    }
-
-    private func point(degrees: Double, radius: CGFloat, center: CGPoint) -> CGPoint {
-        let radians = CGFloat(degrees) * .pi / 180 - .pi / 2
-        return CGPoint(x: center.x + cos(radians) * radius, y: center.y + sin(radians) * radius)
-    }
-
-    /// The nearest way round to `target`, from where the ring is now.
-    private func unwrapped(_ target: Double) -> Double {
-        var angle = target
-        while angle - ringAngle > 180 { angle -= 360 }
-        while angle - ringAngle < -180 { angle += 360 }
-        return angle
-    }
-
-    private func choose(_ preset: LineupAccent, at index: Int) {
-        settled = preset.hex
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-            hex = preset.hex
-            ringAngle = unwrapped(Double(index) * Self.step)
-        }
-    }
-
-    /// The shade under the finger: a preset when it is close to one, else
-    /// the mix of the two either side, as the track draws it.
-    private func turn(to location: CGPoint, center: CGPoint) {
-        let radians = atan2(location.y - center.y, location.x - center.x)
-        var turn = Double((radians + .pi / 2) / (2 * .pi))
-        if turn < 0 { turn += 1 }
-        let mark = Int((turn * Double(Self.detents)).rounded()) % Self.detents
-        if mark != detent { detent = mark }
-        let scaled = turn * Double(Self.presets.count)
-        let index = Int(scaled) % Self.presets.count
-        let fraction = scaled - Double(Int(scaled))
-        let snap = 0.08
-        if fraction < snap || fraction > 1 - snap {
-            let landed = fraction < snap ? index : (index + 1) % Self.presets.count
-            if settled != Self.presets[landed].hex { settled = Self.presets[landed].hex }
-            hex = Self.presets[landed].hex
-            withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.85)) {
-                ringAngle = unwrapped(Double(landed) * Self.step)
-            }
-        } else {
-            settled = nil
-            hex = Self.mix(Self.presets[index], Self.presets[(index + 1) % Self.presets.count], fraction)
-            withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.9)) {
-                ringAngle = unwrapped(turn * 360)
-            }
-        }
-    }
-
-    /// Two presets mixed as the track mixes them.
-    private static func mix(_ a: LineupAccent, _ b: LineupAccent, _ amount: Double) -> String {
-        let x = a.components, y = b.components
-        func byte(_ from: Double, _ to: Double) -> Int { Int(((from + (to - from) * amount) * 255).rounded()) }
-        return String(format: "%02X%02X%02X", byte(x.red, y.red), byte(x.green, y.green), byte(x.blue, y.blue))
-    }
-
-    /// Where a colour sits on the dial: a preset at its place, any other at
-    /// the shade of the track nearest it.
-    private static func angle(for hex: String) -> Double {
-        if let index = presets.firstIndex(where: { $0.hex == hex }) { return Double(index) * step }
-        let target = LineupAccent.accent(forHex: hex).components
-        var best = (angle: 0.0, distance: Double.infinity)
-        for degree in 0..<360 {
-            let scaled = Double(degree) / 360 * Double(presets.count)
-            let index = Int(scaled) % presets.count
-            let shade = LineupAccent(name: "", hex: mix(presets[index], presets[(index + 1) % presets.count],
-                                                       scaled - Double(Int(scaled)))).components
-            let distance = pow(shade.red - target.red, 2) + pow(shade.green - target.green, 2)
-                + pow(shade.blue - target.blue, 2)
-            if distance < best.distance { best = (Double(degree), distance) }
-        }
-        return best.angle
-    }
-}
-
-/// A swatch with a little depth: the colour, a soft highlight towards the
-/// top, and a dark rim to lift it off the face.
-private struct AccentGem: View {
-    let color: Color
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .overlay(
-                Circle().fill(LinearGradient(colors: [.white.opacity(0.26), .white.opacity(0), .black.opacity(0.12)],
-                                             startPoint: .top, endPoint: .bottom))
-            )
-            .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 1))
-            .overlay(Circle().inset(by: 1).strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.4), radius: 3, y: 2)
-    }
-}
-
-/// Gives a little under the finger, as a physical control would.
-private struct AccentPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
