@@ -1398,7 +1398,8 @@ final class SportsLibrary: ObservableObject {
     }
 
     /// A tournament on now: its tennis, named in the listing's title (220)
-    /// or only in its detail (200).
+    /// or only in its detail (200), and a little less where the listing is
+    /// both tours' coverage shared.
     nonisolated private static func tournamentScore(_ current: [ProfessionalChannelMatcher.PreparedListing],
                                                     channel: ProfessionalChannelMatcher.PreparedChannel,
                                                     tournament name: String?) -> Int? {
@@ -1414,7 +1415,10 @@ final class SportsLibrary: ObservableObject {
             // be a tennis channel, or the listing has to say it is tennis.
             guard tennisChannel || [" tennis ", " atp ", " wta "].contains(where: listing.text.contains) else { continue }
             let inTitle = tournament.contains(where: ProfessionalChannelMatcher.pad(listing.title).contains)
-            best = max(best ?? 0, inTitle ? 220 : 200)
+            // "ATP Shanghai & WTA Wuhan" is two tournaments' coverage taking
+            // turns; a channel on this one alone is the surer place for it.
+            let shared = listing.text.contains(" atp ") && listing.text.contains(" wta ")
+            best = max(best ?? 0, (inTitle ? 220 : 200) - (shared ? 10 : 0))
         }
         return best
     }

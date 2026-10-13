@@ -271,10 +271,13 @@ final class TennisTests: XCTestCase {
         let centerCourt = [program("Center Court Live", "Shanghai-ATP Round of 16; Wuhan-WTA First Round")]
         let sky = [program("Live Tennis", "ATP Shanghai Masters & WTA Wuhan Open")]
         let wuhanOnly = [program("2026 Dongfeng Voyah Wuhan Open Tennis", "Early First Round")]
+        // Both tours' coverage, sharing the channel.
         XCTAssertEqual(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: centerCourt,
-                                                 game: shanghai, now: now), 200)
+                                                 game: shanghai, now: now), 190)
         XCTAssertEqual(SportsLibrary.tennisScore(channel: "Sky Sports Tennis FHD", listings: sky,
-                                                 game: wuhan, now: now), 200)
+                                                 game: wuhan, now: now), 190)
+        XCTAssertEqual(SportsLibrary.tennisScore(channel: "Eurosport 1", listings: [program("Tennis", "ATP Shanghai Masters")],
+                                                 game: shanghai, now: now), 200)
         // A channel given over to the tournament, saying so in its title,
         // comes ahead of one that names it in passing.
         XCTAssertEqual(SportsLibrary.tennisScore(channel: "Amazon US: Tennis Channel 2", listings: wuhanOnly,

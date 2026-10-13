@@ -153,6 +153,17 @@ struct LiveView: View {
             play(game, on: previewStream)
             return
         }
+        // Another card whose channel is the one already on the monitor --
+        // two tournaments carried by one tennis channel, say. Opening it
+        // again would change nothing on screen, and a press that changes
+        // nothing reads as a press that did not register, so it is taken
+        // full screen, as a second press would be.
+        if let previewStream, case let .play(streamID, _) = library.preferredChannel(for: game),
+           streamID == previewStream.id {
+            previewGameID = game.id
+            play(game, on: previewStream)
+            return
+        }
         stopPreview()
         open(game, startsMultiview: false)
     }
