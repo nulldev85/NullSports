@@ -3516,16 +3516,16 @@ extension MediaLibrary {
         }
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
-                                   detail: "On this device", symbol: "play.circle", brand: nil))
+                                   detail: nil, symbol: "play.circle", brand: nil))
         }
         let favorites = favoriteMedia
         if favorites.contains(where: { $0.type != "Episode" }) {
             rows.append(LibraryRow(id: LibraryShelfOrder.favorites, title: "Favorites",
-                                   detail: "On this device", symbol: "heart", brand: nil))
+                                   detail: nil, symbol: "heart", brand: nil))
         }
         if favorites.contains(where: { $0.type == "Episode" }) {
             rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
-                                   detail: "On this device", symbol: "heart.text.square", brand: nil))
+                                   detail: nil, symbol: "heart.text.square", brand: nil))
         }
         for catalog in catalogs {
             let symbol: String

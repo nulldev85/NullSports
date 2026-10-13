@@ -1193,16 +1193,16 @@ private struct MediaCatalogsScreen: View {
         }
         if !continueWatching.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
-                                          label: "On this device", items: continueWatching.map(\.item),
+                                          label: nil, items: continueWatching.map(\.item),
                                           opensPages: true, catalog: nil))
         }
         if !favoriteTitles.isEmpty {
-            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favorites, title: "Favorites", label: "On this device",
+            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favorites, title: "Favorites", label: nil,
                                           items: favoriteTitles, opensPages: false, catalog: nil))
         }
         if !favoriteEpisodes.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
-                                          label: "On this device", items: favoriteEpisodes,
+                                          label: nil, items: favoriteEpisodes,
                                           opensPages: false, catalog: nil))
         }
         for catalog in catalogs {
@@ -1682,9 +1682,6 @@ private struct MediaCatalogsScreen: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(sectionTitleFont)
-                Text("ON THIS DEVICE")
-                    .font(.inter(10, .bold)).tracking(1.2)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
                 Spacer()
             }
             .padding(.horizontal, horizontalPadding)
