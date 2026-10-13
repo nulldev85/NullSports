@@ -182,6 +182,107 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertEqual(library.playbackStatus(for: series), "S01E03 · 50 minutes left")
     }
 
+    func testPlayingProgressIsHeldUntilItMattersAndFlushedOnClose() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6_000)
+        // A first record goes straight in.
+        XCTAssertEqual(library.continueWatching.first?.position, 600)
+
+        library.trackPlayback(of: movie, position: 640, duration: 6_000)
+        // The creep of a position is held, but reads still see it.
+        XCTAssertEqual(library.continueWatching.first?.position, 600)
+        XCTAssertEqual(library.resumePosition(for: movie), 640)
+
+        library.flushLocalPlayback()
+        XCTAssertEqual(library.continueWatching.first?.position, 640)
+        XCTAssertEqual(MediaLibrary(defaults: defaults).resumePosition(for: movie), 640)
+    }
+
+    func testFinishingIsNeverHeldBack() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6_000)
+        library.trackPlayback(of: movie, position: 5_900, duration: 6_000)
+        XCTAssertEqual(library.watchHistory.map(\.item.id), [movie.id])
+        XCTAssertTrue(library.continueWatching.isEmpty)
+    }
+
+    func testAnotherTitleCommitsTheOneBeforeIt() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = MediaItem(id: "first", name: "First", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let second = MediaItem(id: "second", name: "Second", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: first, position: 600, duration: 6_000)
+        library.trackPlayback(of: first, position: 700, duration: 6_000)
+        library.trackPlayback(of: second, position: 60, duration: 6_000)
+        XCTAssertEqual(library.continueWatching.first { $0.item.id == first.id }?.position, 700)
+    }
+
+    func testRemovingAShowFromContinueWatchingTakesItsUpNextToo() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = MediaItem(id: "e1", name: "First", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let second = MediaItem(id: "e2", name: "Second", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        library.applyLocalEpisodeProgression(true, for: first, following: second)
+        library.trackPlayback(of: second, position: 300, duration: 3_000)
+        XCTAssertEqual(library.continueWatching.map(\.item.id), [second.id])
+
+        library.removeFromContinueWatching(second)
+
+        XCTAssertTrue(library.continueWatching.isEmpty)
+        // What was finished stays.
+        XCTAssertTrue(library.isWatched(first))
+    }
+
+    func testCardsCountAShowsEpisodesAndAFilmsTime() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let episodes = (1...16).map { number in
+            MediaItem(id: "e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                indexNumber: (number - 1) % 8 + 1, parentIndexNumber: (number - 1) / 8 + 1,
+                seriesName: "Show", seriesID: "show")
+        }
+        let special = MediaItem(id: "special", name: "Special", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 0, seriesName: "Show", seriesID: "show")
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: episodes[7], position: 1_000, duration: 3_000)
+
+        // Until the show's episodes are known, the code stands in.
+        XCTAssertEqual(library.cardPlayback(for: series, asShow: true)?.label, "S1 · E8")
+        XCTAssertNil(library.cardPlayback(for: series, asShow: true)?.episodeFraction)
+
+        library.learnEpisodeOrder(episodes + [special])
+        let show = try XCTUnwrap(library.cardPlayback(for: series, asShow: true))
+        XCTAssertEqual(show.label, "8 of 16")
+        XCTAssertEqual(try XCTUnwrap(show.episodeFraction), 1.0 / 3, accuracy: 0.001)
+        XCTAssertEqual(show.fraction, (7 + 1.0 / 3) / 16, accuracy: 0.001)
+
+        // An episode's own still counts time, not episodes.
+        XCTAssertEqual(library.cardPlayback(for: episodes[7], asShow: false)?.label, "34m left")
+
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6_240)
+        XCTAssertEqual(library.cardPlayback(for: movie, asShow: false)?.label, "1h 34m left")
+        library.trackPlayback(of: movie, position: 6_200, duration: 6_240)
+        XCTAssertEqual(library.cardPlayback(for: movie, asShow: false)?.label, "Watched")
+        XCTAssertEqual(library.cardPlayback(for: movie, asShow: false)?.watched, true)
+    }
+
     func testMDBListMatcherPrefersProviderIDsAndFallsBackToExactTitleYear() {
         let providerMatch = MediaItem(id: "server-1", name: "Renamed Film", type: "Movie",
             overview: nil, productionYear: 2024, primaryImageAspectRatio: nil, childCount: nil,

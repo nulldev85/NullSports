@@ -3206,8 +3206,7 @@ private struct MediaEpisodeCard: View {
                     }
                     .overlay(alignment: .bottom) {
                         if let playback {
-                            MediaArtworkProgress(fraction: playback.fraction,
-                                                 label: artworkLabel(playback.label))
+                            MediaArtworkProgress(playback: playback)
                         }
                     }
                 }
@@ -3254,15 +3253,8 @@ private struct MediaEpisodeCard: View {
         #endif
     }
 
-    private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
-        media.cardPlaybackPresentation(for: episode)
-    }
-
-    /// The episode's code is printed under the still already, so on the still
-    /// itself only the time is said.
-    private func artworkLabel(_ label: String) -> String {
-        guard let code = episode.episodeCode, label.hasPrefix(code + " · ") else { return label }
-        return String(label.dropFirst(code.count + 3))
+    private var playbackPresentation: MediaCardPlayback? {
+        media.cardPlayback(for: episode, asShow: false)
     }
 
     private var footer: String {
@@ -4360,14 +4352,18 @@ private struct MediaSourcePicker: View {
                            media.trackPlayback(of: item, position: position, duration: duration)
                        },
                        synopsis: tvPlayerSynopsis)
+            // After the player's own last report, which it makes as it goes.
+            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
-                             initialPosition: media.resumePosition(for: item)) { position, duration in
+                             // Start Over starts over here too; it resumed.
+                             initialPosition: startsOver ? nil : media.resumePosition(for: item)) { position, duration in
                 media.trackPlayback(of: item, position: position, duration: duration)
             }
+            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #endif
         } else {
             ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
@@ -5270,7 +5266,7 @@ struct MediaItemCard: View {
                     // has been started.
                     .overlay(alignment: .bottom) {
                         if let playback {
-                            MediaArtworkProgress(fraction: playback.fraction, label: playback.label)
+                            MediaArtworkProgress(playback: playback)
                         }
                     }
                 }
@@ -5320,8 +5316,10 @@ struct MediaItemCard: View {
     }
 
 
-    private var playbackPresentation: (fraction: Double, label: String, watched: Bool)? {
-        media.cardPlaybackPresentation(for: item)
+    /// A show's poster -- or an episode's, standing in for its show --
+    /// counts episodes; anything else counts time.
+    private var playbackPresentation: MediaCardPlayback? {
+        media.cardPlayback(for: item, asShow: item.isSeries || (shape.isPoster && item.type == "Episode"))
     }
 
     /// The widest this card is ever drawn -- the top of the grid's adaptive
@@ -5383,53 +5381,83 @@ struct MediaItemCard: View {
 /// It used to sit between the artwork and the title, which pushed that one
 /// card's title a line below its neighbours'. On the art it takes no height
 /// of the card's own, so every title in a row lines up.
+/// Where the viewer is, on the art: a play mark, a bar and a few words over a
+/// dark fall at the foot of the picture -- "8 of 16" for a show, the time
+/// left for a film -- and, for a show, the episode under way as a thin bar
+/// along the card's bottom edge.
 private struct MediaArtworkProgress: View {
-    let fraction: Double
-    let label: String
+    let playback: MediaCardPlayback
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            Text(label)
-                .font(.inter(labelSize, .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.3))
-                    Capsule().fill(.white)
-                        .frame(width: geometry.size.width * min(max(fraction, 0), 1))
-                }
+        VStack(spacing: playback.episodeFraction == nil ? 0 : rowToEdge) {
+            HStack(spacing: gap) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: glyph, weight: .bold))
+                MediaProgressTrack(fraction: playback.fraction, thickness: track)
+                Text(playback.label)
+                    .font(.interDigits(labelSize, .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .frame(height: trackHeight)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            .padding(.horizontal, inset)
+            .padding(.bottom, playback.episodeFraction == nil ? inset : 0)
+            if let episode = playback.episodeFraction {
+                // Flush with the card's foot, rounded by its corners.
+                MediaProgressTrack(fraction: episode, thickness: edge, rounded: false, rest: 0.28)
+            }
         }
-        .padding(.horizontal, inset)
-        .padding(.bottom, inset)
-        .padding(.top, inset * 2.5)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, inset * 3.2)
+        .frame(maxWidth: .infinity)
         .background {
             LinearGradient(stops: [
                 .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.55), location: 0.45),
-                .init(color: .black.opacity(0.82), location: 1)
+                .init(color: .black.opacity(0.5), location: 0.4),
+                .init(color: .black.opacity(0.84), location: 1)
             ], startPoint: .top, endPoint: .bottom)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
+        .accessibilityLabel(playback.spoken)
     }
 
     #if os(tvOS)
-    private var labelSize: CGFloat { 16 }
-    private var trackHeight: CGFloat { 5 }
-    private var spacing: CGFloat { 8 }
-    private var inset: CGFloat { 12 }
+    private var glyph: CGFloat { 17 }
+    private var track: CGFloat { 7 }
+    private var labelSize: CGFloat { 19 }
+    private var gap: CGFloat { 12 }
+    private var inset: CGFloat { 14 }
+    private var edge: CGFloat { 6 }
+    private var rowToEdge: CGFloat { 12 }
     #else
-    private var labelSize: CGFloat { 11 }
-    private var trackHeight: CGFloat { 3 }
-    private var spacing: CGFloat { 5 }
-    private var inset: CGFloat { 8 }
+    private var glyph: CGFloat { 10 }
+    private var track: CGFloat { 4 }
+    private var labelSize: CGFloat { 12 }
+    private var gap: CGFloat { 7 }
+    private var inset: CGFloat { 9 }
+    private var edge: CGFloat { 3 }
+    private var rowToEdge: CGFloat { 8 }
     #endif
+}
+
+/// A white bar on a faint track.
+private struct MediaProgressTrack: View {
+    let fraction: Double
+    let thickness: CGFloat
+    var rounded = true
+    var rest = 0.32
+
+    var body: some View {
+        GeometryReader { proxy in
+            let filled = proxy.size.width * CGFloat(min(max(fraction, 0), 1))
+            ZStack(alignment: .leading) {
+                Rectangle().fill(.white.opacity(rest))
+                Rectangle().fill(.white).frame(width: filled)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: rounded ? thickness / 2 : 0, style: .continuous))
+        }
+        .frame(height: thickness)
+    }
 }
 
 /// Adding a media server: its kind chosen by logo, and that kind's own way
