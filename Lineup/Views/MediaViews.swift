@@ -159,7 +159,7 @@ struct MediaServersView: View {
                 }
             }
             .disabled(media.removableShelves.isEmpty)
-            Button("Reorder Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
+            Button("Edit Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
                 .disabled(media.libraryRows.count < 2)
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
@@ -522,7 +522,7 @@ private struct TVMediaServersHome: View {
             })
         }
         if media.libraryRows.count > 1 {
-            options.append(TVLibraryOption(title: "Reorder Shelves", symbol: "arrow.up.arrow.down") {
+            options.append(TVLibraryOption(title: "Edit Shelves", symbol: "arrow.up.arrow.down") {
                 reorderingShelves = true
             })
         }
@@ -1014,7 +1014,10 @@ private struct MediaCatalogsScreen: View {
                                items: favoriteEpisodes, opensPages: false))
         }
         rows += catalogs.map(PhoneRow.catalog)
-        return media.arrangedShelves(rows, id: \.id)
+        return media.arrangedShelves(rows, id: \.id).map { row in
+            guard case .local(let id, let title, let items, let opensPages) = row else { return row }
+            return .local(id: id, title: media.shelfTitle(id: id, default: title), items: items, opensPages: opensPages)
+        }
     }
 
     @ViewBuilder
@@ -1034,7 +1037,7 @@ private struct MediaCatalogsScreen: View {
     private func catalogShelf(_ catalog: MediaCatalog) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(catalog.title).font(sectionTitleFont)
+                Text(media.shelfTitle(catalog)).font(sectionTitleFont)
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1207,7 +1210,11 @@ private struct MediaCatalogsScreen: View {
                                           label: media.serverName(for: catalog), items: catalog.items,
                                           opensPages: false, catalog: catalog))
         }
-        return media.arrangedShelves(shelves, id: \.id)
+        return media.arrangedShelves(shelves, id: \.id).map { shelf in
+            TVLibraryShelf(id: shelf.id, title: media.shelfTitle(id: shelf.id, default: shelf.title),
+                           label: shelf.label, items: shelf.items, opensPages: shelf.opensPages,
+                           catalog: shelf.catalog)
+        }
     }
 
     private var heroItems: [MediaItem] {
@@ -4057,7 +4064,7 @@ struct LibraryHeroSettingsView: View {
     private var groups: [ChoiceGroup] {
         var groups: [ChoiceGroup] = []
         let shelves = media.catalogs.filter { !$0.items.isEmpty }.map { catalog in
-            Choice(id: catalog.id, title: catalog.title,
+            Choice(id: catalog.id, title: media.shelfTitle(catalog),
                    detail: [featured(catalog.items.count), media.serverName(for: catalog)]
                        .compactMap { $0 }.joined(separator: " · "),
                    pick: .shelf(catalog))

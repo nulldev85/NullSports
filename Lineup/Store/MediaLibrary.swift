@@ -74,6 +74,8 @@ final class MediaLibrary: ObservableObject {
     /// The Library's rows in the order the viewer arranged them, by row id;
     /// see `LibraryShelfOrder`. Empty until they first move one.
     @Published private(set) var shelfOrder: [String] = []
+    /// Names the viewer gave rows, by row id, in place of their own.
+    @Published private(set) var shelfNames: [String: String] = [:]
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
     /// The hero's own list, when what was chosen for it is not a shelf.
@@ -130,6 +132,7 @@ final class MediaLibrary: ObservableObject {
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
     private let trendingHiddenKey = "Lineup.trendingRows.hidden"
     private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
+    private let shelfNamesKey = "Lineup.libraryShelfNames.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     private let heroSourceKey = "Lineup.mediaHeroSource.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
@@ -230,6 +233,7 @@ final class MediaLibrary: ObservableObject {
         showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
         hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
         restoreStreamingSnapshot()
         let listsRestored = restoreMDBListSnapshot()
         let formerActive = formerActiveServer()
@@ -324,7 +328,8 @@ final class MediaLibrary: ObservableObject {
     /// A shelf's name where a list of every shelf shows it: with more than one
     /// server, two of them can each have a "Movies".
     func shelfName(_ catalog: MediaCatalog) -> String {
-        serverName(for: catalog).map { catalog.title + " · " + $0 } ?? catalog.title
+        let title = shelfTitle(catalog)
+        return serverName(for: catalog).map { title + " · " + $0 } ?? title
     }
 
     /// In-progress titles, newest first. A completed title belongs in History,
@@ -3102,6 +3107,7 @@ final class MediaLibrary: ObservableObject {
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
         hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         if heroListCatalog?.id != selectedHeroCatalogID { refreshHeroList() }
         if !arriving.isEmpty { await reload(servers: arriving) }
@@ -3494,6 +3500,8 @@ extension MediaLibrary {
         let detail: String?
         let symbol: String
         let brand: MediaServerBrand?
+        /// The row's own name, whatever the viewer has called it.
+        var originalTitle: String? = nil
     }
 
     /// Every row the Library has on it now, in the viewer's order.
@@ -3529,7 +3537,28 @@ extension MediaLibrary {
                                        ?? (Self.isMDBListShelfID(catalog.id) ? "MDBList" : nil),
                                    symbol: symbol, brand: serverBrand(for: catalog)))
         }
-        return arrangedShelves(rows, id: \.id)
+        return arrangedShelves(rows, id: \.id).map { row in
+            LibraryRow(id: row.id, title: shelfTitle(id: row.id, default: row.title), detail: row.detail,
+                       symbol: row.symbol, brand: row.brand, originalTitle: row.title)
+        }
+    }
+
+    /// A row's name: the viewer's, if they gave it one.
+    func shelfTitle(id: String, default title: String) -> String {
+        shelfNames[id] ?? title
+    }
+
+    func shelfTitle(_ catalog: MediaCatalog) -> String {
+        shelfTitle(id: catalog.id, default: catalog.title)
+    }
+
+    /// Names a row, or with an empty name gives it its own back.
+    func renameShelf(id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { shelfNames[id] = nil } else { shelfNames[id] = String(trimmed.prefix(40)) }
+        if shelfNames.isEmpty { defaults.removeObject(forKey: shelfNamesKey) }
+        else { defaults.set(shelfNames, forKey: shelfNamesKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     /// Rows of any kind, in the viewer's order.
