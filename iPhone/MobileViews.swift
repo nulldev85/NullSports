@@ -105,15 +105,17 @@ struct ProfileSetupView: View {
                         Text("Your games.\nAnywhere.").font(.inter(.largeTitle, .bold))
                         Text("Connect your provider to bring live sports to your iPhone.")
                     }.padding(.vertical, 16)
-                }.listRowBackground(LineupRowBackground())
-                Section("Your provider") {
+                }.lineupSettingsRows()
+                Section {
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
                     TextField("Server URL", text: $server)
                         .keyboardType(.URL).textContentType(.URL)
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
-                }.listRowBackground(LineupRowBackground())
+                } header: {
+                    Text("Your provider").lineupSettingsHeader()
+                }.lineupSettingsRows()
                 Section {
                     Button {
                         connecting = true
@@ -128,17 +130,18 @@ struct ProfileSetupView: View {
                         }
                     } label: {
                         HStack {
-                            Text(connecting ? "Connectingâ€¦" : "Connect")
+                            Text(connecting ? "Connecting…" : "Connect")
                             Spacer()
                             if connecting { ProgressView() } else { Image(systemName: "arrow.right") }
                         }
                     }.disabled(connecting || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || username.isEmpty || password.isEmpty)
                 } footer: {
-                    Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhoneâ€™s Keychain.")
-                }.listRowBackground(LineupStyle.raised)
+                    Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhone’s Keychain.")
+                        .lineupSettingsFooter()
+                }.lineupSettingsRows()
                 if let connectionError {
                     Section { Text(connectionError).foregroundStyle(.red) }
-                        .listRowBackground(LineupRowBackground())
+                        .lineupSettingsRows()
                 }
             }
             .navigationTitle(addingProvider ? "Add provider" : "")
@@ -153,7 +156,7 @@ struct ProfileSetupView: View {
             .disabled(connecting)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .scrollContentBackground(.hidden)
-            .background(LineupStyle.background)
+            .background(LineupPanelStyle.listGround)
         }
     }
 }
@@ -172,16 +175,17 @@ private struct MobilePreferredChannelsView: View {
             Section {
                 if library.teamPreferences.isEmpty {
                         Text("No preferred channels yet. Choose a channel for a game and Lineup can remember it for either team.")
-                            .font(.inter(.caption)).foregroundStyle(.secondary)
+                            .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
                     } else {
                         ForEach(library.teamPreferences.listed()) { entry in
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 14) {
+                                LineupIconTile(symbol: "star", size: 30)
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(entry.preference.teamName.isEmpty ? entry.key.team : entry.preference.teamName)
-                                        .font(.inter(.body, .semibold))
+                                        .font(.inter(17, .medium))
                                     HStack(spacing: 6) {
                                         Text(entry.preference.channelName)
-                                            .font(.inter(.caption)).foregroundStyle(.secondary)
+                                            .font(.inter(13)).foregroundStyle(LineupPanelStyle.listValue)
                                         // A provider can drop a channel and carry
                                         // it again later, so this is a note, not a
                                         // reason to delete the preference.
@@ -194,32 +198,44 @@ private struct MobilePreferredChannelsView: View {
                                         }
                                     }
                                 }
+                                .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
                                 Spacer(minLength: 8)
-                                Text(entry.key.league).font(.inter(.caption2)).foregroundStyle(.secondary)
+                                Text(entry.key.league).font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
                                 Button(role: .destructive) {
                                     library.removePreference(for: entry.key)
                                 } label: {
                                     Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                                        .foregroundStyle(LineupPanelStyle.listValue)
                                 }
                                 .buttonStyle(.borderless)
                                 .accessibilityLabel("Remove preferred channel for \(entry.preference.teamName)")
                             }
                             .accessibilityElement(children: .combine)
                         }
-                        Button("Remove all preferred channels", systemImage: "trash", role: .destructive) {
-                            clearingPreferences = true
+                        Button(role: .destructive) { clearingPreferences = true } label: {
+                            SettingsRow("Remove All", symbol: "trash",
+                                        titleColor: LineupIconTile.red)
                         }
                     }
-                    if !library.recentStreams.isEmpty {
-                        LabeledContent("Recently watched", value: "\(library.recentStreams.count)")
-                        Button("Clear recent channels", systemImage: "clock.arrow.circlepath",
-                               role: .destructive) { library.clearRecentChannels() }
-                    }
+            } header: {
+                Text("Teams").lineupSettingsHeader()
             } footer: {
                 Text("Games on these teams open on the saved channel. If it is unavailable, Lineup uses its own match instead and keeps the preference. Both these lists and your favorites belong to this provider alone.")
-            }.listRowBackground(LineupRowBackground())
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+            if !library.recentStreams.isEmpty {
+                Section {
+                    SettingsRow("Recently Watched", symbol: "clock", value: library.recentStreams.count.formatted())
+                    Button(role: .destructive) { library.clearRecentChannels() } label: {
+                        SettingsRow("Clear Recent Channels", symbol: "clock.arrow.circlepath",
+                                    titleColor: LineupIconTile.red)
+                    }
+                }
+                .lineupSettingsRows()
+            }
         }
-        .scrollContentBackground(.hidden).background(LineupStyle.background)
+        .lineupSettingsList()
         .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
                             titleVisibility: .visible) {
             Button("Remove all", role: .destructive) { library.removeAllPreferences() }
@@ -227,7 +243,7 @@ private struct MobilePreferredChannelsView: View {
         } message: {
             Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
         }
-        .navigationTitle("Preferred channels")
+        .navigationTitle("Preferred Channels")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -241,91 +257,123 @@ private struct MobileDiagnosticsView: View {
     var body: some View {
         Form {
             Section {
-                NavigationLink("Channel matching") { MatchDiagnosticsView().environmentObject(library) }
-                NavigationLink("Launch timing") { StartupTraceReportView() }
-                Toggle("Playback diagnostics", isOn: $playbackDiagnostics.isEnabled)
+                NavigationLink { MatchDiagnosticsView().environmentObject(library) } label: {
+                    SettingsRow("Channel Matching", symbol: "tv")
+                }
+                NavigationLink { StartupTraceReportView() } label: {
+                    SettingsRow("Launch Timing", symbol: "timer")
+                }
+            }
+            .lineupSettingsRows()
+            Section {
+                Toggle(isOn: $playbackDiagnostics.isEnabled) {
+                    SettingsRow("Playback Diagnostics", symbol: "waveform.path.ecg")
+                }
+                .tint(LineupIconTile.green)
                 if playbackDiagnostics.isEnabled {
-                    NavigationLink("Playback report") { PlaybackDiagnosticsReportView() }
+                    NavigationLink { PlaybackDiagnosticsReportView() } label: {
+                        SettingsRow("Playback Report", symbol: "doc.text")
+                    }
                 }
             } footer: {
                 Text("Launch timing is always recorded and shows where the last start spent its time. Playback diagnostics records what the player does while it is on — leave that off unless you are chasing a problem.")
-            }.listRowBackground(LineupRowBackground())
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
         }
-        .scrollContentBackground(.hidden).background(LineupStyle.background)
+        .lineupSettingsList()
         .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-/// One source the tab can switch to, with a way to remove it.
-///
-/// The Providers list and the Media Servers list say the same thing -- a mark,
-/// a name, a second line and a trash button -- and they used to say it
-/// differently: different stack spacing, only one of them naming the active
-/// choice, only one of them labelled for VoiceOver. Two lists that mean the
-/// same thing and do not look the same is what makes a screen read as sloppy,
-/// so there is now one row and both lists use it.
-extension View {
-    /// How an account card sits in the Form.
-    ///
-    /// A card draws its own surface, so it takes the whole row rather than the
-    /// inset the form gives text rows, and it carries the gap to whatever comes
-    /// next: two surfaces of their own meeting on a shared edge read as one
-    /// badly drawn shape, and a list puts no space between rows. The separator
-    /// goes because there is nothing there to divide -- a hairline floating in
-    /// the gap would be the sloppiest part of all. Written once so both cards
-    /// sit the same way.
-    func lineupAccountCardRow() -> some View {
-        self
-            .listRowInsets(EdgeInsets(top: 6, leading: LineupPanelStyle.inset - 6,
-                                      bottom: 10, trailing: LineupPanelStyle.inset - 6))
-            .listRowBackground(LineupPanelStyle.fill)
-            .listRowSeparator(.hidden)
-    }
+/// A Settings row the way the reference app draws one: a coloured tile, the
+/// name in white, and what it is set to in grey after it. A row that leads
+/// somewhere gets the list's own chevron from its link; a row that opens a
+/// sheet draws the same one itself.
+private struct SettingsRow<Trailing: View>: View {
+    let title: String
+    let symbol: String
+    var value: String?
+    var tint: Color?
+    var titleColor: Color = LineupStyle.text
+    @ViewBuilder var trailing: () -> Trailing
 
-    /// A section title in the app's own voice rather than the system's grey.
-    func lineupSectionHeader() -> some View {
-        self
-            .font(.inter(.caption2, .semibold))
-            .tracking(1.1)
-            .textCase(.uppercase)
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+    var body: some View {
+        HStack(spacing: 14) {
+            LineupIconTile(symbol: symbol, size: 30, tint: tint)
+            Text(title)
+                .font(.inter(17, .medium))
+                .foregroundStyle(titleColor)
+                .lineLimit(1)
+                // The hairline under the row starts at the words, not at the
+                // tile, as it does in Settings.
+                .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+            Spacer(minLength: 8)
+            if let value {
+                Text(value)
+                    .font(.inter(17))
+                    .foregroundStyle(LineupPanelStyle.listValue)
+                    .lineLimit(1)
+            }
+            trailing()
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
-/// A category's header, and the switch that folds it: what it is, a line on
-/// what is in it, and a chevron that turns as it opens.
-private struct SettingsCategoryHeader: View {
-    let title: String
-    let symbol: String
-    let summary: String
-    let isOpen: Bool
-    let toggle: () -> Void
+extension SettingsRow where Trailing == EmptyView {
+    init(_ title: String, symbol: String, value: String? = nil, tint: Color? = nil,
+         titleColor: Color = LineupStyle.text) {
+        self.init(title: title, symbol: symbol, value: value, tint: tint, titleColor: titleColor) { EmptyView() }
+    }
+}
 
+/// The chevron a link row gets from the list, for rows that open a sheet.
+private struct SettingsChevron: View {
     var body: some View {
-        Button(action: toggle) {
-            // The panel's own header: icon and heavy caption in light grey,
-            // with what is inside said quietly on the right while it is shut.
-            LineupPanelHeader(title: title, systemImage: symbol) {
-                HStack(spacing: 8) {
-                    if !isOpen {
-                        Text(summary).font(.inter(.footnote, .medium))
-                            .foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(LineupPanelStyle.quiet)
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                }
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
-        .accessibilityHint(isOpen ? "Collapses \(title)" : "Expands \(title)")
+        Image(systemName: "chevron.right")
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .foregroundStyle(LineupPanelStyle.listChevron)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Settings and the pages under it: a dark grey ground, the rows a step
+    /// lighter and a little taller than the system's, hairlines between them.
+    func lineupSettingsList() -> some View {
+        self.listStyle(.insetGrouped)
+            .environment(\.defaultMinListRowHeight, 58)
+            .listSectionSpacing(24)
+            .scrollContentBackground(.hidden)
+            .background(LineupPanelStyle.listGround)
+    }
+
+    func lineupSettingsRows() -> some View {
+        self.listRowBackground(LineupPanelStyle.listCard)
+            .listRowSeparatorTint(LineupPanelStyle.listSeparator)
+    }
+
+    /// An account card as a row of its own: it brings its own padding, and
+    /// its surface is the row's.
+    func lineupAccountCardRow() -> some View {
+        self.listRowInsets(EdgeInsets())
+            .listRowBackground(LineupPanelStyle.listCard)
+            .listRowSeparator(.hidden)
+    }
+
+    /// A section title above a group of rows, small and grey.
+    func lineupSettingsHeader() -> some View {
+        self.font(.inter(13, .semibold))
+            .foregroundStyle(LineupPanelStyle.listValue)
+    }
+
+    /// The note under a group of rows.
+    func lineupSettingsFooter() -> some View {
+        self.font(.inter(13))
+            .foregroundStyle(LineupPanelStyle.listValue)
     }
 }
 
@@ -334,105 +382,248 @@ private struct SettingsCategoryHeader: View {
 private struct MediaServerRow: View {
     @EnvironmentObject private var media: MediaLibrary
     let profile: MediaServerProfile
-    /// Nil where the row only shows what is connected.
-    let remove: (() -> Void)?
+    let remove: () -> Void
 
     var body: some View {
         let state = media.state(of: profile)
-        HStack(spacing: 12) {
-            Label {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(profile.name).font(.inter(.body, .semibold)).lineLimit(1)
-                    Text(profile.displayHost)
-                        .font(.inter(.caption))
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }
-            } icon: {
-                // The server's own mark. Whether it answers is said at the
-                // end of the row.
-                MediaServerLogo(brand: .of(profile)).frame(width: 26, height: 26)
+        HStack(spacing: 14) {
+            // The server's own mark, on a tile like every other row's.
+            MediaServerLogoTile(brand: .of(profile))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.name).font(.inter(17, .medium)).foregroundStyle(LineupStyle.text).lineLimit(1)
+                Text(profile.displayHost).font(.inter(13))
+                    .foregroundStyle(LineupPanelStyle.listValue).lineLimit(1)
             }
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             Spacer(minLength: 8)
             Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
-                .font(.inter(.caption)).foregroundStyle(.secondary)
-            if let remove {
-                Button(role: .destructive, action: remove) {
-                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                        .foregroundStyle(LineupStyle.secondary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Remove \(profile.name)")
+                .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupPanelStyle.listValue)
             }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(profile.name)")
         }
     }
 }
 
+/// A provider, to switch to and to remove. The one in use carries the
+/// accent's tick, as a chosen row does in Settings.
 private struct AccountSourceRow: View {
     let name: String
     let detail: String
     let isActive: Bool
-    /// Named in the VoiceOver label, so "switch provider" and "switch media
-    /// server" come out of the same sentence.
-    let kind: String
     let select: () -> Void
-    /// Nil where the row only shows what is connected.
-    var remove: (() -> Void)?
+    let remove: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             Button(action: select) {
-                HStack(spacing: 0) {
-                    // A Label rather than an icon and a stack side by side.
-                    // The "Add provider" and "Add media server" buttons under
-                    // these rows are Labels, and a Label gets the platform's
-                    // icon column -- so written this way every row in the
-                    // section starts its text at the same x, at any type size,
-                    // instead of the eleven points of ragged edge that hand
-                    // spacing left. It also keeps the names still as the
-                    // active mark changes between a filled and an empty
-                    // circle, which are not the same width.
-                    Label {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(name).font(.inter(.body, .semibold)).lineLimit(1)
-                            Text(detail).font(.inter(.caption))
-                                .foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    } icon: {
-                        // The one accent on the tab: the tick on the
-                        // provider in use.
-                        Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isActive ? LineupStyle.liveDot : LineupStyle.secondary)
+                HStack(spacing: 14) {
+                    LineupIconTile(symbol: "antenna.radiowaves.left.and.right", size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).font(.inter(17, .medium)).foregroundStyle(LineupStyle.text).lineLimit(1)
+                        Text(detail).font(.inter(13))
+                            .foregroundStyle(LineupPanelStyle.listValue).lineLimit(1)
                     }
+                    .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
                     Spacer(minLength: 8)
                     if isActive {
-                        Text("Active").font(.inter(.caption)).foregroundStyle(.secondary)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(LineupStyle.highlight)
                     }
-                }.contentShape(Rectangle())
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(name), \(isActive ? "active \(kind)" : "switch \(kind)")")
-            if let remove {
-                Button(role: .destructive, action: remove) {
-                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
-                        .foregroundStyle(LineupStyle.secondary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Remove \(name)")
+            .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupPanelStyle.listValue)
             }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(name)")
         }
     }
 }
 
+/// IPTV: the provider in use, every provider to switch between, and adding
+/// one.
+private struct MobileIPTVSettingsView: View {
+    @Binding var selectedTab: Int
+    @EnvironmentObject private var library: SportsLibrary
+    @State private var addingProvider = false
+    @State private var removingProfile: XtreamProfile?
+
+    var body: some View {
+        List {
+            if let profile = library.activeProfile {
+                Section {
+                    ProviderAccountCard(profile: profile) { selectedTab = 1 }
+                        .lineupAccountCardRow()
+                }
+            }
+            Section {
+                ForEach(library.profiles) { profile in
+                    AccountSourceRow(
+                        name: profile.name,
+                        detail: profile.username,
+                        isActive: library.activeProfile?.id == profile.id,
+                        select: { Task { await library.selectProfile(profile) } },
+                        remove: { removingProfile = profile }
+                    )
+                    .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
+                }
+                Button { addingProvider = true } label: {
+                    SettingsRow("Add Provider", symbol: "plus")
+                }
+                .disabled(library.isSwitchingProfile)
+                if library.isSwitchingProfile { ProgressView("Switching provider…") }
+            } header: {
+                Text("Providers").lineupSettingsHeader()
+            } footer: {
+                Text("Each provider keeps its own favorites, preferred channels and recents.")
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("IPTV")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $addingProvider) {
+            ProfileSetupView(addingProvider: true)
+                .environmentObject(library)
+                .tint(LineupStyle.highlight)
+                .preferredColorScheme(.dark)
+        }
+        .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",
+            isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } }),
+            titleVisibility: .visible) {
+            Button("Remove provider", role: .destructive) {
+                if let profile = removingProfile { Task { await library.removeProfile(profile) } }
+                removingProfile = nil
+            }
+            Button("Cancel", role: .cancel) { removingProfile = nil }
+        }
+    }
+}
+
+/// Media servers: what they hold between them, each server, and adding one.
+private struct MobileMediaServerSettingsView: View {
+    @Binding var selectedTab: Int
+    @EnvironmentObject private var media: MediaLibrary
+    @State private var addingMediaServer = false
+    @State private var removingMediaProfile: MediaServerProfile?
+
+    var body: some View {
+        List {
+            if media.hasAnySource {
+                Section {
+                    MediaServerAccountCard { selectedTab = 2 }
+                        .lineupAccountCardRow()
+                }
+            }
+            Section {
+                ForEach(media.profiles) { profile in
+                    MediaServerRow(profile: profile, remove: { removingMediaProfile = profile })
+                }
+                Button { addingMediaServer = true } label: {
+                    SettingsRow("Add Media Server", symbol: "plus")
+                }
+                if media.isAddingServer { ProgressView("Connecting…") }
+            } header: {
+                Text("Servers").lineupSettingsHeader()
+            } footer: {
+                Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Media Servers")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $addingMediaServer) {
+            MediaServerSetupView()
+                .environmentObject(media)
+                .tint(LineupStyle.highlight)
+                .preferredColorScheme(.dark)
+        }
+        .confirmationDialog("Remove \(removingMediaProfile?.name ?? "media server")?",
+            isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } }),
+            titleVisibility: .visible) {
+            Button("Remove media server", role: .destructive) {
+                if let profile = removingMediaProfile { media.remove(profile) }
+                removingMediaProfile = nil
+            }
+            Button("Cancel", role: .cancel) { removingMediaProfile = nil }
+        }
+    }
+}
+
+/// The Library's hero, and the MDBList lists that become its shelves.
+private struct MobileLibrarySettingsView: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @State private var configuringMDBList = false
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink {
+                    LibraryHeroSettingsView().environmentObject(media)
+                } label: {
+                    SettingsRow("Library Hero", symbol: "sparkles.rectangle.stack",
+                                value: media.heroCatalog?.title ?? "Choose")
+                }
+                .disabled(!media.hasAnySource)
+            } footer: {
+                Text("The hero shows the top ten titles of the list chosen here.").lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+            Section {
+                if let account = media.mdbListAccount {
+                    SettingsRow("Account", symbol: "list.star", value: "@\(account.username)")
+                    SettingsRow("Catalogs", symbol: "square.stack", value: media.mdbListCatalogs.count.formatted())
+                    if let remaining = account.requestsRemaining {
+                        SettingsRow("API Requests Left", symbol: "number", value: remaining.formatted())
+                    }
+                } else {
+                    SettingsRow("Account", symbol: "list.star",
+                                value: media.isMDBListConnected ? "Connected" : "Not Connected")
+                }
+                Button { configuringMDBList = true } label: {
+                    SettingsRow(title: media.isMDBListConnected ? "Configure MDBList" : "Connect MDBList",
+                                symbol: "slider.horizontal.3") { SettingsChevron() }
+                }
+                if media.isMDBListLoading { ProgressView("Updating MDBList…") }
+            } header: {
+                Text("MDBList").lineupSettingsHeader()
+            } footer: {
+                Text("MDBList adds your movie and show lists as Library shelves.").lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $configuringMDBList) {
+            MDBListIntegrationView()
+                .environmentObject(media)
+                .tint(LineupStyle.highlight)
+                .preferredColorScheme(.dark)
+        }
+    }
+}
+
+/// Settings, as the reference app lays its own out: short groups of rows,
+/// each with a coloured tile, its name and what it is set to, leading to a
+/// page of its own.
 private struct MobileAccountView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
-    @State private var addingProvider = false
-    @State private var addingMediaServer = false
-    @State private var configuringMDBList = false
-    @State private var removingProfile: XtreamProfile?
-    @State private var removingMediaProfile: MediaServerProfile?
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @State private var choosingAccent = false
@@ -440,61 +631,12 @@ private struct MobileAccountView: View {
     /// screen, and a sheet should not be torn down from under itself.
     @State private var pendingAccent: String?
     @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
-    /// Which categories are open, kept between launches. All start folded.
-    @AppStorage("lineup.settings.openCategories") private var openCategories = ""
 
-    private enum Category: String {
-        case iptv, media, library, appearance, about
-    }
-
-    private func isOpen(_ category: Category) -> Bool {
-        openCategories.split(separator: ",").contains(Substring(category.rawValue))
-    }
-
-    private func toggle(_ category: Category) {
-        var open = Set(openCategories.split(separator: ",").map(String.init))
-        if open.contains(category.rawValue) { open.remove(category.rawValue) } else { open.insert(category.rawValue) }
-        withAnimation(.snappy(duration: 0.3)) {
-            openCategories = open.sorted().joined(separator: ",")
-        }
-    }
-
-    /// Each provider, to switch to -- and, with the category open, to remove.
-    @ViewBuilder
-    private func providerRows(removable: Bool) -> some View {
-        ForEach(library.profiles) { profile in
-            AccountSourceRow(
-                name: profile.name,
-                detail: profile.username,
-                isActive: library.activeProfile?.id == profile.id,
-                kind: "provider",
-                select: { Task { await library.selectProfile(profile) } },
-                remove: removable ? { removingProfile = profile } : nil
-            )
-            .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
-        }
-    }
-
-    private var iptvSummary: String {
-        guard let active = library.activeProfile else { return "No provider" }
-        var parts = [active.name]
-        if !library.streams.isEmpty { parts.append("\(library.streams.count.formatted()) channels") }
-        if library.profiles.count > 1 { parts.append("\(library.profiles.count) providers") }
-        return parts.joined(separator: " · ")
-    }
-
-    private var mediaSummary: String {
+    private var mediaValue: String {
         let count = media.profiles.count
-        guard count > 0 else { return "No servers" }
+        guard count > 0 else { return "None" }
         let online = media.profiles.filter { media.state(of: $0).isConnected }.count
-        let servers = count == 1 ? "1 server" : "\(count) servers"
-        return online == count ? "\(servers) · connected" : "\(servers) · \(online) connected"
-    }
-
-    private var librarySummary: String {
-        var parts = ["Hero: " + (media.heroCatalog?.title ?? "not chosen")]
-        if media.isMDBListConnected { parts.append("MDBList") }
-        return parts.joined(separator: " · ")
+        return online == count ? "\(count) Connected" : "\(online) of \(count)"
     }
 
     private var version: String {
@@ -502,158 +644,71 @@ private struct MobileAccountView: View {
         return "\(info?["CFBundleShortVersionString"] as? String ?? "—") (\(info?["CFBundleVersion"] as? String ?? "—"))"
     }
 
-    private var aboutSummary: String { "Version " + version + " · iCloud: " + cloud.status }
-
-    /// Counts rather than the lists themselves, so the row says whether there
-    /// is anything behind it without reproducing it.
-    private var preferencesSummary: String {
+    /// A count rather than the list, so the row says whether there is
+    /// anything behind it without reproducing it.
+    private var preferencesValue: String {
         let teams = library.teamPreferences.listed().count
-        let recents = library.recentStreams.count
-        if teams == 0 && recents == 0 { return "None yet" }
-        var parts: [String] = []
-        if teams > 0 { parts.append("\(teams) team\(teams == 1 ? "" : "s")") }
-        if recents > 0 { parts.append("\(recents) recent") }
-        return parts.joined(separator: " · ")
+        return teams == 0 ? "None" : teams.formatted()
     }
 
     var body: some View {
         NavigationStack {
-            // Each category folds away under a header that says what is in
-            // it. Folded, the sources show just what is connected; open, they
-            // carry everything for managing them.
             List {
                 Section {
-                    SettingsCategoryHeader(title: "IPTV", symbol: "antenna.radiowaves.left.and.right",
-                                           summary: iptvSummary, isOpen: isOpen(.iptv)) { toggle(.iptv) }
-                    if isOpen(.iptv) {
-                        if let profile = library.activeProfile {
-                            ProviderAccountCard(profile: profile) { selectedTab = 1 }
-                                .lineupAccountCardRow()
-                        }
-                        providerRows(removable: true)
-                        Button("Add provider", systemImage: "plus.circle") { addingProvider = true }
-                            .disabled(library.isSwitchingProfile)
-                        if library.isSwitchingProfile { ProgressView("Switching provider…") }
-                        NavigationLink {
-                            MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
-                                .environmentObject(library)
-                        } label: {
-                            LabeledContent("Preferred channels & recents", value: preferencesSummary)
-                        }
-                    } else if library.profiles.isEmpty {
-                        Button("Add IPTV provider", systemImage: "plus.circle") { addingProvider = true }
-                    } else {
-                        providerRows(removable: false)
+                    NavigationLink {
+                        MobileIPTVSettingsView(selectedTab: $selectedTab).environmentObject(library)
+                    } label: {
+                        SettingsRow("IPTV", symbol: "antenna.radiowaves.left.and.right",
+                                    value: library.activeProfile?.name ?? "Add")
                     }
-                } footer: {
-                    if isOpen(.iptv) {
-                        Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
+                    NavigationLink {
+                        MobileMediaServerSettingsView(selectedTab: $selectedTab).environmentObject(media)
+                    } label: {
+                        SettingsRow("Media Servers", symbol: "play.square.stack", value: mediaValue)
                     }
                 }
-                .lineupPanelRows()
+                .lineupSettingsRows()
                 Section {
-                    SettingsCategoryHeader(title: "Media Servers", symbol: "play.square.stack",
-                                           summary: mediaSummary, isOpen: isOpen(.media)) { toggle(.media) }
-                    if isOpen(.media) {
-                        if media.hasAnySource {
-                            MediaServerAccountCard { selectedTab = 2 }
-                                .lineupAccountCardRow()
-                        }
-                        ForEach(media.profiles) { profile in
-                            MediaServerRow(profile: profile, remove: { removingMediaProfile = profile })
-                        }
-                        Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
-                        if media.isAddingServer { ProgressView("Connecting…") }
-                    } else if media.profiles.isEmpty {
-                        Button("Add media server", systemImage: "plus.circle") { addingMediaServer = true }
-                    } else {
-                        ForEach(media.profiles) { profile in
-                            MediaServerRow(profile: profile, remove: nil)
-                        }
+                    NavigationLink {
+                        MobileLibrarySettingsView().environmentObject(media)
+                    } label: {
+                        SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalog?.title)
                     }
-                } footer: {
-                    if isOpen(.media) {
-                        Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
+                    NavigationLink {
+                        MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
+                            .environmentObject(library)
+                    } label: {
+                        SettingsRow("Preferred Channels", symbol: "star.square.on.square", value: preferencesValue)
                     }
                 }
-                .lineupPanelRows()
+                .lineupSettingsRows()
                 Section {
-                    SettingsCategoryHeader(title: "Library", symbol: "rectangle.stack",
-                                           summary: librarySummary, isOpen: isOpen(.library)) { toggle(.library) }
-                    if isOpen(.library) {
-                        NavigationLink {
-                            LibraryHeroSettingsView().environmentObject(media)
-                        } label: {
-                            LabeledContent("Library hero", value: media.heroCatalog?.title ?? "Choose catalog")
-                        }
-                        .disabled(!media.hasAnySource)
-                        if let account = media.mdbListAccount {
-                            LabeledContent("MDBList", value: "@\(account.username)")
-                            LabeledContent("Catalogs", value: media.mdbListCatalogs.count.formatted())
-                            if let remaining = account.requestsRemaining {
-                                LabeledContent("API requests left", value: remaining.formatted())
+                    Button { choosingAccent = true } label: {
+                        let accent = LineupAccent.accent(forHex: accentHex)
+                        SettingsRow(title: "Accent Color", symbol: "paintpalette") {
+                            HStack(spacing: 8) {
+                                Circle().fill(accent.color).frame(width: 12, height: 12)
+                                Text(accent.name).font(.inter(17))
+                                    .foregroundStyle(LineupPanelStyle.listValue)
+                                SettingsChevron()
                             }
-                        } else {
-                            LabeledContent("MDBList", value: media.isMDBListConnected ? "Connected" : "Not connected")
                         }
-                        Button(media.isMDBListConnected ? "Configure MDBList" : "Connect MDBList",
-                               systemImage: "rectangle.stack.badge.play") {
-                            configuringMDBList = true
-                        }
-                        if media.isMDBListLoading { ProgressView("Updating MDBList…") }
-                    }
-                } footer: {
-                    if isOpen(.library) {
-                        Text("The hero shows the top ten titles of the catalog chosen here. MDBList adds your movie and show lists as Library shelves.")
                     }
                 }
-                .lineupPanelRows()
+                .lineupSettingsRows()
                 Section {
-                    SettingsCategoryHeader(title: "Appearance", symbol: "paintpalette",
-                                           summary: "Accent · " + LineupAccent.accent(forHex: accentHex).name,
-                                           isOpen: isOpen(.appearance)) { toggle(.appearance) }
-                    if isOpen(.appearance) {
-                        Button { choosingAccent = true } label: {
-                            let accent = LineupAccent.accent(forHex: accentHex)
-                            HStack(spacing: 12) {
-                                Circle()
-                                    .fill(accent.color)
-                                    .frame(width: 22, height: 22)
-                                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                                Text("Accent Color").foregroundStyle(LineupStyle.text)
-                                Spacer(minLength: 8)
-                                Text(accent.name).foregroundStyle(LineupStyle.secondary)
-                                Image(systemName: "chevron.right")
-                                    .font(.inter(.caption, .semibold))
-                                    .foregroundStyle(LineupStyle.secondary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                    SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
+                    NavigationLink {
+                        MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
+                            .environmentObject(library)
+                    } label: {
+                        SettingsRow("Diagnostics", symbol: "waveform.path.ecg")
                     }
-                } footer: {
-                    if isOpen(.appearance) {
-                        Text("The color that marks what's active. The dark and light greys and the white stay as they are. Syncs through iCloud.")
-                    }
+                    SettingsRow("Version", symbol: "info.circle", value: version)
                 }
-                .lineupPanelRows()
-                Section {
-                    SettingsCategoryHeader(title: "About", symbol: "info.circle",
-                                           summary: aboutSummary, isOpen: isOpen(.about)) { toggle(.about) }
-                    if isOpen(.about) {
-                        LabeledContent("iCloud", value: cloud.status)
-                        NavigationLink("Diagnostics") {
-                            MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
-                                .environmentObject(library)
-                        }
-                        LabeledContent("Version", value: version)
-                    }
-                }
-                .lineupPanelRows()
+                .lineupSettingsRows()
             }
-            .listStyle(.insetGrouped)
-            .listSectionSpacing(LineupPanelStyle.gap)
-            .scrollContentBackground(.hidden).background(LineupStyle.background)
+            .lineupSettingsList()
             .navigationTitle("Settings")
             .task {
                 media.loadShelvesIfNeeded()
@@ -667,42 +722,6 @@ private struct MobileAccountView: View {
                 CloudSettingsSync.shared.localSettingsChanged()
             }) {
                 MobileAccentPicker(hex: accentHex) { pendingAccent = $0 }
-            }
-            .sheet(isPresented: $addingProvider) {
-                ProfileSetupView(addingProvider: true)
-                    .environmentObject(library)
-                    .tint(LineupStyle.highlight)
-                    .preferredColorScheme(.dark)
-            }
-            .sheet(isPresented: $addingMediaServer) {
-                MediaServerSetupView()
-                    .environmentObject(media)
-                    .tint(LineupStyle.highlight)
-                    .preferredColorScheme(.dark)
-            }
-            .sheet(isPresented: $configuringMDBList) {
-                MDBListIntegrationView()
-                    .environmentObject(media)
-                    .tint(LineupStyle.highlight)
-                    .preferredColorScheme(.dark)
-            }
-            .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",
-                isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } }),
-                titleVisibility: .visible) {
-                Button("Remove provider", role: .destructive) {
-                    if let profile = removingProfile { Task { await library.removeProfile(profile) } }
-                    removingProfile = nil
-                }
-                Button("Cancel", role: .cancel) { removingProfile = nil }
-            }
-            .confirmationDialog("Remove \(removingMediaProfile?.name ?? "media server")?",
-                isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } }),
-                titleVisibility: .visible) {
-                Button("Remove media server", role: .destructive) {
-                    if let profile = removingMediaProfile { media.remove(profile) }
-                    removingMediaProfile = nil
-                }
-                Button("Cancel", role: .cancel) { removingMediaProfile = nil }
             }
         }
     }
@@ -730,11 +749,12 @@ private struct MatchDiagnosticsView: View {
                 }
             } footer: {
                 Text("A match needs a guide listing or a channel name that names both teams. Report a wrong game with the line shown under its channel.")
-            }.listRowBackground(LineupRowBackground())
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
         }
-        .scrollContentBackground(.hidden)
-        .background(LineupStyle.background)
-        .navigationTitle("Channel matching")
+        .lineupSettingsList()
+        .navigationTitle("Channel Matching")
         .navigationBarTitleDisplayMode(.inline)
     }
 

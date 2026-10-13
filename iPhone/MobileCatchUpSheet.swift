@@ -161,10 +161,8 @@ private struct MobileCatchUpDayHeader: View {
     let count: Int
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "calendar")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(LineupPanelStyle.caption)
+        HStack(alignment: .center, spacing: 8) {
+            LineupIconTile(symbol: "calendar", size: 24)
             Text(MobileCatchUpFormat.dayTitle(day, short: false))
                 .modifier(LineupGroupHeading())
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())

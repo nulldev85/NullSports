@@ -325,11 +325,9 @@ struct AppSearchView: View {
 
     private func sectionHeader(_ title: String, symbol: String, count: Int,
                                seeAll kind: AppSearchCategory?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: Metrics.headerSize, weight: .bold, design: .rounded))
+        HStack(alignment: .center, spacing: 12) {
+            LineupIconTile(symbol: symbol, size: Metrics.headerSize * 1.6)
                 .padding(.trailing, -4)
-                .accessibilityHidden(true)
             Text(title.uppercased())
                 .font(.inter(Metrics.headerSize, .heavy)).tracking(Metrics.headerTracking)
             Text("\(count)")

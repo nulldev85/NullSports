@@ -267,6 +267,7 @@ struct LineupAccountCard<Actions: View>: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            #if os(tvOS)
             Group {
                 if let brand {
                     MediaServerLogo(brand: brand).frame(width: glyph * 0.52, height: glyph * 0.52)
@@ -276,12 +277,17 @@ struct LineupAccountCard<Actions: View>: View {
                 }
             }
                 .frame(width: glyph, height: glyph)
-                #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
-                #else
-                .background(LineupStyle.focused, in: Circle())
-                #endif
+            #else
+            // The same coloured tile as the Settings rows around it; a
+            // server's own mark sits on a dark one, the way an app icon does.
+            if let brand {
+                MediaServerLogoTile(brand: brand, size: glyph)
+            } else {
+                LineupIconTile(symbol: symbol, size: glyph)
+            }
+            #endif
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(title).font(.inter(.headline, .bold)).lineLimit(1)
@@ -4285,12 +4291,13 @@ struct LibraryHeroSettingsView: View {
                             Text("The first ten titles of the list you choose become the swipeable Library hero.")
                         }
                     }
-                    .listRowBackground(LineupRowBackground())
+                    .listRowBackground(LineupPanelStyle.listCard)
+                    .listRowSeparatorTint(LineupPanelStyle.listSeparator)
                 }
             }
         }
         .scrollContentBackground(.hidden)
-        .background(LineupStyle.background)
+        .background(LineupPanelStyle.listGround)
         .navigationTitle("Library Hero")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadSources() }
@@ -6758,9 +6765,7 @@ private struct TVShelfTitle: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
-                .accessibilityHidden(true)
+            LineupIconTile(symbol: symbol, size: LineupPanelStyle.headerSize * 1.6)
             Text(title.uppercased())
                 .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
                 .tracking(LineupPanelStyle.headerTracking)

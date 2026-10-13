@@ -2095,9 +2095,7 @@ private struct LiveMatchupBoard: View {
                 // The panels' header: icon and heavy caption in light grey.
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     HStack(spacing: 12) {
-                        Image(systemName: "sportscourt")
-                            .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
-                            .accessibilityHidden(true)
+                        LineupIconTile(symbol: "sportscourt", size: LineupPanelStyle.headerSize * 1.6)
                         Text("MATCHUPS")
                             .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
                             .tracking(LineupPanelStyle.headerTracking)
@@ -5135,18 +5133,13 @@ private struct AccountGlyph: View {
     /// A media server's own mark, drawn in the same plate instead.
     var brand: MediaServerBrand? = nil
 
+    // The coloured tile the phone's Settings rows carry, at television size.
     var body: some View {
-        Group {
-            if let brand {
-                MediaServerLogo(brand: brand).frame(width: 36, height: 36)
-            } else {
-                Image(systemName: symbol)
-                    .font(.system(size: 26, weight: .semibold, design: .rounded))
-                    .foregroundStyle(LineupStyle.text)
-            }
+        if let brand {
+            MediaServerLogoTile(brand: brand, size: 64)
+        } else {
+            LineupIconTile(symbol: symbol, size: 64)
         }
-        .frame(width: 64, height: 64)
-        .background(LineupStyle.raised, in: Circle())
     }
 }
 

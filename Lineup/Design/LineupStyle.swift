@@ -132,6 +132,93 @@ enum LineupPanelStyle {
     static let caption = rgb(0xCCCCCC)
     static let quiet = rgb(0x98989E)
     static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+
+    // Settings and the lists under it, as the reference app draws its own:
+    // a dark grey ground with its rows a step lighter, hairlines between
+    // them, and values in a quiet grey.
+    static let listGround = rgb(0x1C1C1E)
+    static let listCard = rgb(0x2C2C2E)
+    static let listSeparator = rgb(0x404043)
+    static let listValue = rgb(0x9E9EA5)
+    static let listChevron = rgb(0x656569)
+    /// Under a server's own mark, as an app icon's dark ground.
+    static let listLogoTile = rgb(0x1F1F1F)
+}
+
+/// A symbol on a small square of colour, the way Settings draws its rows --
+/// and, so the app reads as one, every panel's header too. Each symbol
+/// keeps one colour wherever it appears.
+struct LineupIconTile: View {
+    let symbol: String
+    var size: CGFloat = 30
+    var tint: Color? = nil
+
+    var body: some View {
+        let style = Self.style(for: symbol)
+        Image(systemName: style.symbol)
+            .font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(tint ?? style.color, in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    // The system's own colours, as its Settings uses them.
+    static let blue = rgb(0x0A84FF)
+    static let green = rgb(0x30D158)
+    static let red = rgb(0xFF453A)
+    static let orange = rgb(0xFF9F0A)
+    static let yellow = rgb(0xFFCC00)
+    static let pink = rgb(0xFF375F)
+    static let purple = rgb(0xBF5AF2)
+    static let indigo = rgb(0x5E5CE6)
+    static let teal = rgb(0x30B0C7)
+    static let gray = rgb(0x8E8E93)
+
+    /// The symbol drawn, filled where it has a filled form, and its colour.
+    static func style(for symbol: String) -> (symbol: String, color: Color) {
+        switch symbol {
+        case "flame": ("flame.fill", orange)
+        case "play.circle": ("play.circle.fill", blue)
+        case "heart": ("heart.fill", pink)
+        case "heart.text.square": ("heart.text.square.fill", pink)
+        case "tv": ("tv.fill", purple)
+        case "list.star": ("list.star", teal)
+        case "rectangle.stack": ("rectangle.stack.fill", indigo)
+        case "dot.radiowaves.left.and.right": ("dot.radiowaves.left.and.right", red)
+        case "clock": ("clock.fill", blue)
+        case "calendar": ("calendar", red)
+        case "star": ("star.fill", yellow)
+        case "sportscourt": ("sportscourt.fill", green)
+        case "film": ("film.fill", indigo)
+        case "play.rectangle": ("play.rectangle.fill", red)
+        case "play.rectangle.on.rectangle": ("play.rectangle.on.rectangle.fill", purple)
+        case "person.2": ("person.2.fill", blue)
+        case "square.stack": ("square.stack.fill", indigo)
+        case "list.number": ("list.number", teal)
+        case "paintpalette": ("paintpalette.fill", pink)
+        case "slider.horizontal.3": ("slider.horizontal.3", gray)
+        case "bookmark": ("bookmark.fill", orange)
+        case "antenna.radiowaves.left.and.right": ("antenna.radiowaves.left.and.right", blue)
+        case "play.square.stack", "play.square.stack.fill": ("play.square.stack.fill", purple)
+        case "waveform.path.ecg": ("waveform.path.ecg", teal)
+        case "info.circle": ("info.circle.fill", gray)
+        case "forward.end.fill": ("forward.end.fill", blue)
+        case "magnifyingglass": ("magnifyingglass", gray)
+        case "sparkles.rectangle.stack": ("sparkles.rectangle.stack.fill", purple)
+        case "star.square.on.square": ("star.square.on.square.fill", yellow)
+        case "plus": ("plus", green)
+        case "icloud": ("icloud.fill", blue)
+        case "number": ("number", gray)
+        case "trash": ("trash.fill", red)
+        case "rectangle.stack.badge.play": ("rectangle.stack.badge.play.fill", teal)
+        case "doc.text": ("doc.text.fill", orange)
+        case "timer": ("timer", blue)
+        case "list.bullet.rectangle": ("list.bullet.rectangle.fill", green)
+        case "clock.arrow.circlepath": ("clock.arrow.circlepath", orange)
+        default: (symbol, gray)
+        }
+    }
 }
 
 /// A panel's own header: icon, upper-case title, and whatever the panel puts
@@ -144,9 +231,7 @@ struct LineupPanelHeader<Accessory: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
-                    .accessibilityHidden(true)
+                LineupIconTile(symbol: systemImage, size: LineupPanelStyle.headerSize * 1.6)
             }
             Text(title.uppercased())
                 .font(.inter(LineupPanelStyle.headerSize, .heavy)).tracking(LineupPanelStyle.headerTracking)

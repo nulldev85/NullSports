@@ -57,10 +57,14 @@ struct PlaybackDiagnosticsReportView: View {
                 .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+                .padding(16)
+                // On a card like the Settings rows that lead here.
+                .background(LineupPanelStyle.listCard,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(16)
         }
-        .background(LineupStyle.background)
-        .navigationTitle("Playback diagnostics")
+        .background(LineupPanelStyle.listGround)
+        .navigationTitle("Playback Report")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -93,10 +97,14 @@ struct StartupTraceReportView: View {
                 .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+                .padding(16)
+                // On a card like the Settings rows that lead here.
+                .background(LineupPanelStyle.listCard,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(16)
         }
-        .background(LineupStyle.background)
-        .navigationTitle("Launch timing")
+        .background(LineupPanelStyle.listGround)
+        .navigationTitle("Launch Timing")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
