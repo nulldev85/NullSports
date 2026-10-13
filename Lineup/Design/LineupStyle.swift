@@ -24,7 +24,7 @@ enum LineupTheme: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .signal: "Charcoal & electric blue"
+        case .signal: "Charcoal & broadcast red"
         case .graphiteIce: "Graphite & ice blue"
         case .velvet: "Plum & lilac"
         case .oled: "Pure black & crisp white"
@@ -85,11 +85,14 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 )
             )
         case .signal:
-            // Charcoal and electric blue. Velvet is warm, soft and
+            // Charcoal and broadcast red. Velvet is warm, soft and
             // low-contrast: plum ground, lilac text, nothing saturated
             // anywhere. This is the opposite on every axis -- a charcoal
             // ground with surfaces that climb clear of it, white type, and one
-            // electric blue carrying every live and active state in the app.
+            // red carrying every live and active state in the app. It is the
+            // red of the on-air dot, so the marks that say "active" and the
+            // ones that say "live" are one colour rather than two that clash;
+            // this was an electric blue, the only blue left in the app.
             //
             // White is the whole light-grey tier as well. Secondary text here
             // is the accent at reduced opacity, which is how the app has
@@ -100,23 +103,23 @@ enum LineupTheme: String, CaseIterable, Identifiable {
                 // dozen levels and more, which is invisible in a swatch and
                 // reads as navy on a television -- most sets run a cool picture
                 // and a dark grey with any blue in it is where that shows. The
-                // blue in this theme is the accent's job and nothing else's.
+                // colour in this theme is the accent's job and nothing else's.
                 accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
                 raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
                 // Focus is a step up in the same grey. It used to lean towards
                 // the accent, which is a good idea on paper and another source
-                // of navy in a room; the blue border and glow around a focused
-                // thing say it far more clearly than its fill ever did.
+                // of navy in a room; the accent's border and glow around a
+                // focused thing say it far more clearly than its fill ever did.
                 focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
-                highlight: rgb(0x5B9DFF), highlightSoft: rgb(0xA6C8FF),
-                selectionBorder: rgb(0x5B9DFF),
+                highlight: rgb(0xFF3347), highlightSoft: rgb(0xFF8A95),
+                selectionBorder: rgb(0xFF3347),
                 positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
                 // A charcoal ground is lighter than carbon, so a hairline needs
                 // a little more to draw on it than it did on near-black.
                 line: rgb(0xFFFFFF).opacity(0.14),
-                // No blue among them. The accent is blue now, and a league
-                // chip that shares it reads as the app talking rather than as
-                // the league it stands for.
+                // A league chip in the accent's own colour reads as the app
+                // talking rather than as the league it stands for. Combat's is
+                // the deeper red of its own posters, not the accent's.
                 leagues: LeagueColors(
                     football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
                     hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
