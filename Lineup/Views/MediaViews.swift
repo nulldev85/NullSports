@@ -493,6 +493,7 @@ struct LineupStatusDot: View {
 #if os(tvOS)
 private struct TVMediaServersHome: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.tvTabBar) private var tabBar
     @Binding var addingServer: Bool
     @Binding var choosingShelf: Bool
     @Binding var reorderingShelves: Bool
@@ -573,6 +574,9 @@ private struct TVMediaServersHome: View {
                 TVLibraryMenuBar(options: options).padding(.top, 18)
             }
         }
+        // Back on the Library's own screen: no title's page is over it, so
+        // the tab bar is up whatever the pages that closed did or did not say.
+        .onAppear { tabBar?.reset() }
         .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
             ForEach(media.removableShelves) { shelf in
                 Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
@@ -2469,6 +2473,7 @@ private struct MediaDetailScreen: View {
     @FocusState private var seasonFocused: Bool
     #if os(tvOS)
     @FocusState private var backFocused: Bool
+    @Environment(\.tvTabBar) private var tabBar
     #endif
     @State private var choosingSeason = false
     #if !os(tvOS)
@@ -2501,6 +2506,9 @@ private struct MediaDetailScreen: View {
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
         #endif
         #if os(tvOS)
+        // Full-screen artwork: the tab bar goes while the page is up.
+        .onAppear { tabBar?.pageAppeared() }
+        .onDisappear { tabBar?.pageDisappeared() }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
@@ -2563,7 +2571,6 @@ private struct MediaDetailScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        .toolbar(.hidden, for: .tabBar)
     }
 
     private var tvActions: some View {

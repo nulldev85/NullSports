@@ -25,6 +25,9 @@ struct AppSearchView: View {
     @State private var searchingServers = false
     @State private var serverProblem: String?
     @State private var pushed: MediaItem?
+    #if os(tvOS)
+    @Environment(\.tvTabBar) private var tabBar
+    #endif
     /// Something that is not on yet, asked about before anything is tuned.
     @State private var choice: AppSearchHit?
     #if os(tvOS)
@@ -47,6 +50,8 @@ struct AppSearchView: View {
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
             #if os(tvOS)
+            // Back on Search's own screen, with the tab bar up.
+            .onAppear { tabBar?.reset() }
             .searchable(text: $query, prompt: "Movies, shows, channels, games")
             #else
             .navigationTitle("Search")
