@@ -696,7 +696,7 @@ struct PageTitle: View {
                 .tracking(1.8)
                 .foregroundStyle(LineupStyle.field)
             Text(title).foregroundColor(LineupStyle.lightPurple)
-                .font(.inter(50, .semibold))
+                .font(.inter(50, .heavy))
                 .foregroundStyle(LineupStyle.text)
             if let detail {
                 Text(detail).foregroundColor(LineupStyle.lightPurple)

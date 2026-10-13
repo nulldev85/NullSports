@@ -450,7 +450,7 @@ struct MobileLiveView: View {
             Spacer()
             Text(detail).tracking(1)
         }
-        .font(.inter(9, .bold))
+        .font(.inter(9, .heavy))
         .foregroundStyle(LineupStyle.secondary)
         .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
         .background(LineupStyle.background)

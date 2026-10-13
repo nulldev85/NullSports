@@ -19,8 +19,8 @@ struct LineupApp: App {
         PlaybackJournal.shared.note("Lineup opened")
         #else
         // Navigation titles are drawn by UIKit: set in the app's rounded face.
-        UINavigationBar.appearance().titleTextAttributes = [.font: roundedUIFont(17, .semibold)]
-        UINavigationBar.appearance().largeTitleTextAttributes = [.font: roundedUIFont(34, .bold)]
+        UINavigationBar.appearance().titleTextAttributes = [.font: roundedUIFont(17, .heavy)]
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: roundedUIFont(34, .heavy)]
         #endif
     }
 

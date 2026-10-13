@@ -1856,9 +1856,9 @@ private struct MediaCatalogsScreen: View {
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .inter(24, .semibold)
+        .inter(24, .heavy)
         #else
-        .inter(.title3, .bold)
+        .inter(.title3, .heavy)
         #endif
     }
     private var sectionTitleFontSize: CGFloat {
@@ -3257,16 +3257,16 @@ private struct MediaDetailScreen: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        .inter(40, .bold)
+        .inter(40, .heavy)
         #else
-        .inter(.title, .bold)
+        .inter(.title, .heavy)
         #endif
     }
     private var sectionTitleFont: Font {
         #if os(tvOS)
-        .inter(24, .semibold)
+        .inter(24, .heavy)
         #else
-        .inter(.title3, .bold)
+        .inter(.title3, .heavy)
         #endif
     }
     private var episodeColumns: [GridItem] {
