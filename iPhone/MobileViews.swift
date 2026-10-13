@@ -307,14 +307,14 @@ private struct MediaServerRow: View {
             Label {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(profile.name).font(.inter(.body, .semibold)).lineLimit(1)
-                    Text(URL(string: profile.serverURL)?.host ?? profile.serverURL)
+                    Text(profile.displayHost)
                         .font(.inter(.caption))
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
             } icon: {
-                // The one red on the tab: the tick on a connected server.
-                Image(systemName: state.isConnected ? "checkmark.circle.fill" : "circle.dashed")
-                    .foregroundStyle(state.isConnected ? LineupStyle.liveDot : LineupStyle.secondary)
+                // The server's own mark. Whether it answers is said at the
+                // end of the row.
+                MediaServerLogo(brand: .of(profile)).frame(width: 26, height: 26)
             }
             Spacer(minLength: 8)
             Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
@@ -462,7 +462,7 @@ private struct MobileAccountView: View {
                 } header: {
                     Text("Media Servers").lineupSectionHeader()
                 } footer: {
-                    Text("Lineup uses every Jellyfin server here together: their shelves, search and streams all appear in one Library.")
+                    Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
                 }.lineupCellRows()
                 Section {
                     NavigationLink {

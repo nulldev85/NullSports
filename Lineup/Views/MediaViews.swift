@@ -62,9 +62,13 @@ struct MediaServersView: View {
             Group {
                 if !media.hasAnySource {
                     ContentUnavailableView {
-                        Label("Add a Media Server", systemImage: "play.square.stack")
+                        Label {
+                            Text("Add a Media Server")
+                        } icon: {
+                            MediaServerLogoRow(size: 40)
+                        }
                     } description: {
-                        Text("Connect a Jellyfin server to watch your own library here.")
+                        Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")
                     } actions: {
                         Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
@@ -190,6 +194,8 @@ struct LineupCardStat: Identifiable {
 /// lopsided.
 struct LineupAccountCard<Actions: View>: View {
     let symbol: String
+    /// A media server's own mark, in place of the symbol.
+    var brand: MediaServerBrand? = nil
     let title: String
     let subtitle: String
     let connected: Bool
@@ -255,8 +261,14 @@ struct LineupAccountCard<Actions: View>: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: glyphSize, weight: .semibold))
+            Group {
+                if let brand {
+                    MediaServerLogo(brand: brand).frame(width: glyph * 0.52, height: glyph * 0.52)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: glyphSize, weight: .semibold))
+                }
+            }
                 .frame(width: glyph, height: glyph)
                 #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
@@ -369,6 +381,7 @@ struct MediaServerAccountCard: View {
     var body: some View {
         LineupAccountCard(
             symbol: "play.square.stack.fill",
+            brand: MediaServerBrand.shared(by: media.profiles),
             title: title,
             subtitle: subtitle,
             connected: media.isConnected,
@@ -391,13 +404,13 @@ struct MediaServerAccountCard: View {
 
     private var title: String {
         guard media.profiles.count > 1 else { return media.profiles.first?.name ?? "Media Server" }
-        return "\(media.profiles.count) Jellyfin servers"
+        return "\(media.profiles.count) media servers"
     }
 
     private var subtitle: String {
         guard media.profiles.count > 1 else {
             guard let profile = media.profiles.first else { return "" }
-            return "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)"
+            return "\(profile.username) · \(profile.displayHost)"
         }
         return media.profiles.map(\.name).joined(separator: " · ")
     }
@@ -739,14 +752,13 @@ private struct TVMediaEmptyState: View {
         HStack(spacing: 34) {
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(LineupStyle.surface)
-                Image(systemName: "play.square.stack.fill")
-                    .font(.inter(72, .light)).foregroundStyle(LineupStyle.lightPurple)
+                MediaServerLogoRow(size: 52)
             }
             .frame(width: 210, height: 150)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Connect your Jellyfin server and watch your own library on the big screen.")
+                Text("Connect your Jellyfin, Emby or Plex server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -875,6 +887,7 @@ private struct MediaCatalogsScreen: View {
                         MediaGridScreen(title: "Search Results", sections: results.map { group in
                             MediaGridSection(id: group.serverID.uuidString,
                                              title: results.count > 1 ? group.serverName : nil,
+                                             brand: results.count > 1 ? media.serverBrand(of: group.serverID) : nil,
                                              items: group.items)
                         })
                     }
@@ -969,10 +982,15 @@ private struct MediaCatalogsScreen: View {
                     // Which server a shelf comes from, once there is more than
                     // one: two of them can each have a "Trending Movies".
                     if let server = media.serverName(for: catalog) {
-                        Text(server.uppercased())
-                            .font(.inter(10, .bold)).tracking(1.2)
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
-                            .lineLimit(1)
+                        HStack(spacing: 5) {
+                            if let brand = media.serverBrand(for: catalog) {
+                                MediaServerLogo(brand: brand).frame(width: 11, height: 11)
+                            }
+                            Text(server.uppercased())
+                                .font(.inter(10, .bold)).tracking(1.2)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer()
                     #if os(tvOS)
@@ -1318,10 +1336,15 @@ private struct MediaCatalogsScreen: View {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text(shelf.title).font(sectionTitleFont)
                 if let label = shelf.label {
-                    Text(label.uppercased())
-                        .font(.inter(10, .bold)).tracking(1.2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
-                        .lineLimit(1)
+                    HStack(spacing: 7) {
+                        if let brand = shelf.catalog.flatMap(media.serverBrand(for:)) {
+                            MediaServerLogo(brand: brand).frame(width: 16, height: 16)
+                        }
+                        Text(label.uppercased())
+                            .font(.inter(10, .bold)).tracking(1.2)
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.42))
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 // Where this shelf is among them, and that up and down move
@@ -1788,6 +1811,8 @@ private struct MediaCatalogsScreen: View {
 private struct MediaGridSection: Identifiable {
     let id: String
     let title: String?
+    /// The logo of the server the section is named for.
+    var brand: MediaServerBrand? = nil
     let items: [MediaItem]
 }
 
@@ -1819,6 +1844,11 @@ private struct MediaGridScreen: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if let heading = section.title {
                             HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                if let brand = section.brand {
+                                    MediaServerLogo(brand: brand)
+                                        .frame(width: sectionLogoSize, height: sectionLogoSize)
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                }
                                 Text(heading).font(headingFont)
                                 Text(section.items.count == 1 ? "1 result" : "\(section.items.count) results")
                                     .font(.inter(13, .semibold))
@@ -1899,6 +1929,14 @@ private struct MediaGridScreen: View {
         .inter(24, .semibold)
         #else
         .inter(.title3, .bold)
+        #endif
+    }
+    /// A server's logo beside its section's heading, the heading's height.
+    private var sectionLogoSize: CGFloat {
+        #if os(tvOS)
+        24
+        #else
+        18
         #endif
     }
     private var horizontalPadding: CGFloat {
@@ -1998,6 +2036,8 @@ private struct MediaShelfPicker: View {
         let id: String
         let title: String
         let detail: String
+        /// The logo of the server the group is named for.
+        var brand: MediaServerBrand? = nil
         let items: [MediaItem]
     }
 
@@ -2013,12 +2053,13 @@ private struct MediaShelfPicker: View {
         let several = media.profiles.count > 1
         let servers = media.profiles.flatMap { server -> [Group] in
             let owner = several ? " · " + server.name.uppercased() : ""
+            let brand = several ? MediaServerBrand.of(server) : nil
             return [Group(id: server.id.uuidString + "|libraries", title: "LIBRARIES" + owner,
                           detail: several ? "Folders \(server.name) keeps itself" : "Folders this server keeps itself",
-                          items: media.availableLibraries(on: server)),
+                          brand: brand, items: media.availableLibraries(on: server)),
                     Group(id: server.id.uuidString + "|catalogs", title: "IMPORTED CATALOGS" + owner,
                           detail: several ? "Already on \(server.name), ready to shelve" : "Already on your server, ready to shelve",
-                          items: media.availableCatalogs(on: server))]
+                          brand: brand, items: media.availableCatalogs(on: server))]
         }
         // The IPTV provider's own categories, films and then shows.
         var provider: [Group] = []
@@ -2087,8 +2128,13 @@ private struct MediaShelfPicker: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            HStack(spacing: 7) {
+                                if let brand = group.brand {
+                                    MediaServerLogo(brand: brand).frame(width: 14, height: 14)
+                                }
+                                Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            }
                             Text(group.detail).font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
@@ -2141,9 +2187,15 @@ private struct MediaShelfPicker: View {
                     // it, which it then does in its own time.
                     ForEach(media.addonGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(addonHeading(group))
-                                .font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            HStack(spacing: 7) {
+                                if media.serverName(of: group.serverID) != nil,
+                                   let brand = media.serverBrand(of: group.serverID) {
+                                    MediaServerLogo(brand: brand).frame(width: 14, height: 14)
+                                }
+                                Text(addonHeading(group))
+                                    .font(.inter(12, .heavy)).tracking(1.6)
+                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            }
                             // The server re-imports every enabled catalog when
                             // asked, so this is minutes, not seconds. Saying so
                             // is the difference between waiting and giving up.
@@ -3937,10 +3989,19 @@ struct LibraryHeroSettingsView: View {
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
                 Text(catalog.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
-                Text("\(min(10, catalog.items.count)) featured title\(min(10, catalog.items.count) == 1 ? "" : "s")"
-                     + (media.serverName(for: catalog).map { " · " + $0 } ?? ""))
-                    .font(.inter(rowDetailSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                HStack(spacing: 6) {
+                    Text("\(min(10, catalog.items.count)) featured title\(min(10, catalog.items.count) == 1 ? "" : "s")"
+                         + (media.serverName(for: catalog) == nil ? "" : " · "))
+                    if let server = media.serverName(for: catalog) {
+                        if let brand = media.serverBrand(for: catalog) {
+                            MediaServerLogo(brand: brand).frame(width: rowDetailSize, height: rowDetailSize)
+                        }
+                        Text(server)
+                    }
+                }
+                .font(.inter(rowDetailSize))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                .lineLimit(1)
             }
             Spacer(minLength: 12)
             if media.heroCatalog?.id == catalog.id {
@@ -3993,6 +4054,14 @@ private enum StreamLookup {
         }
     }
 
+    /// The server's logo; the provider, not a media server, has none.
+    var brand: MediaServerBrand? {
+        switch self {
+        case .server(let server): MediaServerBrand.of(server)
+        case .provider: nil
+        }
+    }
+
     /// The tab it is listed under: a server by its name, the provider as
     /// VOD -- the name its streams are grouped under.
     var name: String {
@@ -4018,6 +4087,8 @@ private struct StreamServerStatus: Identifiable {
 
     let id: UUID
     let name: String
+    /// The server's logo; nil for VOD, which is the IPTV provider's.
+    var brand: MediaServerBrand? = nil
     var phase: Phase
 
     var detail: String {
@@ -4179,7 +4250,7 @@ private struct MediaSourcePicker: View {
         serverStatus = lookups.map { lookup -> StreamServerStatus in
             var phase = StreamServerStatus.Phase.looking
             if case .provider = lookup, let providerWait { phase = .preparing(providerWait) }
-            return StreamServerStatus(id: lookup.id, name: lookup.name, phase: phase)
+            return StreamServerStatus(id: lookup.id, name: lookup.name, brand: lookup.brand, phase: phase)
         }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
@@ -4509,7 +4580,7 @@ private struct MediaStreamBoard: View {
             HStack(spacing: Style.tabGap) {
                 tab(nil, title: "All", mark: allMark)
                 ForEach(statuses) { status in
-                    tab(status.name, title: status.name, mark: status.mark)
+                    tab(status.name, title: status.name, mark: status.mark, brand: status.brand)
                 }
             }
             .padding(.vertical, Style.tabLift)
@@ -4523,9 +4594,10 @@ private struct MediaStreamBoard: View {
         sources.isEmpty && statuses.contains(where: \.isWaiting) ? .looking : .count(sources.count)
     }
 
-    private func tab(_ value: String?, title: String, mark: MediaStreamTab.Mark) -> some View {
+    private func tab(_ value: String?, title: String, mark: MediaStreamTab.Mark,
+                     brand: MediaServerBrand? = nil) -> some View {
         Button { filter = value } label: {
-            MediaStreamTab(title: title, mark: mark, active: filter == value)
+            MediaStreamTab(title: title, mark: mark, active: filter == value, brand: brand)
         }
         .lineupFlatButton()
     }
@@ -4555,6 +4627,11 @@ private struct MediaStreamBoard: View {
 
     private func sectionHeader(_ section: MediaStreamSection, first: Bool) -> some View {
         HStack(alignment: .firstTextBaseline) {
+            if let brand = statuses.first(where: { $0.name == section.title })?.brand {
+                MediaServerLogo(brand: brand)
+                    .frame(width: Style.sectionSize + 2, height: Style.sectionSize + 2)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            }
             Text(section.title.uppercased())
                 .font(.inter(Style.sectionSize, .heavy)).tracking(Style.eyebrowTracking)
             Spacer()
@@ -4589,9 +4666,14 @@ private struct MediaStreamBoard: View {
             VStack(alignment: .leading, spacing: Style.lineGap * 2) {
                 ForEach(missing) { status in
                     VStack(alignment: .leading, spacing: Style.lineGap) {
-                        Text(status.failure == nil ? "\(status.name) doesn't have this title"
-                                                   : "\(status.name) didn't answer")
-                            .font(.inter(Style.noteSize, .semibold))
+                        HStack(spacing: 6) {
+                            if let brand = status.brand {
+                                MediaServerLogo(brand: brand).frame(width: Style.noteSize, height: Style.noteSize)
+                            }
+                            Text(status.failure == nil ? "\(status.name) doesn't have this title"
+                                                       : "\(status.name) didn't answer")
+                                .font(.inter(Style.noteSize, .semibold))
+                        }
                         if let why = status.tried ?? status.failure {
                             Text(why).font(.inter(Style.noteSize - 2)).lineLimit(2)
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
@@ -4724,11 +4806,16 @@ private struct MediaStreamTab: View {
     let title: String
     let mark: Mark
     let active: Bool
+    /// The server's logo, ahead of its name.
+    var brand: MediaServerBrand? = nil
 
     private typealias Style = MediaStreamStyle
 
     var body: some View {
         HStack(spacing: Style.tabInnerGap) {
+            if let brand {
+                MediaServerLogo(brand: brand).frame(width: Style.tabSize, height: Style.tabSize)
+            }
             Text(title).font(.inter(Style.tabSize, .semibold)).lineLimit(1)
             markView
         }
@@ -5345,71 +5432,643 @@ private struct MediaArtworkProgress: View {
     #endif
 }
 
+/// Adding a media server: its kind chosen by logo, and that kind's own way
+/// in beside it.
+///
+/// Choosing is moving. On the television, the server whose logo has focus is
+/// the one being added, and its sign-in is already there below it; on the
+/// phone, the sign-ins sit side by side and a swipe moves between them as a
+/// tap on a logo does.
+///
+/// All three sign-ins are built once, when the screen opens, and are only
+/// ever shown and hidden after that. Building one afresh on every move, text
+/// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var server = ""
-    @State private var username = ""
-    @State private var password = ""
+    @State private var software: MediaServerBrand = .jellyfin
+    /// What has been typed for each kind, kept apart, so moving across to
+    /// look at another does not carry one server's address into another's.
+    @State private var forms: [MediaServerBrand: MediaServerSignIn] = [:]
+    #if !os(tvOS)
+    @State private var page: MediaServerBrand? = .jellyfin
+    /// Held, not observed: a swipe moves the marker under the logos on every
+    /// frame, and only the logos should redraw for it.
+    @State private var swipe = MediaServerSwipe()
+    #endif
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Jellyfin-Compatible Server") {
-                    TextField("Display name", text: $name)
-                    TextField("Server address", text: $server)
-                        #if !os(tvOS)
-                        .keyboardType(.URL).textContentType(.URL)
-                        #endif
-                    TextField("Username", text: $username)
-                    SecureField("Password", text: $password)
+        #if os(tvOS)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 34) {
+                PageTitle(eyebrow: "Settings", title: "Add Media Server",
+                          detail: "Move across to your server. Its sign-in follows.")
+                MediaServerPicker(selection: choice)
+                // Laid over one another at one height, so the page never
+                // shifts as they change; the one shown fades and slides in
+                // from the side its logo is on.
+                MediaServerPanelStack {
+                    ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                        let shown = brand == software
+                        panel(for: brand)
+                            .opacity(shown ? 1 : 0)
+                            .offset(x: shown ? 0 : (order(of: brand) < order(of: software) ? -36 : 36))
+                            // A hidden sign-in never takes focus.
+                            .disabled(!shown)
+                            .accessibilityHidden(!shown)
+                    }
                 }
-                // The provider form has always had these and this one never
-                // did. A capitalised host or an autocorrected one is not the
+                // Down from any logo lands here, the Plex one at the far
+                // right included, whatever sits directly beneath it.
+                .focusSection()
+                if let error = media.errorMessage {
+                    Text(error).font(.inter(.callout)).foregroundStyle(LineupStyle.live)
+                }
+                // A television draws no navigation bar, so this screen's way
+                // out is a button of its own.
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .lineupButtonStyle()
+            }
+            .padding(.horizontal, 90)
+            .padding(.vertical, 56)
+        }
+        .background(LineupStyle.background.ignoresSafeArea())
+        .disabled(media.isAddingServer)
+        #else
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    MediaServerPicker(selection: choice, swipe: swipe)
+                        .padding(.horizontal, 16)
+                    // The sign-ins side by side, one to a page, all of one
+                    // height: a swipe moves between servers as a tap on a
+                    // logo does, and the marker under the logos follows the
+                    // finger.
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 0) {
+                            ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                                panel(for: brand)
+                                    .padding(.horizontal, 16)
+                                    .containerRelativeFrame(.horizontal)
+                            }
+                        }
+                        .scrollTargetLayout()
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $page)
+                    .scrollIndicators(.hidden)
+                    .modifier(MediaServerPagerTracking(swipe: swipe))
+                    if let error = media.errorMessage {
+                        Text(error).font(.inter(.footnote)).foregroundStyle(LineupStyle.live)
+                            .padding(.horizontal, 16)
+                    }
+                }
+                .padding(.vertical, 12)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(LineupStyle.background)
+            .navigationTitle("Add Media Server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .disabled(media.isAddingServer)
+            .onChange(of: page) { _, brand in
+                guard let brand, brand != software else { return }
+                clearError()
+                software = brand
+                // Without the pager's own position to follow, the marker
+                // glides to the page it settled on.
+                if #unavailable(iOS 18) {
+                    withAnimation(.smooth(duration: 0.3)) { swipe.progress = CGFloat(order(of: brand)) }
+                }
+            }
+        }
+        #endif
+    }
+
+    /// The server being added, chosen from the logos.
+    private var choice: Binding<MediaServerBrand> {
+        Binding {
+            software
+        } set: { brand in
+            guard brand != software else { return }
+            clearError()
+            #if os(tvOS)
+            withAnimation(.smooth(duration: 0.3)) { software = brand }
+            #else
+            software = brand
+            withAnimation(.smooth(duration: 0.35)) { page = brand }
+            #endif
+        }
+    }
+
+    /// One server's failure is not news on the next one's sign-in. Only a
+    /// message that is there is cleared: every write to the Library, even of
+    /// what it already holds, redraws everything that watches it, the whole
+    /// Library behind this screen included.
+    private func clearError() {
+        if media.errorMessage != nil { media.errorMessage = nil }
+    }
+
+    private func order(of brand: MediaServerBrand) -> Int {
+        MediaServerBrand.allCases.firstIndex(of: brand) ?? 0
+    }
+
+    @ViewBuilder private func panel(for brand: MediaServerBrand) -> some View {
+        if brand == .plex {
+            PlexLinkPanel(onAdded: { dismiss() })
+        } else {
+            MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
+                Task {
+                    if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
+                                             password: sign.password, software: brand) { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func form(for brand: MediaServerBrand) -> Binding<MediaServerSignIn> {
+        Binding { forms[brand] ?? MediaServerSignIn() } set: { forms[brand] = $0 }
+    }
+}
+
+/// What a Jellyfin or Emby sign-in has been given so far.
+struct MediaServerSignIn: Equatable {
+    var name = ""
+    var server = ""
+    var username = ""
+    var password = ""
+
+    /// A password is not required. Jellyfin and Emby both allow passwordless
+    /// users, and some ship that way until an operator sets one.
+    var isComplete: Bool {
+        !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Every sign-in in one place, each given the height of the tallest, so the
+/// card stays the same size whichever is shown.
+private struct MediaServerPanelStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        return CGSize(width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+                      height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+        }
+    }
+}
+
+#if !os(tvOS)
+/// How far across the sign-ins the phone's pager sits, in pages.
+final class MediaServerSwipe: ObservableObject {
+    @Published var progress: CGFloat = 0
+}
+
+/// Keeps the marker under the logos where the pager is, frame by frame, as a
+/// finger or a tap moves it. The pager says where it is itself: a reading
+/// taken from inside its pages was never passed on, which left the marker on
+/// the first logo.
+private struct MediaServerPagerTracking: ViewModifier {
+    let swipe: MediaServerSwipe
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                (geometry.contentOffset.x + geometry.contentInsets.leading) / max(geometry.containerSize.width, 1)
+            } action: { _, progress in
+                swipe.progress = progress
+            }
+        } else {
+            content
+        }
+    }
+}
+#endif
+
+/// The three kinds of server, by their logos. On the television the one with
+/// focus is the one chosen, so moving across them is choosing.
+private struct MediaServerPicker: View {
+    @Binding var selection: MediaServerBrand
+    #if os(tvOS)
+    @FocusState private var focused: MediaServerBrand?
+    #else
+    @ObservedObject var swipe: MediaServerSwipe
+    #endif
+
+    var body: some View {
+        #if os(tvOS)
+        HStack(spacing: gap) {
+            ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                let chosen = selection == brand
+                let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+                tile(brand, chosen: chosen)
+                    .background(chosen ? LineupStyle.focused : LineupStyle.raised, in: shape)
+                    .overlay(shape.strokeBorder(chosen ? LineupStyle.text.opacity(0.6) : LineupStyle.line,
+                                                lineWidth: chosen ? 1.5 : 0.5))
+                    .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
+                    .focusable()
+                    .focused($focused, equals: brand)
+                    .focusEffectDisabled()
+                    .onTapGesture { selection = brand }
+                    .scaleEffect(focused == brand ? LineupStyle.controlLift : 1)
+                    .lineupShadow(.lifted, on: focused == brand)
+                    .zIndex(focused == brand ? 1 : 0)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused == brand)
+            }
+        }
+        // Coming back up from a sign-in returns to the logo it belongs to,
+        // not to whichever logo happens to sit above the button just left.
+        .defaultFocus($focused, selection, priority: .userInitiated)
+        .focusSection()
+        .onChange(of: focused) { _, brand in
+            if let brand { selection = brand }
+        }
+        #else
+        HStack(spacing: gap) {
+            ForEach(MediaServerBrand.allCases, id: \.self) { brand in
+                Button { selection = brand } label: { tile(brand, chosen: selection == brand) }
+                    .lineupFlatButton()
+            }
+        }
+        .background { marker }
+        #endif
+    }
+
+    #if !os(tvOS)
+    /// The tiles' wells, and the chosen fill gliding across them as the
+    /// sign-ins below are swiped.
+    private var marker: some View {
+        GeometryReader { row in
+            let count = CGFloat(MediaServerBrand.allCases.count)
+            let width = (row.size.width - gap * (count - 1)) / count
+            let position = min(max(swipe.progress, 0), count - 1)
+            let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+            ZStack(alignment: .leading) {
+                HStack(spacing: gap) {
+                    ForEach(MediaServerBrand.allCases, id: \.self) { _ in
+                        shape.fill(LineupStyle.raised)
+                            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+                    }
+                }
+                shape.fill(LineupStyle.focused)
+                    .overlay(shape.strokeBorder(LineupStyle.text.opacity(0.6), lineWidth: 1.5))
+                    .frame(width: width)
+                    .offset(x: (width + gap) * position)
+            }
+        }
+    }
+    #endif
+
+    private func tile(_ brand: MediaServerBrand, chosen: Bool) -> some View {
+        VStack(spacing: labelGap) {
+            MediaServerLogo(brand: brand).frame(width: logo, height: logo)
+            Text(brand.name).font(.inter(labelSize, .semibold))
+                .foregroundStyle(chosen ? LineupStyle.text : LineupStyle.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, padding)
+        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+    }
+
+    #if os(tvOS)
+    private var gap: CGFloat { 28 }
+    private var logo: CGFloat { 72 }
+    private var padding: CGFloat { 26 }
+    private var radius: CGFloat { 20 }
+    private var labelGap: CGFloat { 12 }
+    private var labelSize: CGFloat { 24 }
+    #else
+    private var gap: CGFloat { 10 }
+    private var logo: CGFloat { 34 }
+    private var padding: CGFloat { 12 }
+    private var radius: CGFloat { 14 }
+    private var labelGap: CGFloat { 8 }
+    private var labelSize: CGFloat { 15 }
+    #endif
+}
+
+/// A server's own sign-in, under its logo and name.
+private struct MediaServerPanel<Content: View>: View {
+    let brand: MediaServerBrand
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        VStack(alignment: .leading, spacing: spacing) {
+            HStack(spacing: headerGap) {
+                MediaServerLogo(brand: brand).frame(width: logo, height: logo)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.inter(titleSize, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text(brand.signInNote).font(.inter(noteSize)).foregroundStyle(LineupStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            content
+        }
+        .padding(inset)
+        // As tall as it is given: beside or behind the other sign-ins, each
+        // card takes the tallest one's height.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(LineupStyle.surface, in: shape)
+        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+    }
+
+    #if os(tvOS)
+    private var radius: CGFloat { 26 }
+    private var spacing: CGFloat { 30 }
+    private var headerGap: CGFloat { 20 }
+    private var logo: CGFloat { 56 }
+    private var titleSize: CGFloat { 32 }
+    private var noteSize: CGFloat { 22 }
+    private var inset: CGFloat { 36 }
+    #else
+    private var radius: CGFloat { 18 }
+    private var spacing: CGFloat { 18 }
+    private var headerGap: CGFloat { 12 }
+    private var logo: CGFloat { 36 }
+    private var titleSize: CGFloat { 18 }
+    private var noteSize: CGFloat { 13 }
+    private var inset: CGFloat { 16 }
+    #endif
+}
+
+/// Jellyfin's or Emby's sign-in: where the server is, and whose account.
+private struct MediaServerSignInPanel: View {
+    @EnvironmentObject private var media: MediaLibrary
+    let brand: MediaServerBrand
+    @Binding var form: MediaServerSignIn
+    let connect: (MediaServerSignIn) -> Void
+
+    var body: some View {
+        MediaServerPanel(brand: brand, title: "Sign in to \(brand.name)") {
+            fields
+                // A capitalised host or an autocorrected one is not the
                 // address anybody meant to type, and on a television, where
                 // every character costs a click, it is not obvious what went
                 // wrong either.
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                Section {
-                    Button(media.isAddingServer ? "Connecting…" : "Connect") {
-                        Task {
-                            if await media.addServer(name: name, serverURL: server,
-                                username: username, password: password) { dismiss() }
-                        }
-                    }
-                        .lineupButtonStyle()
-                    // A password is not required. Jellyfin-compatible servers
-                    // allow passwordless users, and some ship that way until an
-                    // operator sets one -- refusing to try left those servers
-                    // unreachable with the button simply dead.
-                    .disabled(media.isAddingServer
-                        || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } footer: {
-                    Text("Connect a Jellyfin server. The address can be just the host and port, like 192.168.1.50:8096. Leave the password blank for a user that has none. Every server you add feeds the Library together. Access tokens are stored securely in this device’s Keychain.")
-                }
-                #if os(tvOS)
-                // A television draws no navigation bar, so the toolbar's
-                // Cancel is never rendered and the form has no visible way
-                // out. It gets a row of its own here.
-                Section {
-                    Button("Cancel", role: .cancel) { dismiss() }
-                        .lineupButtonStyle()
-                }
-                #endif
-                if let error = media.errorMessage {
-                    Section { Text(error).foregroundStyle(.red) }
-                }
+            Button {
+                connect(form)
+            } label: {
+                Text(media.isAddingServer ? "Connecting…" : "Connect")
+                    #if !os(tvOS)
+                    .frame(maxWidth: .infinity)
+                    #endif
             }
-            .navigationTitle("Add Media Server")
-            #if !os(tvOS)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            #endif
-            .disabled(media.isAddingServer)
+            .lineupButtonStyle()
+            .disabled(media.isAddingServer || !form.isComplete)
+            Text(footer)
+                .font(.inter(footerSize)).foregroundStyle(LineupStyle.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    @ViewBuilder private var fields: some View {
+        #if os(tvOS)
+        Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 22) {
+            GridRow {
+                MediaServerField(label: "Server address", prompt: "192.168.1.50:8096", text: $form.server, kind: .address)
+                MediaServerField(label: "Display name", prompt: "Optional", text: $form.name)
+            }
+            GridRow {
+                MediaServerField(label: "Username", prompt: "Username", text: $form.username, kind: .username)
+                MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
+            }
+        }
+        #else
+        VStack(spacing: 0) {
+            MediaServerField(label: "Address", prompt: "192.168.1.50:8096", text: $form.server, kind: .address)
+            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerField(label: "Name", prompt: "Optional", text: $form.name)
+            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerField(label: "Username", prompt: "Required", text: $form.username, kind: .username)
+            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
+        }
+        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        #endif
+    }
+
+    private var footer: String {
+        "The host and port is enough, as the server's web app opens on. Leave the password blank for a user that has none. Sign-ins are kept in this device's Keychain, and every server you add feeds the Library together."
+    }
+
+    #if os(tvOS)
+    private var footerSize: CGFloat { 20 }
+    #else
+    private var footerSize: CGFloat { 12 }
+    #endif
+}
+
+/// One labelled field of a sign-in.
+private struct MediaServerField: View {
+    let label: String
+    let prompt: String
+    @Binding var text: String
+    var kind: Kind = .plain
+
+    enum Kind { case plain, address, username, password }
+
+    var body: some View {
+        #if os(tvOS)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.inter(20, .semibold)).foregroundStyle(LineupStyle.secondary)
+            input
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #else
+        HStack(spacing: 12) {
+            Text(label).font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+                .frame(width: 84, alignment: .leading)
+            input
+                .font(.inter(.subheadline))
+                .foregroundStyle(LineupStyle.text)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        #endif
+    }
+
+    @ViewBuilder private var input: some View {
+        switch kind {
+        case .password:
+            SecureField(label, text: $text, prompt: Text(prompt))
+                #if !os(tvOS)
+                .textContentType(.password)
+                #endif
+        case .address:
+            TextField(label, text: $text, prompt: Text(prompt))
+                #if !os(tvOS)
+                .keyboardType(.URL)
+                .textContentType(.URL)
+                #endif
+        case .username:
+            TextField(label, text: $text, prompt: Text(prompt))
+                #if !os(tvOS)
+                .textContentType(.username)
+                #endif
+        case .plain:
+            TextField(label, text: $text, prompt: Text(prompt))
+        }
+    }
+}
+
+/// Linking a Plex account, Plex's own way: a short code entered at
+/// plex.tv/link, then the account's servers to choose from.
+///
+/// No password passes through Lineup. The account's token comes back to the
+/// device that asked for the code, and each server's own token with it.
+private struct PlexLinkPanel: View {
+    @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.openURL) private var openURL
+    let onAdded: () -> Void
+
+    private enum Step {
+        case start
+        case waiting(code: String)
+        case finding
+        case choosing([PlexAccount.Server])
+        case failed(String)
+    }
+
+    @State private var step: Step = .start
+    @State private var accountName = "Plex"
+    @State private var linking: Task<Void, Never>?
+
+    var body: some View {
+        MediaServerPanel(brand: .plex, title: "Link your Plex account") {
+            switch step {
+            case .start:
+                Text("You'll get a short code to enter at plex.tv/link on any phone or computer. Lineup never sees your Plex password.")
+                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { link() } label: { wide("Link Plex Account") }
+                    .lineupButtonStyle()
+            case .waiting(let code):
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Go to **plex.tv/link** and enter this code:")
+                        .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    Text(code)
+                        .font(.interDigits(codeSize, .heavy)).tracking(codeSize * 0.22)
+                        .foregroundStyle(LineupStyle.text)
+                        .padding(.horizontal, codeSize * 0.6).padding(.vertical, codeSize * 0.3)
+                        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                    }
+                }
+                #if !os(tvOS)
+                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { wide("Open plex.tv/link") }
+                    .lineupButtonStyle()
+                #endif
+            case .finding:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                }
+            case .choosing(let servers):
+                Text("Choose the server to add.")
+                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(servers) { server in
+                        Button { add(server) } label: {
+                            HStack(spacing: 12) {
+                                MediaServerLogo(brand: .plex).frame(width: rowLogo, height: rowLogo)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupStyle.text)
+                                    Text(server.owned == false ? "Shared with you" : "Your server")
+                                        .font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        .lineupButtonStyle()
+                    }
+                }
+            case .failed(let message):
+                Text(message).font(.inter(bodySize)).foregroundStyle(LineupStyle.live)
+                Button { link() } label: { wide("Try Again") }
+                    .lineupButtonStyle()
+            }
+        }
+        .onDisappear { linking?.cancel() }
+    }
+
+    private func wide(_ title: String) -> some View {
+        Text(title)
+            #if !os(tvOS)
+            .frame(maxWidth: .infinity)
+            #endif
+    }
+
+    private func link() {
+        linking?.cancel()
+        linking = Task { @MainActor in
+            do {
+                let clientID = media.plexClientID
+                let pin = try await PlexAccount.requestPin(clientID: clientID)
+                withAnimation(.smooth) { step = .waiting(code: pin.code) }
+                // A code lasts about a quarter of an hour. A check that fails
+                // on the way is asked again: one dropped request is no reason
+                // to send the viewer back for a new code.
+                let deadline = Date().addingTimeInterval(15 * 60)
+                var token: String?
+                while token == nil, Date() < deadline {
+                    try await Task.sleep(for: .seconds(2))
+                    token = (try? await PlexAccount.checkPin(pin.id, clientID: clientID))?.authToken
+                }
+                guard let token else {
+                    step = .failed("That code has expired. Get a new one and try again.")
+                    return
+                }
+                withAnimation(.smooth) { step = .finding }
+                accountName = (try? await PlexAccount.user(token: token, clientID: clientID))?.displayName ?? "Plex"
+                let servers = try await PlexAccount.servers(token: token, clientID: clientID)
+                guard !servers.isEmpty else {
+                    step = .failed("This Plex account has no servers to add.")
+                    return
+                }
+                // One server is the one meant; several are a choice.
+                if servers.count == 1 {
+                    add(servers[0])
+                } else {
+                    withAnimation(.smooth) { step = .choosing(servers) }
+                }
+            } catch is CancellationError {
+            } catch {
+                step = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func add(_ server: PlexAccount.Server) {
+        Task { @MainActor in
+            if await media.addPlexServer(server, accountName: accountName) { onAdded() }
+        }
+    }
+
+    #if os(tvOS)
+    private var bodySize: CGFloat { 24 }
+    private var captionSize: CGFloat { 20 }
+    private var codeSize: CGFloat { 64 }
+    private var rowLogo: CGFloat { 40 }
+    #else
+    private var bodySize: CGFloat { 15 }
+    private var captionSize: CGFloat { 12 }
+    private var codeSize: CGFloat { 34 }
+    private var rowLogo: CGFloat { 30 }
+    #endif
 }
 
 struct MDBListIntegrationView: View {
@@ -5509,7 +6168,11 @@ struct InitialSourceSetupView: View {
                     Label("Add IPTV Provider", systemImage: "dot.radiowaves.left.and.right")
                 }
                 Button { addingMedia = true } label: {
-                    Label("Add Media Server", systemImage: "play.square.stack")
+                    Label {
+                        Text("Add Media Server")
+                    } icon: {
+                        MediaServerLogoRow(size: 26)
+                    }
                 }
             }
             .lineupButtonStyle()
@@ -5520,8 +6183,12 @@ struct InitialSourceSetupView: View {
                         .frame(maxWidth: .infinity)
                 }
                 Button { addingMedia = true } label: {
-                    Label("Add Media Server", systemImage: "play.square.stack")
-                        .frame(maxWidth: .infinity)
+                    Label {
+                        Text("Add Media Server")
+                    } icon: {
+                        MediaServerLogoRow(size: 18)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .lineupButtonStyle()
