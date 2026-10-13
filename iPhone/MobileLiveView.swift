@@ -222,7 +222,7 @@ struct MobileLiveView: View {
                         }
                         // A column hung from the pill, down the left side:
                         // it opens where the thumb already is.
-                        .frame(width: min(316, viewport.size.width - 32))
+                        .frame(width: min(300, viewport.size.width - 32))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 16)
                         .padding(.top, Self.headerHeight - 4)
