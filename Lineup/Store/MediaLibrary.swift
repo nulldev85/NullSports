@@ -385,6 +385,7 @@ final class MediaLibrary: ObservableObject {
             return list
         }
         return MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
+            ?? trendingShelves.first
     }
 
     func selectHeroCatalog(_ catalog: MediaCatalog) {
@@ -2999,10 +3000,32 @@ final class MediaLibrary: ObservableObject {
 
     private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
         let selections = savedShelves()
-        if let saved = selections[profileID.uuidString], !saved.isEmpty {
-            return saved.compactMap { id in roots.first { $0.id == id } }
+        guard let saved = selections[profileID.uuidString] else {
+            // A server adds no shelves of its own: the Library opens on its
+            // own rows, and the viewer adds a server's from Add Shelf. An
+            // empty choice is kept as a choice, so it is never filled in.
+            saveShelfIDs([], profileID: profileID)
+            return []
         }
+        // Once: shelves that are still exactly what was once picked for a
+        // server on its own -- its trending libraries, or its first two --
+        // were never the viewer's choice, and go.
+        var retired = Set(defaults.stringArray(forKey: Self.autoShelvesRetiredKey) ?? [])
+        if !retired.contains(profileID.uuidString), !saved.isEmpty {
+            retired.insert(profileID.uuidString)
+            defaults.set(retired.sorted(), forKey: Self.autoShelvesRetiredKey)
+            if saved == Self.formerAutomaticShelfIDs(in: roots) {
+                saveShelfIDs([], profileID: profileID)
+                return []
+            }
+        }
+        return saved.compactMap { id in roots.first { $0.id == id } }
+    }
 
+    private static let autoShelvesRetiredKey = "Lineup.automaticServerShelvesRetired.v1"
+
+    /// What used to be chosen for a server when nobody had chosen.
+    nonisolated static func formerAutomaticShelfIDs(in roots: [MediaItem]) -> [String] {
         let movie = roots.first { root in
             let name = root.name.lowercased()
             return name.contains("trending") && name.contains("movie")
@@ -3011,13 +3034,8 @@ final class MediaLibrary: ObservableObject {
             let name = root.name.lowercased()
             return name.contains("trending") && (name.contains("series") || name.contains("show") || name.contains("tv"))
         }
-        var defaults = [movie, series].compactMap { $0 }
-        // A server with nothing named trending still shows its own first
-        // libraries: added beside another server, it must not be invisible in
-        // the Library until someone goes looking for Add Shelf.
-        if defaults.isEmpty { defaults = Array(roots.prefix(2)) }
-        saveShelfIDs(defaults.map(\.id), profileID: profileID)
-        return defaults
+        let picked = [movie, series].compactMap { $0 }
+        return (picked.isEmpty ? Array(roots.prefix(2)) : picked).map(\.id)
     }
 
     private func savedShelves() -> [String: [String]] {
@@ -3263,7 +3281,10 @@ extension MediaLibrary {
             if let built = streamingBuiltAt, Calendar.current.isDateInToday(built),
                sources == streamingSources, !trendingTitles.isEmpty { return }
             if let failed = streamingFailedAt, Date().timeIntervalSince(failed) < 15 * 60 { return }
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            // With nothing yet to show, there are no posters to let go first.
+            if !streamingServices.isEmpty || !trendingTitles.isEmpty {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
         }
         await buildStreamingServices(sources: sources)
     }
@@ -3506,17 +3527,18 @@ extension MediaLibrary {
 
     /// Every row the Library has on it now, in the viewer's order.
     var libraryRows: [LibraryRow] {
-        var rows: [LibraryRow] = trendingShelves.map { shelf in
+        var rows: [LibraryRow] = []
+        if !continueWatching.isEmpty {
+            rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
+                                   detail: nil, symbol: "play.circle", brand: nil))
+        }
+        rows += trendingShelves.map { shelf in
             LibraryRow(id: shelf.id, title: shelf.title, detail: "Trending now",
                        symbol: "chart.line.uptrend.xyaxis", brand: nil)
         }
         if let streaming = streamingShelf {
             rows.append(LibraryRow(id: streaming.id, title: streaming.title,
                                    detail: "\(streaming.items.count) services", symbol: "play.tv", brand: nil))
-        }
-        if !continueWatching.isEmpty {
-            rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
-                                   detail: nil, symbol: "play.circle", brand: nil))
         }
         let favorites = favoriteMedia
         if favorites.contains(where: { $0.type != "Episode" }) {

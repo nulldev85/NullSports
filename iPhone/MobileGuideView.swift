@@ -473,11 +473,11 @@ struct MobileGuideView: View {
                         .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
-                    // The scrollers adjust no insets of their own, so the last
-                    // channel has to be given room to clear the floating tab
-                    // bar itself. Without this it sits underneath it, readable
-                    // only by scrolling past the end.
-                    .contentMargins(.bottom, viewport.safeAreaInsets.bottom, for: .scrollContent)
+                    // Room for the last channel to clear the floating tab bar
+                    // is measured, not assumed: `MobileGuideScrollConfiguration`
+                    // gives exactly the part of the list the bar covers, so the
+                    // end settles with the last row flush above it, as the top
+                    // settles on the first.
                     .frame(height: max(0, viewport.size.height - 40))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
@@ -738,5 +738,33 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         // Elastic horizontal overscroll would move the ruler beneath frozen logos.
         // Keep vertical elasticity for natural scrolling and pull-to-refresh.
         if horizontal { scroll.bounces = false }
+        if !horizontal { fitBottom(of: scroll) }
+    }
+
+    /// The list's bottom inset: exactly the height of it that the tab bar
+    /// covers, so the last channel comes to rest right on top of the bar.
+    /// A fixed allowance was added on top of the room the layout already
+    /// left, and the guide came to rest with a gap under its last row.
+    static func fitBottom(of scroll: UIScrollView) {
+        guard let window = scroll.window, let container = scroll.superview else { return }
+        let frame = container.convert(scroll.frame, to: window)
+        let barTop = tabBar(in: window).flatMap { bar -> CGFloat? in
+            guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
+            return bar.convert(bar.bounds, to: window).minY
+        } ?? (window.bounds.maxY - window.safeAreaInsets.bottom)
+        let inset = max(0, (frame.maxY - barTop).rounded())
+        guard abs(scroll.contentInset.bottom - inset) > 0.5 else { return }
+        scroll.contentInset.bottom = inset
+        scroll.verticalScrollIndicatorInsets.bottom = inset
+    }
+
+    private static func tabBar(in window: UIWindow) -> UITabBar? {
+        func search(_ controller: UIViewController?) -> UITabBar? {
+            guard let controller else { return nil }
+            if let tabs = controller as? UITabBarController { return tabs.tabBar }
+            for child in controller.children { if let bar = search(child) { return bar } }
+            return search(controller.presentedViewController)
+        }
+        return search(window.rootViewController)
     }
 }

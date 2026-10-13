@@ -925,7 +925,7 @@ private struct MediaCatalogsScreen: View {
                         }
                         #endif
                         ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
-                            description: Text("Add only the catalogs you want. Trending Movies and Trending TV are selected automatically when the server provides them."))
+                            description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
                     }
                 } else {
                     #if os(tvOS)
@@ -1000,11 +1000,12 @@ private struct MediaCatalogsScreen: View {
 
     /// Every row, in the order the viewer arranged them.
     private var phoneRows: [PhoneRow] {
-        var rows: [PhoneRow] = media.builtInShelves.map(PhoneRow.catalog)
+        var rows: [PhoneRow] = []
         if !continueWatching.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continueWatching.map(\.item), opensPages: true))
         }
+        rows += media.builtInShelves.map(PhoneRow.catalog)
         if !favoriteTitles.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.favorites, title: "Favorites",
                                items: favoriteTitles, opensPages: false))
@@ -1187,14 +1188,15 @@ private struct MediaCatalogsScreen: View {
 
     /// What can sit in the row at the foot of the screen, top to bottom.
     private var tvShelves: [TVLibraryShelf] {
-        var shelves = media.builtInShelves.map { catalog in
-            TVLibraryShelf(id: catalog.id, title: catalog.title, label: nil, items: catalog.items,
-                           opensPages: false, catalog: catalog)
-        }
+        var shelves: [TVLibraryShelf] = []
         if !continueWatching.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                           label: nil, items: continueWatching.map(\.item),
                                           opensPages: true, catalog: nil))
+        }
+        shelves += media.builtInShelves.map { catalog in
+            TVLibraryShelf(id: catalog.id, title: catalog.title, label: nil, items: catalog.items,
+                           opensPages: false, catalog: catalog)
         }
         if !favoriteTitles.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.favorites, title: "Favorites", label: nil,

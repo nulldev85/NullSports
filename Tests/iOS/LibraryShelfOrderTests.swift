@@ -57,6 +57,17 @@ final class LibraryShelfOrderTests: XCTestCase {
         XCTAssertEqual(decoded, source)
     }
 
+    func testTheOldAutomaticServerShelvesAreRecognised() {
+        func root(_ id: String, _ name: String) -> MediaItem {
+            MediaItem(id: id, name: name, type: "CollectionFolder", overview: nil,
+                      productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        }
+        let roots = [root("m", "Movies"), root("tm", "Trending Movies"), root("tv", "Trending TV")]
+        XCTAssertEqual(MediaLibrary.formerAutomaticShelfIDs(in: roots), ["tm", "tv"])
+        XCTAssertEqual(MediaLibrary.formerAutomaticShelfIDs(in: [root("a", "Movies"), root("b", "Shows"), root("c", "Kids")]),
+                       ["a", "b"])
+    }
+
     func testRowsOfAnyKindAreArrangedByID() {
         struct Row { let id: String; let title: String }
         let rows = [Row(id: "a", title: "A"), Row(id: "b", title: "B")]
