@@ -43,37 +43,7 @@ fileprivate struct LineupPalette {
     let leagues: LeagueColors
 }
 
-#if os(tvOS)
-fileprivate extension LineupPalette {
-    /// The television's only look: charcoal, light grey and white.
-    ///
-    /// The four themes are the phone's now. Across a room, colour in the
-    /// chrome competes with the picture, so the set gets one neutral room:
-    /// a charcoal ground, panels a step or two lighter, light grey for what is
-    /// secondary and white for what matters. The games and their teams bring
-    /// the colour, and red is kept for the one thing that is live.
-    static let television = LineupPalette(
-        // The phone's ground and panels: black, with near-black cards on it.
-        // Focus is still the white layer over whatever is chosen.
-        accent: rgb(0xF5F5F7), background: rgb(0x000000), surface: rgb(0x1C1C1D),
-        raised: rgb(0x1C1C1D), sidebar: rgb(0x0E0E0F), selected: rgb(0x2C2C2E),
-        focused: rgb(0x2C2C2E), warning: rgb(0xC7C7CC),
-        highlight: rgb(0xFFFFFF), highlightSoft: rgb(0xD1D1D6),
-        selectionBorder: rgb(0xFFFFFF),
-        positive: rgb(0xF5F5F7), logoPlate: rgb(0xF2F2F7),
-        line: rgb(0xFFFFFF).opacity(0.1),
-        // One grey for every league: a league is named in words on the
-        // television, never told apart by a colour that is not the theme's.
-        leagues: LeagueColors(
-            football: rgb(0xC7C7CC), college: rgb(0xC7C7CC), basketball: rgb(0xC7C7CC),
-            hockey: rgb(0xC7C7CC), baseball: rgb(0xC7C7CC), combat: rgb(0xC7C7CC),
-            tennis: rgb(0xC7C7CC)
-        )
-    )
-}
-#endif
 
-#if !os(tvOS)
 fileprivate extension LineupPalette {
     /// The phone's only look. It was one of four themes, Signal, and the one
     /// the app opened in; the others are gone, and with them the setting.
@@ -119,7 +89,6 @@ fileprivate extension LineupPalette {
         )
     )
 }
-#endif
 
 private func rgb(_ value: UInt32) -> Color {
     Color(
@@ -197,22 +166,17 @@ extension LineupPanelHeader where Accessory == EmptyView {
 }
 
 enum LineupStyle {
-    #if os(tvOS)
-    private static var palette: LineupPalette { .television }
-    #else
+    /// One palette for the phone and the television, so the two apps are
+    /// the same colours: the same ground, panels and greys, the viewer's
+    /// accent for what is chosen and live, the same colour for each league.
     private static var palette: LineupPalette { .phone }
-    #endif
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
     static var lightPurple: Color { palette.accent }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
     static var liveSelectionBorder: Color {
-        #if os(tvOS)
-        return palette.selectionBorder
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
@@ -224,72 +188,41 @@ enum LineupStyle {
     /// The phone's is the accent its viewer chose; the television keeps
     /// its white.
     static var highlight: Color {
-        #if os(tvOS)
-        return palette.highlight
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var highlightSoft: Color {
-        #if os(tvOS)
-        return palette.highlightSoft
-        #else
         return LineupAccent.current.soft
-        #endif
     }
     /// Type set on the highlight, legible whatever accent was chosen.
     static var onHighlight: Color {
-        #if os(tvOS)
-        return palette.background
-        #else
         return LineupAccent.current.onAccent
-        #endif
     }
     static var liveBorder: Color { highlight.opacity(0.72) }
     static var line: Color { palette.line }
     static var text: Color { palette.accent }
     static var secondary: Color {
-        #if os(tvOS)
-        // The light grey: a solid colour rather than white at an opacity, so
-        // it reads the same over a card, a row or the picture.
-        return rgb(0x98989E)
-        #else
         return lightPurple.opacity(0.66)
-        #endif
     }
     /// Playback chrome stays legible against video.
     static var mediaText: Color { text }
     static var mediaSecondary: Color { secondary }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
-    /// An error on the phone is red whatever its accent.
+    /// An error is red whatever the accent.
     static var live: Color {
-        #if os(tvOS)
-        return palette.highlight
-        #else
         return broadcastRed
-        #endif
     }
     static var warning: Color { palette.warning }
-    /// What is on air. On the phone it is the accent, so the live marks and
-    /// the active ones are one colour whatever the viewer chose -- Red by
-    /// default, which is the broadcast red it always was. The television
-    /// keeps the broadcast red.
+    /// What is on air: the accent, on the phone and the television alike, so
+    /// the live marks and the active ones are one colour whatever the viewer
+    /// chose -- Red by default, which is the broadcast red it always was.
     static var liveDot: Color {
-        #if os(tvOS)
-        return broadcastRed
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var liveStatus: Color { liveDot }
     /// Type set on a live mark, legible whatever the accent is.
     static var onLive: Color {
-        #if os(tvOS)
-        return .white
-        #else
         return LineupAccent.current.onAccent
-        #endif
     }
     /// The red of failure, which is not a matter of taste.
     static var broadcastRed: Color { rgb(0xFF3347) }
@@ -433,11 +366,7 @@ extension View {
     /// state worth keeping, such as the selected tab.
     @ViewBuilder
     func lineupAccentScope(_ accent: String) -> some View {
-        #if os(tvOS)
-        self
-        #else
         id(accent)
-        #endif
     }
 
     /// A region the remote can land in as a whole.

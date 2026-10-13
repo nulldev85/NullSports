@@ -5154,16 +5154,11 @@ private struct MediaStreamTab: View {
             markView
         }
         .padding(.horizontal, Style.tabPadH).padding(.vertical, Style.tabPadV)
-        #if os(tvOS)
-        .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
-        .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.line, lineWidth: 1))
-        #else
-        // The app's chips: the accent filled when chosen, outlined otherwise.
+        // The app's chips, on both: the accent filled when chosen, outlined
+        // otherwise.
         .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
         .background(active ? LineupStyle.highlight : Color.clear, in: Capsule())
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
-        #endif
         .opacity(quiet && !active ? 0.55 : 1)
         .lineupFocusLayer(focused && !active, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -5181,11 +5176,7 @@ private struct MediaStreamTab: View {
             Text("\(count)").font(.interDigits(Style.tabCountSize, .bold)).opacity(0.55)
         case .looking:
             ProgressView()
-                #if os(tvOS)
-                .tint(active ? LineupStyle.background : LineupStyle.lightPurple)
-                #else
                 .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
-                #endif
                 .scaleEffect(Style.tabSpinnerScale)
                 .frame(width: Style.tabSpinner, height: Style.tabSpinner)
         case .missing:

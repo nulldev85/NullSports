@@ -479,32 +479,22 @@ private struct AppSearchChip: View {
                 .font(.inter(Metrics.chipSize, .bold))
             if waiting {
                 ProgressView().controlSize(.small)
-                    #if os(tvOS)
-                    .tint(active ? LineupStyle.background : LineupStyle.text)
-                    #else
                     .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
-                    #endif
             } else {
                 Text("\(count)")
                     .font(.interDigits(Metrics.chipSize, .bold))
                     .opacity(0.55)
             }
         }
-        #if os(tvOS)
-        .foregroundStyle(active ? LineupStyle.background : LineupStyle.text)
-        .padding(.horizontal, Metrics.chipPadding)
-        .frame(height: Metrics.chipHeight)
-        .background(Capsule().fill(active ? Color.white : LineupStyle.surface))
-        .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
-        .lineupFocusLayer(focused && !active, in: Capsule())
-        #else
-        // The app's chips: filled with the accent when chosen, drawn in
-        // its outline otherwise.
+        // The app's chips, on the phone and the television alike: filled
+        // with the accent when chosen, drawn in its outline otherwise.
         .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
         .background(Capsule().fill(active ? LineupStyle.highlight : Color.clear))
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
+        #if os(tvOS)
+        .lineupFocusLayer(focused, in: Capsule())
         #endif
         .animation(.easeOut(duration: 0.18), value: active)
     }

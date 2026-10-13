@@ -295,37 +295,17 @@ private struct StreamingChip: View {
         }
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
-        #if os(tvOS)
-        .foregroundStyle(active ? activeText : LineupStyle.text)
-        .background(Capsule().fill(active ? activeFill : LineupStyle.surface))
-        .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
-        .lineupFocusLayer(focused && !active, in: Capsule())
-        #else
-        // Filled with the accent when chosen, its outline otherwise.
-        .foregroundStyle(active ? activeText : LineupStyle.highlight)
-        .background(Capsule().fill(active ? activeFill : Color.clear))
+        // Filled with the accent when chosen, its outline otherwise, on the
+        // phone and the television alike.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+        .background(Capsule().fill(active ? LineupStyle.highlight : Color.clear))
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
+        #if os(tvOS)
+        .lineupFocusLayer(focused, in: Capsule())
         #endif
         .contentShape(Capsule())
         .animation(.easeOut(duration: 0.18), value: active)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
-    }
-
-    /// The phone's chosen accent, the television's white.
-    private var activeFill: Color {
-        #if os(tvOS)
-        .white
-        #else
-        LineupStyle.highlight
-        #endif
-    }
-
-    private var activeText: Color {
-        #if os(tvOS)
-        LineupStyle.background
-        #else
-        LineupStyle.onHighlight
-        #endif
     }
 }
 

@@ -1525,10 +1525,10 @@ private struct LiveCrest: View {
 private struct LiveOnAirTag: View {
     var body: some View {
         HStack(spacing: 7) {
-            Circle().fill(.white).frame(width: 7, height: 7)
+            Circle().fill(LineupStyle.onLive).frame(width: 7, height: 7)
             Text("LIVE").font(.inter(14, .heavy)).tracking(0.6)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(LineupStyle.onLive)
         .padding(.horizontal, 12).frame(height: 30)
         .background(LivePalette.onAir, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         .accessibilityHidden(true)
@@ -1975,7 +1975,7 @@ private struct LiveTag: View {
                 Text(title).font(.inter(12, .heavy)).tracking(0.6)
             }
         }
-        .foregroundStyle(LineupStyle.background)
+        .foregroundStyle(LineupStyle.onHighlight)
         .padding(.horizontal, 9).frame(height: 24)
         .background(LivePalette.accent, in: Capsule())
         .fixedSize()
@@ -2240,8 +2240,8 @@ private struct LiveChipLabel: View {
         }
         .foregroundStyle(LivePalette.text)
         .padding(.horizontal, 20).frame(height: 46)
+        // The phone's pill: the panels' fill, no outline.
         .background(LivePalette.card, in: Capsule())
-        .overlay(Capsule().strokeBorder(LivePalette.rule, lineWidth: 1))
         .lineupFocusLayer(focused, in: Capsule())
         .lineupShadow(.lifted, on: focused)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -2638,7 +2638,7 @@ private struct LiveTicker: View {
             // brands the corner its scores come in from.
             Text("SCORES")
                 .font(.inter(13, .heavy)).tracking(0.6)
-                .foregroundStyle(LineupStyle.background)
+                .foregroundStyle(LineupStyle.onHighlight)
                 .padding(.horizontal, 12).frame(height: 26)
                 .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .padding(.bottom, 5)
