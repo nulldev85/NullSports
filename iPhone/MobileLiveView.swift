@@ -748,10 +748,11 @@ private struct MobileMatchupRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
                     VStack(alignment: .leading, spacing: 4) {
+                        // An event has no teams to show, so its league's
+                        // mark stands where their crests would: the tour on
+                        // a tennis tournament, UFC on a fight night.
                         HStack(spacing: 9) {
-                            if game.isNFLRedZone {
-                                MobileLeagueLogo(league: .nfl, size: 28)
-                            }
+                            MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 28)
                             Text(game.eventName ?? "")
                                 .font(.inter(.body, .semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)
