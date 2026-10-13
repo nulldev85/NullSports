@@ -2082,6 +2082,8 @@ private struct LiveMatchupBoard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            // The panels' hairline under the header.
+            Rectangle().fill(LineupStyle.line).frame(height: 1)
             if events.isEmpty {
                 emptyLane
             } else {
@@ -2102,8 +2104,17 @@ private struct LiveMatchupBoard: View {
                         .foregroundStyle(LivePalette.secondary).lineLimit(1)
                 }
             } else {
+                // The panels' header: icon and heavy caption in light grey.
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text("Matchups").font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
+                    HStack(spacing: 12) {
+                        Image(systemName: "sportscourt")
+                            .font(.system(size: LineupPanelStyle.headerSize, weight: .bold, design: .rounded))
+                            .accessibilityHidden(true)
+                        Text("MATCHUPS")
+                            .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
+                            .tracking(LineupPanelStyle.headerTracking)
+                    }
+                    .foregroundStyle(LineupPanelStyle.caption)
                     LiveBoardCount(total: events.count, live: events.filter(\.isLive).count)
                 }
             }
@@ -4599,10 +4610,12 @@ struct AccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 56) {
                     header
-                    sources
-                    libraryAndCatalogs
-                    diagnostics
-                    about
+                    // Each section a panel, as on the phone: the header
+                    // and its hairline inside, the cards a step lighter.
+                    sources.modifier(TVSettingsPanel())
+                    libraryAndCatalogs.modifier(TVSettingsPanel())
+                    diagnostics.modifier(TVSettingsPanel())
+                    about.modifier(TVSettingsPanel())
                 }
                 .frame(width: columnWidth, alignment: .topLeading)
                 .frame(maxWidth: .infinity)
@@ -4671,9 +4684,7 @@ struct AccountView: View {
                         AccountServerRow(profile: profile)
                     }
                 }
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(LineupStyle.line, lineWidth: 1))
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
     }
@@ -4700,8 +4711,7 @@ struct AccountView: View {
             }
             .padding(.horizontal, 30)
             .frame(height: 96)
-            .background(LineupStyle.surface, in: shape)
-            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+            .background(LineupPanelStyle.well, in: shape)
         }
     }
 
@@ -4884,6 +4894,18 @@ struct AccountView: View {
 }
 
 /// A section's name, small and spaced, with a hairline running out from it.
+/// A Settings section as a panel: the panels' fill and corners round its
+/// header and everything under it.
+private struct TVSettingsPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(LineupPanelStyle.inset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupPanelStyle.radius,
+                                                                  style: .continuous))
+    }
+}
+
 private struct AccountSectionHeading: View {
     let title: String
     init(_ title: String) { self.title = title }

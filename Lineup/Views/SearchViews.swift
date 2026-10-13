@@ -349,6 +349,8 @@ struct AppSearchView: View {
         }
         #if os(tvOS)
         .foregroundStyle(LineupPanelStyle.caption)
+        .padding(.bottom, 16)
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .padding(.horizontal, Metrics.inset)
         #else
         // A panel's header: light grey caption over the panel's hairline.
@@ -609,12 +611,8 @@ private struct AppSearchLiveRow: View {
         }
         .padding(Metrics.rowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        #if os(tvOS)
-        .background(LineupStyle.surface, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
-        #else
+        // A row inside its section's panel: a step lighter than the panel.
         .background(LineupPanelStyle.well, in: shape)
-        #endif
         .foregroundStyle(LineupStyle.text)
         .accessibilityElement(children: .combine)
     }
@@ -1001,12 +999,19 @@ private enum AppSearchMetrics {
     #endif
 }
 
-/// A section of results as a panel on the phone, like the Library's shelves.
-/// The television keeps its open rows.
+/// A section of results as a panel, like the Library's shelves.
 private struct AppSearchPanel: ViewModifier {
     func body(content: Content) -> some View {
         #if os(tvOS)
+        // Drawn behind, held in from the rows' own margin, so a focused
+        // poster can still rise past the panel's edge.
         content
+            .padding(.top, 28).padding(.bottom, 30)
+            .background {
+                RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
+                    .fill(LineupPanelStyle.fill)
+                    .padding(.horizontal, AppSearchMetrics.inset - LineupPanelStyle.inset)
+            }
         #else
         content
             .padding(.bottom, 18)
