@@ -3175,7 +3175,7 @@ extension MediaLibrary {
     /// The built-in rows the viewer has taken away, for Add Shelf to offer.
     var hiddenBuiltInRows: [BuiltInRow] {
         var rows = LibraryTrendingRow.all.filter { hiddenTrendingRows.contains($0.id) }
-            .map { BuiltInRow(id: $0.id, title: $0.title, detail: "What is trending on Trakt that you can play") }
+            .map { BuiltInRow(id: $0.id, title: $0.title, detail: "What is trending now that you can play") }
         if !showsStreamingServices {
             rows.append(BuiltInRow(id: StreamingService.rowID, title: StreamingService.rowTitle,
                                    detail: "What each service has on that you can play"))
@@ -3499,7 +3499,7 @@ extension MediaLibrary {
     /// Every row the Library has on it now, in the viewer's order.
     var libraryRows: [LibraryRow] {
         var rows: [LibraryRow] = trendingShelves.map { shelf in
-            LibraryRow(id: shelf.id, title: shelf.title, detail: "Trending on Trakt",
+            LibraryRow(id: shelf.id, title: shelf.title, detail: "Trending now",
                        symbol: "chart.line.uptrend.xyaxis", brand: nil)
         }
         if let streaming = streamingShelf {
