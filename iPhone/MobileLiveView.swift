@@ -62,9 +62,9 @@ struct MobileLiveView: View {
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
         var mine: [SportsGame] = []
-        // With the tab already narrowed to followed teams, a section for them
-        // would be the whole list under a second heading.
-        let separatesMine = !onlyFollowed
+        // Followed teams' games sit in the list where their time puts them;
+        // My Teams narrows the list to them rather than lifting them out.
+        let separatesMine = false
         for game in all {
             if separatesMine, library.isFollowing(game) {
                 if game.isLive || game.isUpcoming { mine.append(game) }
