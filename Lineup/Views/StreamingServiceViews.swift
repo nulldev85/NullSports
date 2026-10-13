@@ -43,6 +43,7 @@ struct StreamingServiceScreen: View {
     let service: StreamingService
 
     @State private var kind: StreamingTitle.Kind = .movie
+    @State private var order = StreamingOrderMemo()
     @AppStorage("Lineup.streamingSort.movie") private var movieSort: StreamingSort = .popular
     @AppStorage("Lineup.streamingSort.show") private var showSort: StreamingSort = .popular
     #if os(tvOS)
@@ -61,7 +62,16 @@ struct StreamingServiceScreen: View {
         })
     }
 
-    private var shown: [MediaItem] { sort.sorted(titles.titles(kind)).map(\.item) }
+    /// The titles in the chosen order, sorted once per change of order or
+    /// of titles rather than on every redraw.
+    private var shown: [MediaItem] {
+        let key = "\(service.id)|\(kind.rawValue)|\(sort.rawValue)|\(media.streamingMemoKey)"
+        if order.key != key {
+            order.key = key
+            order.items = sort.sorted(titles.titles(kind)).map(\.item)
+        }
+        return order.items
+    }
 
     var body: some View {
         Group {
@@ -262,6 +272,12 @@ struct StreamingServicesScreen: View {
 }
 
 // MARK: - Pieces
+
+/// A service screen's last ordering, kept across redraws.
+private final class StreamingOrderMemo {
+    var key = ""
+    var items: [MediaItem] = []
+}
 
 /// Movies or TV Shows, and how many of each: the chosen one is filled.
 private struct StreamingChip: View {

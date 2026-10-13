@@ -123,6 +123,19 @@ final class StreamingServicesTests: XCTestCase {
         XCTAssertEqual(Set(StreamingService.all.map(\.id)).count, StreamingService.all.count)
     }
 
+    func testCardOnlyKeepsWhatAPosterAndItsStreamsNeed() {
+        let full = MediaItem(id: "x", name: "Dune", type: "Movie", overview: "Sand.", productionYear: 2021,
+                             primaryImageAspectRatio: 0.67, childCount: nil,
+                             imageTags: ["Primary": "tag"], tags: ["4K", "Atmos"],
+                             providerIDs: ["Imdb": "tt1160419"]).servedBy(server)
+        let slim = full.cardOnly
+        XCTAssertNil(slim.tags)
+        XCTAssertEqual(slim.libraryKey, full.libraryKey)
+        XCTAssertEqual(slim.providerIDs, full.providerIDs)
+        XCTAssertEqual(slim.imageTags, full.imageTags)
+        XCTAssertEqual(slim.productionYear, 2021)
+    }
+
     func testSnapshotRoundTrips() throws {
         let snapshot = StreamingServicesSnapshot(
             builtAt: Date(timeIntervalSince1970: 1_000), sources: [server.uuidString],

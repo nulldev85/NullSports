@@ -126,6 +126,23 @@ struct StreamingTitle: Codable, Hashable, Sendable {
     var releaseYear: Int? { year ?? item.productionYear }
 }
 
+extension MediaItem {
+    /// What a poster needs, without the cast, crew and trailers a server's
+    /// full record carries. The row keeps hundreds of titles on the device;
+    /// a title's page asks its server for the rest when it opens.
+    var cardOnly: MediaItem {
+        MediaItem(id: id, name: name, type: type, overview: overview, productionYear: productionYear,
+                  primaryImageAspectRatio: primaryImageAspectRatio, childCount: childCount,
+                  genres: genres, officialRating: officialRating, communityRating: communityRating,
+                  criticRating: criticRating, runTimeTicks: runTimeTicks, premiereDate: premiereDate,
+                  seriesName: seriesName, seriesID: seriesID, userData: userData,
+                  imageTags: imageTags, backdropImageTags: backdropImageTags,
+                  status: status, endDate: endDate, providerIDs: providerIDs,
+                  posterURL: posterURL, backdropURL: backdropURL, logoArtworkURL: logoArtworkURL,
+                  serverID: serverID)
+    }
+}
+
 /// What one service has on that the viewer can play.
 struct StreamingServiceTitles: Codable, Hashable, Sendable {
     var movies: [StreamingTitle] = []
