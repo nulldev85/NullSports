@@ -198,14 +198,26 @@ struct SportsScheduleClient: Sendable {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
-        let last = calendar.date(byAdding: .day, value: -1, to: end) ?? day
-        let range = formatter.string(from: day) + (days > 1 ? "-" + formatter.string(from: last) : "")
-        async let atp = tennisTour(.atp, dates: range)
-        async let wta = tennisTour(.wta, dates: range)
+        // One day a request: ESPN answers a range of dates with nothing at
+        // all. Each day still brings its tournaments whole, so tomorrow is
+        // asked for only to catch an event that has not begun yet.
+        let dates = (0..<max(days, 1)).compactMap { calendar.date(byAdding: .day, value: $0, to: day) }
+            .map { formatter.string(from: $0) }
         do {
-            // Both or neither: a schedule with one tour missing would replace
-            // a complete one, and the next refresh is thirty seconds away.
-            let events = try await atp + wta
+            // All or nothing: a schedule with a tour missing would replace a
+            // complete one, and the next refresh is thirty seconds away.
+            let events = try await withThrowingTaskGroup(
+                of: [(tour: SportsLeague, event: TennisEnvelope.Event)].self
+            ) { group in
+                for tour in [SportsLeague.atp, .wta] {
+                    for date in dates {
+                        group.addTask { try await tennisTour(tour, date: date) }
+                    }
+                }
+                var all: [(tour: SportsLeague, event: TennisEnvelope.Event)] = []
+                for try await batch in group { all += batch }
+                return all
+            }
             let matches = events.flatMap { Self.tennisMatches(in: $0.event, tour: $0.tour, from: day, to: end) }
             return .success(Dictionary(grouping: matches, by: \.id).values.compactMap(\.first)
                 .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start })
@@ -214,8 +226,8 @@ struct SportsScheduleClient: Sendable {
         }
     }
 
-    private func tennisTour(_ tour: SportsLeague, dates: String) async throws -> [(tour: SportsLeague, event: TennisEnvelope.Event)] {
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/tennis/\(tour.rawValue)/scoreboard?dates=\(dates)") else {
+    private func tennisTour(_ tour: SportsLeague, date: String) async throws -> [(tour: SportsLeague, event: TennisEnvelope.Event)] {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/tennis/\(tour.rawValue)/scoreboard?dates=\(date)") else {
             throw ScheduleError.invalidURL
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
@@ -226,7 +238,6 @@ struct SportsScheduleClient: Sendable {
         return try JSONDecoder().decode(TennisEnvelope.self, from: data).events.map { (tour: tour, event: $0) }
     }
 
-    /// One tournament's matches in the window, as games.
     /// A major is on both tours' scoreboards with both draws in it, so a
     /// match's tour is read from its draw; the feed it came in on settles
     /// only a draw that does not say.
@@ -303,14 +314,24 @@ struct SportsScheduleClient: Sendable {
         let sets = zip(firstLines, secondLines).map { away, home in
             let awayGames = Int(away.value ?? 0), homeGames = Int(home.value ?? 0)
             // ESPN marks a set's winner once it is over; the set in play has
-            // neither side marked.
-            let awayWon: Bool? = away.winner == true ? true : (home.winner == true ? false : nil)
+            // neither side marked. The mark can trail the score by a refresh
+            // or two, so a set the games have already settled -- six with a
+            // two-game lead, or seven -- counts as over.
+            let awayWon: Bool? = away.winner == true ? true
+                : (home.winner == true ? false : Self.settled(awayGames, homeGames))
             return TennisScore.SetGames(away: awayGames, home: homeGames,
                                         awayTiebreak: away.tiebreak.map { Int($0) },
                                         homeTiebreak: home.tiebreak.map { Int($0) },
                                         awayWon: awayWon)
         }
         return TennisScore(sets: sets, bestOf: bestOf == 5 ? 5 : 3)
+    }
+
+    /// Who has taken a set on its games alone, or nil while it is open.
+    static func settled(_ away: Int, _ home: Int) -> Bool? {
+        if away == 7 || (away >= 6 && away - home >= 2) { return true }
+        if home == 7 || (home >= 6 && home - away >= 2) { return false }
+        return nil
     }
 
     /// "Set 3 · 4-3" while it is played; "Final · 6-4 7-6(5)" after, or

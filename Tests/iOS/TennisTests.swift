@@ -109,6 +109,39 @@ final class TennisTests: XCTestCase {
         XCTAssertEqual(games.first { $0.id == "tennis-3002" }?.league, .atp)
     }
 
+    // From ESPN's live Wuhan feed: the second set is over on its games, 7-6
+    // with the tiebreak played, but neither side is marked as its winner yet.
+    func testASetTheGamesHaveSettledCountsAsOverBeforeESPNMarksIt() throws {
+        let live = """
+        {"events": [{"name": "Dongfeng Voyah Wuhan Open", "groupings": [
+          {"grouping": {"slug": "womens-singles"}, "competitions": [
+            {"id": "185335", "date": "2026-10-13T03:00Z", "timeValid": true, "broadcast": "", "broadcasts": [],
+             "type": {"slug": "womens-singles"}, "round": {"displayName": "Round 1"},
+             "venue": {"fullName": "Wuhan, China PR", "court": "Court 2"}, "format": {"regulation": {"periods": 3}},
+             "status": {"type": {"state": "in", "description": "In Progress", "shortDetail": "2nd"}},
+             "competitors": [
+               {"order": 2, "linescores": [{"value": 6.0, "tiebreak": 1, "winner": false}, {"value": 7.0, "tiebreak": 7}],
+                "athlete": {"displayName": "Katie Volynets", "shortName": "K. Volynets"}},
+               {"order": 1, "linescores": [{"value": 7.0, "tiebreak": 7, "winner": true}, {"value": 6.0, "tiebreak": 3}],
+                "athlete": {"displayName": "Kimberly Birrell", "shortName": "K. Birrell"}}
+             ]}]}
+        ]}]}
+        """
+        let envelope = try JSONDecoder().decode(TennisEnvelope.self, from: Data(live.utf8))
+        let match = try XCTUnwrap(envelope.events.flatMap {
+            SportsScheduleClient.tennisMatches(in: $0, tour: .wta, from: day, to: day.addingTimeInterval(86_400))
+        }.first)
+        XCTAssertEqual(match.awayScore, "1")
+        XCTAssertEqual(match.homeScore, "1")
+        XCTAssertEqual(match.status, "Between sets")
+        XCTAssertEqual(match.tennis?.line, "7-6(1) 6-7(3)")
+        XCTAssertEqual(SportsScheduleClient.settled(6, 4), true)
+        XCTAssertEqual(SportsScheduleClient.settled(7, 5), true)
+        XCTAssertEqual(SportsScheduleClient.settled(5, 7), false)
+        XCTAssertNil(SportsScheduleClient.settled(6, 5))
+        XCTAssertNil(SportsScheduleClient.settled(6, 6))
+    }
+
     func testALiveMatchReadsAsAScoreboardDoes() throws {
         let match = try XCTUnwrap(try matches().first { $0.id == "tennis-1001" })
         // The draw's order, not ESPN's home and away.
