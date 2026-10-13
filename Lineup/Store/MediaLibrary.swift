@@ -57,8 +57,22 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var mdbListShelves: [MediaCatalog] = []
     /// Shelves of the IPTV provider's categories, as chosen.
     @Published private(set) var providerShelves: [MediaCatalog] = []
+    /// What each streaming service has on that the viewer can play, by the
+    /// service's id. Built once a day; see `refreshStreamingServicesIfNeeded`.
+    @Published private(set) var streamingServices: [String: StreamingServiceTitles] = [:] {
+        didSet { streamingVersion &+= 1 }
+    }
+    /// Whether the Streaming Services row is in the Library.
+    @Published private(set) var showsStreamingServices = true
+    /// The Library's rows in the order the viewer arranged them, by row id;
+    /// see `LibraryShelfOrder`. Empty until they first move one.
+    @Published private(set) var shelfOrder: [String] = []
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
+    /// The hero's own list, when what was chosen for it is not a shelf.
+    @Published private(set) var heroListCatalog: MediaCatalog?
+    /// The list being read for the hero, while it is.
+    @Published private(set) var loadingHeroSource: String?
     /// Catalogs switched on and waiting for their server to finish importing,
     /// by server and catalog.
     @Published private(set) var importing: Set<String> = []
@@ -106,7 +120,10 @@ final class MediaLibrary: ObservableObject {
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     private let providerShelvesKey = "Lineup.providerShelves.v1"
+    private let streamingHiddenKey = "Lineup.streamingServices.hidden"
+    private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
+    private let heroSourceKey = "Lineup.mediaHeroSource.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
     /// that is now the whole Library's.
     private static let libraryWide = "library"
@@ -121,6 +138,26 @@ final class MediaLibrary: ObservableObject {
     /// the tab: a load owned by a view's task is cancelled the moment the
     /// viewer looks at another tab, which is most of a slow one.
     private var libraryLoad: Task<Void, Never>?
+    private var heroListRefresh: Task<Void, Never>?
+    /// The Streaming Services row's build, when one is running.
+    private var streamingLoad: Task<Void, Never>?
+    private var streamingBuiltAt: Date?
+    private var streamingSources: [String] = []
+    /// When the last build came back with nothing, so a Library opened again
+    /// a minute later does not ask every list again.
+    private var streamingFailedAt: Date?
+    /// The last build, read from the device at launch off the main thread.
+    private var streamingRestore: Task<StreamingServicesSnapshot?, Never>?
+    /// Counts changes to `streamingServices`, for the memos below.
+    private var streamingVersion = 0
+    /// The row and each service's titles as last worked out, so a redraw --
+    /// and on the television every move of the remote redraws the shelves --
+    /// costs a comparison rather than a pass over every title.
+    private var streamingShelfMemo: (key: String, shelf: MediaCatalog?)?
+    private var streamingTitlesMemo: (key: String, titles: [String: StreamingServiceTitles]) = ("", [:])
+    /// Every server's films and shows, as last fetched, kept a few minutes so
+    /// the MDBList shelves and the Streaming Services row share one fetch.
+    private var inventoryMemo: (sources: [UUID], at: Date, items: [MediaItem])?
     private var reconciledSeriesServers: Set<UUID> = []
     private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
@@ -181,6 +218,9 @@ final class MediaLibrary: ObservableObject {
            let saved = try? JSONDecoder().decode([LocalMediaFavorite].self, from: data) {
             localFavorites = saved.map { Self.marked($0) }
         }
+        showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        restoreStreamingSnapshot()
         let listsRestored = restoreMDBListSnapshot()
         let formerActive = formerActiveServer()
         for profile in profiles {
@@ -188,6 +228,7 @@ final class MediaLibrary: ObservableObject {
         }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        heroListCatalog = restoreHeroList()
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -316,17 +357,26 @@ final class MediaLibrary: ObservableObject {
     /// Every row on the Media Servers tab.
     var shelves: [MediaCatalog] { catalogs }
 
+    /// The shelves a viewer can take away: every one, and the Streaming
+    /// Services row while it is up.
+    var removableShelves: [MediaCatalog] { (streamingShelf.map { [$0] } ?? []) + catalogs }
+
     /// A missing or removed choice falls back to the first populated shelf.
     /// That keeps the hub useful immediately while leaving the actual saved
     /// choice untouched until the viewer deliberately picks one.
     var heroCatalog: MediaCatalog? {
-        MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
+        if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
+           !catalogs.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
+            return list
+        }
+        return MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
     }
 
     func selectHeroCatalog(_ catalog: MediaCatalog) {
         guard catalogs.contains(where: { $0.id == catalog.id }) else { return }
         selectedHeroCatalogID = catalog.id
         saveHeroCatalogID(catalog.id)
+        forgetHeroList()
     }
 
     // MARK: - Servers
@@ -480,6 +530,8 @@ final class MediaLibrary: ObservableObject {
     func loadShelvesIfNeeded() {
         guard !profiles.isEmpty else { return }
         for profile in profiles { reconcileSeriesPositionsIfNeeded(for: profile) }
+        // A load already running builds the Streaming Services row when it
+        // is done.
         guard libraryLoad == nil else { return }
         let due = profiles.filter { profile in
             let current = self.state(of: profile)
@@ -488,7 +540,10 @@ final class MediaLibrary: ObservableObject {
                                               alreadyRunning: false,
                                               lastAttemptFailed: current.loadFailed)
         }
-        guard !due.isEmpty else { return }
+        guard !due.isEmpty else {
+            refreshStreamingServicesIfNeeded()
+            return
+        }
         libraryLoad = Task { [weak self] in
             await self?.reload(servers: due)
             self?.libraryLoad = nil
@@ -497,12 +552,16 @@ final class MediaLibrary: ObservableObject {
 
     func reload() async {
         await reload(servers: profiles)
+        refreshStreamingServicesIfNeeded(force: true)
     }
 
     /// Fresh shelves from each of `targets` at once, then the shelves and
     /// catalogs that are drawn from them.
     private func reload(servers targets: [MediaServerProfile]) async {
         guard !targets.isEmpty else { return }
+        // A reload is a fresh look at every server's titles; within it, the
+        // MDBList shelves and the Streaming Services row share one fetch.
+        inventoryMemo = nil
         await withTaskGroup(of: Void.self) { group in
             for profile in targets {
                 group.addTask { await self.loadServer(profile) }
@@ -513,6 +572,8 @@ final class MediaLibrary: ObservableObject {
         // catalog. The shelves should not wait behind either.
         await loadMDBListShelves()
         await loadAddonCatalogs(on: targets)
+        refreshHeroList()
+        refreshStreamingServicesIfNeeded()
     }
 
     /// One server's libraries and shelves.
@@ -962,6 +1023,18 @@ final class MediaLibrary: ObservableObject {
     /// Every connected server's films and shows, servers in the order they
     /// were added, with the first failure for when none of them answered.
     private func combinedInventory() async -> (items: [MediaItem], failure: Error?) {
+        let sources = profiles.map(\.id)
+        if let memo = inventoryMemo, memo.sources == sources, Date().timeIntervalSince(memo.at) < 10 * 60 {
+            return (memo.items, nil)
+        }
+        let fetched = await fetchInventory()
+        if fetched.failure == nil, !fetched.items.isEmpty {
+            inventoryMemo = (sources, Date(), fetched.items)
+        }
+        return fetched
+    }
+
+    private func fetchInventory() async -> (items: [MediaItem], failure: Error?) {
         let targets = profiles.map { ($0, try? client(for: $0)) }
         let answers = await withTaskGroup(of: (Int, Result<[MediaItem], Error>).self) { group in
             for (index, (profile, source)) in targets.enumerated() {
@@ -1382,6 +1455,68 @@ final class MediaLibrary: ObservableObject {
         }?.item
     }
 
+    /// Where a show picks up -- see `SeriesResumePolicy` -- with the show's
+    /// posters brought into line with it.
+    ///
+    /// The show's own episodes are asked for, with their watched state, along
+    /// with the server's next-up. Taken alone, that next-up used to be stored
+    /// as the show's place, and for an episode played from another server or
+    /// the IPTV provider it is out of date: the page then offered an episode
+    /// already watched.
+    func resumeEpisode(in series: MediaItem) async -> MediaItem? {
+        guard series.isSeries else { return nil }
+        guard ProviderItem(id: series.id) == nil, let profile = profile(for: series),
+              let source = try? client(for: profile) else {
+            return continueWatchingEpisode(in: series)
+        }
+        async let asked = source.nextUp(userID: profile.userID, seriesID: series.id)
+        async let listed = source.episodes(userID: profile.userID, seriesID: series.id)
+        let serverNext = (try? await asked)?.first?.servedBy(profile.id)
+        guard let episodes = (try? await listed)?.map({ $0.servedBy(profile.id) }), !episodes.isEmpty else {
+            return continueWatchingEpisode(in: series) ?? serverNext
+        }
+        guard contains(profile) else { return nil }
+        let records = seriesRecords(of: series, profileID: profile.id)
+        let target = SeriesResumePolicy.target(episodes: episodes, records: records, serverNext: serverNext,
+                                               isWatched: { [unowned self] in self.isWatched($0) })
+        if let target { settleUpNext(target, records: records) }
+        return target
+    }
+
+    /// This device's records of a show's episodes.
+    private func seriesRecords(of series: MediaItem, profileID: UUID) -> [LocalMediaPlayback] {
+        var records = localPlayback
+        if let held = heldPlayback {
+            records.removeAll { $0.id == held.id }
+            records.append(held)
+        }
+        return records.filter { record in
+            guard record.profileID == profileID, record.item.type == "Episode" else { return false }
+            if let seriesID = record.item.seriesID, !seriesID.isEmpty { return seriesID == series.id }
+            return record.item.seriesName?.localizedCaseInsensitiveCompare(series.name) == .orderedSame
+        }
+    }
+
+    /// Makes the show's Up Next the episode it picks up at, so its posters say
+    /// what its page does. An episode under way is already its own place,
+    /// one the viewer marked unwatched is already queued, and one already
+    /// watched -- a finished show starting again -- is not made unwatched.
+    private func settleUpNext(_ target: MediaItem, records: [LocalMediaPlayback]) {
+        guard let profileID = serverID(of: target), !isWatched(target) else { return }
+        let alreadyThere = records.contains { record in
+            record.item.id == target.id && (record.isUpNext == true
+                || (!record.completed && record.explicitlyUnwatched != true && record.position >= 5))
+        }
+        guard !alreadyThere else { return }
+        let key = Self.seriesKey(for: target)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true && record.explicitlyUnwatched != true
+                && Self.seriesKey(for: record.item) == key
+        }
+        queueAsUpNext(target, explicitlyUnwatched: false)
+        persistLocalPlayback()
+    }
+
     func rememberNextUp(_ episode: MediaItem) {
         guard episode.type == "Episode", let profileID = serverID(of: episode) else { return }
         let key = Self.seriesKey(for: episode)
@@ -1467,31 +1602,20 @@ final class MediaLibrary: ObservableObject {
         for (seriesID, entries) in grouped {
             let values = entries.map { $0.record }
             guard !Task.isCancelled, contains(profile) else { return }
-            let hasCurrentPosition = values.contains { record in
-                record.isUpNext == true || (!record.completed && record.position >= 5
-                    && record.explicitlyUnwatched != true)
+            guard SeriesResumePolicy.needsCheck(values, isWatched: { [unowned self] in self.isWatched($0) }) else {
+                continue
             }
-            guard !hasCurrentPosition,
-                  let anchor = values.filter(\.completed)
-                    .max(by: { $0.updatedAt < $1.updatedAt })?.item else { continue }
-
-            let serverNext = (try? await source.nextUp(
-                userID: profile.userID, seriesID: seriesID))?.first?.servedBy(profile.id)
-            let following: MediaItem?
-            if let serverNext, !isWatched(serverNext) {
-                following = serverNext
-            } else if let episodes = try? await source.episodes(
-                userID: profile.userID, seriesID: seriesID) {
-                following = LocalEpisodeProgressionPolicy.nextEpisode(after: anchor,
-                    in: episodes.map { $0.servedBy(profile.id) },
-                    isWatched: { [weak self] in self?.isWatched($0) == true })
-            } else {
-                following = nil
-            }
-            guard contains(profile) else { return }
-            if let following { rememberNextUp(following) }
+            async let asked = source.nextUp(userID: profile.userID, seriesID: seriesID)
+            async let listed = source.episodes(userID: profile.userID, seriesID: seriesID)
+            let serverNext = (try? await asked)?.first?.servedBy(profile.id)
+            guard let episodes = (try? await listed)?.map({ $0.servedBy(profile.id) }),
+                  !episodes.isEmpty, contains(profile) else { continue }
+            let target = SeriesResumePolicy.target(episodes: episodes, records: values, serverNext: serverNext,
+                                                   isWatched: { [unowned self] in self.isWatched($0) })
+            if let target { settleUpNext(target, records: values) }
         }
     }
+
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
         guard let profileID = serverID(of: episode) else { return }
@@ -1751,7 +1875,9 @@ final class MediaLibrary: ObservableObject {
     }
 
     func removeShelf(_ catalog: MediaCatalog) {
-        if ProviderItem(id: catalog.root.id) != nil, let provider = catalog.root.serverID {
+        if catalog.id == StreamingService.rowID {
+            setShowsStreamingServices(false)
+        } else if ProviderItem(id: catalog.root.id) != nil, let provider = catalog.root.serverID {
             providerShelves.removeAll { $0.id == catalog.id }
             saveProviderShelfIDs(savedProviderShelfIDs(for: provider).filter { $0 != catalog.root.id },
                                  for: provider)
@@ -2963,6 +3089,8 @@ final class MediaLibrary: ObservableObject {
         for profile in arriving { restoreLibrarySnapshot(for: profile, adoptingLists: false) }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        if heroListCatalog?.id != selectedHeroCatalogID { refreshHeroList() }
         if !arriving.isEmpty { await reload(servers: arriving) }
     }
 }
@@ -2985,5 +3113,456 @@ enum MediaShelfLoad {
         // was on another network when the tab first opened gets their library
         // by returning to it rather than by relaunching the app.
         return lastAttemptFailed
+    }
+}
+
+// MARK: - Streaming Services
+
+extension MediaLibrary {
+    /// The row's own shelf root: "See All" on it opens every service.
+    static let streamingRow = MediaItem(id: StreamingService.rowID, name: StreamingService.rowTitle,
+                                        type: "StreamingServices", overview: nil, productionYear: nil,
+                                        primaryImageAspectRatio: nil, childCount: nil)
+
+    /// The Streaming Services row: a poster for each service with anything on
+    /// that the viewer can play, in the row's own order. Nil while it is
+    /// hidden, or before there is anything to show.
+    var streamingShelf: MediaCatalog? {
+        guard showsStreamingServices else { return nil }
+        let key = streamingMemoKey
+        if let memo = streamingShelfMemo, memo.key == key { return memo.shelf }
+        let items = StreamingService.all.compactMap { service -> MediaItem? in
+            let titles = streamingTitles(for: service)
+            return titles.isEmpty ? nil : service.item(titles: titles.count)
+        }
+        let shelf = items.isEmpty ? nil : MediaCatalog(root: Self.streamingRow, items: items)
+        streamingShelfMemo = (key, shelf)
+        return shelf
+    }
+
+    /// What one service has on that the connected sources can play.
+    func streamingTitles(for service: StreamingService) -> StreamingServiceTitles {
+        let key = streamingMemoKey
+        if streamingTitlesMemo.key != key { streamingTitlesMemo = (key, [:]) }
+        if let held = streamingTitlesMemo.titles[service.id] { return held }
+        let held = streamingServices[service.id]?.held(by: recordSources) ?? StreamingServiceTitles()
+        streamingTitlesMemo.titles[service.id] = held
+        return held
+    }
+
+    /// What the row's memos depend on: the titles, and the sources connected.
+    /// Also what a service's screen keys its own ordering by.
+    var streamingMemoKey: String {
+        "\(streamingVersion)|" + recordSources.map(\.uuidString).sorted().joined(separator: ",")
+    }
+
+    /// When the row was last built, for the line that says how fresh it is.
+    var streamingUpdatedAt: Date? { streamingBuiltAt }
+
+    func setShowsStreamingServices(_ shown: Bool) {
+        showsStreamingServices = shown
+        if shown {
+            defaults.removeObject(forKey: streamingHiddenKey)
+            refreshStreamingServicesIfNeeded()
+        } else {
+            defaults.set(true, forKey: streamingHiddenKey)
+        }
+    }
+
+    /// Builds the row again when it was last built on another day, or from
+    /// other sources. The lists' curators refresh them daily, so once a day
+    /// is as fresh as they are; a forced build is the viewer's Refresh.
+    ///
+    /// None of it holds anything up. It starts after the Library's own
+    /// shelves have loaded, waits a moment more so their posters are fetched
+    /// first, and does its matching off the main thread.
+    func refreshStreamingServicesIfNeeded(force: Bool = false) {
+        guard showsStreamingServices, streamingLoad == nil else { return }
+        let sources = recordSources.map(\.uuidString).sorted()
+        guard !sources.isEmpty else { return }
+        streamingLoad = Task(priority: .utility) { [weak self] in
+            await self?.refreshStreaming(force: force, sources: sources)
+            self?.streamingLoad = nil
+        }
+    }
+
+    private func refreshStreaming(force: Bool, sources: [String]) async {
+        // Whatever the device kept from last time is in place first: it may
+        // already be today's.
+        await adoptRestoredStreaming()
+        if !force {
+            if let built = streamingBuiltAt, Calendar.current.isDateInToday(built),
+               sources == streamingSources { return }
+            if let failed = streamingFailedAt, Date().timeIntervalSince(failed) < 15 * 60 { return }
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+        }
+        await buildStreamingServices(sources: sources)
+    }
+
+    /// Every service's lists, each entry looked for among what the viewer can
+    /// play: the servers' own titles first, then the IPTV provider's films and
+    /// shows, then whatever an AIOStreams server answers for by the title's
+    /// ids. An entry found nowhere is left off, so every poster plays.
+    private func buildStreamingServices(sources: [String]) async {
+        let paths = Array(Set(StreamingService.all.flatMap { $0.lists.map(\.path) })).sorted()
+        let lists = await Self.fetchStreamingLists(paths)
+        guard !Task.isCancelled else { return }
+        guard !lists.isEmpty else { streamingFailedAt = Date(); return }
+
+        func listEntries(_ service: StreamingService, _ kind: StreamingTitle.Kind,
+                         _ chart: StreamingTitle.Chart) -> [MDBListCatalogItem] {
+            guard let list = service.lists.first(where: { $0.kind == kind && $0.chart == chart }),
+                  let entries = lists[list.path] else { return [] }
+            return StreamingCatalogBuilder.entries(of: entries, chart: chart, kind: kind)
+        }
+        var wanted: [String: MDBListCatalogItem] = [:]
+        for service in StreamingService.all {
+            for kind in [StreamingTitle.Kind.movie, .show] {
+                for chart in [StreamingTitle.Chart.popular, .latest] {
+                    for entry in listEntries(service, kind, chart) {
+                        let key = StreamingCatalogBuilder.key(of: entry)
+                        if wanted[key] == nil { wanted[key] = entry }
+                    }
+                }
+            }
+        }
+        let entries = Array(wanted.values)
+
+        let library = await combinedInventory().items
+        let vod = providerVOD.profile == nil ? nil : try? await providerVOD.catalog()
+        guard !Task.isCancelled else { return }
+        // Off the main thread: thousands of titles are filed and looked up
+        // here, and none of it should cost the screen a frame.
+        var resolved = await Task.detached(priority: .utility) { () -> [String: MediaItem] in
+            let index = MDBListCatalogMatcher.Index(library)
+            var found: [String: MediaItem] = [:]
+            for entry in entries {
+                let key = StreamingCatalogBuilder.key(of: entry)
+                if let item = index.match(entry) { found[key] = item.cardOnly; continue }
+                guard let vod else { continue }
+                let probe = StreamingCatalogBuilder.probe(for: entry)
+                let provider = vod.catalog.profileID
+                if entry.mediaType == "show" {
+                    if let show = vod.index.shows(for: probe, in: vod.catalog).first {
+                        found[key] = ProviderVOD.item(for: show, provider: provider)
+                    }
+                } else if let film = vod.index.films(for: probe, in: vod.catalog).first {
+                    found[key] = ProviderVOD.item(for: film, provider: provider)
+                }
+            }
+            return found
+        }.value
+        let missing = entries.filter { resolved[StreamingCatalogBuilder.key(of: $0)] == nil }
+        if !missing.isEmpty {
+            for (key, item) in await aiostreamsStreamingTitles(missing) where resolved[key] == nil {
+                resolved[key] = item
+            }
+        }
+        guard !Task.isCancelled else { return }
+
+        let found = resolved
+        let resolve = { (entry: MDBListCatalogItem) in found[StreamingCatalogBuilder.key(of: entry)] }
+        var built: [String: StreamingServiceTitles] = [:]
+        for service in StreamingService.all {
+            // A service none of whose lists answered keeps what it had.
+            guard service.lists.contains(where: { lists[$0.path] != nil }) else {
+                if let previous = streamingServices[service.id] { built[service.id] = previous }
+                continue
+            }
+            built[service.id] = StreamingServiceTitles(
+                movies: StreamingCatalogBuilder.titles(popular: listEntries(service, .movie, .popular),
+                                                       latest: listEntries(service, .movie, .latest),
+                                                       resolve: resolve),
+                shows: StreamingCatalogBuilder.titles(popular: listEntries(service, .show, .popular),
+                                                      latest: listEntries(service, .show, .latest),
+                                                      resolve: resolve))
+        }
+        // Nothing playable anywhere, where there was something before, is a
+        // source that did not answer rather than a day with nothing on.
+        if built.values.allSatisfy(\.isEmpty), streamingServices.values.contains(where: { !$0.isEmpty }) {
+            streamingFailedAt = Date()
+            return
+        }
+        streamingServices = built
+        streamingBuiltAt = Date()
+        streamingSources = sources
+        streamingFailedAt = nil
+        persistStreamingSnapshot()
+    }
+
+    /// Entries none of the libraries hold, asked of each AIOStreams server by
+    /// their ids. It keeps no library: it answers for any title its addons
+    /// know, which is a title it can find streams for.
+    private func aiostreamsStreamingTitles(_ entries: [MDBListCatalogItem]) async -> [String: MediaItem] {
+        var found: [String: MediaItem] = [:]
+        for profile in profiles {
+            guard await serverKind(of: profile) == .aiostreams, let source = try? client(for: profile) else { continue }
+            var keyByID: [String: String] = [:]
+            var keyByIMDb: [String: String] = [:]
+            for entry in entries {
+                let key = StreamingCatalogBuilder.key(of: entry)
+                guard found[key] == nil else { continue }
+                let ids = MediaTitleMatch.providerIDs(of: StreamingCatalogBuilder.probe(for: entry))
+                guard let packed = Self.aiostreamsIDs(of: ids, as: entry.mediaType == "show" ? .series : .movie)
+                    .first else { continue }
+                keyByID[packed.id] = key
+                if let imdb = ids["imdb"] { keyByIMDb[entry.mediaType + "|" + imdb] = key }
+            }
+            let ids = keyByID.keys.sorted()
+            let batches = stride(from: 0, to: ids.count, by: 40).map { Array(ids[$0..<min($0 + 40, ids.count)]) }
+            let userID = profile.userID
+            var answered: [MediaItem] = []
+            // A few requests at a time: each id is a lookup on the addons' side.
+            for start in stride(from: 0, to: batches.count, by: 3) {
+                let wave = batches[start..<min(start + 3, batches.count)]
+                answered += await withTaskGroup(of: [MediaItem].self) { group in
+                    for batch in wave {
+                        group.addTask { (try? await source.items(userID: userID, ids: batch)) ?? [] }
+                    }
+                    var items: [MediaItem] = []
+                    for await part in group { items += part }
+                    return items
+                }
+            }
+            for item in answered where item.type == "Movie" || item.type == "Series" {
+                let kind = item.type == "Series" ? "show" : "movie"
+                let compact = item.id.lowercased().replacingOccurrences(of: "-", with: "")
+                let key = keyByID[compact]
+                    ?? MediaTitleMatch.providerIDs(of: item)["imdb"].flatMap { keyByIMDb[kind + "|" + $0] }
+                if let key, found[key] == nil { found[key] = item.cardOnly.servedBy(profile.id) }
+            }
+        }
+        return found
+    }
+
+    /// Each list by its path, a few at a time. A list that does not answer
+    /// is simply missing.
+    nonisolated private static func fetchStreamingLists(_ paths: [String]) async -> [String: [MDBListCatalogItem]] {
+        var lists: [String: [MDBListCatalogItem]] = [:]
+        for start in stride(from: 0, to: paths.count, by: 4) {
+            let wave = Array(paths[start..<min(start + 4, paths.count)])
+            let answers = await withTaskGroup(of: (String, [MDBListCatalogItem]?).self) { group in
+                for path in wave {
+                    group.addTask { (path, try? await MDBListPublicList.items(path)) }
+                }
+                var answers: [(String, [MDBListCatalogItem]?)] = []
+                for await answer in group { answers.append(answer) }
+                return answers
+            }
+            for (path, items) in answers {
+                if let items { lists[path] = items }
+            }
+        }
+        return lists
+    }
+
+    nonisolated private static var streamingSnapshotURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-streaming-services.json")
+    }
+
+    private func persistStreamingSnapshot() {
+        guard let builtAt = streamingBuiltAt else { return }
+        let snapshot = StreamingServicesSnapshot(builtAt: builtAt, sources: streamingSources,
+                                                 services: streamingServices)
+        let url = Self.streamingSnapshotURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Yesterday's row is on screen as soon as it is read; today's replaces
+    /// it when built. Read and decoded off the main thread, so launch never
+    /// waits on it.
+    func restoreStreamingSnapshot() {
+        let url = Self.streamingSnapshotURL
+        streamingRestore = Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(StreamingServicesSnapshot.self, from: data)
+        }
+        Task { [weak self] in await self?.adoptRestoredStreaming() }
+    }
+
+    /// The snapshot read at launch, taken unless a build has already
+    /// replaced it.
+    private func adoptRestoredStreaming() async {
+        guard let restore = streamingRestore, let snapshot = await restore.value,
+              streamingBuiltAt == nil else { return }
+        streamingServices = snapshot.services
+        streamingBuiltAt = snapshot.builtAt
+        streamingSources = snapshot.sources
+    }
+}
+
+// MARK: - The order of the rows
+
+extension MediaLibrary {
+    /// One of the Library's rows, as the screen that reorders them lists it.
+    struct LibraryRow: Identifiable, Hashable {
+        let id: String
+        let title: String
+        /// Where it comes from: a server's name, or this device.
+        let detail: String?
+        let symbol: String
+        let brand: MediaServerBrand?
+    }
+
+    /// Every row the Library has on it now, in the viewer's order.
+    var libraryRows: [LibraryRow] {
+        var rows: [LibraryRow] = []
+        if !continueWatching.isEmpty {
+            rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
+                                   detail: "On this device", symbol: "play.circle", brand: nil))
+        }
+        let favorites = favoriteMedia
+        if favorites.contains(where: { $0.type != "Episode" }) {
+            rows.append(LibraryRow(id: LibraryShelfOrder.favorites, title: "Favorites",
+                                   detail: "On this device", symbol: "heart", brand: nil))
+        }
+        if favorites.contains(where: { $0.type == "Episode" }) {
+            rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
+                                   detail: "On this device", symbol: "heart.text.square", brand: nil))
+        }
+        if let streaming = streamingShelf {
+            rows.append(LibraryRow(id: streaming.id, title: streaming.title,
+                                   detail: "\(streaming.items.count) services", symbol: "play.tv", brand: nil))
+        }
+        for catalog in catalogs {
+            let symbol: String
+            if Self.isMDBListShelfID(catalog.id) { symbol = "list.star" }
+            else if ProviderItem(id: catalog.root.id) != nil { symbol = "tv" }
+            else { symbol = "rectangle.stack" }
+            rows.append(LibraryRow(id: catalog.id, title: catalog.title,
+                                   detail: serverName(of: catalog.root.serverID)
+                                       ?? (Self.isMDBListShelfID(catalog.id) ? "MDBList" : nil),
+                                   symbol: symbol, brand: serverBrand(for: catalog)))
+        }
+        return arrangedShelves(rows, id: \.id)
+    }
+
+    /// Rows of any kind, in the viewer's order.
+    func arrangedShelves<Row>(_ rows: [Row], id: KeyPath<Row, String>) -> [Row] {
+        LibraryShelfOrder.arranged(rows, id: { $0[keyPath: id] }, by: shelfOrder)
+    }
+
+    /// Keeps the order of the rows as the viewer has just left them.
+    func saveShelfOrder(_ shown: [String]) {
+        let order = LibraryShelfOrder.saving(shown, over: shelfOrder)
+        guard order != shelfOrder else { return }
+        shelfOrder = order
+        defaults.set(order, forKey: shelfOrderKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// Back to the order the rows come in: the device's own rows, the
+    /// Streaming Services row, then every shelf in the order it was added.
+    func resetShelfOrder() {
+        guard !shelfOrder.isEmpty else { return }
+        shelfOrder = []
+        defaults.removeObject(forKey: shelfOrderKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+}
+
+// MARK: - The hero from any list
+
+extension MediaLibrary {
+    /// Features a list that is not a shelf. Its titles are read now; the
+    /// hero changes once they are in, and stays as it was if the list has
+    /// nothing to feature.
+    func selectHeroSource(_ source: LibraryHeroSource) async {
+        guard loadingHeroSource == nil else { return }
+        loadingHeroSource = source.id
+        defer { loadingHeroSource = nil }
+        guard let catalog = await heroList(for: source), !catalog.items.isEmpty else {
+            errorMessage = "“\(source.name)” has nothing to feature right now."
+            return
+        }
+        heroListCatalog = catalog
+        selectedHeroCatalogID = catalog.id
+        saveHeroCatalogID(catalog.id)
+        if let data = try? JSONEncoder().encode(source) { defaults.set(data, forKey: heroSourceKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        persistHeroList()
+    }
+
+    /// The hero's own list read again, as the Library is: its titles change
+    /// as the list does. What was shown stays up until the new ones are in.
+    func refreshHeroList() {
+        guard heroListRefresh == nil, let source = savedHeroSource(),
+              source.id == selectedHeroCatalogID else { return }
+        heroListRefresh = Task { [weak self] in
+            guard let self else { return }
+            if let catalog = await self.heroList(for: source), !catalog.items.isEmpty,
+               self.selectedHeroCatalogID == catalog.id {
+                self.heroListCatalog = catalog
+                self.persistHeroList()
+            }
+            self.heroListRefresh = nil
+        }
+    }
+
+    /// A list's titles, the first of them, as a catalog with the id it would
+    /// have as a shelf.
+    private func heroList(for source: LibraryHeroSource) async -> MediaCatalog? {
+        let limit = 20
+        if let listID = source.mdbListID {
+            guard let apiKey = MDBListKeychainStore.apiKey(),
+                  let entries = try? await MDBListClient(apiKey: apiKey).items(in: listID, limit: 60) else { return nil }
+            let titles = await combinedInventory().items
+            let root = MediaItem(id: source.id, name: source.name, type: "Folder", overview: "MDBList catalog",
+                                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+            let matched = MDBListCatalogMatcher.match(entries, to: titles)
+            return MediaCatalog(root: root, items: matched.prefix(limit).map(\.cardOnly))
+        }
+        guard let root = source.root else { return nil }
+        if ProviderItem(id: root.id) != nil {
+            guard let provider = root.serverID, provider == providerVOD.profile?.id,
+                  let loaded = try? await providerVOD.catalog(),
+                  let shelf = providerShelf(root.id, catalog: loaded.catalog, index: loaded.index,
+                                            provider: provider) else { return nil }
+            return MediaCatalog(root: shelf.root, items: Array(shelf.items.prefix(limit)))
+        }
+        guard let profile = profile(for: root), let server = try? client(for: profile),
+              let items = try? await server.items(userID: profile.userID, parentID: root.id,
+                                                  sortBy: MediaServerQuery.shelfSort, limit: limit) else { return nil }
+        return MediaCatalog(root: root.servedBy(profile.id), items: items.map { $0.servedBy(profile.id).cardOnly })
+    }
+
+    private func savedHeroSource() -> LibraryHeroSource? {
+        defaults.data(forKey: heroSourceKey).flatMap { try? JSONDecoder().decode(LibraryHeroSource.self, from: $0) }
+    }
+
+    /// A shelf chosen for the hero has no list of its own to keep.
+    private func forgetHeroList() {
+        heroListRefresh?.cancel()
+        heroListRefresh = nil
+        guard heroListCatalog != nil || defaults.object(forKey: heroSourceKey) != nil else { return }
+        heroListCatalog = nil
+        defaults.removeObject(forKey: heroSourceKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        try? FileManager.default.removeItem(at: Self.heroListURL)
+    }
+
+    nonisolated private static var heroListURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-hero-list.json")
+    }
+
+    private func persistHeroList() {
+        guard let catalog = heroListCatalog else { return }
+        let url = Self.heroListURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(catalog) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Twenty titles, read at launch so the hero is up in its first frame.
+    func restoreHeroList() -> MediaCatalog? {
+        guard defaults.object(forKey: heroSourceKey) != nil,
+              let data = try? Data(contentsOf: Self.heroListURL) else { return nil }
+        return try? JSONDecoder().decode(MediaCatalog.self, from: data)
     }
 }

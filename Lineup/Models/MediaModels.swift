@@ -499,6 +499,93 @@ enum LocalEpisodeProgressionPolicy {
     }
 }
 
+/// Where a show picks up: the one answer the show's page, its Play button
+/// and every poster for it agree on.
+///
+/// What this device saw comes first, because it is the only record of an
+/// episode played from another server or the IPTV provider: the server the
+/// show belongs to never hears of those, and its own "next up" stays where
+/// it was. The server's answer still counts when it is further along --
+/// the show watched on another device -- but it never moves a viewer back.
+enum SeriesResumePolicy {
+    /// The show's episodes in watching order: its seasons, then its
+    /// specials, which a viewer reaches on purpose rather than in sequence.
+    static func ordered(_ episodes: [MediaItem]) -> [MediaItem] {
+        let numbered = LocalEpisodeProgressionPolicy.ordered(episodes)
+        let main = numbered.filter { $0.parentIndexNumber != 0 }
+        let specials = numbered.filter { $0.parentIndexNumber == 0 }
+        return main.isEmpty ? specials : main + specials
+    }
+
+    /// The episode to play next, from the show's episodes, this device's
+    /// records of them, and the server's own next-up.
+    static func target(episodes: [MediaItem], records: [LocalMediaPlayback], serverNext: MediaItem?,
+                       isWatched: (MediaItem) -> Bool) -> MediaItem? {
+        let order = ordered(episodes)
+        guard !order.isEmpty else { return nil }
+        func index(of episode: MediaItem) -> Int? {
+            if let found = order.firstIndex(where: { $0.id == episode.id }) { return found }
+            // The same place in the show, for a record kept under an id the
+            // server has since changed.
+            guard let season = episode.parentIndexNumber, let number = episode.indexNumber else { return nil }
+            return order.firstIndex { $0.parentIndexNumber == season && $0.indexNumber == number }
+        }
+        func next(after position: Int) -> Int? {
+            order.indices.first { $0 > position && !isWatched(order[$0]) }
+        }
+        let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
+
+        // An episode stopped part-way through is where the viewer is.
+        if let started = latest(records.filter {
+            !$0.completed && $0.isUpNext != true && $0.explicitlyUnwatched != true && $0.position >= 5
+        }), let found = index(of: started.item) {
+            return order[found]
+        }
+        let finished = latest(records.filter(\.completed))
+        // An episode the viewer marked unwatched, after anything they finished:
+        // they chose to go back to it.
+        if let markedBack = latest(records.filter { $0.isUpNext == true && $0.explicitlyUnwatched == true }),
+           markedBack.updatedAt >= (finished?.updatedAt ?? .distantPast),
+           let found = index(of: markedBack.item) {
+            return order[found]
+        }
+        // The episode after the last one finished here, and the server's
+        // next-up; whichever is further on.
+        let local = finished.flatMap { index(of: $0.item) }.flatMap { next(after: $0) }
+        let server = serverNext.flatMap { index(of: $0) }.flatMap { found in
+            isWatched(order[found]) ? next(after: found) : found
+        }
+        if let further = [local, server].compactMap({ $0 }).max() { return order[further] }
+        // A show finished here starts again from the top.
+        if finished != nil, local == nil, let last = finished.flatMap({ index(of: $0.item) }),
+           next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
+            return order[0]
+        }
+        return order.first { !isWatched($0) } ?? order[0]
+    }
+
+    /// Whether a show's records leave its place in doubt: an episode under
+    /// way, or one marked unwatched since anything was finished, settles it
+    /// without asking the server, and so does an Up Next that comes after
+    /// the last episode finished. Anything else -- no Up Next, or one at or
+    /// before an episode already watched -- is worked out again.
+    static func needsCheck(_ records: [LocalMediaPlayback], isWatched: (MediaItem) -> Bool) -> Bool {
+        if records.contains(where: {
+            !$0.completed && $0.isUpNext != true && $0.explicitlyUnwatched != true && $0.position >= 5
+        }) { return false }
+        let finished = records.filter(\.completed).max { $0.updatedAt < $1.updatedAt }
+        if let markedBack = records.filter({ $0.isUpNext == true && $0.explicitlyUnwatched == true })
+            .max(by: { $0.updatedAt < $1.updatedAt }),
+           markedBack.updatedAt >= (finished?.updatedAt ?? .distantPast) { return false }
+        guard let finished else { return false }
+        guard let upNext = records.filter({ $0.isUpNext == true && $0.explicitlyUnwatched != true })
+            .max(by: { $0.updatedAt < $1.updatedAt }) else { return true }
+        if isWatched(upNext.item) { return true }
+        let place = { (item: MediaItem) in (item.parentIndexNumber ?? 0, item.indexNumber ?? 0) }
+        return !(place(upNext.item) > place(finished.item))
+    }
+}
+
 struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
     let profileID: UUID
     var item: MediaItem
@@ -792,6 +879,22 @@ enum AIOStreamsItemID {
         bytes[11] = UInt8(place.episode >> 8)
         bytes[12] = UInt8(place.episode & 0xFF)
         return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// A list chosen for the Library hero without being a shelf: a server's
+/// library or collection, an IPTV provider's category, or an MDBList list.
+struct LibraryHeroSource: Codable, Hashable, Sendable {
+    /// The library, collection or category, marked with its server.
+    var root: MediaItem?
+    var mdbListID: Int?
+    var name: String
+
+    /// The same id the list would have as a shelf.
+    var id: String {
+        if let mdbListID { return "mdblist:\(mdbListID)" }
+        if let root { return MediaCatalog.id(for: root) }
+        return name
     }
 }
 
