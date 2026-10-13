@@ -187,6 +187,64 @@ struct MDBListClient: Sendable {
     }
 }
 
+/// A public MDBList list, read the way the site offers it to anyone: no key,
+/// no account, and nothing counted against the viewer's own quota.
+enum MDBListPublicList {
+    static func items(_ path: String, session: URLSession = .shared) async throws -> [MDBListCatalogItem] {
+        guard let url = URL(string: "https://mdblist.com/lists/\(path)/json") else {
+            throw MDBListError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw MDBListError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 429 { throw MDBListError.rateLimited }
+            throw MDBListError.server(http.statusCode)
+        }
+        return try parse(data)
+    }
+
+    /// The list's entries in its own order, which is the rank: the `rank`
+    /// it sends counts in steps that are not always one.
+    ///
+    /// Its `id` is the title's TMDB id.
+    static func parse(_ data: Data) throws -> [MDBListCatalogItem] {
+        guard let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw MDBListError.invalidResponse
+        }
+        var rank = 0
+        return values.compactMap { object in
+            guard let title = string(object["title"]), !title.isEmpty,
+                  integer(object["adult"]) != 1 else { return nil }
+            rank += 1
+            return MDBListCatalogItem(
+                title: title,
+                mediaType: (string(object["mediatype"]) ?? "movie").lowercased(),
+                releaseYear: integer(object["release_year"]),
+                imdbID: string(object["imdb_id"]).flatMap { $0.isEmpty ? nil : $0 },
+                tmdbID: integer(object["id"]).flatMap { $0 > 0 ? String($0) : nil },
+                tvdbID: integer(object["tvdbid"]).flatMap { $0 > 0 ? String($0) : nil },
+                rank: rank
+            )
+        }
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        if let value = value as? String { return value }
+        if let value = value as? NSNumber { return value.stringValue }
+        return nil
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+}
+
 enum MDBListError: LocalizedError {
     case missingAPIKey
     case invalidAPIKey
@@ -210,20 +268,32 @@ enum MDBListError: LocalizedError {
 /// provider ids have not been populated.
 enum MDBListCatalogMatcher {
     static func match(_ entries: [MDBListCatalogItem], to library: [MediaItem]) -> [MediaItem] {
-        var providerIndex: [String: MediaItem] = [:]
-        var titleIndex: [String: [MediaItem]] = [:]
-        // The library can span several servers, listed in the order they were
-        // added. A title more than one of them holds goes to the first.
-        for item in library where item.type == "Movie" || item.type == "Series" {
-            for (provider, value) in item.providerIDs ?? [:] {
-                let key = provider.lowercased() + ":" + value.lowercased()
-                if providerIndex[key] == nil { providerIndex[key] = item }
-            }
-            titleIndex[normalized(item.name), default: []].append(item)
-        }
-
+        let index = Index(library)
         var seen: Set<String> = []
         return entries.compactMap { entry in
+            guard let match = index.match(entry), seen.insert(match.libraryKey).inserted else { return nil }
+            return match
+        }
+    }
+
+    /// A library filed for looking list entries up in it, one at a time.
+    struct Index: Sendable {
+        private var providerIndex: [String: MediaItem] = [:]
+        private var titleIndex: [String: [MediaItem]] = [:]
+
+        init(_ library: [MediaItem]) {
+            // The library can span several servers, listed in the order they
+            // were added. A title more than one of them holds goes to the first.
+            for item in library where item.type == "Movie" || item.type == "Series" {
+                for (provider, value) in item.providerIDs ?? [:] {
+                    let key = provider.lowercased() + ":" + value.lowercased()
+                    if providerIndex[key] == nil { providerIndex[key] = item }
+                }
+                titleIndex[MDBListCatalogMatcher.normalized(item.name), default: []].append(item)
+            }
+        }
+
+        func match(_ entry: MDBListCatalogItem) -> MediaItem? {
             let requiredType = entry.mediaType == "show" ? "Series" : "Movie"
             let providerKeys = [
                 entry.imdbID.map { "imdb:" + $0.lowercased() },
@@ -232,17 +302,16 @@ enum MDBListCatalogMatcher {
             ].compactMap { $0 }
             let providerMatch = providerKeys.lazy.compactMap { providerIndex[$0] }
                 .first { $0.type == requiredType }
-            let titleMatch = titleIndex[normalized(entry.title)]?.first { candidate in
+            let titleMatch = titleIndex[MDBListCatalogMatcher.normalized(entry.title)]?.first { candidate in
                 guard candidate.type == requiredType else { return false }
                 guard let expected = entry.releaseYear, let actual = candidate.productionYear else { return true }
                 return expected == actual
             }
-            guard let match = providerMatch ?? titleMatch, seen.insert(match.libraryKey).inserted else { return nil }
-            return match
+            return providerMatch ?? titleMatch
         }
     }
 
-    private static func normalized(_ value: String) -> String {
+    fileprivate static func normalized(_ value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .filter { $0.isLetter || $0.isNumber }
     }

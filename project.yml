@@ -60,6 +60,8 @@ targets:
       - Lineup/Views/RootView.swift
       - Lineup/Views/MediaViews.swift
       - Lineup/Views/SearchViews.swift
+      - Lineup/Views/StreamingServiceViews.swift
+      - Lineup/Views/LibraryShelfOrderViews.swift
       - iPhone
     dependencies:
       - package: VLCKitSPM
