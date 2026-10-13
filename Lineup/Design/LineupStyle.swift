@@ -232,6 +232,8 @@ struct LineupProgressBar: View {
     /// has got, which is the part of it that can be played.
     var reach: Double? = nil
     var height: CGFloat = Self.standardHeight
+    /// A touch brighter over artwork, which is lighter than a panel.
+    var track: Color = Self.track
 
     #if os(tvOS)
     static let standardHeight: CGFloat = 12
@@ -245,7 +247,7 @@ struct LineupProgressBar: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             ZStack(alignment: .leading) {
-                Capsule().fill(Self.track)
+                Capsule().fill(track)
                 if let reach {
                     Capsule().fill(LineupStyle.highlight.opacity(0.38))
                         .frame(width: fill(reach, of: width))

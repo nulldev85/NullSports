@@ -239,19 +239,12 @@ struct MobileCatchUpRow: View {
     }
 }
 
-/// How far a programme still on has got, on a quiet track.
+/// How far a programme still on has got: the app's progress bar.
 private struct MobileCatchUpProgress: View {
     let fraction: Double
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(LineupStyle.text.opacity(0.14))
-                Capsule().fill(LineupStyle.liveDot)
-                    .frame(width: max(3, proxy.size.width * fraction))
-            }
-        }
-        .frame(height: 3)
+        LineupProgressBar(value: fraction, height: 5)
     }
 }
 

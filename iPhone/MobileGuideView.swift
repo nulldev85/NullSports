@@ -616,11 +616,17 @@ struct MobileGuideView: View {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
-                        if program != nil {
-                            // A quiet elapsed-state wash without tying progress
-                            // to the theme accent.
-                            Rectangle().fill(LineupStyle.text.opacity(0.10))
-                                .frame(width: min(width, max(0, window.x(now) - cellX)))
+                        if program != nil, live {
+                            // The app's progress bar along the foot of what is
+                            // on now, its fill ending where the timeline says
+                            // now is.
+                            let played = min(width, max(0, window.x(now) - cellX))
+                            let inset: CGFloat = 8
+                            LineupProgressBar(value: Double((played - inset) / max(1, width - inset * 2)),
+                                              height: 4)
+                                .padding(.horizontal, inset)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .padding(.bottom, 5)
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
@@ -643,6 +649,8 @@ struct MobileGuideView: View {
                             }
                         }
                         .padding(.horizontal, 8)
+                        // Clear of the bar along the foot of what is on now.
+                        .padding(.bottom, live ? 8 : 0)
                         .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
                         .offset(x: textInset)
                     }

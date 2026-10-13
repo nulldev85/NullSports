@@ -5914,7 +5914,7 @@ private struct MediaArtworkProgress: View {
 
     #if os(tvOS)
     private var glyph: CGFloat { 17 }
-    private var track: CGFloat { 7 }
+    private var track: CGFloat { 9 }
     private var labelSize: CGFloat { 19 }
     private var gap: CGFloat { 12 }
     private var inset: CGFloat { 14 }
@@ -5922,7 +5922,7 @@ private struct MediaArtworkProgress: View {
     private var rowToEdge: CGFloat { 12 }
     #else
     private var glyph: CGFloat { 10 }
-    private var track: CGFloat { 4 }
+    private var track: CGFloat { 5 }
     private var labelSize: CGFloat { 12 }
     private var gap: CGFloat { 7 }
     private var inset: CGFloat { 9 }
@@ -5931,23 +5931,28 @@ private struct MediaArtworkProgress: View {
     #endif
 }
 
-/// A white bar on a faint track.
+/// The app's progress bar on the art: the accent on a grey track. Along the
+/// card's foot it runs flush, squared off and rounded only by the card's own
+/// corners.
 private struct MediaProgressTrack: View {
     let fraction: Double
     let thickness: CGFloat
     var rounded = true
-    var rest = 0.32
+    var rest = 0.3
 
     var body: some View {
-        GeometryReader { proxy in
-            let filled = proxy.size.width * CGFloat(min(max(fraction, 0), 1))
-            ZStack(alignment: .leading) {
-                Rectangle().fill(.white.opacity(rest))
-                Rectangle().fill(.white).frame(width: filled)
+        if rounded {
+            LineupProgressBar(value: fraction, height: thickness, track: .white.opacity(rest))
+        } else {
+            GeometryReader { proxy in
+                let filled = proxy.size.width * CGFloat(min(max(fraction, 0), 1))
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.white.opacity(rest))
+                    Rectangle().fill(LineupStyle.highlight).frame(width: filled)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: rounded ? thickness / 2 : 0, style: .continuous))
+            .frame(height: thickness)
         }
-        .frame(height: thickness)
     }
 }
 

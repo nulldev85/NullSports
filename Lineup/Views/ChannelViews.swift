@@ -714,7 +714,7 @@ private struct TVCatchUpDetail: View {
                         if programme.isOnNow { TVCatchUpOnNow() }
                     }
                     if programme.isOnNow {
-                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 5)
+                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 10)
                             .frame(maxWidth: 420)
                     }
                     if !programme.detail.isEmpty {
@@ -803,7 +803,7 @@ private struct TVCatchUpRow: View {
                         .lineLimit(1)
                 }
                 if programme.isOnNow {
-                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 3)
+                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 6)
                         .padding(.top, 4)
                 }
             }
@@ -840,20 +840,13 @@ private struct TVCatchUpChip: View {
     }
 }
 
-/// How far a programme still on has got, on a quiet track.
+/// How far a programme still on has got: the app's progress bar.
 private struct TVCatchUpProgress: View {
     let fraction: Double
     let height: CGFloat
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(LineupStyle.text.opacity(0.14))
-                Capsule().fill(LineupStyle.liveDot)
-                    .frame(width: max(height, proxy.size.width * fraction))
-            }
-        }
-        .frame(height: height)
+        LineupProgressBar(value: fraction, height: height)
     }
 }
 
@@ -3081,11 +3074,6 @@ private enum GuidePalette {
     static var card: Color { LineupStyle.raised }
     static var cardNow: Color { LineupStyle.focused }
     static var edgeNow: Color { LineupStyle.liveDot.opacity(0.5) }
-    /// How much of the programme on now has gone, washed over its cell.
-    static var elapsed: Color { LineupStyle.text.opacity(0.10) }
-    /// How far the programme on now has run, on its track.
-    static var progress: Color { LineupStyle.text }
-    static var track: Color { LineupStyle.text.opacity(0.14) }
 }
 
 struct GuideView: View {
@@ -3711,7 +3699,7 @@ private struct GuidePreviewPanel: View {
                         .font(.interDigits(18, .semibold))
                         .foregroundStyle(GuidePalette.secondary)
                     if item.program.isLive {
-                        GuideProgressBar(progress: progress).frame(width: 220, height: 4)
+                        GuideProgressBar(progress: progress).frame(width: 220)
                         if let remaining {
                             Text(remaining)
                                 .font(.inter(13, .heavy)).tracking(0.6)
@@ -4467,7 +4455,7 @@ private struct GuideProgramCell: View {
     var body: some View {
         // The phone's Guide, at television size: flat grey cells squared off
         // at four points, the one on now a step lighter with a faint red
-        // edge, the time it has run washed across it, and LIVE in red.
+        // edge, the app's progress bar along its foot, and LIVE in red.
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(alignment: .leading, spacing: 6) {
             if let program {
@@ -4512,7 +4500,14 @@ private struct GuideProgramCell: View {
                             visibleStart: guideTimelineAnchor(now),
                             pointsPerSecond: Double(layout.slotWidth) / 1800,
                             cellWidth: Double(geometry.size.width))
-                        Rectangle().fill(GuidePalette.elapsed).frame(width: CGFloat(played))
+                        // Inset in the cell, its fill still ending where the
+                        // timeline says now is.
+                        let inset: CGFloat = 14
+                        let span = max(1, geometry.size.width - inset * 2)
+                        LineupProgressBar(value: Double((CGFloat(played) - inset) / span), height: 6)
+                            .padding(.horizontal, inset)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 10)
                     }
                 }
             }
@@ -4559,13 +4554,7 @@ private struct GuideProgressBar: View {
     let progress: CGFloat
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(GuidePalette.track)
-                Capsule().fill(GuidePalette.progress)
-                    .frame(width: proxy.size.width * min(max(progress, 0), 1))
-            }
-        }
+        LineupProgressBar(value: Double(progress), height: 10)
     }
 }
 

@@ -633,13 +633,8 @@ private struct AppSearchLiveArt: View {
         .frame(width: Metrics.artWidth, height: Metrics.artHeight)
         .overlay(alignment: .bottom) {
             if let fraction = AppSearchFormat.progress(of: hit) {
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.25))
-                        Capsule().fill(Color.white).frame(width: max(4, proxy.size.width * CGFloat(fraction)))
-                    }
-                }
-                .frame(height: Metrics.progressHeight)
+                LineupProgressBar(value: fraction, height: Metrics.progressHeight,
+                                  track: .white.opacity(0.3))
                 .padding(.horizontal, Metrics.progressInset)
                 .padding(.bottom, Metrics.progressInset)
             }
