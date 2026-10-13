@@ -193,25 +193,10 @@ struct MobileCatchUpBar: View {
         let atLive = controller.catchUp == nil
         let caption = caption(position: position, now: now)
         return VStack(spacing: 5) {
-            GeometryReader { track in
-                let width = track.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.mediaText.opacity(0.16))
-                        .frame(height: 4)
-                    // As far as the broadcast has got: the part that can be played.
-                    Capsule().fill(LineupStyle.mediaText.opacity(0.34))
-                        .frame(width: max(0, width * reached), height: 4)
-                    Capsule().fill(LineupStyle.mediaText)
-                        .frame(width: max(0, width * place), height: 4)
-                    // Red only at the live edge, as everywhere else in the app.
-                    Circle().fill(atLive ? LineupStyle.liveDot : LineupStyle.mediaText)
-                        .frame(width: 9, height: 9)
-                        .offset(x: min(max(0, width * place - 4.5), max(0, width - 9)))
-                }
-                .frame(width: width, height: 9, alignment: .leading)
-                .frame(maxHeight: .infinity)
-            }
-            .frame(height: 9)
+            // As far as the broadcast has got, the part that can be played,
+            // in the softer accent; where the picture is, in the accent.
+            LineupProgressBar(value: place, reach: reached,
+                              height: compact ? 6 : LineupProgressBar.standardHeight)
             HStack(spacing: 6) {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)

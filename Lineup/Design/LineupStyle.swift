@@ -221,6 +221,52 @@ struct LineupIconTile: View {
     }
 }
 
+/// The progress bar every player draws, the way the reference app draws its
+/// own: a thick, fully rounded track in a quiet grey, filled from the left in
+/// the viewer's accent. No knob and no gloss -- and a new accent repaints it
+/// with everything else.
+struct LineupProgressBar: View {
+    /// How far along, from 0 to 1.
+    let value: Double
+    /// Further along than `value`, in a softer accent: how far a broadcast
+    /// has got, which is the part of it that can be played.
+    var reach: Double? = nil
+    var height: CGFloat = Self.standardHeight
+
+    #if os(tvOS)
+    static let standardHeight: CGFloat = 12
+    #else
+    static let standardHeight: CGFloat = 8
+    #endif
+    /// Reads as the same grey track over a dark panel and over a picture.
+    static let track = Color.white.opacity(0.16)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Self.track)
+                if let reach {
+                    Capsule().fill(LineupStyle.highlight.opacity(0.38))
+                        .frame(width: fill(reach, of: width))
+                }
+                Capsule().fill(LineupStyle.highlight)
+                    .frame(width: fill(value, of: width))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+
+    /// Never narrower than the bar is tall once it has started, so its end
+    /// stays round instead of pinching into a sliver.
+    private func fill(_ fraction: Double, of width: CGFloat) -> CGFloat {
+        let clamped = min(max(fraction.isFinite ? fraction : 0, 0), 1)
+        guard clamped > 0 else { return 0 }
+        return min(width, max(height, width * clamped))
+    }
+}
+
 /// A panel's own header: icon, upper-case title, and whatever the panel puts
 /// on the right, such as See All.
 struct LineupPanelHeader<Accessory: View>: View {

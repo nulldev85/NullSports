@@ -7043,18 +7043,11 @@ private struct TVCatchUpBar: View {
         let reached = fraction(now, in: span)
         let place = controller.catchUp == nil ? reached : fraction(position, in: span)
         let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        VStack(spacing: 10) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.14))
-                    // As far as the broadcast has got: the part that can be played.
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.32))
-                        .frame(width: max(0, geometry.size.width * reached))
-                    Capsule().fill(LineupStyle.lightPurple)
-                        .frame(width: max(0, geometry.size.width * place))
-                }
-            }
-            .frame(height: selected ? 10 : 6)
+        VStack(spacing: 12) {
+            // As far as the broadcast has got, the part that can be played,
+            // in the softer accent; where the picture is, in the accent.
+            LineupProgressBar(value: place, reach: reached,
+                              height: selected ? 16 : LineupProgressBar.standardHeight)
             HStack {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
@@ -7199,15 +7192,9 @@ private struct TVSeekBar: View {
     var body: some View {
         let selected = focus.wrappedValue == .scrubber
         let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        VStack(spacing: 10) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.18))
-                    Capsule().fill(LineupStyle.lightPurple)
-                        .frame(width: max(0, geometry.size.width * progress))
-                }
-            }
-            .frame(height: selected ? 10 : 6)
+        VStack(spacing: 12) {
+            LineupProgressBar(value: progress,
+                              height: selected ? 16 : LineupProgressBar.standardHeight)
             HStack {
                 Text(Self.clock(controller.elapsed))
                 Spacer(minLength: 0)

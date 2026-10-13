@@ -326,17 +326,10 @@ struct MobilePlayerView: View {
         return VStack(spacing: 8) {
             GeometryReader { track in
                 let width = track.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18))
-                    Capsule().fill(LineupStyle.mediaAccent)
-                        .frame(width: max(0, width * fraction))
-                    Circle()
-                        .fill(.white)
-                        .frame(width: scrubTarget == nil ? 13 : 17)
-                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                        .offset(x: max(0, width * fraction - (scrubTarget == nil ? 6.5 : 8.5)))
-                }
-                .frame(height: 5)
+                // The app's own bar, in the accent: no knob, and a little
+                // thicker under a finger to say it has been taken hold of.
+                LineupProgressBar(value: fraction,
+                                  height: scrubTarget == nil ? LineupProgressBar.standardHeight : 12)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .gesture(
