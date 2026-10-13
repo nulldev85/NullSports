@@ -143,15 +143,13 @@ struct MobileCatchUpSheet: View {
                         withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(group.day, anchor: .top) }
                     } label: {
                         Text(MobileCatchUpFormat.dayTitle(group.day, short: true))
-                            .font(.inter(.subheadline, .semibold))
-                            .foregroundStyle(chosen ? LineupStyle.background : LineupStyle.text)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(chosen ? LineupStyle.text : LineupStyle.raised, in: Capsule())
+                            .lineupChip(chosen)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, LineupPanelStyle.margin)
+            .padding(.vertical, 2)
         }
         .padding(.bottom, 6)
     }

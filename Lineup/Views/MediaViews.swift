@@ -239,11 +239,9 @@ struct LineupAccountCard<Actions: View>: View {
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
         #else
-        // The phone's account tab sits on the Guide's quiet ground: a flat
-        // grey card, squared off, with a hairline round it.
-        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-            .strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        // Inside a Settings panel, a well a step lighter than the panel,
+        // rounded to sit inside its corners.
+        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
         #endif
     }
 
@@ -261,7 +259,7 @@ struct LineupAccountCard<Actions: View>: View {
     #else
     private var cardPadding: CGFloat { 16 }
     private var maxCardWidth: CGFloat { 720 }
-    private var cardRadius: CGFloat { 4 }
+    private var cardRadius: CGFloat { 18 }
     private var glyph: CGFloat { 42 }
     private var glyphSize: CGFloat { 20 }
     private var rule: CGFloat { 26 }
@@ -448,13 +446,14 @@ struct LineupCardAction: View {
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
-            // A flat grey capsule with a hairline, dimmed while unavailable.
+            // An unchosen chip's outline in the accent, dimmed while
+            // unavailable.
             Label(title, systemImage: symbol)
-                .font(.inter(.subheadline, .semibold))
-                .foregroundStyle(LineupStyle.text)
-                .frame(maxWidth: .infinity, minHeight: 38)
-                .background(LineupStyle.focused, in: Capsule())
-                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
+                .font(.inter(.subheadline, .bold))
+                .foregroundStyle(LineupStyle.highlight)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .overlay(Capsule().strokeBorder(LineupStyle.highlight, lineWidth: 1.5))
+                .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.5)
             #endif
         }
@@ -934,8 +933,9 @@ private struct MediaCatalogsScreen: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                             if let heroCatalog = media.heroCatalog {
+                                // The first panel starts a gap below the
+                                // hero, as each starts a gap below the last.
                                 MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
-                                    .padding(.bottom, -catalogSpacing)
                             }
                             libraryShelves
                         }
@@ -1025,8 +1025,8 @@ private struct MediaCatalogsScreen: View {
     private var libraryShelves: some View {
         ForEach(phoneRows) { row in
             switch row {
-            case .local(_, let title, let items, let opensPages):
-                localShelf(title: title, items: items, opensPages: opensPages)
+            case .local(let id, let title, let items, let opensPages):
+                localShelf(id: id, title: title, items: items, opensPages: opensPages)
             case .catalog(let catalog):
                 catalogShelf(catalog)
             }
@@ -1036,7 +1036,8 @@ private struct MediaCatalogsScreen: View {
     /// A shelf: a server's, MDBList's, the provider's, or the Streaming
     /// Services row.
     private func catalogShelf(_ catalog: MediaCatalog) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: shelfStackSpacing) {
+            #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
                 Text(media.shelfTitle(catalog)).font(sectionTitleFont)
                 // Which server a shelf comes from, once there is more than
@@ -1068,16 +1069,36 @@ private struct MediaCatalogsScreen: View {
                     }
                     .lineupFlatButton()
                 }
-                #else
-                NavigationLink(value: catalog.root) {
-                    MediaChromeLabel {
-                        Label("See All", systemImage: "chevron.right")
-                            .font(.inter(14, .semibold))
-                    }
-                }.lineupFlatButton()
                 #endif
             }
             .padding(.horizontal, horizontalPadding)
+            #else
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id)) {
+                // Which server a shelf comes from, once there is more than
+                // one: two of them can each have a "Trending Movies".
+                if let server = media.serverName(for: catalog) {
+                    HStack(spacing: 5) {
+                        if let brand = media.serverBrand(for: catalog) {
+                            MediaServerLogo(brand: brand).frame(width: 11, height: 11)
+                        }
+                        Text(server.uppercased())
+                            .font(.inter(10, .bold)).tracking(1.2)
+                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .lineLimit(1)
+                    }
+                    .layoutPriority(-1)
+                }
+                NavigationLink(value: catalog.root) {
+                    HStack(spacing: 3) {
+                        Text("See All")
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .heavy, design: .rounded))
+                    }
+                    .font(.inter(14, .bold))
+                    .foregroundStyle(LineupStyle.highlight)
+                    .fixedSize()
+                }.lineupFlatButton()
+            }
+            #endif
             // See All is deliberately not a focus section. From the body
             // of a shelf, vertical movement therefore lands in the nearest
             // poster row; the utility remains reachable near its edge.
@@ -1121,6 +1142,7 @@ private struct MediaCatalogsScreen: View {
                 .lineupFocusRegion()
             }
         }
+        .modifier(PhoneShelfPanel())
     }
 
     /// The cards just past one that has come into view.
@@ -1680,14 +1702,18 @@ private struct MediaCatalogsScreen: View {
     /// Continue Watching opens pages rather than streams: a film's own, and an
     /// episode's show's, at that episode's season. If the app has the viewer
     /// on the wrong episode, the right one is a choice away on that page.
-    private func localShelf(title: String, items: [MediaItem], opensPages: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func localShelf(id: String, title: String, items: [MediaItem], opensPages: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: shelfStackSpacing) {
+            #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(sectionTitleFont)
                 Spacer()
             }
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
+            #else
+            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id)) { EmptyView() }
+            #endif
             let shape = MediaArtShape.forItems(items)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
@@ -1724,6 +1750,7 @@ private struct MediaCatalogsScreen: View {
             .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
             .lineupFocusRegion()
         }
+        .modifier(PhoneShelfPanel())
     }
 
     /// The page a local row's card opens, or nil for a card that goes
@@ -1830,15 +1857,37 @@ private struct MediaCatalogsScreen: View {
         #if os(tvOS)
         54
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
     private var catalogSpacing: CGFloat {
         #if os(tvOS)
         32
         #else
-        26
+        LineupPanelStyle.gap
         #endif
+    }
+    /// Header to cards. The phone's header carries its own padding and
+    /// hairline, so the gap under it is the cards' own.
+    private var shelfStackSpacing: CGFloat {
+        #if os(tvOS)
+        14
+        #else
+        8
+        #endif
+    }
+
+    /// Each shelf's icon in its panel header, by what the shelf is rather
+    /// than what it is called, since any shelf can be renamed.
+    static func shelfSymbol(_ id: String) -> String {
+        switch id {
+        case LibraryShelfOrder.continueWatching: "play.circle"
+        case LibraryShelfOrder.favorites: "heart"
+        case LibraryShelfOrder.favoriteEpisodes: "heart.text.square"
+        case LibraryTrendingRow.movies.id, LibraryTrendingRow.shows.id: "flame"
+        case StreamingService.rowID: "tv"
+        default: id.hasPrefix("mdblist:") ? "list.star" : "rectangle.stack"
+        }
     }
     private var itemSpacing: CGFloat {
         #if os(tvOS)
@@ -5048,9 +5097,16 @@ private struct MediaStreamTab: View {
             markView
         }
         .padding(.horizontal, Style.tabPadH).padding(.vertical, Style.tabPadV)
+        #if os(tvOS)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
         .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.line, lineWidth: 1))
+        #else
+        // The app's chips: the accent filled when chosen, outlined otherwise.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+        .background(active ? LineupStyle.highlight : Color.clear, in: Capsule())
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
+        #endif
         .opacity(quiet && !active ? 0.55 : 1)
         .lineupFocusLayer(focused && !active, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -5068,7 +5124,11 @@ private struct MediaStreamTab: View {
             Text("\(count)").font(.interDigits(Style.tabCountSize, .bold)).opacity(0.55)
         case .looking:
             ProgressView()
+                #if os(tvOS)
                 .tint(active ? LineupStyle.background : LineupStyle.lightPurple)
+                #else
+                .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+                #endif
                 .scaleEffect(Style.tabSpinnerScale)
                 .frame(width: Style.tabSpinner, height: Style.tabSpinner)
         case .missing:
@@ -6482,6 +6542,43 @@ struct InitialSourceSetupView: View {
         60
         #else
         24
+        #endif
+    }
+}
+
+#if !os(tvOS)
+/// A Library shelf's header in its panel: icon and caption over a hairline,
+/// with the server and See All on the right.
+private struct PhoneShelfHeader<Accessory: View>: View {
+    let title: String
+    let symbol: String
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LineupPanelHeader(title: title, systemImage: symbol) {
+                HStack(spacing: 10) { accessory() }
+            }
+            .padding(.top, 15).padding(.bottom, 11)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+        }
+        .padding(.horizontal, LineupPanelStyle.inset)
+    }
+}
+#endif
+
+/// A Library shelf as a panel on the phone: its posters scroll inside the
+/// card, between its edges. The television keeps its open rows.
+private struct PhoneShelfPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .padding(.horizontal, LineupPanelStyle.margin)
         #endif
     }
 }

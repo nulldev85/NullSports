@@ -256,12 +256,13 @@ struct AppSearchView: View {
             let hits = results.hits(in: kind)
             if !hits.isEmpty {
                 VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                    sectionHeader(kind.title, count: hits.count, seeAll: kind)
+                    sectionHeader(kind.title, symbol: kind.symbol, count: hits.count, seeAll: kind)
                     switch kind {
                     case .movies, .shows, .vod: posterShelf(hits)
                     case .live: liveList(Array(hits.prefix(Metrics.liveInAll)))
                     }
                 }
+                .modifier(AppSearchPanel())
             }
         }
         if searchingServers {
@@ -322,8 +323,15 @@ struct AppSearchView: View {
         return names.isEmpty ? "your servers" : ListFormatter.localizedString(byJoining: names)
     }
 
-    private func sectionHeader(_ title: String, count: Int, seeAll kind: AppSearchCategory?) -> some View {
+    private func sectionHeader(_ title: String, symbol: String, count: Int,
+                               seeAll kind: AppSearchCategory?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
+            #if !os(tvOS)
+            Image(systemName: symbol)
+                .font(.system(size: Metrics.headerSize, weight: .bold, design: .rounded))
+                .padding(.trailing, -4)
+                .accessibilityHidden(true)
+            #endif
             Text(title.uppercased())
                 .font(.inter(Metrics.headerSize, .heavy)).tracking(Metrics.headerTracking)
             Text("\(count)")
@@ -341,8 +349,16 @@ struct AppSearchView: View {
                 #endif
             }
         }
+        #if os(tvOS)
         .foregroundStyle(LineupStyle.secondary)
         .padding(.horizontal, Metrics.inset)
+        #else
+        // A panel's header: light grey caption over the panel's hairline.
+        .foregroundStyle(LineupPanelStyle.caption)
+        .padding(.top, 15).padding(.bottom, 11)
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupPanelStyle.divider).frame(height: 1) }
+        .padding(.horizontal, Metrics.inset)
+        #endif
     }
 
     private func posterShelf(_ hits: [AppSearchHit]) -> some View {
@@ -355,7 +371,9 @@ struct AppSearchView: View {
             .padding(.vertical, Metrics.shelfLift)
         }
         .contentMargins(.horizontal, Metrics.inset, for: .scrollContent)
+        #if os(tvOS)
         .scrollClipDisabled()
+        #endif
         .lineupFocusRegion()
     }
 
@@ -390,21 +408,24 @@ struct AppSearchView: View {
         let airings = hits.filter { if case .airing = $0.kind { true } else { false } }
         if !games.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("Games", count: games.count, seeAll: nil)
+                sectionHeader("Games", symbol: "sportscourt", count: games.count, seeAll: nil)
                 liveList(games)
             }
+            .modifier(AppSearchPanel())
         }
         if !channels.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("Channels", count: channels.count, seeAll: nil)
+                sectionHeader("Channels", symbol: "tv", count: channels.count, seeAll: nil)
                 liveList(channels)
             }
+            .modifier(AppSearchPanel())
         }
         if !airings.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("On the TV Guide", count: airings.count, seeAll: nil)
+                sectionHeader("On the TV Guide", symbol: "calendar", count: airings.count, seeAll: nil)
                 liveList(airings)
             }
+            .modifier(AppSearchPanel())
         }
     }
 
@@ -458,20 +479,32 @@ private struct AppSearchChip: View {
                 .font(.inter(Metrics.chipSize, .bold))
             if waiting {
                 ProgressView().controlSize(.small)
+                    #if os(tvOS)
                     .tint(active ? LineupStyle.background : LineupStyle.text)
+                    #else
+                    .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+                    #endif
             } else {
                 Text("\(count)")
                     .font(.interDigits(Metrics.chipSize, .bold))
                     .opacity(0.55)
             }
         }
+        #if os(tvOS)
         .foregroundStyle(active ? LineupStyle.background : LineupStyle.text)
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
         .background(Capsule().fill(active ? Color.white : LineupStyle.surface))
         .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
-        #if os(tvOS)
         .lineupFocusLayer(focused && !active, in: Capsule())
+        #else
+        // The app's chips: filled with the accent when chosen, drawn in
+        // its outline otherwise.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+        .padding(.horizontal, Metrics.chipPadding)
+        .frame(height: Metrics.chipHeight)
+        .background(Capsule().fill(active ? LineupStyle.highlight : Color.clear))
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         #endif
         .animation(.easeOut(duration: 0.18), value: active)
     }
@@ -483,12 +516,20 @@ private struct AppSearchSeeAll: View {
             Text("See All")
             Image(systemName: "chevron.right").font(.system(size: AppSearchMetrics.headerSize - 2, weight: .bold))
         }
+        #if os(tvOS)
         .font(.inter(AppSearchMetrics.headerSize + 1, .semibold))
         .foregroundStyle(LineupStyle.text)
         .padding(.horizontal, AppSearchMetrics.seeAllPadding)
         .frame(height: AppSearchMetrics.seeAllHeight)
         .background(Capsule().fill(LineupStyle.surface))
         .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        .font(.inter(14, .bold))
+        .foregroundStyle(LineupStyle.highlight)
+        .textCase(nil)
+        .frame(height: AppSearchMetrics.seeAllHeight)
+        .contentShape(Rectangle())
+        #endif
     }
 }
 
@@ -570,8 +611,12 @@ private struct AppSearchLiveRow: View {
         }
         .padding(Metrics.rowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
         .background(LineupStyle.surface, in: shape)
         .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        .background(LineupPanelStyle.well, in: shape)
+        #endif
         .foregroundStyle(LineupStyle.text)
         .accessibilityElement(children: .combine)
     }
@@ -907,13 +952,13 @@ private enum AppSearchMetrics {
     static let promptWidth: CGFloat = 900
     static let promptChipGap: CGFloat = 34
     #else
-    static let inset: CGFloat = 16
+    static let inset: CGFloat = LineupPanelStyle.inset
     static let topInset: CGFloat = 4
     static let bottomInset: CGFloat = 32
-    static let sectionGap: CGFloat = 28
-    static let headerGap: CGFloat = 12
-    static let headerSize: CGFloat = 13
-    static let headerTracking: CGFloat = 1.4
+    static let sectionGap: CGFloat = LineupPanelStyle.gap
+    static let headerGap: CGFloat = 16
+    static let headerSize: CGFloat = 15
+    static let headerTracking: CGFloat = 0.4
     static let chipGap: CGFloat = 10
     static let chipSize: CGFloat = 16
     static let chipHeight: CGFloat = 40
@@ -956,4 +1001,20 @@ private enum AppSearchMetrics {
     static let promptWidth: CGFloat = 340
     static let promptChipGap: CGFloat = 14
     #endif
+}
+
+/// A section of results as a panel on the phone, like the Library's shelves.
+/// The television keeps its open rows.
+private struct AppSearchPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content
+            .padding(.bottom, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .padding(.horizontal, LineupPanelStyle.margin)
+        #endif
+    }
 }

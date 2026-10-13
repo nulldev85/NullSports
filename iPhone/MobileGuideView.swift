@@ -230,8 +230,7 @@ struct MobileGuideView: View {
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
-                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: LineupStyle.compactRadius).stroke(LineupStyle.line, lineWidth: 1))
+                    .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(LineupStyle.background)
                 }

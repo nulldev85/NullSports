@@ -277,8 +277,9 @@ extension View {
     /// sit the same way.
     func lineupAccountCardRow() -> some View {
         self
-            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 9, trailing: 12))
-            .listRowBackground(LineupStyle.background)
+            .listRowInsets(EdgeInsets(top: 6, leading: LineupPanelStyle.inset - 6,
+                                      bottom: 10, trailing: LineupPanelStyle.inset - 6))
+            .listRowBackground(LineupPanelStyle.fill)
             .listRowSeparator(.hidden)
     }
 
@@ -303,22 +304,21 @@ private struct SettingsCategoryHeader: View {
 
     var body: some View {
         Button(action: toggle) {
-            HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(LineupStyle.text)
-                    .frame(width: 32, height: 32)
-                    .background(LineupStyle.focused, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.inter(.body, .semibold)).foregroundStyle(LineupStyle.text)
-                    Text(summary).font(.inter(.caption)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+            // The panel's own header: icon and heavy caption in light grey,
+            // with what is inside said quietly on the right while it is shut.
+            LineupPanelHeader(title: title, systemImage: symbol) {
+                HStack(spacing: 8) {
+                    if !isOpen {
+                        Text(summary).font(.inter(.footnote, .medium))
+                            .foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
                 }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LineupStyle.secondary)
-                    .rotationEffect(.degrees(isOpen ? 90 : 0))
             }
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -550,7 +550,7 @@ private struct MobileAccountView: View {
                         Text("Each provider keeps its own favorites, preferred channels and recents. Games on those teams open on the saved channel.")
                     }
                 }
-                .lineupCellRows()
+                .lineupPanelRows()
                 Section {
                     SettingsCategoryHeader(title: "Media Servers", symbol: "play.square.stack",
                                            summary: mediaSummary, isOpen: isOpen(.media)) { toggle(.media) }
@@ -576,7 +576,7 @@ private struct MobileAccountView: View {
                         Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
                     }
                 }
-                .lineupCellRows()
+                .lineupPanelRows()
                 Section {
                     SettingsCategoryHeader(title: "Library", symbol: "rectangle.stack",
                                            summary: librarySummary, isOpen: isOpen(.library)) { toggle(.library) }
@@ -607,7 +607,7 @@ private struct MobileAccountView: View {
                         Text("The hero shows the top ten titles of the catalog chosen here. MDBList adds your movie and show lists as Library shelves.")
                     }
                 }
-                .lineupCellRows()
+                .lineupPanelRows()
                 Section {
                     SettingsCategoryHeader(title: "Appearance", symbol: "paintpalette",
                                            summary: "Accent · " + LineupAccent.accent(forHex: accentHex).name,
@@ -636,7 +636,7 @@ private struct MobileAccountView: View {
                         Text("The color that marks what's active. The dark and light greys and the white stay as they are. Syncs through iCloud.")
                     }
                 }
-                .lineupCellRows()
+                .lineupPanelRows()
                 Section {
                     SettingsCategoryHeader(title: "About", symbol: "info.circle",
                                            summary: aboutSummary, isOpen: isOpen(.about)) { toggle(.about) }
@@ -649,9 +649,10 @@ private struct MobileAccountView: View {
                         LabeledContent("Version", value: version)
                     }
                 }
-                .lineupCellRows()
+                .lineupPanelRows()
             }
-            .listStyle(.grouped)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(LineupPanelStyle.gap)
             .scrollContentBackground(.hidden).background(LineupStyle.background)
             .navigationTitle("Settings")
             .task {

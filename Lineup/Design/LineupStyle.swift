@@ -92,19 +92,21 @@ fileprivate extension LineupPalette {
         // reads as navy on a television -- most sets run a cool picture
         // and a dark grey with any blue in it is where that shows. The
         // colour in this theme is the accent's job and nothing else's.
-        accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
-        raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
+        // A black ground with near-black cards on it, a step apart and no
+        // more: the cards are told from the ground by their shape and their
+        // corners, not by contrast. Everything else stands on these.
+        accent: rgb(0xFFFFFF), background: rgb(0x000000), surface: rgb(0x1C1C1D),
+        raised: rgb(0x1C1C1D), sidebar: rgb(0x0E0E0F), selected: rgb(0x2C2C2E),
         // Focus is a step up in the same grey. It used to lean towards
         // the accent, which is a good idea on paper and another source
         // of navy in a room; the accent's border and glow around a
         // focused thing say it far more clearly than its fill ever did.
-        focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
+        focused: rgb(0x2C2C2E), warning: rgb(0xFFB224),
         highlight: rgb(0xFF3347), highlightSoft: rgb(0xFF8A95),
         selectionBorder: rgb(0xFF3347),
         positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
-        // A charcoal ground is lighter than carbon, so a hairline needs
-        // a little more to draw on it than it did on near-black.
-        line: rgb(0xFFFFFF).opacity(0.14),
+        // On a card this lands on the panel's own divider grey.
+        line: rgb(0xFFFFFF).opacity(0.09),
         // A league chip in the accent's own colour reads as the app
         // talking rather than as the league it stands for. Combat's is
         // the deeper red of its own posters, not the accent's.
@@ -225,8 +227,13 @@ enum LineupStyle {
     /// Confirmation -- a channel was found, a server answered.
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
+    #if os(tvOS)
     static let compactRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
+    #else
+    static let compactRadius: CGFloat = 14
+    static let panelRadius: CGFloat = 24
+    #endif
 
     /// How far a focused thing rises, in two steps.
     ///
@@ -552,10 +559,10 @@ extension LineupPanelHeader where Accessory == EmptyView {
     }
 }
 
-/// A card with a header, a hairline, and its content under them. The content
-/// gets the card's full width; `padded` gives it the card's side insets too,
-/// which a horizontal row of posters does not want -- it runs to the card's
-/// edges and scrolls beneath them.
+/// A card with a header, a hairline, and its content under them. `padded`
+/// gives the content the card's insets. Rows that carry their own -- a list
+/// of games divided by hairlines, a row of posters that scrolls beneath the
+/// card's edges -- take the card's full width instead.
 struct LineupPanel<Content: View, Accessory: View>: View {
     let title: String
     var systemImage: String?
@@ -572,7 +579,7 @@ struct LineupPanel<Content: View, Accessory: View>: View {
                 .padding(.horizontal, LineupPanelStyle.inset)
             content()
                 .padding(.horizontal, padded ? LineupPanelStyle.inset : 0)
-                .padding(.top, 16).padding(.bottom, 18)
+                .padding(.top, padded ? 16 : 0).padding(.bottom, padded ? 18 : 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
@@ -615,7 +622,7 @@ extension View {
 /// `listRowBackground`, which wants a view rather than a modifier.
 struct LineupRowBackground: View {
     var body: some View {
-        LineupStyle.raised
+        LineupPanelStyle.fill
     }
 }
 
@@ -633,6 +640,15 @@ struct LineupCellBackground: View {
 }
 
 extension View {
+    /// A section of an inset-grouped list drawn as one panel: the panel's
+    /// fill, its hairline between rows, and its side insets.
+    func lineupPanelRows() -> some View {
+        self.listRowBackground(LineupPanelStyle.fill)
+            .listRowSeparatorTint(LineupPanelStyle.divider)
+            .listRowInsets(EdgeInsets(top: 12, leading: LineupPanelStyle.inset,
+                                      bottom: 12, trailing: LineupPanelStyle.inset))
+    }
+
     /// List rows as separate Guide cells, the content inside each cell's own
     /// margins.
     func lineupCellRows() -> some View {

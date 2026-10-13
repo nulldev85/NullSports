@@ -293,13 +293,18 @@ private struct StreamingChip: View {
             Text(title).font(.inter(Metrics.chipSize, .bold))
             Text("\(count)").font(.interDigits(Metrics.chipSize, .bold)).opacity(0.55)
         }
-        .foregroundStyle(active ? activeText : LineupStyle.text)
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
+        #if os(tvOS)
+        .foregroundStyle(active ? activeText : LineupStyle.text)
         .background(Capsule().fill(active ? activeFill : LineupStyle.surface))
         .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
-        #if os(tvOS)
         .lineupFocusLayer(focused && !active, in: Capsule())
+        #else
+        // Filled with the accent when chosen, its outline otherwise.
+        .foregroundStyle(active ? activeText : LineupStyle.highlight)
+        .background(Capsule().fill(active ? activeFill : Color.clear))
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         #endif
         .contentShape(Capsule())
         .animation(.easeOut(duration: 0.18), value: active)

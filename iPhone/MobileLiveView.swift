@@ -117,7 +117,7 @@ struct MobileLiveView: View {
     private static let leagueStripHeight: CGFloat = 48
     private static var headerHeight: CGFloat { mastheadHeight + leagueStripHeight }
     /// The margin the preview and the score bar under it keep from the edges.
-    private static let inset: CGFloat = 16
+    private static let inset: CGFloat = LineupPanelStyle.margin
 
     var body: some View {
         // Once, at the top, and passed down. Everything below reads from it.
@@ -398,9 +398,8 @@ struct MobileLiveView: View {
             Spacer(minLength: 0)
             if !library.followedTeams.isEmpty { followedChip }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Self.inset)
         .frame(height: Self.leagueStripHeight)
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: league)
         .sensoryFeedback(.selection, trigger: onlyFollowed)
     }
@@ -435,31 +434,38 @@ struct MobileLiveView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: onlyFollowed ? "star.fill" : "star")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("My Teams").font(.inter(13, .semibold))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                Text("My Teams")
             }
-            .foregroundStyle(onlyFollowed ? LineupStyle.onHighlight : LineupStyle.secondary)
-            .padding(.horizontal, 13)
+            .lineupChip(onlyFollowed)
             .frame(height: 36)
-            .background(onlyFollowed ? LineupStyle.highlight : LineupStyle.raised, in: Capsule())
-            .overlay(Capsule().strokeBorder(onlyFollowed ? .clear : LineupStyle.line, lineWidth: 0.5))
-            .contentShape(Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())
         .accessibilityLabel("My teams")
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
-    private func sectionTitle(_ title: String, detail: String) -> some View {
-        HStack {
-            Text(title).tracking(1.8)
-            Spacer()
-            Text(detail).tracking(1)
+    /// One part of the slate as a panel: icon, caption and count over a
+    /// hairline, then its games, each divided from the next by a hairline of
+    /// its own.
+    private func slatePanel(_ title: String, systemImage: String, detail: String,
+                            games: [SportsGame], showsDay: Bool = false) -> some View {
+        LineupPanel(title: title, systemImage: systemImage, padded: false) {
+            Text(detail.uppercased()).font(.inter(13, .heavy)).tracking(0.4)
+                .foregroundStyle(LineupPanelStyle.quiet)
+        } content: {
+            VStack(spacing: 0) {
+                ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
+                    if index > 0 {
+                        Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                            .padding(.horizontal, LineupPanelStyle.inset)
+                    }
+                    matchup(game, showsDay: showsDay)
+                }
+            }
         }
-        .font(.inter(9, .heavy))
-        .foregroundStyle(LineupStyle.secondary)
-        .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
-        .background(LineupStyle.background)
+        .padding(.horizontal, Self.inset)
+        .padding(.bottom, LineupPanelStyle.gap)
     }
 
     /// The list stays mounted underneath the player while it expands. Only the
@@ -469,36 +475,28 @@ struct MobileLiveView: View {
         ScrollView {
             // A refresh of the channels is said in the pop-up at the top of the
             // screen, not in a line of its own above the games.
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(spacing: 0) {
                 if let error = library.scheduleErrorMessage {
                     Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                         .padding(16)
                 }
                 if !slate.mine.isEmpty {
-                    Section {
-                        ForEach(slate.mine) { matchup($0, showsDay: true) }
-                    } header: {
-                        let onNow = slate.mine.filter(\.isLive).count
-                        sectionTitle("MY TEAMS",
-                                     detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
-                    }
+                    let onNow = slate.mine.filter(\.isLive).count
+                    slatePanel("My Teams", systemImage: "star",
+                               detail: onNow > 0 ? "\(onNow) live" : "\(slate.mine.count) today",
+                               games: slate.mine, showsDay: true)
                 }
                 if !slate.live.isEmpty {
-                    Section {
-                        ForEach(slate.live) { matchup($0) }
-                    } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
+                    slatePanel("On Air", systemImage: "dot.radiowaves.left.and.right",
+                               detail: "\(slate.live.count) live", games: slate.live)
                 }
                 ForEach(slate.days, id: \.day) { day, dayGames in
-                    Section {
-                        ForEach(dayGames) { matchup($0) }
-                    } header: {
-                        sectionTitle(
-                            Calendar.current.isDateInToday(day)
-                                ? "UP NEXT"
-                                : day.formatted(.dateTime.weekday(.wide)).uppercased(),
-                            detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
-                    }
+                    let today = Calendar.current.isDateInToday(day)
+                    slatePanel(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
+                               systemImage: today ? "clock" : "calendar",
+                               detail: day.formatted(.dateTime.month(.abbreviated).day()),
+                               games: dayGames)
                 }
                 if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
                     ContentUnavailableView("Nothing for your teams",
@@ -803,19 +801,11 @@ private struct MobileMatchupRow: View {
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 12).padding(.vertical, 12)
-        // The Guide's own cells: grey, squared off, a step lighter and edged
-        // in a faint red while the game is on.
-        .background(game.isLive ? LineupStyle.focused : LineupStyle.raised, in: Self.cell)
-        .overlay {
-            Self.cell.strokeBorder(game.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
-                                   lineWidth: game.isLive ? 1 : 0.5)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 3)
+        // A row of its section's panel: the panel draws the card and the
+        // hairlines between games, the live mark and status say it is on.
+        .padding(.horizontal, LineupPanelStyle.inset).padding(.vertical, 14)
         .contentShape(Rectangle())
     }
-
-    static let cell = RoundedRectangle(cornerRadius: 4, style: .continuous)
 
     /// One line, quiet, and only when there is something to say. The card
     /// earns its look by not filling every gap that could hold a fact.
@@ -858,7 +848,7 @@ private struct MobileMatchupRow: View {
 private struct MobileMatchupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .background(configuration.isPressed ? LineupPanelStyle.well : Color.clear)
     }
 }
 
