@@ -14,6 +14,16 @@ struct LineupAccent: Identifiable, Equatable, Sendable {
     var id: String { hex }
 
     static let storageKey = "lineup.appearance.accent"
+    /// The colours a viewer has kept, as their hex codes, comma-separated.
+    static let savedKey = "lineup.appearance.savedAccents"
+    static let savedLimit = 12
+
+    static func savedList(_ raw: String) -> [String] {
+        var seen: Set<String> = []
+        return raw.split(separator: ",").compactMap { normalized(String($0)) }.filter { seen.insert($0).inserted }
+    }
+
+    static func joined(_ list: [String]) -> String { list.joined(separator: ",") }
     static let red = LineupAccent(name: "Red", hex: "FF3347")
 
     /// Ten around the wheel, spaced through the hues so each sits where its

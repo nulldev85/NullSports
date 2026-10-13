@@ -8,12 +8,21 @@ struct MobileAccentPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: String
     @State private var mixing = false
+    /// The code in the field, which the draft only takes when it is a colour.
+    @State private var hexText: String
+    @FocusState private var typingHex: Bool
+    /// Colours of the viewer's own, kept to come back to, newest first.
+    @AppStorage(LineupAccent.savedKey) private var savedRaw = ""
     let onChoose: (String) -> Void
 
     init(hex: String, onChoose: @escaping (String) -> Void) {
-        _draft = State(initialValue: LineupAccent.normalized(hex) ?? LineupAccent.red.hex)
+        let start = LineupAccent.normalized(hex) ?? LineupAccent.red.hex
+        _draft = State(initialValue: start)
+        _hexText = State(initialValue: start)
         self.onChoose = onChoose
     }
+
+    private var saved: [String] { LineupAccent.savedList(savedRaw) }
 
     var body: some View {
         let accent = LineupAccent.accent(forHex: draft)
@@ -24,13 +33,15 @@ struct MobileAccentPicker: View {
                     AccentWheel(hex: $draft, onCustom: { mixing = true })
                         .frame(maxWidth: 320)
                         .padding(.horizontal, 8)
-                    VStack(spacing: 4) {
+                    VStack(spacing: 12) {
                         Text(accent.name).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
-                        Text("#" + accent.hex)
-                            .font(.interDigits(.subheadline, .medium)).foregroundStyle(LineupStyle.secondary)
+                            .animation(nil, value: draft)
+                        hexEntry(accent)
                     }
-                    .animation(nil, value: draft)
-                    Text("Tap a color, or drag around the wheel for any shade between them. The eyedropper mixes one of your own.")
+                    if !saved.isEmpty {
+                        savedRow
+                    }
+                    Text("Tap a color, or drag around the wheel for any shade between them. The eyedropper mixes one of your own, or type a hex code and save it.")
                         .font(.inter(.footnote)).foregroundStyle(LineupStyle.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 12)
@@ -55,12 +66,18 @@ struct MobileAccentPicker: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
+                        if typingHex { applyHex() }
                         onChoose(draft)
                         dismiss()
                     }
                     .fontWeight(.semibold)
                     .foregroundStyle(accent.color)
                 }
+            }
+            // The wheel and the chart keep the code in step; typing waits for
+            // Apply, so a half-typed code is never read as a colour.
+            .onChange(of: draft) { _, value in
+                if !typingHex { hexText = value }
             }
             .sheet(isPresented: $mixing) {
                 AccentColorChart(hex: draft) { chosen in
@@ -70,6 +87,131 @@ struct MobileAccentPicker: View {
         }
         .presentationBackground(LineupStyle.background)
         .preferredColorScheme(.dark)
+    }
+}
+
+extension MobileAccentPicker {
+    /// The code of the colour being tried, to read, or to type one in and
+    /// keep among the saved colours.
+    fileprivate func hexEntry(_ accent: LineupAccent) -> some View {
+        let valid = LineupAccent.normalized(hexText) != nil
+        let canSave = !accent.isPreset && !saved.contains(accent.hex)
+        return HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                Text("#").foregroundStyle(LineupStyle.secondary)
+                TextField("FF3347", text: $hexText)
+                    .focused($typingHex)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .keyboardType(.asciiCapable)
+                    .submitLabel(.done)
+                    .onSubmit(applyHex)
+                    .onChange(of: hexText) { _, value in
+                        // Six digits at most, and only ever hex.
+                        let cleaned = String(value.uppercased().filter(\.isHexDigit).prefix(6))
+                        if cleaned != value { hexText = cleaned }
+                    }
+                if typingHex {
+                    Button("Apply", action: applyHex)
+                        .font(.inter(.subheadline, .semibold))
+                        .foregroundStyle(valid ? LineupStyle.text : LineupStyle.secondary)
+                        .disabled(!valid)
+                }
+            }
+            .font(.interDigits(.body, .semibold))
+            .foregroundStyle(LineupStyle.text)
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            .frame(maxWidth: 230)
+            .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button {
+                if typingHex { applyHex() }
+                save(draft)
+            } label: {
+                Label("Save", systemImage: "plus")
+                    .font(.inter(.subheadline, .semibold))
+                    .padding(.horizontal, 14)
+                    .frame(height: 46)
+                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canSave || typingHex ? LineupStyle.text : LineupStyle.secondary)
+            .disabled(!(canSave || typingHex))
+            .accessibilityLabel("Save this color")
+        }
+    }
+
+    /// The colours kept, newest first: a tap tries one, a long press offers
+    /// to forget it.
+    fileprivate var savedRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("SAVED")
+                .font(.inter(.caption2, .bold)).tracking(1.4)
+                .foregroundStyle(LineupStyle.secondary)
+            ScrollView(.horizontal) {
+                HStack(spacing: 12) {
+                    ForEach(saved, id: \.self) { hex in
+                        let swatch = LineupAccent.accent(forHex: hex)
+                        let chosen = hex == draft
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = hex }
+                        } label: {
+                            Circle()
+                                .fill(swatch.color)
+                                .overlay(Circle().strokeBorder(.white, lineWidth: chosen ? 3 : 1))
+                                .overlay {
+                                    if chosen {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundStyle(swatch.onAccent)
+                                    }
+                                }
+                                .frame(width: 38, height: 38)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Remove", systemImage: "trash", role: .destructive) { forget(hex) }
+                        }
+                        .accessibilityLabel("Saved color #\(hex)")
+                    }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
+            }
+            .scrollIndicators(.hidden)
+            Text("Touch and hold a saved color to remove it.")
+                .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The typed code, as the colour being tried -- or, if it is not a
+    /// colour, the field put back to the one that is.
+    fileprivate func applyHex() {
+        if let typed = LineupAccent.normalized(hexText) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { draft = typed }
+            hexText = typed
+        } else {
+            hexText = draft
+        }
+        typingHex = false
+    }
+
+    fileprivate func save(_ hex: String) {
+        guard let hex = LineupAccent.normalized(hex),
+              !LineupAccent.presets.contains(where: { $0.hex == hex }) else { return }
+        let kept = [hex] + saved.filter { $0 != hex }
+        withAnimation(.easeOut(duration: 0.2)) {
+            savedRaw = LineupAccent.joined(Array(kept.prefix(LineupAccent.savedLimit)))
+        }
+        CloudSettingsSync.shared.localSettingsChanged()
+    }
+
+    fileprivate func forget(_ hex: String) {
+        withAnimation(.easeOut(duration: 0.2)) {
+            savedRaw = LineupAccent.joined(saved.filter { $0 != hex })
+        }
+        CloudSettingsSync.shared.localSettingsChanged()
     }
 }
 
