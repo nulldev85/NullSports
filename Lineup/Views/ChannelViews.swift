@@ -3082,7 +3082,7 @@ private enum GuidePalette {
     /// with a faint red edge -- the phone's Guide, cell for cell.
     static var card: Color { LineupStyle.raised }
     static var cardNow: Color { LineupStyle.focused }
-    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.34) }
+    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.5) }
     /// How much of the programme on now has gone, washed over its cell.
     static var elapsed: Color { LineupStyle.text.opacity(0.10) }
     /// How far the programme on now has run, on its track.
@@ -3610,9 +3610,7 @@ private struct GuideControlBar: View {
                         .font(.inter(22, .medium))
                 }
                 .padding(.horizontal, 18).frame(maxWidth: 620, minHeight: 52)
-                .background(GuidePalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(GuidePalette.line, lineWidth: 1))
+                .background(GuidePalette.surface, in: Capsule())
             } else {
                 GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
@@ -3645,8 +3643,8 @@ private struct GuideTitleBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(eyebrow)
-                .font(.inter(13, .heavy)).tracking(0.6)
-                .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                .font(.inter(15, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption).lineLimit(1)
             Text(title)
                 .font(.inter(32, .bold))
                 .foregroundStyle(GuidePalette.text).lineLimit(1)
@@ -3681,7 +3679,7 @@ private struct GuidePreviewPanel: View {
     }
 
     var body: some View {
-        let frame = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let frame = RoundedRectangle(cornerRadius: 22, style: .continuous)
         HStack(alignment: .center, spacing: 34) {
             Group {
                 if let previewURLs {
@@ -3693,7 +3691,6 @@ private struct GuidePreviewPanel: View {
             }
             .frame(width: 352, height: 198)
             .clipShape(frame)
-            .overlay(frame.strokeBorder(GuidePalette.line, lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
@@ -3960,7 +3957,6 @@ private struct GuideHeaderButton: View {
             .foregroundStyle(GuidePalette.text)
             .padding(.horizontal, 22).frame(height: 48)
             .background(GuidePalette.surface, in: shape)
-            .overlay(shape.strokeBorder(GuidePalette.line, lineWidth: 1))
             .lineupFocusLayer(isFocused, in: shape)
             .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
@@ -4474,7 +4470,7 @@ private struct GuideProgramCell: View {
         // The phone's Guide, at television size: flat grey cells squared off
         // at four points, the one on now a step lighter with a faint red
         // edge, the time it has run washed across it, and LIVE in red.
-        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(alignment: .leading, spacing: 6) {
             if let program {
                 HStack(spacing: 8) {
@@ -4524,9 +4520,10 @@ private struct GuideProgramCell: View {
             }
             .clipShape(shape)
         }
+        // Panels, as on the phone: softer corners and no outline, told
+        // apart by the gap between them. Only what is on now is edged.
         .overlay {
-            shape.strokeBorder(isOnNow ? GuidePalette.edgeNow : GuidePalette.line,
-                               lineWidth: isOnNow ? 1.5 : 1)
+            if isOnNow { shape.strokeBorder(GuidePalette.edgeNow, lineWidth: 1.5) }
         }
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
