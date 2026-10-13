@@ -256,6 +256,13 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         isEvent ? (eventName ?? league.shortName) : "\(awayTeam) \(sidesWord) \(homeTeam)"
     }
 
+    /// Where a tennis tournament's card is played: "Shanghai", from
+    /// "Shanghai, China PR".
+    var tennisCity: String? {
+        guard league.isTennis, isEvent else { return nil }
+        return location?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
+    }
+
     /// The tournament a tennis card belongs to: an event card's own name, or
     /// the first part of a match's "Tournament · Round".
     var tennisTournament: String? {

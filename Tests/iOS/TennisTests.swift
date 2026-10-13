@@ -253,14 +253,16 @@ final class TennisTests: XCTestCase {
         XCTAssertNil(SportsLibrary.tennisScore(channel: "Sinner Cam", listings: [], game: match, now: now))
     }
 
-    private func tournamentCard(_ name: String, league: SportsLeague = .atp) -> SportsGame {
+    private func tournamentCard(_ name: String, league: SportsLeague = .atp, city: String? = nil) -> SportsGame {
         SportsGame(
             id: "tennis-event-\(name)", league: league, start: Date().addingTimeInterval(-3600),
             awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
             awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
             awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil, venue: "Round 1",
-            location: nil, status: "2 matches live", state: "in", broadcast: "", eventName: name)
+            location: city, status: "2 matches live", state: "in", broadcast: "", eventName: name)
     }
+
+    private var thisSeason: Int { Calendar.current.component(.year, from: Date().addingTimeInterval(-3600)) }
 
     // The guide as a provider writes it, from a real Apple TV: a tennis
     // broadcast follows the tournament, so the tournament's card plays it.
@@ -270,7 +272,7 @@ final class TennisTests: XCTestCase {
         let wuhan = tournamentCard("Dongfeng Voyah Wuhan Open", league: .wta)
         let centerCourt = [program("Center Court Live", "Shanghai-ATP Round of 16; Wuhan-WTA First Round")]
         let sky = [program("Live Tennis", "ATP Shanghai Masters & WTA Wuhan Open")]
-        let wuhanOnly = [program("2026 Dongfeng Voyah Wuhan Open Tennis", "Early First Round")]
+        let wuhanOnly = [program("\(thisSeason) Dongfeng Voyah Wuhan Open Tennis", "Early First Round")]
         // Both tours' coverage, sharing the channel.
         XCTAssertEqual(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: centerCourt,
                                                  game: shanghai, now: now), 190)
@@ -297,6 +299,39 @@ final class TennisTests: XCTestCase {
             channel: "US: Tennis Channel",
             listings: [program("Center Court Live", "Shanghai: Jannik Sinner vs. Carlos Alcaraz")],
             game: match, now: now), 300)
+    }
+
+    // The archive names the same tournaments and the same players. None of
+    // it is the tennis being played.
+    func testTheArchiveIsNeverTheMatch() {
+        let now = Date()
+        let shanghai = tournamentCard("Rolex Shanghai Masters")
+        let match = live([TennisScore.SetGames(away: 2, home: 1)])
+        for listing in [program("Classic Matches", "Shanghai Masters Final: Medvedev vs. Zverev"),
+                        program("Tennis Channel Live", "\(thisSeason - 1) Shanghai Masters Final replay"),
+                        program("Live Tennis", "\(thisSeason - 1) Rolex Shanghai Masters Final"),
+                        program("ATP Tennis Highlights", "Shanghai Masters")] {
+            XCTAssertNil(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: [listing],
+                                                   game: shanghai, now: now), listing.detail)
+        }
+        XCTAssertNil(SportsLibrary.tennisScore(
+            channel: "US: Tennis Channel",
+            listings: [program("Classic Matches", "Shanghai: Jannik Sinner vs. Carlos Alcaraz")],
+            game: match, now: now))
+        // This season's name in the listing is the tennis on now.
+        XCTAssertEqual(SportsLibrary.tennisScore(
+            channel: "US: Tennis Channel",
+            listings: [program("Live Tennis", "\(thisSeason) Rolex Shanghai Masters Round 4")],
+            game: shanghai, now: now), 200)
+    }
+
+    // A guide calls some tournaments by their city, not ESPN's name for them.
+    func testATournamentIsFoundByItsCityToo() {
+        let rome = tournamentCard("Internazionali BNL d'Italia", city: "Rome, Italy")
+        XCTAssertEqual(rome.tennisCity, "Rome")
+        XCTAssertEqual(SportsLibrary.tennisScore(channel: "Sky Sports Tennis HD",
+                                                 listings: [program("Live Tennis", "ATP Rome: Round 2")],
+                                                 game: rome, now: Date()), 200)
     }
 
     // A tournament is one card a tour, live while any match is -- however
