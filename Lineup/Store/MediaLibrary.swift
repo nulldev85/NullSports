@@ -64,6 +64,9 @@ final class MediaLibrary: ObservableObject {
     }
     /// Whether the Streaming Services row is in the Library.
     @Published private(set) var showsStreamingServices = true
+    /// The Library's rows in the order the viewer arranged them, by row id;
+    /// see `LibraryShelfOrder`. Empty until they first move one.
+    @Published private(set) var shelfOrder: [String] = []
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
     /// Catalogs switched on and waiting for their server to finish importing,
@@ -114,6 +117,7 @@ final class MediaLibrary: ObservableObject {
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
+    private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
     /// that is now the whole Library's.
@@ -209,6 +213,7 @@ final class MediaLibrary: ObservableObject {
             localFavorites = saved.map { Self.marked($0) }
         }
         showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         restoreStreamingSnapshot()
         let listsRestored = restoreMDBListSnapshot()
         let formerActive = formerActiveServer()
@@ -3020,6 +3025,7 @@ final class MediaLibrary: ObservableObject {
         for profile in arriving { restoreLibrarySnapshot(for: profile, adoptingLists: false) }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         if !arriving.isEmpty { await reload(servers: arriving) }
     }
 }
@@ -3321,5 +3327,75 @@ extension MediaLibrary {
         streamingServices = snapshot.services
         streamingBuiltAt = snapshot.builtAt
         streamingSources = snapshot.sources
+    }
+}
+
+// MARK: - The order of the rows
+
+extension MediaLibrary {
+    /// One of the Library's rows, as the screen that reorders them lists it.
+    struct LibraryRow: Identifiable, Hashable {
+        let id: String
+        let title: String
+        /// Where it comes from: a server's name, or this device.
+        let detail: String?
+        let symbol: String
+        let brand: MediaServerBrand?
+    }
+
+    /// Every row the Library has on it now, in the viewer's order.
+    var libraryRows: [LibraryRow] {
+        var rows: [LibraryRow] = []
+        if !continueWatching.isEmpty {
+            rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
+                                   detail: "On this device", symbol: "play.circle", brand: nil))
+        }
+        let favorites = favoriteMedia
+        if favorites.contains(where: { $0.type != "Episode" }) {
+            rows.append(LibraryRow(id: LibraryShelfOrder.favorites, title: "Favorites",
+                                   detail: "On this device", symbol: "heart", brand: nil))
+        }
+        if favorites.contains(where: { $0.type == "Episode" }) {
+            rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
+                                   detail: "On this device", symbol: "heart.text.square", brand: nil))
+        }
+        if let streaming = streamingShelf {
+            rows.append(LibraryRow(id: streaming.id, title: streaming.title,
+                                   detail: "\(streaming.items.count) services", symbol: "play.tv", brand: nil))
+        }
+        for catalog in catalogs {
+            let symbol: String
+            if Self.isMDBListShelfID(catalog.id) { symbol = "list.star" }
+            else if ProviderItem(id: catalog.root.id) != nil { symbol = "tv" }
+            else { symbol = "rectangle.stack" }
+            rows.append(LibraryRow(id: catalog.id, title: catalog.title,
+                                   detail: serverName(of: catalog.root.serverID)
+                                       ?? (Self.isMDBListShelfID(catalog.id) ? "MDBList" : nil),
+                                   symbol: symbol, brand: serverBrand(for: catalog)))
+        }
+        return arrangedShelves(rows, id: \.id)
+    }
+
+    /// Rows of any kind, in the viewer's order.
+    func arrangedShelves<Row>(_ rows: [Row], id: KeyPath<Row, String>) -> [Row] {
+        LibraryShelfOrder.arranged(rows, id: { $0[keyPath: id] }, by: shelfOrder)
+    }
+
+    /// Keeps the order of the rows as the viewer has just left them.
+    func saveShelfOrder(_ shown: [String]) {
+        let order = LibraryShelfOrder.saving(shown, over: shelfOrder)
+        guard order != shelfOrder else { return }
+        shelfOrder = order
+        defaults.set(order, forKey: shelfOrderKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+
+    /// Back to the order the rows come in: the device's own rows, the
+    /// Streaming Services row, then every shelf in the order it was added.
+    func resetShelfOrder() {
+        guard !shelfOrder.isEmpty else { return }
+        shelfOrder = []
+        defaults.removeObject(forKey: shelfOrderKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 }
