@@ -226,8 +226,14 @@ struct MobileLiveView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 16)
                         .padding(.top, Self.headerHeight - 4)
-                        .transition(reduceMotion ? AnyTransition.opacity
-                                    : AnyTransition.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
+                        // Opens with a little growth from the pill; closes as
+                        // one flat layer fading out at once, so nothing in it
+                        // trails behind the panel.
+                        .compositingGroup()
+                        .transition(.asymmetric(
+                            insertion: reduceMotion ? AnyTransition.opacity
+                                : AnyTransition.scale(scale: 0.94, anchor: .topLeading).combined(with: .opacity),
+                            removal: AnyTransition.opacity.animation(.easeOut(duration: 0.14))))
                         .accessibilityAction(.escape) { setLeagueMenu(false) }
                     }
                 }
