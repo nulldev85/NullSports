@@ -1011,15 +1011,15 @@ final class SportsLibrary: ObservableObject {
 
     /// Whether a game has a card of its own.
     ///
-    /// Every game does but a tennis match. A day of tennis is sixty matches
-    /// on a dozen courts, and the channels carry tournaments, not courts: a
-    /// match no channel names would only open the picker. So it is its
-    /// tournament's card that is listed and played, and a match is listed on
-    /// its own only once a channel names it -- or when a player in it is
-    /// followed, since that is a match someone asked to see.
+    /// Every game does but tennis. A day of tennis is sixty matches on a
+    /// dozen courts across several tournaments, and the channels carry
+    /// tournaments, not courts. Listed as they come, most of those cards
+    /// could only open the picker. So tennis lists only what will play:
+    /// one card for each tournament a channel is showing, and a match of
+    /// its own only where a channel names that match.
     func isListed(_ game: SportsGame) -> Bool {
-        guard game.league.isTennis, !game.isEvent else { return true }
-        return stream(for: game) != nil || isFollowing(game)
+        guard game.league.isTennis else { return true }
+        return stream(for: game) != nil
     }
 
     func scoreTickerGames() -> [SportsGame] {

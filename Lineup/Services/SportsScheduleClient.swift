@@ -305,7 +305,7 @@ struct SportsScheduleClient: Sendable {
     /// A tennis channel carries a tournament rather than a match: "Center
     /// Court Live: Shanghai". So the tournament is what is listed and what
     /// is played; a match has a card of its own only where a channel names
-    /// it, or for a player someone follows -- see `SportsLibrary.isListed`.
+    /// it -- see `SportsLibrary.isListed`.
     ///
     /// One card for the whole tournament, not one a day: a tournament in
     /// China plays through an American night, and a card a day split one
