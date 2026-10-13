@@ -7,13 +7,14 @@ import SwiftUI
 struct StreamingServicePoster: View {
     let service: StreamingService
 
-    /// Each service's own colours: a ground in its brand colours, darkest
-    /// at the corner, and a glow of its signature colour rising from the
-    /// bottom, under its logo -- the way the services draw their own tiles.
+    /// Each service as a flat card in its own colour, the way the rest of
+    /// the app's panels are flat: no gradient, no glow, the logo clean on
+    /// it in the one colour the service sets it in on that ground.
+    private enum LogoInk { case white, black, original }
+
     private struct Brand {
-        let top: Color
-        let bottom: Color
-        let glow: Color
+        let fill: Color
+        let ink: LogoInk
     }
 
     private static func hex(_ value: UInt32) -> Color {
@@ -23,23 +24,33 @@ struct StreamingServicePoster: View {
 
     private static func brand(_ id: String) -> Brand {
         switch id {
-        // The red mark on Netflix black.
-        case "netflix": Brand(top: hex(0x221F1F), bottom: hex(0x000000), glow: hex(0xE50914))
-        // Prime Video's midnight with its blue.
-        case "prime": Brand(top: hex(0x1A2A3A), bottom: hex(0x00050D), glow: hex(0x1399FF))
-        // Disney+'s deep blue night.
-        case "disney": Brand(top: hex(0x1A3D8F), bottom: hex(0x040E2B), glow: hex(0x1F80E0))
-        // HBO Max's electric blue.
-        case "hbomax": Brand(top: hex(0x2A35FF), bottom: hex(0x0A0F5C), glow: hex(0x5B3BFF))
-        // Apple TV's black.
-        case "appletv": Brand(top: hex(0x2C2C2E), bottom: hex(0x000000), glow: hex(0x8E8E93))
-        // Paramount+'s blue.
-        case "paramount": Brand(top: hex(0x0064FF), bottom: hex(0x00226B), glow: hex(0x3D8BFF))
-        // Hulu's green mark on black.
-        case "hulu": Brand(top: hex(0x14241B), bottom: hex(0x040405), glow: hex(0x1CE783))
-        // Peacock's black, warmed by its feathers.
-        case "peacock": Brand(top: hex(0x1C1C1D), bottom: hex(0x000000), glow: hex(0x6E55DC))
-        default: Brand(top: LineupPanelStyle.fill, bottom: LineupStyle.background, glow: .clear)
+        case "netflix": Brand(fill: hex(0xE50914), ink: .white)
+        case "prime": Brand(fill: hex(0x1A98FF), ink: .white)
+        case "disney": Brand(fill: hex(0x0063E5), ink: .white)
+        case "hbomax": Brand(fill: hex(0x002BE7), ink: .white)
+        // Apple's own black would vanish into the panel it sits on; its
+        // graphite keeps the card a card.
+        case "appletv": Brand(fill: hex(0x3A3A3C), ink: .white)
+        case "paramount": Brand(fill: hex(0x0064FF), ink: .white)
+        // Hulu sets its mark in black on its green.
+        case "hulu": Brand(fill: hex(0x1CE783), ink: .black)
+        // Peacock is black, and its feathers keep their colours.
+        case "peacock": Brand(fill: hex(0x000000), ink: .original)
+        default: Brand(fill: LineupPanelStyle.well, ink: .white)
+        }
+    }
+
+    @ViewBuilder
+    private func logo(_ ink: LogoInk) -> some View {
+        switch ink {
+        case .original:
+            Image(service.logoAsset).resizable().interpolation(.high)
+        case .white:
+            Image(service.logoAsset).renderingMode(.template).resizable().interpolation(.high)
+                .foregroundStyle(.white)
+        case .black:
+            Image(service.logoAsset).renderingMode(.template).resizable().interpolation(.high)
+                .foregroundStyle(Color(red: 0.016, green: 0.016, blue: 0.02))
         }
     }
 
@@ -47,20 +58,16 @@ struct StreamingServicePoster: View {
         GeometryReader { proxy in
             let brand = Self.brand(service.id)
             ZStack {
-                LinearGradient(colors: [brand.top, brand.bottom], startPoint: .top, endPoint: .bottom)
-                RadialGradient(colors: [brand.glow.opacity(0.5), brand.glow.opacity(0)],
-                               center: .bottom, startRadius: 0, endRadius: proxy.size.height * 0.75)
+                brand.fill
                 if UIImage(named: service.logoAsset) != nil {
-                    Image(service.logoAsset)
-                        .resizable()
-                        .interpolation(.high)
+                    logo(brand.ink)
                         .scaledToFit()
                         .frame(maxWidth: proxy.size.width * 0.7, maxHeight: proxy.size.height * 0.24)
                 } else {
                     // A mark not yet in the catalog: its name, set plainly.
                     Text(service.name)
                         .font(.inter(proxy.size.width * 0.12, .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.6)
                         .padding(.horizontal, proxy.size.width * 0.1)
