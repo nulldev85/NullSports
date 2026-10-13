@@ -204,14 +204,15 @@ final class TennisTests: XCTestCase {
         XCTAssertFalse(TennisScore(sets: Array(oneAll.prefix(2)) + [Set(away: 6, home: 2, awayWon: true)], bestOf: 3).isDecidingSet)
     }
 
-    private func live(_ sets: [TennisScore.SetGames], bestOf: Int = 3) -> SportsGame {
+    private func live(_ sets: [TennisScore.SetGames], bestOf: Int = 3,
+                      venue: String? = "Rolex Shanghai Masters \u{00B7} Round 4") -> SportsGame {
         let score = TennisScore(sets: sets, bestOf: bestOf)
         return SportsGame(
             id: "t", league: .atp, start: Date().addingTimeInterval(-3600),
             awayTeam: "Jannik Sinner", homeTeam: "Carlos Alcaraz", awayAbbreviation: "SINNER",
             homeAbbreviation: "ALCARAZ", awayLogo: "", homeLogo: "",
             awayScore: String(score.awaySets), homeScore: String(score.homeSets),
-            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil, venue: nil,
+            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil, venue: venue,
             location: nil, status: "Set \(sets.count)", state: "in", broadcast: "", eventName: nil,
             tennis: score)
     }
@@ -234,7 +235,7 @@ final class TennisTests: XCTestCase {
                        start: Date().addingTimeInterval(-1800), end: Date().addingTimeInterval(1800))
     }
 
-    func testAChannelCarriesAMatchOnlyWhenItNamesBothPlayers() {
+    func testAChannelNamingThePlayersComesFirst() {
         let match = live([TennisScore.SetGames(away: 2, home: 1)])
         let now = Date()
         // A provider's feed named for the match, with nothing in its guide.
@@ -245,10 +246,6 @@ final class TennisTests: XCTestCase {
             channel: "US| TENNIS CHANNEL HD",
             listings: [program("ATP Tennis", "Shanghai Masters quarterfinal: Jannik Sinner vs. Carlos Alcaraz")],
             game: match, now: now), 300)
-        // The tournament alone is not this match: it is a dozen of them.
-        XCTAssertNil(SportsLibrary.tennisScore(
-            channel: "US| TENNIS CHANNEL HD",
-            listings: [program("ATP Tennis", "Shanghai Masters quarterfinals")], game: match, now: now))
         // A replay of a match between the same two is not this one.
         XCTAssertNil(SportsLibrary.tennisScore(channel: "Tennis Replay: Sinner v Alcaraz",
                                                listings: [], game: match, now: now))
@@ -256,10 +253,44 @@ final class TennisTests: XCTestCase {
         XCTAssertNil(SportsLibrary.tennisScore(channel: "Sinner Cam", listings: [], game: match, now: now))
     }
 
+    // The guide as a provider writes it, from a real Apple TV: a tennis
+    // broadcast follows the tournament, so that is what a match plays.
+    func testAMatchPlaysTheChannelShowingItsTournament() {
+        let now = Date()
+        let shanghai = live([TennisScore.SetGames(away: 2, home: 1)])
+        let wuhan = live([TennisScore.SetGames(away: 2, home: 1)],
+                         venue: "Dongfeng Voyah Wuhan Open \u{00B7} Round 1")
+        let centerCourt = [program("Center Court Live", "Shanghai-ATP Round of 16; Wuhan-WTA First Round")]
+        let sky = [program("Live Tennis", "ATP Shanghai Masters & WTA Wuhan Open")]
+        let wuhanOnly = [program("2026 Dongfeng Voyah Wuhan Open Tennis", "Early First Round")]
+        XCTAssertEqual(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: centerCourt,
+                                                 game: shanghai, now: now), 200)
+        XCTAssertEqual(SportsLibrary.tennisScore(channel: "Sky Sports Tennis FHD", listings: sky,
+                                                 game: wuhan, now: now), 200)
+        // A channel given over to the tournament, saying so in its title,
+        // comes ahead of one that names it in passing.
+        XCTAssertEqual(SportsLibrary.tennisScore(channel: "Amazon US: Tennis Channel 2", listings: wuhanOnly,
+                                                 game: wuhan, now: now), 220)
+        XCTAssertNil(SportsLibrary.tennisScore(channel: "Amazon US: Tennis Channel 2", listings: wuhanOnly,
+                                               game: shanghai, now: now))
+        // The city in a newscast is not the tennis.
+        XCTAssertNil(SportsLibrary.tennisScore(channel: "CA | Fresno | NBC KSEE",
+                                               listings: [program("News", "Typhoon nears Shanghai")],
+                                               game: shanghai, now: now))
+        // The players still outrank the tournament.
+        XCTAssertEqual(SportsLibrary.tennisScore(
+            channel: "US: Tennis Channel",
+            listings: [program("Center Court Live", "Shanghai: Jannik Sinner vs. Carlos Alcaraz")],
+            game: shanghai, now: now), 300)
+    }
+
     func testATournamentIsLookedForByItsOwnWord() {
         XCTAssertEqual(SportsLibrary.tournamentWords("Rolex Shanghai Masters \u{00B7} Quarterfinal"), ["shanghai"])
         XCTAssertEqual(SportsLibrary.tournamentWords("US Open \u{00B7} Final"), ["us open"])
         XCTAssertEqual(SportsLibrary.tournamentWords(nil), [])
+        XCTAssertEqual(SportsLibrary.tournamentWords(
+            "Vanda Pharmaceuticals Mallorca Women's Championships presented by Ecotrans Group \u{00B7} Round 1"),
+            ["vanda", "pharmaceuticals", "mallorca"])
     }
 
     func testTheLeagueIsFoundOnTennisChannels() {

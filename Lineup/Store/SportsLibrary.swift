@@ -944,9 +944,9 @@ final class SportsLibrary: ObservableObject {
         leagueStreamCache[league] ?? []
     }
 
-    /// For a tennis match no channel names: the channels showing its
-    /// tournament now, then any showing tennis. Where someone would look
-    /// first, offered in the channel picker -- never played on their own.
+    /// For the channel picker on a tennis match: the channels showing its
+    /// tournament now, then any showing tennis -- where someone choosing a
+    /// different feed would look first.
     func tennisCoverage(for game: SportsGame, now: Date = Date()) -> [XtreamStream] {
         guard game.league.isTennis else { return [] }
         let tournament = Self.tournamentWords(game.venue)
@@ -970,10 +970,13 @@ final class SportsLibrary: ObservableObject {
     /// What a listing would call a tournament: "Rolex Shanghai Masters" is
     /// "shanghai"; "US Open" has no word of its own, so it is the name.
     nonisolated static func tournamentWords(_ venue: String?) -> [String] {
-        let name = (venue ?? "").components(separatedBy: " \u{00B7} ").first?.lowercased() ?? ""
+        var name = (venue ?? "").components(separatedBy: " \u{00B7} ").first?.lowercased() ?? ""
+        // "... presented by Ecotrans Group": the sponsor is not the event.
+        if let sponsor = name.range(of: " presented by ") { name = String(name[..<sponsor.lowerBound]) }
         let common: Set<String> = ["open", "masters", "championships", "championship", "cup", "tennis", "rolex",
                                    "mutua", "presented", "classic", "international", "internationals", "grand", "prix",
-                                   "trophy", "tournament", "final", "finals", "with", "the"]
+                                   "trophy", "tournament", "final", "finals", "with", "the", "women", "womens",
+                                   "mens", "ladies", "tour", "series", "group", "city", "citta", "della", "pace"]
         let words = name.components(separatedBy: CharacterSet.letters.inverted)
             .filter { $0.count >= 4 && !common.contains($0) }
         if !words.isEmpty { return words }
@@ -1328,15 +1331,18 @@ final class SportsLibrary: ObservableObject {
         return listingConfirms ? 300 : nil
     }
 
-    /// A tennis match is on a channel when the channel names both players --
-    /// a provider's event feed, "ESPN+ 07: Sinner vs Alcaraz" -- or the
-    /// listing on now does.
+    /// Which channel to open for a tennis match, strongest evidence first.
     ///
-    /// A tennis channel showing the tournament is not enough. Tennis Channel
-    /// carries a dozen matches a day from the same event, one court at a
-    /// time, and sending someone there for a match on another court is the
-    /// guess this app refuses to make for any sport. Unmatched, the match
-    /// opens the channel picker, which starts with the tennis channels.
+    /// - 400: the channel is named for the match -- a provider's event feed,
+    ///   "ESPN+ 07: Sinner vs Alcaraz" -- and its guide says nothing else.
+    /// - 300: the listing on now names both players.
+    /// - 220 / 200: the listing on now is that tournament's tennis, named in
+    ///   its title or only in its detail. A tennis broadcast follows a
+    ///   tournament rather than one match -- "Center Court Live: Shanghai",
+    ///   "Live Tennis: WTA Wuhan Open" -- so this is where the match is
+    ///   being shown, the way a team's game is on its network. A channel
+    ///   given over to that one tournament, saying so in its title, comes
+    ///   ahead of a magazine show that names it in passing.
     nonisolated static func tennisScore(channel: String, listings: [CurrentProgram],
                                         game: SportsGame, now: Date) -> Int? {
         tennisScore(channel: ProfessionalChannelMatcher.prepare(
@@ -1370,7 +1376,22 @@ final class SportsLibrary: ObservableObject {
             ["", "live", "tennis", "live tennis", "no program information"].contains($0.title) && $0.detail.isEmpty
         }
         if namesBoth(channel.padded) && (listingConfirms || guideSilent) { return 400 }
-        return listingConfirms ? 300 : nil
+        if listingConfirms { return 300 }
+        // The tournament, by the word a listing would use for it.
+        let tournament = tournamentWords(game.venue)
+            .map { ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize($0)) }
+            .filter { $0.count > 2 }
+        guard !tournament.isEmpty else { return nil }
+        let tennisChannel = channel.padded.contains(" tennis ")
+        var best: Int?
+        for listing in current where tournament.contains(where: listing.text.contains) {
+            // "Shanghai" in a newscast is not the tennis: the channel has to
+            // be a tennis channel, or the listing has to say it is tennis.
+            guard tennisChannel || [" tennis ", " atp ", " wta "].contains(where: listing.text.contains) else { continue }
+            let inTitle = tournament.contains(where: ProfessionalChannelMatcher.pad(listing.title).contains)
+            best = max(best ?? 0, inTitle ? 220 : 200)
+        }
+        return best
     }
 
     nonisolated private static func matchedStream(for game: SportsGame, candidates: [XtreamStream],
