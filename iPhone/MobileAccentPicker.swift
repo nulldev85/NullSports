@@ -31,8 +31,9 @@ struct MobileAccentPicker: View {
                 VStack(spacing: 26) {
                     AccentPreviewCard(accent: accent)
                     AccentWheel(hex: $draft, onCustom: { mixing = true })
-                        .frame(maxWidth: 320)
-                        .padding(.horizontal, 8)
+                        .frame(maxWidth: 330)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                     VStack(spacing: 12) {
                         Text(accent.name).font(.inter(.title3, .semibold)).foregroundStyle(LineupStyle.text)
                             .animation(nil, value: draft)
@@ -41,7 +42,7 @@ struct MobileAccentPicker: View {
                     if !saved.isEmpty {
                         savedRow
                     }
-                    Text("Tap a color, or drag around the wheel for any shade between them. The eyedropper mixes one of your own, or type a hex code and save it.")
+                    Text("Tap a color or turn the dial for any shade between. Tap the center to mix your own.")
                         .font(.inter(.footnote)).foregroundStyle(LineupStyle.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 12)
@@ -267,139 +268,281 @@ private struct AccentPreviewCard: View {
     }
 }
 
-/// Every hue round a ring, the ten presets each where its colour sits on it,
-/// and the eyedropper in the middle wearing the colour chosen. Dragging round
-/// the ring picks any hue between the presets, settling on one when it passes
-/// close by.
+/// The accent dial, set out like a watch face: the ten presets round a dark
+/// face where the hours would be, the track that joins them holding every
+/// shade between, a chapter ring of fine ticks, and the colour chosen in the
+/// middle -- a tap there mixes one of your own.
+///
+/// It is turned as much as tapped. Dragging round the track moves through the
+/// shades with a light click every six degrees, as a bezel would, and settles
+/// on a preset with a firmer one as it passes. The selection ring travels
+/// round the dial to what is chosen, the short way, rather than jumping.
 private struct AccentWheel: View {
     @Binding var hex: String
     let onCustom: () -> Void
-    /// The preset the drag last settled on, for a tick as it does.
-    @State private var settled: String?
+    /// The selection ring's place in degrees from the top, kept unwrapped so
+    /// it always goes the short way round.
+    @State private var ringAngle: Double = 0
     @State private var dragging = false
+    /// The detent the drag is on, for the light click as it moves.
+    @State private var detent = 0
+    /// The preset the dial last settled on, for the firmer one.
+    @State private var settled: String?
 
-    private static let spectrum = Gradient(colors: stride(from: 0.0, through: 1.0, by: 1.0 / 24).map {
-        Color(hue: $0, saturation: 0.8, brightness: 1)
-    })
-    private struct Spot: Identifiable {
-        let preset: LineupAccent
-        let hue: Double
-        var id: String { preset.hex }
-    }
-    private static let presetHues: [Spot] = LineupAccent.presets.map { Spot(preset: $0, hue: $0.hsb.hue) }
+    private static let presets = LineupAccent.presets
+    private static var step: Double { 360 / Double(presets.count) }
+    private static let detents = 60
+    /// Every shade between the presets, which is what the track draws and
+    /// what a drag along it chooses.
+    private static let track = Gradient(stops:
+        presets.enumerated().map { Gradient.Stop(color: $0.element.color, location: Double($0.offset) / Double(presets.count)) }
+        + [Gradient.Stop(color: presets[0].color, location: 1)])
 
     var body: some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
-            let ring = side * 0.15
-            let radius = (side - ring) / 2
-            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let trackRadius = side / 2 - side * 0.085
+            let gem = side * 0.092
             let accent = LineupAccent.accent(forHex: hex)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
             ZStack {
+                face(side: side)
+                // The track: the presets, and every shade between them.
                 Circle()
-                    .strokeBorder(AngularGradient(gradient: Self.spectrum, center: .center,
-                                                  startAngle: .degrees(-90), endAngle: .degrees(270)),
-                                  lineWidth: ring)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.10), lineWidth: 1))
-                    .overlay(Circle().inset(by: ring).strokeBorder(.black.opacity(0.35), lineWidth: 1))
-                    .frame(width: side, height: side)
-                    .position(center)
-                // A hue of the viewer's own, between the presets.
-                if !accent.isPreset {
-                    Circle()
-                        .fill(accent.color)
-                        .frame(width: ring * 0.78, height: ring * 0.78)
-                        .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-                        .shadow(color: .black.opacity(0.45), radius: 4, y: 2)
-                        .scaleEffect(dragging ? 1.15 : 1)
-                        .position(point(hue: accent.hsb.hue, radius: radius, center: center))
-                        .allowsHitTesting(false)
-                }
-                ForEach(Self.presetHues) { entry in
-                    let chosen = entry.preset.hex == hex
+                    .stroke(AngularGradient(gradient: Self.track, center: .center,
+                                            startAngle: .degrees(-90), endAngle: .degrees(270)),
+                            lineWidth: side * 0.03)
+                    .frame(width: trackRadius * 2, height: trackRadius * 2)
+                    .overlay(
+                        Circle().stroke(.black.opacity(0.4), lineWidth: 0.75)
+                            .frame(width: trackRadius * 2 + side * 0.03, height: trackRadius * 2 + side * 0.03)
+                    )
+                chapterRing(side: side, trackRadius: trackRadius)
+                    .allowsHitTesting(false)
+                ForEach(Array(Self.presets.enumerated()), id: \.element.id) { index, preset in
                     Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { hex = entry.preset.hex }
+                        choose(preset, at: index)
                     } label: {
-                        Circle()
-                            .fill(entry.preset.color)
-                            .overlay(Circle().strokeBorder(.white, lineWidth: chosen ? 3 : 1.5))
-                            .overlay {
-                                if chosen {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: ring * 0.26, weight: .bold))
-                                        .foregroundStyle(entry.preset.onAccent)
-                                }
-                            }
-                            .frame(width: ring * 0.74, height: ring * 0.74)
-                            .shadow(color: .black.opacity(0.4), radius: 3, y: 1.5)
-                            .scaleEffect(chosen ? 1.2 : 1)
+                        AccentGem(color: preset.color)
+                            .frame(width: gem, height: gem)
+                            .scaleEffect(preset.hex == hex ? 1.08 : 1)
                     }
-                    .buttonStyle(.plain)
-                    .position(point(hue: entry.hue, radius: radius, center: center))
-                    .accessibilityLabel(entry.preset.name)
-                    .accessibilityAddTraits(chosen ? .isSelected : [])
+                    .buttonStyle(AccentPressStyle())
+                    .position(point(degrees: Double(index) * Self.step, radius: trackRadius, center: center))
+                    .accessibilityLabel(preset.name)
+                    .accessibilityAddTraits(preset.hex == hex ? .isSelected : [])
                 }
-                Button(action: onCustom) {
-                    ZStack {
-                        Circle().fill(accent.color)
-                        Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
-                        VStack(spacing: 6) {
-                            Image(systemName: "eyedropper.halffull")
-                                .font(.system(size: side * 0.09, weight: .semibold))
-                            Text("CUSTOM").font(.inter(10, .bold)).tracking(1.4)
-                        }
-                        .foregroundStyle(accent.onAccent)
-                    }
-                    .frame(width: side * 0.40, height: side * 0.40)
-                    .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
-                }
-                .buttonStyle(.plain)
-                .position(center)
-                .accessibilityLabel("Custom color")
+                selection(accent: accent, gem: gem, trackRadius: trackRadius)
+                    .position(center)
+                    .allowsHitTesting(false)
+                centre(accent: accent, side: side)
+                    .position(center)
             }
-            .contentShape(Rectangle())
+            .contentShape(Circle())
             .simultaneousGesture(
-                DragGesture(minimumDistance: 6)
+                DragGesture(minimumDistance: 3)
                     .onChanged { value in
-                        // Only a drag that starts on the ring turns it.
-                        let start = distance(value.startLocation, center)
-                        guard start > radius - ring, start < radius + ring else { return }
-                        dragging = true
-                        choose(at: value.location, center: center)
+                        // Only a drag that starts on the track turns the dial.
+                        let start = hypot(value.startLocation.x - center.x, value.startLocation.y - center.y)
+                        guard start > trackRadius - side * 0.12, start < side / 2 + side * 0.06 else { return }
+                        if !dragging { dragging = true }
+                        turn(to: value.location, center: center)
                     }
-                    .onEnded { _ in
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { dragging = false }
-                    }
+                    .onEnded { _ in dragging = false }
             )
         }
         .aspectRatio(1, contentMode: .fit)
-        .sensoryFeedback(.selection, trigger: settled)
-    }
-
-    private func point(hue: Double, radius: CGFloat, center: CGPoint) -> CGPoint {
-        let angle = CGFloat(hue) * 2 * .pi - .pi / 2
-        return CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-    }
-
-    private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-        hypot(a.x - b.x, a.y - b.y)
-    }
-
-    private func choose(at location: CGPoint, center: CGPoint) {
-        let angle = atan2(location.y - center.y, location.x - center.x)
-        var hue = Double((angle + .pi / 2) / (2 * .pi))
-        if hue < 0 { hue += 1 }
-        // Close by a preset is the preset itself, exactly.
-        if let near = Self.presetHues.first(where: { entry in
-            let gap = abs(entry.hue - hue)
-            return min(gap, 1 - gap) < 0.012
-        }) {
-            hex = near.preset.hex
-            settled = near.preset.hex
-        } else {
-            hex = LineupAccent.hex(hue: hue, saturation: 0.8, brightness: 1)
-            settled = nil
+        .sensoryFeedback(.selection, trigger: detent)
+        .sensoryFeedback(trigger: settled) { _, new in
+            new == nil ? nil : SensoryFeedback.impact(weight: .medium, intensity: 0.7)
         }
+        .onAppear { ringAngle = Self.angle(for: hex) }
+        .onChange(of: hex) { _, value in
+            guard !dragging else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                ringAngle = unwrapped(Self.angle(for: value))
+            }
+        }
+    }
+
+    /// The dark face, lit a little from above, sitting a step proud of the
+    /// sheet.
+    private func face(side: CGFloat) -> some View {
+        Circle()
+            .fill(LineupStyle.surface)
+            .overlay(
+                Circle().fill(RadialGradient(colors: [.white.opacity(0.06), .clear],
+                                             center: UnitPoint(x: 0.5, y: 0.22),
+                                             startRadius: 0, endRadius: side * 0.7))
+            )
+            .overlay(Circle().strokeBorder(LineupStyle.line, lineWidth: 1))
+            .overlay(
+                // The inner face the colour sits on.
+                Circle().strokeBorder(LineupStyle.line, lineWidth: 1)
+                    .frame(width: side * 0.56, height: side * 0.56)
+            )
+            .shadow(color: .black.opacity(0.55), radius: 22, y: 12)
+    }
+
+    /// Fine ticks inside the track, as a watch's chapter ring has, every six
+    /// degrees, with the presets' places left to the presets.
+    private func chapterRing(side: CGFloat, trackRadius: CGFloat) -> some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let outer = trackRadius - side * 0.055
+            for index in 0..<Self.detents where index % (Self.detents / Self.presets.count) != 0 {
+                let radians = Double(index) / Double(Self.detents) * 2 * .pi - .pi / 2
+                let half = index % 3 == 0
+                let inner = outer - side * (half ? 0.03 : 0.018)
+                var tick = Path()
+                tick.move(to: CGPoint(x: center.x + cos(radians) * inner, y: center.y + sin(radians) * inner))
+                tick.addLine(to: CGPoint(x: center.x + cos(radians) * outer, y: center.y + sin(radians) * outer))
+                context.stroke(tick, with: .color(.white.opacity(half ? 0.3 : 0.16)),
+                               style: StrokeStyle(lineWidth: half ? 1.4 : 1, lineCap: .round))
+            }
+        }
+    }
+
+    /// A thin ring round what is chosen, set off from it by a gap. Between
+    /// the presets it carries a bead of the shade itself.
+    private func selection(accent: LineupAccent, gem: CGFloat, trackRadius: CGFloat) -> some View {
+        ZStack {
+            if !accent.isPreset {
+                AccentGem(color: accent.color)
+                    .frame(width: gem * (dragging ? 1.12 : 0.9), height: gem * (dragging ? 1.12 : 0.9))
+            }
+            Circle()
+                .strokeBorder(.white, lineWidth: 2)
+                .frame(width: gem + 14, height: gem + 14)
+                .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: dragging)
+        .offset(y: -trackRadius)
+        .rotationEffect(.degrees(ringAngle))
+    }
+
+    /// The colour chosen, as a lens in the middle of the face, with the
+    /// eyedropper on it: a tap mixes a colour of one's own.
+    private func centre(accent: LineupAccent, side: CGFloat) -> some View {
+        let lens = side * 0.27
+        return Button(action: onCustom) {
+            VStack(spacing: side * 0.028) {
+                ZStack {
+                    AccentGem(color: accent.color)
+                    Image(systemName: "eyedropper.halffull")
+                        .font(.system(size: lens * 0.3, weight: .semibold))
+                        .foregroundStyle(accent.onAccent.opacity(0.92))
+                }
+                .frame(width: lens, height: lens)
+                .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+                Text("MIX YOUR OWN")
+                    .font(.inter(9, .bold)).tracking(1.6)
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+        }
+        .buttonStyle(AccentPressStyle())
+        .accessibilityLabel("Mix a custom color")
+    }
+
+    private func point(degrees: Double, radius: CGFloat, center: CGPoint) -> CGPoint {
+        let radians = CGFloat(degrees) * .pi / 180 - .pi / 2
+        return CGPoint(x: center.x + cos(radians) * radius, y: center.y + sin(radians) * radius)
+    }
+
+    /// The nearest way round to `target`, from where the ring is now.
+    private func unwrapped(_ target: Double) -> Double {
+        var angle = target
+        while angle - ringAngle > 180 { angle -= 360 }
+        while angle - ringAngle < -180 { angle += 360 }
+        return angle
+    }
+
+    private func choose(_ preset: LineupAccent, at index: Int) {
+        settled = preset.hex
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            hex = preset.hex
+            ringAngle = unwrapped(Double(index) * Self.step)
+        }
+    }
+
+    /// The shade under the finger: a preset when it is close to one, else
+    /// the mix of the two either side, as the track draws it.
+    private func turn(to location: CGPoint, center: CGPoint) {
+        let radians = atan2(location.y - center.y, location.x - center.x)
+        var turn = Double((radians + .pi / 2) / (2 * .pi))
+        if turn < 0 { turn += 1 }
+        let mark = Int((turn * Double(Self.detents)).rounded()) % Self.detents
+        if mark != detent { detent = mark }
+        let scaled = turn * Double(Self.presets.count)
+        let index = Int(scaled) % Self.presets.count
+        let fraction = scaled - Double(Int(scaled))
+        let snap = 0.08
+        if fraction < snap || fraction > 1 - snap {
+            let landed = fraction < snap ? index : (index + 1) % Self.presets.count
+            if settled != Self.presets[landed].hex { settled = Self.presets[landed].hex }
+            hex = Self.presets[landed].hex
+            withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.85)) {
+                ringAngle = unwrapped(Double(landed) * Self.step)
+            }
+        } else {
+            settled = nil
+            hex = Self.mix(Self.presets[index], Self.presets[(index + 1) % Self.presets.count], fraction)
+            withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.9)) {
+                ringAngle = unwrapped(turn * 360)
+            }
+        }
+    }
+
+    /// Two presets mixed as the track mixes them.
+    private static func mix(_ a: LineupAccent, _ b: LineupAccent, _ amount: Double) -> String {
+        let x = a.components, y = b.components
+        func byte(_ from: Double, _ to: Double) -> Int { Int(((from + (to - from) * amount) * 255).rounded()) }
+        return String(format: "%02X%02X%02X", byte(x.red, y.red), byte(x.green, y.green), byte(x.blue, y.blue))
+    }
+
+    /// Where a colour sits on the dial: a preset at its place, any other at
+    /// the shade of the track nearest it.
+    private static func angle(for hex: String) -> Double {
+        if let index = presets.firstIndex(where: { $0.hex == hex }) { return Double(index) * step }
+        let target = LineupAccent.accent(forHex: hex).components
+        var best = (angle: 0.0, distance: Double.infinity)
+        for degree in 0..<360 {
+            let scaled = Double(degree) / 360 * Double(presets.count)
+            let index = Int(scaled) % presets.count
+            let shade = LineupAccent(name: "", hex: mix(presets[index], presets[(index + 1) % presets.count],
+                                                       scaled - Double(Int(scaled)))).components
+            let distance = pow(shade.red - target.red, 2) + pow(shade.green - target.green, 2)
+                + pow(shade.blue - target.blue, 2)
+            if distance < best.distance { best = (Double(degree), distance) }
+        }
+        return best.angle
+    }
+}
+
+/// A swatch with a little depth: the colour, a soft highlight towards the
+/// top, and a dark rim to lift it off the face.
+private struct AccentGem: View {
+    let color: Color
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .overlay(
+                Circle().fill(LinearGradient(colors: [.white.opacity(0.26), .white.opacity(0), .black.opacity(0.12)],
+                                             startPoint: .top, endPoint: .bottom))
+            )
+            .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 1))
+            .overlay(Circle().inset(by: 1).strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.4), radius: 3, y: 2)
+    }
+}
+
+/// Gives a little under the finger, as a physical control would.
+private struct AccentPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
