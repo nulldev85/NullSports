@@ -5,13 +5,16 @@ struct RootView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.scenePhase) private var scenePhase
+    /// Watched so the app's tint follows the accent; the tabs below redraw
+    /// themselves for it.
+    @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
 
     var body: some View {
         Group {
             if library.hasProfile || media.hasProfile {
                 MainView()
             } else {
-                InitialSourceSetupView()
+                InitialSourceSetupView().lineupAccentScope(accent)
             }
         }
         .foregroundStyle(LineupStyle.text)

@@ -133,7 +133,13 @@ enum LineupStyle {
     static var lightPurple: Color { palette.accent }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
-    static var liveSelectionBorder: Color { palette.selectionBorder }
+    static var liveSelectionBorder: Color {
+        #if os(tvOS)
+        palette.selectionBorder
+        #else
+        LineupAccent.current.color
+        #endif
+    }
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
     static var raised: Color { palette.raised }
@@ -141,9 +147,31 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
-    static var highlight: Color { palette.highlight }
-    static var highlightSoft: Color { palette.highlightSoft }
-    static var liveBorder: Color { palette.highlight.opacity(0.72) }
+    /// The phone's is the accent its viewer chose; the television keeps
+    /// its white.
+    static var highlight: Color {
+        #if os(tvOS)
+        palette.highlight
+        #else
+        LineupAccent.current.color
+        #endif
+    }
+    static var highlightSoft: Color {
+        #if os(tvOS)
+        palette.highlightSoft
+        #else
+        LineupAccent.current.soft
+        #endif
+    }
+    /// Type set on the highlight, legible whatever accent was chosen.
+    static var onHighlight: Color {
+        #if os(tvOS)
+        palette.background
+        #else
+        LineupAccent.current.onAccent
+        #endif
+    }
+    static var liveBorder: Color { highlight.opacity(0.72) }
     static var line: Color { palette.line }
     static var text: Color { palette.accent }
     static var secondary: Color {
@@ -160,7 +188,15 @@ enum LineupStyle {
     static var mediaSecondary: Color { secondary }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
-    static var live: Color { palette.highlight }
+    /// Live and failing are red on the phone whatever its accent: a status
+    /// is not a matter of taste.
+    static var live: Color {
+        #if os(tvOS)
+        palette.highlight
+        #else
+        liveDot
+        #endif
+    }
     static var warning: Color { palette.warning }
     /// Broadcast red is identity, not theme decoration. A channel that is on
     /// air uses the exact same red in every appearance and every theme.
@@ -291,6 +327,22 @@ extension View {
 }
 
 extension View {
+    /// Rebuilds this subtree when the accent changes.
+    ///
+    /// Every colour is read from `LineupStyle`, which answers from stored
+    /// state rather than from anything SwiftUI watches, so a view is not
+    /// drawn again just because the accent moved. Re-identifying the subtree
+    /// draws all of it again in the new colour. Apply it below whatever holds
+    /// state worth keeping, such as the selected tab.
+    @ViewBuilder
+    func lineupAccentScope(_ accent: String) -> some View {
+        #if os(tvOS)
+        self
+        #else
+        id(accent)
+        #endif
+    }
+
     /// A region the remote can land in as a whole.
     ///
     /// tvOS moves focus geometrically: pressing up looks for something focusable

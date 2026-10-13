@@ -13,22 +13,30 @@ struct MainView: View {
     @State private var tab = 0
     @State private var playing: XtreamStream?
     @State private var inlinePlayerFullscreen = false
+    @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
 
     var body: some View {
-        // The guide keeps its own identity on the active profile.
+        // Each tab's content is redrawn in a new accent, not the TabView: the
+        // bar and the selected tab survive the change. The guide keeps its
+        // own identity on the active profile, which this sits outside of.
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
+                .lineupAccentScope(accent)
                 .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
+                .lineupAccentScope(accent)
                 .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
+                .lineupAccentScope(accent)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView { playing = $0 }
+                .lineupAccentScope(accent)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
+                .lineupAccentScope(accent)
                 .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
         // Tab chrome stays neutral; the selected asset changes from outline
@@ -383,6 +391,11 @@ private struct MobileAccountView: View {
     @State private var removingProfile: XtreamProfile?
     @State private var removingMediaProfile: MediaServerProfile?
     @State private var clearingPreferences = false
+    @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+    @State private var choosingAccent = false
+    /// Done in the picker, applied once it has gone: the change redraws this
+    /// screen, and a sheet should not be torn down from under itself.
+    @State private var pendingAccent: String?
     @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
 
     /// Counts rather than the lists themselves, so the row says whether there
@@ -487,6 +500,30 @@ private struct MobileAccountView: View {
                 } footer: {
                     Text("Use your MDBList movie and show lists as Library shelves.")
                 }.lineupCellRows()
+                Section {
+                    Button { choosingAccent = true } label: {
+                        let accent = LineupAccent.accent(forHex: accentHex)
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(accent.color)
+                                .frame(width: 22, height: 22)
+                                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            Text("Accent Color").foregroundStyle(LineupStyle.text)
+                            Spacer(minLength: 8)
+                            Text(accent.name).foregroundStyle(LineupStyle.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(LineupStyle.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    Text("Appearance").lineupSectionHeader()
+                } footer: {
+                    Text("The color that marks what's active. The dark and light greys and the white stay as they are. Syncs through iCloud.")
+                }
+                .lineupCellRows()
                 // What is left once the provider card carries the channel
                 // count, the sync state and the refresh button: three facts
                 // about the app rather than a drawer of odds and ends, which
@@ -508,6 +545,15 @@ private struct MobileAccountView: View {
             .task {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
+            }
+            .sheet(isPresented: $choosingAccent, onDismiss: {
+                guard let chosen = pendingAccent else { return }
+                pendingAccent = nil
+                guard chosen != accentHex else { return }
+                accentHex = chosen
+                CloudSettingsSync.shared.localSettingsChanged()
+            }) {
+                MobileAccentPicker(hex: accentHex) { pendingAccent = $0 }
             }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView(addingProvider: true)

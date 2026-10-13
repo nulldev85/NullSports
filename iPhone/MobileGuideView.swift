@@ -556,7 +556,7 @@ struct MobileGuideView: View {
                         .lineLimit(1).minimumScaleFactor(0.7)
                         .padding(.horizontal, 4).padding(.vertical, 2)
                         .background(LineupStyle.highlight, in: Capsule())
-                        .foregroundStyle(LineupStyle.background)
+                        .foregroundStyle(LineupStyle.onHighlight)
                         .padding(.bottom, 1)
                 }
             }
