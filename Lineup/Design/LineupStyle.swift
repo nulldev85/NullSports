@@ -834,6 +834,21 @@ struct PageTitle: View {
     }
 }
 
+/// A group's caption over a list of choices: on the phone the panels'
+/// header type, light grey and heavy; on the television its own small caps.
+struct LineupGroupHeading: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content.font(.inter(12, .heavy)).tracking(1.6)
+            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+        #else
+        content.font(.inter(15, .heavy)).tracking(0.4)
+            .textCase(.uppercase)
+            .foregroundStyle(LineupPanelStyle.caption)
+        #endif
+    }
+}
+
 struct LeagueMark: View {
     let league: SportsLeague
 

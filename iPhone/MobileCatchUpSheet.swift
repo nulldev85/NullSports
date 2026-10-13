@@ -81,11 +81,11 @@ struct MobileCatchUpSheet: View {
                 }
                 .padding(6)
                 .frame(width: 64, height: 44)
-                .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("CATCH UP")
-                        .font(.inter(.caption2, .bold)).tracking(1.4)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(13, .heavy)).tracking(0.4)
+                        .foregroundStyle(LineupPanelStyle.caption)
                     Text(stream.name)
                         .font(.inter(.title3, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.text)
@@ -162,9 +162,11 @@ private struct MobileCatchUpDayHeader: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(MobileCatchUpFormat.dayTitle(day, short: false).uppercased())
-                .font(.inter(.caption, .bold)).tracking(1.4)
-                .foregroundStyle(LineupStyle.text)
+            Image(systemName: "calendar")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(LineupPanelStyle.caption)
+            Text(MobileCatchUpFormat.dayTitle(day, short: false))
+                .modifier(LineupGroupHeading())
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                 .font(.inter(.caption2, .semibold)).tracking(1)
                 .foregroundStyle(LineupStyle.secondary)
@@ -231,9 +233,9 @@ struct MobileCatchUpRow: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(LineupStyle.secondary)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(programme.isOnNow ? LineupStyle.focused : LineupStyle.raised,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(programme.isOnNow ? LineupPanelStyle.well : LineupPanelStyle.fill,
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

@@ -109,8 +109,7 @@ struct LibraryShelfOrderSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("EDIT SHELVES").font(.inter(12, .heavy)).tracking(1.6)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                    Text("EDIT SHELVES").modifier(LineupGroupHeading())
                     Text(carrying == nil ? "Select a row to move it · hold Select to rename it"
                                          : "Move it up or down, then select to set it down")
                         .font(.inter(22, .semibold)).lineLimit(1)
@@ -302,8 +301,7 @@ private struct TVShelfRenameSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("RENAME SHELF").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("RENAME SHELF").modifier(LineupGroupHeading())
                 Text("Originally “\(row.originalTitle ?? row.title)”")
                     .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
             }

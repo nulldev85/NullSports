@@ -614,7 +614,7 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
                         if program != nil {
                             // A quiet elapsed-state wash without tying progress
@@ -647,12 +647,14 @@ struct MobileGuideView: View {
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line, lineWidth: live ? 1 : 0.5)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            // Only what is on now is edged, in the accent; the
+                            // rest are panels, told apart by their corners.
+                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.45) : Color.clear, lineWidth: 1)
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")

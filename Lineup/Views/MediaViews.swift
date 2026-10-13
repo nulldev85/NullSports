@@ -2058,7 +2058,7 @@ private struct MediaGridScreen: View {
         #if os(tvOS)
         70
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
 }
@@ -2231,8 +2231,7 @@ private struct MediaShelfPicker: View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("ADD A SHELF").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("ADD A SHELF").modifier(LineupGroupHeading())
                 Text("Pick a row for the Library tab")
                     .font(.inter(22, .semibold)).lineLimit(1)
             }
@@ -2272,8 +2271,7 @@ private struct MediaShelfPicker: View {
                     // The Library's own row, back once it was taken away.
                     if !media.hiddenBuiltInRows.isEmpty {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("BUILT IN").font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("BUILT IN").modifier(LineupGroupHeading())
                             Text("Rows Lineup puts together for you").font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
@@ -2298,8 +2296,7 @@ private struct MediaShelfPicker: View {
                                 if let brand = group.brand {
                                     MediaServerLogo(brand: brand).frame(width: 14, height: 14)
                                 }
-                                Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
-                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                                Text(group.title).modifier(LineupGroupHeading())
                             }
                             Text(group.detail).font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
@@ -2323,8 +2320,7 @@ private struct MediaShelfPicker: View {
                     }
                     ForEach(mdbListGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(group.section.title).font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text(group.section.title).modifier(LineupGroupHeading())
                             Text(group.section.detail + " — playable titles found on "
                                  + (media.profiles.count > 1 ? "your media servers" : "this media server"))
                                 .font(.inter(13))
@@ -2359,8 +2355,7 @@ private struct MediaShelfPicker: View {
                                     MediaServerLogo(brand: brand).frame(width: 14, height: 14)
                                 }
                                 Text(addonHeading(group))
-                                    .font(.inter(12, .heavy)).tracking(1.6)
-                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                                    .modifier(LineupGroupHeading())
                             }
                             // The server re-imports every enabled catalog when
                             // asked, so this is minutes, not seconds. Saying so
@@ -2501,8 +2496,12 @@ private struct MediaShelfRow: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 20).padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
         .background(LineupStyle.surface.opacity(0.5),
             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        #else
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        #endif
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Add " + title)
     }
@@ -2904,7 +2903,27 @@ private struct MediaDetailScreen: View {
 
     private var episodeList: some View {
         VStack(alignment: .leading, spacing: 14) {
+            #if os(tvOS)
             seasonHeading.padding(.horizontal, horizontalPadding).lineupFocusRegion()
+            #else
+            PhoneShelfHeader(title: selectedSeason?.name ?? "Episodes", symbol: "list.number") {
+                if seasons.count > 1 {
+                    Menu {
+                        ForEach(seasons) { season in
+                            Button(season.name) { Task { await loadSeason(season) } }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("Seasons")
+                            Image(systemName: "chevron.down").font(.system(size: 12, weight: .heavy, design: .rounded))
+                        }
+                        .font(.inter(14, .bold))
+                        .foregroundStyle(LineupStyle.highlight)
+                        .fixedSize()
+                    }
+                }
+            }
+            #endif
             if loading {
                 // Play and shuffle are both disabled until an episode is known,
                 // so until then this page has nothing focusable on it at all.
@@ -2951,6 +2970,7 @@ private struct MediaDetailScreen: View {
                 #endif
             }
         }
+        .modifier(PhoneShelfPanel(bottom: 18))
     }
 
     // MARK: - More about this title
@@ -2964,8 +2984,7 @@ private struct MediaDetailScreen: View {
         }
         if !trailers.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Trailers").font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle("Trailers", symbol: "play.rectangle")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
                         ForEach(trailers.indices, id: \.self) { index in
@@ -2984,6 +3003,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
+            .modifier(PhoneShelfPanel(bottom: 18))
         }
     }
 
@@ -3028,8 +3048,7 @@ private struct MediaDetailScreen: View {
         let cast = (subject.people ?? []).filter { $0.type?.lowercased() == "actor" }
         if !cast.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Cast").font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle("Cast", symbol: "person.2")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(cast) { person in
@@ -3060,6 +3079,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
+            .modifier(PhoneShelfPanel(bottom: 18))
         }
     }
 
@@ -3070,9 +3090,8 @@ private struct MediaDetailScreen: View {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
-                Text(subject.isSeries ? "Related Shows" : "Related Movies")
-                    .font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
+                                   symbol: "square.stack")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
                         ForEach(related, id: \.libraryKey) { title in
@@ -3101,7 +3120,20 @@ private struct MediaDetailScreen: View {
                 // focus region lets an Up press return to the rows above.
                 .lineupFocusRegion()
             }
+            .modifier(PhoneShelfPanel())
         }
+    }
+
+    /// A section's title: the television's large heading, the phone's
+    /// panel header with its hairline.
+    @ViewBuilder
+    private func detailSectionTitle(_ title: String, symbol: String) -> some View {
+        #if os(tvOS)
+        Text(title).font(sectionTitleFont)
+            .padding(.horizontal, horizontalPadding)
+        #else
+        PhoneShelfHeader(title: title, symbol: symbol) { EmptyView() }
+        #endif
     }
 
     private var relatedCardWidth: CGFloat {
@@ -3289,7 +3321,7 @@ private struct MediaDetailScreen: View {
         #if os(tvOS)
         70
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
     private var buttonHeight: CGFloat {
@@ -4245,10 +4277,14 @@ struct LibraryHeroSettingsView: View {
             if let brand = group.brand {
                 MediaServerLogo(brand: brand).frame(width: headingLogoSize, height: headingLogoSize)
             }
+            #if os(tvOS)
             Text(group.title)
                 .font(.inter(headingSize, .heavy)).tracking(1.4)
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 .lineLimit(1)
+            #else
+            Text(group.title).modifier(LineupGroupHeading()).lineLimit(1)
+            #endif
         }
         .textCase(nil)
     }
@@ -4832,7 +4868,7 @@ private struct MediaStreamBoard: View {
         VStack(alignment: .leading, spacing: Style.headerGap) {
             Text("CHOOSE A STREAM")
                 .font(.inter(Style.eyebrowSize, .heavy)).tracking(Style.eyebrowTracking)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .foregroundStyle(Style.caption)
             Text(heading.title)
                 .font(.inter(Style.titleSize, .bold))
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -4915,7 +4951,7 @@ private struct MediaStreamBoard: View {
             Text("\(section.sources.count)")
                 .font(.interDigits(Style.sectionSize, .heavy))
         }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+        .foregroundStyle(Style.sectionCaption)
         .padding(.horizontal, Style.rowInsetH)
         .padding(.top, first ? 0 : Style.sectionGap - Style.rowSpacing)
     }
@@ -5178,9 +5214,14 @@ private struct MediaStreamRow: View {
         }
         .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
         .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        // A panel of its own, as every card on the phone is.
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        #endif
         .foregroundStyle(LineupStyle.lightPurple)
         .accessibilityElement(children: .combine)
     }
@@ -5296,6 +5337,8 @@ private enum MediaStreamStyle {
     static let headerBottom: CGFloat = 30
     static let headerGap: CGFloat = 8
     static let eyebrowSize: CGFloat = 15
+    static var caption: Color { LineupStyle.lightPurple.opacity(0.55) }
+    static var sectionCaption: Color { LineupStyle.lightPurple.opacity(0.5) }
     static let eyebrowTracking: CGFloat = 2.2
     static let titleSize: CGFloat = 54
     static let subtitleSize: CGFloat = 24
@@ -5346,8 +5389,10 @@ private enum MediaStreamStyle {
     static let headerTop: CGFloat = 8
     static let headerBottom: CGFloat = 16
     static let headerGap: CGFloat = 4
-    static let eyebrowSize: CGFloat = 11
-    static let eyebrowTracking: CGFloat = 1.6
+    static let eyebrowSize: CGFloat = 13
+    static var caption: Color { LineupPanelStyle.caption }
+    static var sectionCaption: Color { LineupPanelStyle.caption }
+    static let eyebrowTracking: CGFloat = 0.4
     static let titleSize: CGFloat = 26
     static let subtitleSize: CGFloat = 14
     static let tabSize: CGFloat = 14
@@ -5360,10 +5405,10 @@ private enum MediaStreamStyle {
     static let tabSpinnerScale: CGFloat = 0.6
     static let tabLift: CGFloat = 2
     static let tabsBottom: CGFloat = 14
-    static let sectionSize: CGFloat = 11
+    static let sectionSize: CGFloat = 14
     static let sectionGap: CGFloat = 22
     static let rowSpacing: CGFloat = 8
-    static let rowRadius: CGFloat = 14
+    static let rowRadius: CGFloat = 20
     static let rowInsetH: CGFloat = 12
     static let rowInsetV: CGFloat = 12
     static let rowGap: CGFloat = 12
@@ -6570,12 +6615,15 @@ private struct PhoneShelfHeader<Accessory: View>: View {
 /// A Library shelf as a panel on the phone: its posters scroll inside the
 /// card, between its edges. The television keeps its open rows.
 private struct PhoneShelfPanel: ViewModifier {
+    /// Under the last row: posters bring 8 of their own, other rows none.
+    var bottom: CGFloat = 10
+
     func body(content: Content) -> some View {
         #if os(tvOS)
         content
         #else
         content
-            .padding(.bottom, 10)
+            .padding(.bottom, bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
             .padding(.horizontal, LineupPanelStyle.margin)

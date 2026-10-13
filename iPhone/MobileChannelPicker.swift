@@ -59,15 +59,21 @@ struct MobileChannelPicker: View {
                             if !suggested.isEmpty {
                                 Section {
                                     ForEach(suggested) { row($0, suggested: true) }
-                                } header: { sectionLabel("Suggested") }
+                                } header: { sectionLabel("Suggested", systemImage: "star") }
                                     .listRowBackground(LineupRowBackground())
+                                    .listRowSeparatorTint(LineupPanelStyle.divider)
                             }
                             Section {
                                 ForEach(results) { row($0, suggested: false) }
-                            } header: { sectionLabel(query.isEmpty ? "All channels" : "Results") }
+                            } header: {
+                                sectionLabel(query.isEmpty ? "All channels" : "Results",
+                                             systemImage: query.isEmpty ? "tv" : "magnifyingglass")
+                            }
                                 .listRowBackground(LineupRowBackground())
+                                .listRowSeparatorTint(LineupPanelStyle.divider)
                         }
                         .listStyle(.insetGrouped)
+                        .listSectionSpacing(LineupPanelStyle.gap)
                         .scrollContentBackground(.hidden)
                         .scrollDismissesKeyboard(.interactively)
                     }
@@ -114,14 +120,15 @@ struct MobileChannelPicker: View {
         }
         .font(.inter(.body))
         .padding(.horizontal, 14).frame(height: 44)
-        .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface, border: LineupStyle.line)
-        .padding(.horizontal, 16).padding(.bottom, 12)
+        .background(LineupPanelStyle.fill, in: Capsule())
+        .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.inter(.caption2, .bold)).tracking(1.4)
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+    /// The panels' own header, over the panel it names.
+    private func sectionLabel(_ text: String, systemImage: String) -> some View {
+        LineupPanelHeader(text, systemImage: systemImage)
+            .textCase(nil)
+            .padding(.leading, -4)
     }
 
     private func row(_ stream: XtreamStream, suggested: Bool) -> some View {
