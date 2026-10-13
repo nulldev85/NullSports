@@ -498,6 +498,117 @@ extension View {
     }
 }
 
+/// The phone's panels: a black ground with near-black cards on it, big soft
+/// corners, and a header inside each card -- an icon and a heavy rounded
+/// caption in light grey, over a hairline. Measured off a reference screen,
+/// not picked by eye, so every screen that uses them agrees to the point.
+enum LineupPanelStyle {
+    static let radius: CGFloat = 24
+    /// Card edge to screen edge.
+    static let margin: CGFloat = 20
+    /// Card edge to what is in it, the header and its hairline included.
+    static let inset: CGFloat = 20
+    /// Card to card.
+    static let gap: CGFloat = 14
+    static let fill = rgb(0x1C1C1D)
+    /// Inside a card: a bar's empty track, a pressed row.
+    static let well = rgb(0x2C2C2D)
+    static let divider = rgb(0x2C2C2D)
+    /// Headers and body copy. White is kept for the numbers and names a card
+    /// is about, so they stand out from the words around them.
+    static let caption = rgb(0xCCCCCC)
+    static let quiet = rgb(0x98989E)
+    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+}
+
+/// A panel's own header: icon, upper-case title, and whatever the panel puts
+/// on the right, such as See All.
+struct LineupPanelHeader<Accessory: View>: View {
+    let title: String
+    var systemImage: String?
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .accessibilityHidden(true)
+            }
+            Text(title.uppercased())
+                .font(.inter(15, .heavy)).tracking(0.4)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .foregroundStyle(LineupPanelStyle.caption)
+    }
+}
+
+extension LineupPanelHeader where Accessory == EmptyView {
+    init(_ title: String, systemImage: String? = nil) {
+        self.init(title: title, systemImage: systemImage) { EmptyView() }
+    }
+}
+
+/// A card with a header, a hairline, and its content under them. The content
+/// gets the card's full width; `padded` gives it the card's side insets too,
+/// which a horizontal row of posters does not want -- it runs to the card's
+/// edges and scrolls beneath them.
+struct LineupPanel<Content: View, Accessory: View>: View {
+    let title: String
+    var systemImage: String?
+    var padded = true
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader(title: title, systemImage: systemImage, accessory: accessory)
+                .padding(.top, 15).padding(.bottom, 11)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            content()
+                .padding(.horizontal, padded ? LineupPanelStyle.inset : 0)
+                .padding(.top, 16).padding(.bottom, 18)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .clipShape(LineupPanelStyle.shape)
+    }
+}
+
+extension LineupPanel where Accessory == EmptyView {
+    init(_ title: String, systemImage: String? = nil, padded: Bool = true,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, systemImage: systemImage, padded: padded,
+                  accessory: { EmptyView() }, content: content)
+    }
+}
+
+extension View {
+    /// A card with no header: the panel's fill and corners alone.
+    func lineupPanelCard(padding: CGFloat = LineupPanelStyle.inset) -> some View {
+        self.padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+    }
+
+    /// A filter or choice as a capsule: filled with the accent when chosen,
+    /// drawn in its outline otherwise.
+    func lineupChip(_ selected: Bool) -> some View {
+        self.font(.inter(15, .bold))
+            .lineLimit(1)
+            .foregroundStyle(selected ? LineupStyle.onHighlight : LineupStyle.highlight)
+            .padding(.horizontal, 14).frame(minHeight: 32)
+            .background(Capsule().fill(selected ? LineupStyle.highlight : Color.clear))
+            .overlay(Capsule().strokeBorder(selected ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
+            .contentShape(Capsule())
+    }
+}
+
 /// The background behind a Form row: the Guide's flat grey. These rows were
 /// Liquid Glass, which put a sheen under every setting; the settings now sit
 /// on the same quiet ground as the Guide and the Live tab. Passed to
