@@ -1617,7 +1617,7 @@ private struct MediaCatalogsScreen: View {
         guard let item = heroItem else { return }
         if item.isSeries {
             Task {
-                if let next = await media.nextUp(in: item) { play(next) } else { pushed = item }
+                if let next = await media.resumeEpisode(in: item) { play(next) } else { pushed = item }
             }
         } else if item.isPlayable {
             play(item)
@@ -2712,7 +2712,7 @@ private struct MediaDetailScreen: View {
     /// screen, else the season from the top.
     private var playTarget: MediaItem? {
         guard subject.isSeries else { return subject }
-        return nextUp ?? episodes.first { !$0.isPlayed } ?? episodes.first
+        return nextUp ?? episodes.first { !media.isWatched($0) } ?? episodes.first
     }
 
     private var actions: some View {
@@ -3119,13 +3119,11 @@ private struct MediaDetailScreen: View {
                 return
             }
             seasons = seasonList
-            let up = await media.nextUp(in: item)
-            if let up { media.rememberNextUp(up) }
-            // Where Continue Watching has the viewer -- an episode part-watched
-            // on this device first, then the server's next one -- and the
-            // season it is in, so a show opened from there opens where they
-            // were, with every other episode a choice away.
-            nextUp = media.continueWatchingEpisode(in: subject) ?? up
+            // Where the viewer is in the show -- an episode part-watched on
+            // this device, else the one after the last they finished, else
+            // the server's next one -- and the season it is in, so the page
+            // opens where they were, with every other episode a choice away.
+            nextUp = await media.resumeEpisode(in: subject)
             await loadSeason(seasonList.first { $0.indexNumber == nextUp?.parentIndexNumber } ?? seasonList[0])
             pageReady = true
         } catch {

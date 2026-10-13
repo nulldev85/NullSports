@@ -1442,6 +1442,68 @@ final class MediaLibrary: ObservableObject {
         }?.item
     }
 
+    /// Where a show picks up -- see `SeriesResumePolicy` -- with the show's
+    /// posters brought into line with it.
+    ///
+    /// The show's own episodes are asked for, with their watched state, along
+    /// with the server's next-up. Taken alone, that next-up used to be stored
+    /// as the show's place, and for an episode played from another server or
+    /// the IPTV provider it is out of date: the page then offered an episode
+    /// already watched.
+    func resumeEpisode(in series: MediaItem) async -> MediaItem? {
+        guard series.isSeries else { return nil }
+        guard ProviderItem(id: series.id) == nil, let profile = profile(for: series),
+              let source = try? client(for: profile) else {
+            return continueWatchingEpisode(in: series)
+        }
+        async let asked = source.nextUp(userID: profile.userID, seriesID: series.id)
+        async let listed = source.episodes(userID: profile.userID, seriesID: series.id)
+        let serverNext = (try? await asked)?.first?.servedBy(profile.id)
+        guard let episodes = (try? await listed)?.map({ $0.servedBy(profile.id) }), !episodes.isEmpty else {
+            return continueWatchingEpisode(in: series) ?? serverNext
+        }
+        guard contains(profile) else { return nil }
+        let records = seriesRecords(of: series, profileID: profile.id)
+        let target = SeriesResumePolicy.target(episodes: episodes, records: records, serverNext: serverNext,
+                                               isWatched: { [unowned self] in self.isWatched($0) })
+        if let target { settleUpNext(target, records: records) }
+        return target
+    }
+
+    /// This device's records of a show's episodes.
+    private func seriesRecords(of series: MediaItem, profileID: UUID) -> [LocalMediaPlayback] {
+        var records = localPlayback
+        if let held = heldPlayback {
+            records.removeAll { $0.id == held.id }
+            records.append(held)
+        }
+        return records.filter { record in
+            guard record.profileID == profileID, record.item.type == "Episode" else { return false }
+            if let seriesID = record.item.seriesID, !seriesID.isEmpty { return seriesID == series.id }
+            return record.item.seriesName?.localizedCaseInsensitiveCompare(series.name) == .orderedSame
+        }
+    }
+
+    /// Makes the show's Up Next the episode it picks up at, so its posters say
+    /// what its page does. An episode under way is already its own place,
+    /// one the viewer marked unwatched is already queued, and one already
+    /// watched -- a finished show starting again -- is not made unwatched.
+    private func settleUpNext(_ target: MediaItem, records: [LocalMediaPlayback]) {
+        guard let profileID = serverID(of: target), !isWatched(target) else { return }
+        let alreadyThere = records.contains { record in
+            record.item.id == target.id && (record.isUpNext == true
+                || (!record.completed && record.explicitlyUnwatched != true && record.position >= 5))
+        }
+        guard !alreadyThere else { return }
+        let key = Self.seriesKey(for: target)
+        localPlayback.removeAll { record in
+            record.profileID == profileID && record.isUpNext == true && record.explicitlyUnwatched != true
+                && Self.seriesKey(for: record.item) == key
+        }
+        queueAsUpNext(target, explicitlyUnwatched: false)
+        persistLocalPlayback()
+    }
+
     func rememberNextUp(_ episode: MediaItem) {
         guard episode.type == "Episode", let profileID = serverID(of: episode) else { return }
         let key = Self.seriesKey(for: episode)
@@ -1527,31 +1589,20 @@ final class MediaLibrary: ObservableObject {
         for (seriesID, entries) in grouped {
             let values = entries.map { $0.record }
             guard !Task.isCancelled, contains(profile) else { return }
-            let hasCurrentPosition = values.contains { record in
-                record.isUpNext == true || (!record.completed && record.position >= 5
-                    && record.explicitlyUnwatched != true)
+            guard SeriesResumePolicy.needsCheck(values, isWatched: { [unowned self] in self.isWatched($0) }) else {
+                continue
             }
-            guard !hasCurrentPosition,
-                  let anchor = values.filter(\.completed)
-                    .max(by: { $0.updatedAt < $1.updatedAt })?.item else { continue }
-
-            let serverNext = (try? await source.nextUp(
-                userID: profile.userID, seriesID: seriesID))?.first?.servedBy(profile.id)
-            let following: MediaItem?
-            if let serverNext, !isWatched(serverNext) {
-                following = serverNext
-            } else if let episodes = try? await source.episodes(
-                userID: profile.userID, seriesID: seriesID) {
-                following = LocalEpisodeProgressionPolicy.nextEpisode(after: anchor,
-                    in: episodes.map { $0.servedBy(profile.id) },
-                    isWatched: { [weak self] in self?.isWatched($0) == true })
-            } else {
-                following = nil
-            }
-            guard contains(profile) else { return }
-            if let following { rememberNextUp(following) }
+            async let asked = source.nextUp(userID: profile.userID, seriesID: seriesID)
+            async let listed = source.episodes(userID: profile.userID, seriesID: seriesID)
+            let serverNext = (try? await asked)?.first?.servedBy(profile.id)
+            guard let episodes = (try? await listed)?.map({ $0.servedBy(profile.id) }),
+                  !episodes.isEmpty, contains(profile) else { continue }
+            let target = SeriesResumePolicy.target(episodes: episodes, records: values, serverNext: serverNext,
+                                                   isWatched: { [unowned self] in self.isWatched($0) })
+            if let target { settleUpNext(target, records: values) }
         }
     }
+
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
         guard let profileID = serverID(of: episode) else { return }
