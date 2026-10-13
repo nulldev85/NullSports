@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import UIKit
 @testable import LineupiOS
 
@@ -14,6 +15,93 @@ final class GuideScrollLayoutTests: XCTestCase {
         MobileGuideScrollConfiguration.configure(horizontal, horizontal: true)
         XCTAssertEqual(horizontal.contentInsetAdjustmentBehavior, .never)
         XCTAssertFalse(horizontal.bounces)
+    }
+
+    /// Scrolled to the end, the last channel rests right on top of the tab
+    /// bar: not under it, and not with a gap above it. Built the way the TV
+    /// Guide tab is, a vertical list inside the horizontal timeline, inside a
+    /// navigation stack, inside the tab bar.
+    @MainActor
+    func testTheListsEndRestsOnTheTabBar() async throws {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw XCTSkip("No screen to lay the guide out on")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: GuideEndHarness())
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        // Time for SwiftUI to lay out, the list to measure, and the margin
+        // it reports to be applied.
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(100))
+            window.layoutIfNeeded()
+        }
+
+        let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
+        let list = try XCTUnwrap(probe.enclosingScrollView)
+        let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
+        let barTop = bar.convert(bar.bounds, to: window).minY
+        let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
+        list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
+        let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
+        XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
+                       "list ends at \(list.convert(list.bounds, to: window).maxY), insets \(list.adjustedContentInset), "
+                       + "overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+    }
+}
+
+/// The TV Guide tab's scrollers, with plain rows.
+private struct GuideEndHarness: View {
+    @State private var bottomInset: CGFloat = 0
+
+    var body: some View {
+        TabView {
+            NavigationStack {
+                GeometryReader { _ in
+                    ZStack(alignment: .top) {
+                        VStack(spacing: 0) { guide }
+                    }
+                }
+                .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
+            }
+            .tabItem { Label("TV Guide", systemImage: "tv") }
+            Color.clear.tabItem { Label("Settings", systemImage: "gear") }
+        }
+    }
+
+    private var guide: some View {
+        GeometryReader { viewport in
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Color.gray.frame(height: 40)
+                    ScrollView(.vertical) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .background(MobileGuideScrollConfiguration(horizontal: false) { bottomInset = $0 })
+                    }
+                    .contentMargins(.top, 0, for: .scrollContent)
+                    .contentMargins(.bottom, bottomInset, for: .scrollContent)
+                    .frame(height: max(0, viewport.size.height - 40))
+                }
+                .frame(width: viewport.size.width * 3, height: viewport.size.height, alignment: .topLeading)
+                .background(MobileGuideScrollConfiguration(horizontal: true))
+            }
+            .contentMargins(.top, 0, for: .scrollContent)
+            .safeAreaPadding(.horizontal)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
+private extension UIView {
+    func firstSubview<Found: UIView>(of type: Found.Type, where matches: (Found) -> Bool = { _ in true }) -> Found? {
+        for subview in subviews {
+            if let match = subview as? Found, matches(match) { return match }
+            if let match = subview.firstSubview(of: type, where: matches) { return match }
+        }
+        return nil
     }
 }
 

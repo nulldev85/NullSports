@@ -38,6 +38,8 @@ struct MobileGuideView: View {
     @State private var chosenFilter: MobileGuideFilter?
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
+    /// How much of the channel list the tab bar covers, measured on screen.
+    @State private var listBottomInset: CGFloat = 0
     @State private var resetPosition = UUID()
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
@@ -470,14 +472,16 @@ struct MobileGuideView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false))
+                        .background(MobileGuideScrollConfiguration(horizontal: false) { listBottomInset = $0 })
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
                     // Room for the last channel to clear the floating tab bar
                     // is measured, not assumed: `MobileGuideScrollConfiguration`
-                    // gives exactly the part of the list the bar covers, so the
-                    // end settles with the last row flush above it, as the top
-                    // settles on the first.
+                    // reports exactly the part of the list the bar covers, so
+                    // the end bounces and settles with the last row flush above
+                    // the bar, as the top settles on the first.
+                    .contentMargins(.bottom, listBottomInset, for: .scrollContent)
+                    .contentMargins(.bottom, listBottomInset, for: .scrollIndicators)
                     .frame(height: max(0, viewport.size.height - 40))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
@@ -712,50 +716,94 @@ private struct FavoritesOrderView: View {
 
 /// Navigation already positions this guide within the safe area. Its two nested
 /// scrollers must not add that navigation inset again above the first channel.
+/// The vertical one also reports how much of it the tab bar covers, which the
+/// guide gives back to it as a bottom margin.
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
-    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
-    func updateUIView(_ view: UIView, context: Context) {
-        DispatchQueue.main.async { [weak view] in
-            var ancestor = view?.superview
-            while let candidate = ancestor {
-                if let scroll = candidate as? UIScrollView {
-                    Self.configure(scroll, horizontal: horizontal)
-                    break
-                }
-                ancestor = candidate.superview
-            }
-        }
+    var onBottomOverlap: ((CGFloat) -> Void)? = nil
+
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe(frame: .zero)
+        probe.isUserInteractionEnabled = false
+        return probe
     }
+
+    func updateUIView(_ probe: Probe, context: Context) {
+        probe.horizontal = horizontal
+        probe.onBottomOverlap = onBottomOverlap
+        DispatchQueue.main.async { [weak probe] in probe?.refresh() }
+    }
+
     static func configure(_ scroll: UIScrollView, horizontal: Bool) {
         // Navigation already positions the guide inside the safe area, and
         // letting these scrollers adjust again put that inset in twice. The
         // cost is that they adjust for nothing else either, so the insets that
         // do matter -- the tab bar below, the island at the sides -- are
         // applied by the guide itself rather than left to the scroller.
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.isDirectionalLockEnabled = true
+        // Checked first: this runs on every layout of the list.
+        if scroll.contentInsetAdjustmentBehavior != .never { scroll.contentInsetAdjustmentBehavior = .never }
+        if !scroll.isDirectionalLockEnabled { scroll.isDirectionalLockEnabled = true }
         // Elastic horizontal overscroll would move the ruler beneath frozen logos.
         // Keep vertical elasticity for natural scrolling and pull-to-refresh.
-        if horizontal { scroll.bounces = false }
-        if !horizontal { fitBottom(of: scroll) }
+        if horizontal && scroll.bounces { scroll.bounces = false }
     }
 
-    /// The list's bottom inset: exactly the height of it that the tab bar
-    /// covers, so the last channel comes to rest right on top of the bar.
-    /// A fixed allowance was added on top of the room the layout already
-    /// left, and the guide came to rest with a gap under its last row.
-    static func fitBottom(of scroll: UIScrollView) {
-        guard let window = scroll.window, let container = scroll.superview else { return }
-        let frame = container.convert(scroll.frame, to: window)
+    /// The height of the list the tab bar covers: the room the last channel
+    /// needs to come to rest right on top of the bar. It depends only on where
+    /// the list and the bar are, never on the list's own insets, so applying it
+    /// cannot change it.
+    static func bottomOverlap(of scroll: UIScrollView) -> CGFloat {
+        guard let window = scroll.window else { return 0 }
+        let listBottom = scroll.convert(scroll.bounds, to: window).maxY
         let barTop = tabBar(in: window).flatMap { bar -> CGFloat? in
             guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
             return bar.convert(bar.bounds, to: window).minY
         } ?? (window.bounds.maxY - window.safeAreaInsets.bottom)
-        let inset = max(0, (frame.maxY - barTop).rounded())
-        guard abs(scroll.contentInset.bottom - inset) > 0.5 else { return }
-        scroll.contentInset.bottom = inset
-        scroll.verticalScrollIndicatorInsets.bottom = inset
+        return max(0, (listBottom - barTop).rounded())
+    }
+
+    /// Sits behind the scroller's content and measures as soon as it is on
+    /// screen and whenever the list lays out again. The inset used to be
+    /// written straight onto the scroller after the fact, where SwiftUI's own
+    /// updates could put it back, so the last channel sat under the bar until
+    /// some later update happened to restore it. Now the measurement goes to
+    /// SwiftUI, which applies it with the list's other margins and keeps it.
+    final class Probe: UIView {
+        var horizontal = false
+        var onBottomOverlap: ((CGFloat) -> Void)?
+        private var reported: CGFloat?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            refresh()
+            // The first pass can come before the tab bar has its place.
+            DispatchQueue.main.async { [weak self] in self?.refresh() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            refresh()
+        }
+
+        var enclosingScrollView: UIScrollView? {
+            var ancestor = superview
+            while let candidate = ancestor {
+                if let scroll = candidate as? UIScrollView { return scroll }
+                ancestor = candidate.superview
+            }
+            return nil
+        }
+
+        func refresh() {
+            guard window != nil, let scroll = enclosingScrollView else { return }
+            MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
+            guard !horizontal, let onBottomOverlap else { return }
+            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll)
+            if let reported, abs(reported - overlap) <= 0.5 { return }
+            reported = overlap
+            // Never during SwiftUI's own update of this view.
+            DispatchQueue.main.async { onBottomOverlap(overlap) }
+        }
     }
 
     private static func tabBar(in window: UIWindow) -> UITabBar? {
