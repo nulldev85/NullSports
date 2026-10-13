@@ -27,6 +27,10 @@ final class LeagueMatchingTests: XCTestCase {
             return words.contains("nba") || ["76ers", "bucks", "bulls", "cavaliers", "celtics", "clippers", "grizzlies", "hawks", "heat", "hornets", "jazz", "kings", "knicks", "lakers", "magic", "mavericks", "nets", "nuggets", "pacers", "pelicans", "pistons", "raptors", "rockets", "spurs", "suns", "thunder", "timberwolves", "trail blazers", "warriors", "wizards"].contains { value.contains($0) }
         case .nhl:
             return words.contains("nhl") || ["avalanche", "blackhawks", "blue jackets", "blues", "bruins", "canadiens", "canucks", "capitals", "devils", "ducks", "flames", "flyers", "golden knights", "hurricanes", "islanders", "jets", "kings", "kraken", "lightning", "maple leafs", "mammoth", "oilers", "panthers", "penguins", "predators", "rangers", "red wings", "sabres", "senators", "sharks", "stars"].contains { value.contains($0) }
+        case .atp, .wta:
+            return ["tennis", "atp", "wta", "wimbledon", "us open", "roland garros", "roland-garros",
+                    "french open", "australian open", "davis cup", "billie jean king cup", "laver cup",
+                    "united cup", "masters 1000", "tennis channel"].contains { value.contains($0) }
         case .mlb:
             return words.contains("mlb") || ["angels", "astros", "athletics", "blue jays", "braves", "brewers", "cardinals", "cubs", "diamondbacks", "dodgers", "giants", "guardians", "mariners", "marlins", "mets", "nationals", "orioles", "padres", "phillies", "pirates", "rangers", "rays", "red sox", "reds", "rockies", "royals", "tigers", "twins", "white sox", "yankees"].contains { value.contains($0) }
         }
@@ -52,7 +56,11 @@ final class LeagueMatchingTests: XCTestCase {
         "us| espnu",
         "us| tnt hd  white sox at guardians",
         "beIN SPORTS — road to ufc",
-        "US| ABC EAST hd"
+        "US| ABC EAST hd",
+        "US| TENNIS CHANNEL HD",
+        "uk: sky sports tennis — atp shanghai masters",
+        "beIN 4 | wta wuhan open live",
+        "us| espn 2 fhd  us open tennis quarterfinals"
     ]
 
     func testEveryLeagueDecidesExactlyWhatItUsedTo() {

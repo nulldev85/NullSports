@@ -458,6 +458,27 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// What a card shows of where the viewer is in a title.
+struct MediaCardPlayback: Equatable {
+    /// The bar beside the play mark: a film's progress, or how far through
+    /// its episodes a show is.
+    let fraction: Double
+    /// Beside the bar: "8 of 16", "42m left", "Watched".
+    let label: String
+    let watched: Bool
+    /// Along the card's bottom edge: the episode under way, for a show.
+    let episodeFraction: Double?
+    /// The same, said in words for VoiceOver.
+    let spoken: String
+}
+
+/// Where each of a show's episodes falls, counted through every season with
+/// the specials left out.
+struct SeriesEpisodeOrder: Equatable, Sendable {
+    let total: Int
+    let positions: [String: Int]
+}
+
 enum LocalEpisodeProgressionPolicy {
     static func ordered(_ episodes: [MediaItem]) -> [MediaItem] {
         episodes.filter { $0.type == "Episode" }.sorted { left, right in

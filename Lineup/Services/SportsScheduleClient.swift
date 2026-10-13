@@ -15,9 +15,13 @@ struct SportsScheduleClient: Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd"
         let today = formatter.string(from: Date())
-        guard includeTomorrow else { return await snapshot(for: today) }
         let tomorrowDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
         let tomorrow = formatter.string(from: tomorrowDate)
+        // Tennis is one request a tour for both days rather than one a day:
+        // the feed answers with whole tournaments either way.
+        async let tennis = tennisSchedule(from: Calendar.current.startOfDay(for: Date()),
+                                          days: includeTomorrow ? 2 : 1)
+        guard includeTomorrow else { return Self.adding(await tennis, to: await snapshot(for: today)) }
 
         async let todaySnapshot = snapshot(for: today)
         async let tomorrowSnapshot = snapshot(for: tomorrow)
@@ -28,11 +32,31 @@ struct SportsScheduleClient: Sendable {
             merged[league] = Dictionary(grouping: games, by: \.id).values.compactMap { $0.first }.sorted { $0.start < $1.start }
         }
         let errors = [first.errorMessage, second.errorMessage].compactMap { $0 }
-        return Snapshot(
+        return Self.adding(await tennis, to: Snapshot(
             games: merged,
             loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
             errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
-        )
+        ))
+    }
+
+    /// The leagues with a feed of their own rather than a place in the
+    /// combined schedule.
+    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta]
+
+    private static func adding(_ tennis: Result<[SportsGame], Error>, to snapshot: Snapshot) -> Snapshot {
+        var games = snapshot.games
+        var loaded = snapshot.loadedLeagues
+        var errors = [snapshot.errorMessage].compactMap { $0 }
+        switch tennis {
+        case .success(let matches):
+            games[.atp] = matches.filter { $0.league == .atp }
+            games[.wta] = matches.filter { $0.league == .wta }
+            loaded.formUnion([.atp, .wta])
+        case .failure:
+            errors.append("Tennis schedule unavailable.")
+        }
+        return Snapshot(games: games, loadedLeagues: loaded,
+                        errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
     }
 
     private func snapshot(for day: String) async -> Snapshot {
@@ -77,8 +101,8 @@ struct SportsScheduleClient: Sendable {
         guard envelope.schema == 2, envelope.date == day else { throw ScheduleError.invalidSchema }
 
         var result: [SportsLeague: [SportsGame]] = [:]
-        var failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:)))
-        for league in SportsLeague.allCases where league != .ufc {
+        var failed = Set(envelope.failedLeagues.compactMap(SportsLeague.init(rawValue:))).subtracting(Self.ownFeeds)
+        for league in SportsLeague.allCases where !Self.ownFeeds.contains(league) {
             guard let remoteGames = envelope.leagues[league.rawValue] else {
                 failed.insert(league)
                 continue
@@ -103,7 +127,7 @@ struct SportsScheduleClient: Sendable {
             }
             result[league] = games.sorted { $0.start < $1.start }
         }
-        let loaded = Set(SportsLeague.allCases.filter { $0 != .ufc }).subtracting(failed)
+        let loaded = Set(SportsLeague.allCases).subtracting(Self.ownFeeds).subtracting(failed)
         let errorMessage = failed.isEmpty ? nil : "Temporarily unavailable: \(failed.map(\.shortName).sorted().joined(separator: ", "))."
         return Snapshot(games: result, loadedLeagues: loaded, errorMessage: errorMessage)
     }
@@ -159,6 +183,220 @@ struct SportsScheduleClient: Sendable {
                 eventName: event.name
             )
         }.sorted { $0.start < $1.start }
+    }
+
+    /// Both tours' singles, from ESPN's tennis scoreboards.
+    ///
+    /// A scoreboard answers with whole tournaments -- every match of the
+    /// fortnight, played or not -- so the days asked for are cut out here.
+    /// Kept: main-draw singles whose players are known and whose time is
+    /// real. Qualifying, doubles, and the "TBD vs TBD" rounds still to be
+    /// drawn are left out; nobody looks for those on a sports channel.
+    private func tennisSchedule(from day: Date, days: Int) async -> Result<[SportsGame], Error> {
+        let calendar = Calendar.current
+        // Today and tomorrow whatever is asked for: each day's answer holds
+        // its tournaments whole, so tomorrow's matches come with today's, and
+        // a tournament's card stays the same card from one refresh to the next.
+        let end = calendar.date(byAdding: .day, value: 2, to: day) ?? day.addingTimeInterval(2 * 86_400)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd"
+        // One day a request: ESPN answers a range of dates with nothing at
+        // all. Each day still brings its tournaments whole, so tomorrow is
+        // asked for only to catch an event that has not begun yet.
+        let dates = (0..<max(days, 1)).compactMap { calendar.date(byAdding: .day, value: $0, to: day) }
+            .map { formatter.string(from: $0) }
+        do {
+            // All or nothing: a schedule with a tour missing would replace a
+            // complete one, and the next refresh is thirty seconds away.
+            let events = try await withThrowingTaskGroup(
+                of: [(tour: SportsLeague, event: TennisEnvelope.Event)].self
+            ) { group in
+                for tour in [SportsLeague.atp, .wta] {
+                    for date in dates {
+                        group.addTask { try await tennisTour(tour, date: date) }
+                    }
+                }
+                var all: [(tour: SportsLeague, event: TennisEnvelope.Event)] = []
+                for try await batch in group { all += batch }
+                return all
+            }
+            let matches = events.flatMap { entry -> [SportsGame] in
+                let found = Self.tennisMatches(in: entry.event, tour: entry.tour, from: day, to: end)
+                return found + Self.tennisEventCards(for: entry.event, matches: found)
+            }
+            return .success(Dictionary(grouping: matches, by: \.id).values.compactMap(\.first)
+                .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start })
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func tennisTour(_ tour: SportsLeague, date: String) async throws -> [(tour: SportsLeague, event: TennisEnvelope.Event)] {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/tennis/\(tour.rawValue)/scoreboard?dates=\(date)") else {
+            throw ScheduleError.invalidURL
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ScheduleError.noHTTPResponse }
+        guard http.statusCode == 200 else { throw ScheduleError.httpStatus(http.statusCode) }
+        return try JSONDecoder().decode(TennisEnvelope.self, from: data).events.map { (tour: tour, event: $0) }
+    }
+
+    /// A major is on both tours' scoreboards with both draws in it, so a
+    /// match's tour is read from its draw; the feed it came in on settles
+    /// only a draw that does not say.
+    static func tennisMatches(in event: TennisEnvelope.Event, tour: SportsLeague,
+                              from start: Date, to end: Date) -> [SportsGame] {
+        let tournament = event.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groups: [(slug: String?, competitions: [TennisEnvelope.Competition])] =
+            event.groupings.map { ($0.grouping?.slug, $0.competitions) } + [(nil, event.competitions)]
+        return groups.flatMap { group in
+            group.competitions.compactMap { match -> SportsGame? in
+                let kind = (match.type?.slug ?? group.slug ?? "").lowercased()
+                guard kind.contains("singles") else { return nil }
+                // "womens-singles" holds "mens-singles", so women first.
+                let league: SportsLeague = kind.contains("women") ? .wta : (kind.contains("men") ? .atp : tour)
+                let round = match.round?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !round.lowercased().contains("qualif") else { return nil }
+                let state = match.status?.type.state ?? "pre"
+                // A time ESPN marks as unknown is only the day: "12:00 AM".
+                guard state != "pre" || match.timeValid != false,
+                      let date = Self.parseDate(match.date) else { return nil }
+                guard state == "in" || (date >= start && date < end) else { return nil }
+                let players = match.competitors.sorted { ($0.order ?? 9) < ($1.order ?? 9) }
+                guard players.count == 2,
+                      let first = players[0].athlete, let second = players[1].athlete,
+                      Self.isKnown(first.displayName), Self.isKnown(second.displayName) else { return nil }
+                let score = Self.tennisScore(players[0], players[1],
+                                             bestOf: match.format?.regulation?.periods ?? 3)
+                let status = Self.tennisStatus(state: state, detail: match.status?.type, score: score)
+                let court = match.venue?.court?.trimmingCharacters(in: .whitespacesAndNewlines)
+                var networks: [String] = []
+                for name in match.broadcasts.flatMap(\.names) where !name.isEmpty && !networks.contains(name) {
+                    networks.append(name)
+                }
+                return SportsGame(
+                    // ESPN numbers a match once across both tours, and a
+                    // major is on both scoreboards: the id alone keeps it once.
+                    id: "tennis-\(match.id)", league: league, start: date,
+                    awayTeam: first.displayName, homeTeam: second.displayName,
+                    awayAbbreviation: Self.surname(first), homeAbbreviation: Self.surname(second),
+                    awayLogo: first.flag?.href ?? "", homeLogo: second.flag?.href ?? "",
+                    awayScore: state == "pre" ? "" : String(score.awaySets),
+                    homeScore: state == "pre" ? "" : String(score.homeSets),
+                    awayColor: nil, homeColor: nil,
+                    awayRecord: first.flag?.alt, homeRecord: second.flag?.alt,
+                    venue: [tournament, round].filter { !$0.isEmpty }.joined(separator: " \u{00B7} "),
+                    location: court?.isEmpty == false ? court : nil,
+                    status: status, state: state,
+                    broadcast: networks.joined(separator: ", "),
+                    eventName: nil,
+                    awayRank: players[0].curatedRank?.current, homeRank: players[1].curatedRank?.current,
+                    tennis: score.sets.isEmpty ? nil : score
+                )
+            }
+        }
+    }
+
+    /// A tournament as one card, the way a fight night is one card.
+    ///
+    /// A tennis channel carries a tournament rather than a match: "Center
+    /// Court Live: Shanghai". So the tournament is what is listed and what
+    /// is played; a match has a card of its own only where a channel names
+    /// it -- see `SportsLibrary.isListed`.
+    ///
+    /// One card for the whole tournament, not one a day: a tournament in
+    /// China plays through an American night, and a card a day split one
+    /// session into "today" and "tomorrow". It is live while any match is,
+    /// and otherwise waits on the next one. A major holds both tours' draws,
+    /// and each belongs under its own tour's tab.
+    static func tennisEventCards(for event: TennisEnvelope.Event, matches: [SportsGame]) -> [SportsGame] {
+        Dictionary(grouping: matches, by: \.league).compactMap { league, draw -> SportsGame? in
+            let live = draw.filter { $0.state == "in" }.sorted { $0.start < $1.start }
+            let waiting = draw.filter { $0.state == "pre" }.sorted { $0.start < $1.start }
+            guard let next = live.first ?? waiting.first else { return nil }
+            // The rounds on court now, else the ones coming up.
+            var rounds: [String] = []
+            for match in live + waiting {
+                let round = match.venue?.components(separatedBy: " \u{00B7} ").dropFirst().first ?? ""
+                if !round.isEmpty, !rounds.contains(round) { rounds.append(round) }
+            }
+            var networks: [String] = []
+            for name in draw.flatMap({ $0.broadcast.components(separatedBy: ", ") })
+            where !name.isEmpty && !networks.contains(name) { networks.append(name) }
+            let status: String
+            if !live.isEmpty { status = live.count == 1 ? "1 match live" : "\(live.count) matches live" }
+            else { status = waiting.count == 1 ? "1 match to play" : "\(waiting.count) matches to play" }
+            return SportsGame(
+                id: "tennis-event-\(event.id)-\(league.rawValue)", league: league, start: next.start,
+                awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
+                awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+                awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+                venue: rounds.isEmpty ? nil : rounds.prefix(2).joined(separator: " & "),
+                location: event.city, status: status, state: live.isEmpty ? "pre" : "in",
+                broadcast: networks.joined(separator: ", "),
+                eventName: event.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    private static func isKnown(_ name: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !name.isEmpty && name.uppercased() != "TBD" && name.uppercased() != "BYE"
+    }
+
+    /// "J. Sinner" to "SINNER", "A. de Minaur" to "DE MINAUR".
+    private static func surname(_ athlete: TennisEnvelope.Athlete) -> String {
+        if let short = athlete.shortName, let space = short.firstIndex(of: " "),
+           short[..<space].hasSuffix(".") {
+            return short[short.index(after: space)...].uppercased()
+        }
+        return (athlete.displayName.split(separator: " ").last.map(String.init) ?? athlete.displayName).uppercased()
+    }
+
+    private static func tennisScore(_ first: TennisEnvelope.Competitor, _ second: TennisEnvelope.Competitor,
+                                    bestOf: Int) -> TennisScore {
+        let firstLines = first.linescores ?? [], secondLines = second.linescores ?? []
+        let sets = zip(firstLines, secondLines).map { away, home in
+            let awayGames = Int(away.value ?? 0), homeGames = Int(home.value ?? 0)
+            // ESPN marks a set's winner once it is over; the set in play has
+            // neither side marked. The mark can trail the score by a refresh
+            // or two, so a set the games have already settled -- six with a
+            // two-game lead, or seven -- counts as over.
+            let awayWon: Bool? = away.winner == true ? true
+                : (home.winner == true ? false : Self.settled(awayGames, homeGames))
+            return TennisScore.SetGames(away: awayGames, home: homeGames,
+                                        awayTiebreak: away.tiebreak.map { Int($0) },
+                                        homeTiebreak: home.tiebreak.map { Int($0) },
+                                        awayWon: awayWon)
+        }
+        return TennisScore(sets: sets, bestOf: bestOf == 5 ? 5 : 3)
+    }
+
+    /// Who has taken a set on its games alone, or nil while it is open.
+    static func settled(_ away: Int, _ home: Int) -> Bool? {
+        if away == 7 || (away >= 6 && away - home >= 2) { return true }
+        if home == 7 || (home >= 6 && home - away >= 2) { return false }
+        return nil
+    }
+
+    /// "Set 3 · 4-3" while it is played; "Final · 6-4 7-6(5)" after, or
+    /// the feed's own word for a match that ended early.
+    private static func tennisStatus(state: String, detail: TennisEnvelope.StatusType?, score: TennisScore) -> String {
+        switch state {
+        case "in":
+            guard let current = score.current else {
+                return score.sets.isEmpty ? (detail?.description ?? "In Progress") : "Between sets"
+            }
+            return "Set \(score.sets.count) \u{00B7} \(current.away)-\(current.home)"
+        case "post":
+            let word = detail?.shortDetail ?? detail?.description ?? "Final"
+            return score.sets.isEmpty ? word : "\(word) \u{00B7} \(score.line)"
+        default:
+            return detail?.shortDetail ?? detail?.description ?? ""
+        }
     }
 
     private static func ufcNames(from title: String) -> (String, String) {
@@ -333,3 +571,153 @@ private struct UFCEnvelope: Decodable {
         let state: String?
     }
 }
+
+/// ESPN's tennis scoreboard. Read leniently: a field it leaves out costs that
+/// match its detail, never the tournament.
+struct TennisEnvelope: Decodable {
+    let events: [Event]
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        events = (try? values.decodeIfPresent([Lenient<Event>].self, forKey: .events))?.compactMap(\.value) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case events }
+
+    struct Event: Decodable {
+        let id: String
+        let name: String
+        /// Where it is played: "Shanghai, China PR".
+        let city: String?
+        let groupings: [Grouping]
+        /// Some tournaments list matches here rather than by draw.
+        let competitions: [Competition]
+
+        enum CodingKeys: String, CodingKey { case id, name, venue, groupings, competitions }
+        struct Place: Decodable { let displayName: String? }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            name = (try? values.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            id = (try? values.decodeIfPresent(String.self, forKey: .id)) ?? name
+            city = (try? values.decodeIfPresent(Place.self, forKey: .venue))?.displayName
+            groupings = (try? values.decodeIfPresent([Lenient<Grouping>].self, forKey: .groupings))?
+                .compactMap(\.value) ?? []
+            competitions = (try? values.decodeIfPresent([Lenient<Competition>].self, forKey: .competitions))?
+                .compactMap(\.value) ?? []
+        }
+    }
+
+    struct Grouping: Decodable {
+        let grouping: Draw?
+        let competitions: [Competition]
+
+        enum CodingKeys: String, CodingKey { case grouping, competitions }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            grouping = try? values.decodeIfPresent(Draw.self, forKey: .grouping)
+            competitions = (try? values.decodeIfPresent([Lenient<Competition>].self, forKey: .competitions))?
+                .compactMap(\.value) ?? []
+        }
+    }
+
+    struct Draw: Decodable { let slug: String? }
+
+    struct Competition: Decodable {
+        let id: String
+        let date: String
+        let timeValid: Bool?
+        let type: Draw?
+        let round: Round?
+        let venue: Venue?
+        let status: Status?
+        let format: Format?
+        let broadcasts: [Broadcast]
+        let competitors: [Competitor]
+
+        enum CodingKeys: String, CodingKey {
+            case id, date, timeValid, type, round, venue, status, format, broadcasts, competitors
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            if let text = try? values.decode(String.self, forKey: .id) { id = text }
+            else { id = String(try values.decode(Int.self, forKey: .id)) }
+            date = try values.decode(String.self, forKey: .date)
+            timeValid = try? values.decodeIfPresent(Bool.self, forKey: .timeValid)
+            type = try? values.decodeIfPresent(Draw.self, forKey: .type)
+            round = try? values.decodeIfPresent(Round.self, forKey: .round)
+            venue = try? values.decodeIfPresent(Venue.self, forKey: .venue)
+            status = try? values.decodeIfPresent(Status.self, forKey: .status)
+            format = try? values.decodeIfPresent(Format.self, forKey: .format)
+            broadcasts = (try? values.decodeIfPresent([Lenient<Broadcast>].self, forKey: .broadcasts))?
+                .compactMap(\.value) ?? []
+            competitors = (try? values.decodeIfPresent([Lenient<Competitor>].self, forKey: .competitors))?
+                .compactMap(\.value) ?? []
+        }
+    }
+
+    struct Round: Decodable { let displayName: String? }
+    struct Venue: Decodable { let court: String? }
+    struct Status: Decodable { let type: StatusType }
+    struct StatusType: Decodable {
+        let state: String
+        let description: String?
+        let shortDetail: String?
+    }
+    struct Format: Decodable { let regulation: Regulation? }
+    struct Regulation: Decodable { let periods: Int? }
+    struct Broadcast: Decodable {
+        let names: [String]
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            names = (try? values.decodeIfPresent([String].self, forKey: .names)) ?? []
+        }
+        enum CodingKeys: String, CodingKey { case names }
+    }
+
+    struct Competitor: Decodable {
+        let order: Int?
+        let athlete: Athlete?
+        let linescores: [LineScore]?
+        let curatedRank: Rank?
+
+        enum CodingKeys: String, CodingKey { case order, athlete, linescores, curatedRank }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            order = try? values.decodeIfPresent(Int.self, forKey: .order)
+            athlete = try? values.decodeIfPresent(Athlete.self, forKey: .athlete)
+            linescores = (try? values.decodeIfPresent([Lenient<LineScore>].self, forKey: .linescores))?
+                .compactMap(\.value)
+            curatedRank = try? values.decodeIfPresent(Rank.self, forKey: .curatedRank)
+        }
+    }
+
+    struct Athlete: Decodable {
+        let displayName: String
+        let shortName: String?
+        let flag: Flag?
+    }
+    struct Flag: Decodable {
+        let href: String?
+        let alt: String?
+    }
+    struct Rank: Decodable {
+        let current: Int?
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            // ESPN writes 99 for "unseeded" in some feeds.
+            let value = try? values.decodeIfPresent(Int.self, forKey: .current)
+            current = value.flatMap { (1...64).contains($0) ? $0 : nil }
+        }
+        enum CodingKeys: String, CodingKey { case current }
+    }
+    struct LineScore: Decodable {
+        let value: Double?
+        let tiebreak: Double?
+        let winner: Bool?
+    }
+}
+

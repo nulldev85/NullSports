@@ -153,6 +153,17 @@ struct LiveView: View {
             play(game, on: previewStream)
             return
         }
+        // Another card whose channel is the one already on the monitor --
+        // two tournaments carried by one tennis channel, say. Opening it
+        // again would change nothing on screen, and a press that changes
+        // nothing reads as a press that did not register, so it is taken
+        // full screen, as a second press would be.
+        if let previewStream, case let .play(streamID, _) = library.preferredChannel(for: game),
+           streamID == previewStream.id {
+            previewGameID = game.id
+            play(game, on: previewStream)
+            return
+        }
         stopPreview()
         open(game, startsMultiview: false)
     }
@@ -558,6 +569,7 @@ private struct ManualGameChannelPicker: View {
         for side in library.preferenceSides(for: game) {
             add(library.teamPreferences.preference(for: side.key).flatMap { library.stream(withID: $0.streamID) })
         }
+        for showing in library.tennisCoverage(for: game) { add(showing) }
         for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "") { add(favorite) }
         return Array(out.prefix(8))
     }
@@ -1874,8 +1886,8 @@ private struct LiveTeamRow: View {
                         .foregroundStyle(LivePalette.text).lineLimit(2).minimumScaleFactor(0.8)
                 }
             } else {
-                side(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayScore, dim: lead == .home)
-                side(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeScore, dim: lead == .away)
+                side(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayScore, dim: lead == .home, isAway: true)
+                side(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeScore, dim: lead == .away, isAway: false)
             }
             HStack(spacing: 8) {
                 if game.isLive {
@@ -1917,7 +1929,7 @@ private struct LiveTeamRow: View {
     }
 
     private func side(_ name: String, _ abbreviation: String, _ logo: String, _ score: String,
-                      dim: Bool) -> some View {
+                      dim: Bool, isAway: Bool) -> some View {
         HStack(spacing: 12) {
             TeamBadge(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
                       size: 30)
@@ -1925,7 +1937,10 @@ private struct LiveTeamRow: View {
                 .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                 .lineLimit(1).minimumScaleFactor(0.75)
             Spacer(minLength: 8)
-            if game.isLive, !score.isEmpty {
+            if game.isLive, let sets = game.tennis {
+                TennisSetColumns(score: sets, isAway: isAway, size: 22,
+                                 primary: LivePalette.text, secondary: LivePalette.secondary)
+            } else if game.isLive, !score.isEmpty {
                 Text(score).font(.interDigits(24, .bold))
                     .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                     .contentTransition(.numericText())
@@ -2332,9 +2347,9 @@ private struct LiveMatchupCard: View {
                 let lead = liveLeader(game)
                 VStack(spacing: 10) {
                     team(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayRecord, game.awayScore,
-                         dim: lead == .home)
+                         dim: lead == .home, isAway: true)
                     team(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeRecord, game.homeScore,
-                         dim: lead == .away)
+                         dim: lead == .away, isAway: false)
                 }
             }
             Spacer(minLength: 8)
@@ -2389,7 +2404,7 @@ private struct LiveMatchupCard: View {
     }
 
     private func team(_ name: String, _ abbreviation: String, _ logo: String, _ record: String?,
-                      _ score: String, dim: Bool) -> some View {
+                      _ score: String, dim: Bool, isAway: Bool) -> some View {
         HStack(spacing: 14) {
             TeamBadge(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
                       size: 40)
@@ -2402,7 +2417,10 @@ private struct LiveMatchupCard: View {
                 }
             }
             Spacer(minLength: 8)
-            if game.isLive, !score.isEmpty {
+            if game.isLive, let sets = game.tennis {
+                TennisSetColumns(score: sets, isAway: isAway, size: 28,
+                                 primary: LivePalette.text, secondary: LivePalette.secondary)
+            } else if game.isLive, !score.isEmpty {
                 Text(score).font(.interDigits(34, .bold))
                     .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                     .contentTransition(.numericText())
@@ -2490,6 +2508,7 @@ private func liveStartWord(_ league: SportsLeague) -> String {
     case .nhl: "PUCK DROP"
     case .mlb: "FIRST PITCH"
     case .ufc: "MAIN CARD"
+    case .atp, .wta: "FIRST SERVE"
     }
 }
 
@@ -2504,11 +2523,11 @@ private func liveHeadline(_ game: SportsGame) -> String {
     if game.isLive && !game.awayScore.isEmpty && !game.homeScore.isEmpty {
         return "\(game.awayAbbreviation) \(game.awayScore)  –  \(game.homeAbbreviation) \(game.homeScore)"
     }
-    return "\(game.awayAbbreviation) @ \(game.homeAbbreviation)"
+    return "\(game.awayAbbreviation) \(game.sidesSymbol) \(game.homeAbbreviation)"
 }
 
 private func liveAccessibilityLabel(_ game: SportsGame) -> String {
-    let matchup = game.isEvent ? (game.eventName ?? game.league.shortName) : "\(game.awayTeam) at \(game.homeTeam)"
+    let matchup = game.isEvent ? (game.eventName ?? game.league.shortName) : game.matchupLine
     guard game.isLive else { return "\(matchup), \(game.start.formatted(date: .abbreviated, time: .shortened))" }
     let score = game.awayScore.isEmpty || game.homeScore.isEmpty ? "" : ", \(game.awayScore) to \(game.homeScore)"
     return "\(matchup)\(score), \(game.status.isEmpty ? "live" : game.status)"
@@ -2752,6 +2771,7 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
     case .ufc: "figure.martial.arts"
+    case .atp, .wta: "tennisball.fill"
     }
 }
 
@@ -2760,14 +2780,14 @@ private struct LeagueLogo: View {
     let size: CGFloat
 
     private var logoURL: URL? {
-        guard league != .ncaaf && league != .ufc else { return nil }
+        guard league != .ncaaf && league != .ufc && !league.isTennis else { return nil }
         return URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
     }
 
     var body: some View {
         Group {
-            if league == .ufc {
-                Image("League-ufc").resizable().scaledToFit()
+            if league == .ufc || league.isTennis {
+                Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in
                     if let image = loaded {
@@ -5475,7 +5495,7 @@ private struct MatchDiagnosticsRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(game.awayTeam) at \(game.homeTeam)").foregroundColor(LineupStyle.lightPurple)
+            Text(game.matchupLine).foregroundColor(LineupStyle.lightPurple)
                 .font(.inter(24, .semibold))
             Text("\(game.league.shortName)  ·  \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
                 .foregroundColor(LineupStyle.lightPurple)
@@ -6930,7 +6950,7 @@ private struct TVGameAlertBanner: View {
     /// "BOS @ NYY", or an event's name.
     static func matchup(_ game: SportsGame) -> String {
         game.isEvent ? (game.eventName ?? game.league.shortName)
-            : "\(game.awayAbbreviation) @ \(game.homeAbbreviation)"
+            : "\(game.awayAbbreviation) \(game.sidesSymbol) \(game.homeAbbreviation)"
     }
 
     private var scoreline: String {

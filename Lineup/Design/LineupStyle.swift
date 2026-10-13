@@ -9,6 +9,7 @@ fileprivate struct LeagueColors {
     let hockey: Color
     let baseball: Color
     let combat: Color
+    let tennis: Color
 }
 
 fileprivate struct LineupPalette {
@@ -63,7 +64,8 @@ fileprivate extension LineupPalette {
         // television, never told apart by a colour that is not the theme's.
         leagues: LeagueColors(
             football: rgb(0xC7C7CC), college: rgb(0xC7C7CC), basketball: rgb(0xC7C7CC),
-            hockey: rgb(0xC7C7CC), baseball: rgb(0xC7C7CC), combat: rgb(0xC7C7CC)
+            hockey: rgb(0xC7C7CC), baseball: rgb(0xC7C7CC), combat: rgb(0xC7C7CC),
+            tennis: rgb(0xC7C7CC)
         )
     )
 }
@@ -108,7 +110,8 @@ fileprivate extension LineupPalette {
         // the deeper red of its own posters, not the accent's.
         leagues: LeagueColors(
             football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-            hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
+            hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A),
+            tennis: rgb(0xC9DC3A)
         )
     )
 }
@@ -248,6 +251,7 @@ enum LineupStyle {
         case .nhl: return leagues.hockey
         case .mlb: return leagues.baseball
         case .ufc: return leagues.combat
+        case .atp, .wta: return leagues.tennis
         }
     }
 }
