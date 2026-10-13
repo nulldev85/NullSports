@@ -148,11 +148,11 @@ struct MediaServersView: View {
             Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
                 .disabled(!media.hasAnySource)
             Menu("Remove Shelf", systemImage: "minus.rectangle") {
-                ForEach(media.shelves) { shelf in
+                ForEach(media.removableShelves) { shelf in
                     Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
                 }
             }
-            .disabled(media.shelves.isEmpty)
+            .disabled(media.removableShelves.isEmpty)
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
                 .disabled(media.isLoading || !media.hasAnySource)
@@ -506,7 +506,7 @@ private struct TVMediaServersHome: View {
         options.append(TVLibraryOption(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") {
             choosingShelf = true
         })
-        if !media.shelves.isEmpty {
+        if !media.removableShelves.isEmpty {
             options.append(TVLibraryOption(title: "Remove a Shelf", symbol: "minus.rectangle") {
                 removingShelf = true
             })
@@ -560,7 +560,7 @@ private struct TVMediaServersHome: View {
             }
         }
         .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
-            ForEach(media.shelves) { shelf in
+            ForEach(media.removableShelves) { shelf in
                 Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
             }
             Button("Cancel", role: .cancel) { }
@@ -839,6 +839,8 @@ private struct MediaCatalogsScreen: View {
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
+    /// The Streaming Services row, then every shelf.
+    private var shownShelves: [MediaCatalog] { (media.streamingShelf.map { [$0] } ?? []) + catalogs }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #if os(tvOS)
@@ -893,7 +895,7 @@ private struct MediaCatalogsScreen: View {
                     }
                 }
             } else {
-                if catalogs.isEmpty && continueWatching.isEmpty
+                if shownShelves.isEmpty && continueWatching.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
                     VStack(spacing: 0) {
                         #if os(tvOS)
@@ -975,7 +977,7 @@ private struct MediaCatalogsScreen: View {
         if !favoriteEpisodes.isEmpty {
             localShelf(title: "Favorite Episodes", items: favoriteEpisodes)
         }
-        ForEach(catalogs) { catalog in
+        ForEach(shownShelves) { catalog in
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(catalog.title).font(sectionTitleFont)
@@ -1144,7 +1146,7 @@ private struct MediaCatalogsScreen: View {
                                           label: "On this device", items: favoriteEpisodes,
                                           opensPages: false, catalog: nil))
         }
-        for catalog in catalogs {
+        for catalog in shownShelves {
             shelves.append(TVLibraryShelf(id: catalog.id, title: catalog.title,
                                           label: media.serverName(for: catalog), items: catalog.items,
                                           opensPages: false, catalog: catalog))
@@ -1536,6 +1538,8 @@ private struct MediaCatalogsScreen: View {
             let shelf = shelves[min(shelfIndex, shelves.count - 1)]
             guard shelf.items.indices.contains(slot) else { return }
             let item = shelf.items[slot]
+            // A service is no title: the room behind keeps what it shows.
+            guard StreamingService.service(for: item) == nil else { return }
             focusedCard = item
             preview(item, when: true)
             // The titles either side, so the artwork is made before the
@@ -1957,7 +1961,11 @@ struct MediaBrowseDestination: View {
     var body: some View {
         // Anything that plays has a page when it is opened on purpose -- a
         // server's "Video" from Continue Watching as much as a "Movie".
-        if item.hasDetailPage || item.isPlayable {
+        if let service = StreamingService.service(for: item) {
+            StreamingServiceScreen(service: service)
+        } else if item.id == StreamingService.rowID {
+            StreamingServicesScreen()
+        } else if item.hasDetailPage || item.isPlayable {
             MediaDetailScreen(item: item)
         } else {
             MediaFolderScreen(folder: item)
@@ -2081,7 +2089,8 @@ private struct MediaShelfPicker: View {
     }
 
     private var hasAnything: Bool {
-        !groups.isEmpty || !media.addonGroups.isEmpty || !media.availableMDBListCatalogs.isEmpty
+        !media.showsStreamingServices || !groups.isEmpty || !media.addonGroups.isEmpty
+            || !media.availableMDBListCatalogs.isEmpty
     }
 
     var body: some View {
@@ -2126,6 +2135,29 @@ private struct MediaShelfPicker: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    // The Library's own row, back once it was taken away.
+                    if !media.showsStreamingServices {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("BUILT IN").font(.inter(12, .heavy)).tracking(1.6)
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("Rows Lineup puts together for you").font(.inter(13))
+                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                        }
+                        .padding(.top, 18).padding(.bottom, 6)
+                        #if os(tvOS)
+                        TVSelectable(scale: LineupStyle.cardLift, fillRadius: 14,
+                                     action: { media.setShowsStreamingServices(true) }) {
+                            MediaShelfRow(title: StreamingService.rowTitle,
+                                          detail: "What each service has on that you can play", busy: false)
+                        }
+                        #else
+                        Button { media.setShowsStreamingServices(true) } label: {
+                            MediaShelfRow(title: StreamingService.rowTitle,
+                                          detail: "What each service has on that you can play", busy: false)
+                        }
+                        .lineupFlatButton()
+                        #endif
+                    }
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 7) {
@@ -5254,11 +5286,17 @@ struct MediaItemCard: View {
                 .aspectRatio(shape.ratio, contentMode: .fit)
                 .overlay {
                     ZStack {
-                        LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)
-                        LineupArtView(url: artworkURL, width: artWidth) { loaded in
-                            if let image = loaded { image.resizable().scaledToFill() }
-                            else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+                        if let service = StreamingService.service(for: item) {
+                            // A service's poster is its own mark, drawn here
+                            // rather than fetched.
+                            StreamingServicePoster(service: service)
+                        } else {
+                            LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                                startPoint: .topLeading, endPoint: .bottomTrailing)
+                            LineupArtView(url: artworkURL, width: artWidth) { loaded in
+                                if let image = loaded { image.resizable().scaledToFill() }
+                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+                            }
                         }
                     }
                     // Where the viewer is, on the art rather than under it: a
@@ -5296,9 +5334,13 @@ struct MediaItemCard: View {
             // "MOVIE · 2026" under every card was clutter a viewer reads past.
             // The phone keeps the line on every card, so a row stays even.
             HStack(spacing: 7) {
-                Text(item.type.uppercased())
-                if let year = item.productionYear { Text("· \(String(year))") }
-                if let count = item.childCount { Text("· \(count)") }
+                if StreamingService.service(for: item) != nil {
+                    Text(item.childCount == 1 ? "1 TITLE" : "\(item.childCount ?? 0) TITLES")
+                } else {
+                    Text(item.type.uppercased())
+                    if let year = item.productionYear { Text("· \(String(year))") }
+                    if let count = item.childCount { Text("· \(count)") }
+                }
             }
             .font(.inter(.caption2, .medium))
             .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
