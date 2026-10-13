@@ -1068,7 +1068,7 @@ private enum LiveMetrics {
     /// Clear space around anything focusable inside a scroller, which clips:
     /// a focused card's lift and shadow grow into it.
     static let liftRoom: CGFloat = 18
-    static let monitorRadius: CGFloat = 24
+    static let monitorRadius: CGFloat = LineupPanelStyle.radius
 }
 
 /// Which game the screen is describing.
@@ -1260,13 +1260,8 @@ private struct LiveMonitor: View {
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: game?.id)
+        // A panel like the rest: its fill and corners, no rim of light.
         .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.2), .white.opacity(0.05)],
-                                              startPoint: .top, endPoint: .bottom), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .lineupShadow(.overlay)
         .accessibilityLabel(previewStream == nil ? "Matchup slate" : "TV preview")
     }
 }
@@ -1431,11 +1426,12 @@ private struct LiveSlateBackdrop: View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
-                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+                // The panels' flat fill: no gradient or vignette, as on the
+                // phone. The court lines stay, faint, as the slate's mark.
+                LineupPanelStyle.fill
                 LiveCourtLines()
-                RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center,
-                               startRadius: size.height * 0.45, endRadius: size.width * 0.62)
             }
+            .frame(width: size.width, height: size.height)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -1958,18 +1954,10 @@ private struct LiveCardSurface: View {
     let isLive: Bool
     var tally: Tally = .top
 
+    // The panels' flat fill. A game that is on says so in its status line,
+    // in red, as on the phone; a stripe across the top said it twice.
     var body: some View {
-        ZStack(alignment: tally == .top ? .top : .leading) {
-            LivePalette.card
-            if isLive {
-                if tally == .top {
-                    LivePalette.onAir.frame(height: 3)
-                } else {
-                    LivePalette.onAir.frame(width: 3)
-                }
-            }
-        }
-        .clipShape(shape)
+        LivePalette.card.clipShape(shape)
     }
 }
 
@@ -2342,7 +2330,7 @@ private struct LiveMatchupCard: View {
     let onStartMultiview: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
         let isPrimary = multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id
         VStack(alignment: .leading, spacing: 0) {
             topLine
@@ -2370,8 +2358,9 @@ private struct LiveMatchupCard: View {
         .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { LiveCardSurface(shape: shape, isLive: game.isLive) }
+        // Only multiview's first game is edged; the rest are plain panels.
         .overlay {
-            shape.strokeBorder(isPrimary ? LivePalette.rim : LivePalette.rule, lineWidth: isPrimary ? 2 : 1)
+            if isPrimary { shape.strokeBorder(LivePalette.rim, lineWidth: 2) }
         }
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
