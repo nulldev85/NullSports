@@ -1,12 +1,21 @@
 import Foundation
 
+/// A Jellyfin server, or an Emby one.
+///
+/// Emby's API is the one Jellyfin grew from. What differs for a client is
+/// where it lives -- under /emby on the server -- and that Emby reads the
+/// client's description from its own header name, so one client serves both.
 struct JellyfinClient: Sendable {
     let serverURL: URL
     let accessToken: String?
     let deviceID: String
+    let software: MediaServerBrand
+    /// The signed-in user, for the one request Emby wants told whose it is.
+    let userID: String?
     private let session: URLSession
 
     init(serverURL: String, accessToken: String? = nil, deviceID: String,
+         software: MediaServerBrand = .jellyfin, userID: String? = nil,
          session: URLSession = .shared) throws {
         guard let url = Self.address(from: serverURL) else {
             throw JellyfinError.invalidServer
@@ -14,8 +23,13 @@ struct JellyfinClient: Sendable {
         self.serverURL = url
         self.accessToken = accessToken
         self.deviceID = deviceID
+        self.software = software
+        self.userID = userID
         self.session = session
     }
+
+    /// Where the API is on the server: Emby keeps it under /emby.
+    private var apiPrefix: String { software == .emby ? "emby/" : "" }
 
     /// What somebody typed, as an address to call.
     ///
@@ -370,7 +384,10 @@ struct JellyfinClient: Sendable {
     /// server that resolves streams through addons -- AIOStreams asking every
     /// one of its sources -- can take most of a minute to answer.
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
-        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", timeout: 60)
+        // Emby works out which versions the user may play from the user it
+        // is told; Jellyfin from the token.
+        let query = software == .emby ? userID.map { [URLQueryItem(name: "UserId", value: $0)] } ?? [] : []
+        var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", query: query, timeout: 60)
         value.httpBody = Data("{}".utf8)
         return try await send(value)
     }
@@ -383,7 +400,8 @@ struct JellyfinClient: Sendable {
 
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
                          timeout: TimeInterval = 20) throws -> URLRequest {
-        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(apiPrefix + path),
+                                             resolvingAgainstBaseURL: false) else {
             throw JellyfinError.invalidServer
         }
         components.queryItems = query.isEmpty ? nil : query
@@ -396,12 +414,15 @@ struct JellyfinClient: Sendable {
         var authorization = "MediaBrowser Client=\"Lineup\", Device=\"Apple\", DeviceId=\"\(deviceID)\", Version=\"1.0\""
         if let accessToken { authorization += ", Token=\"\(accessToken)\"" }
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        // Emby reads the same description from a header of its own name.
+        if software == .emby { request.setValue(authorization, forHTTPHeaderField: "X-Emby-Authorization") }
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         return request
     }
 
     private func authenticatedURL(path: String, query: [URLQueryItem]) -> URL? {
-        guard var components = URLComponents(url: serverURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else { return nil }
+        guard var components = URLComponents(url: serverURL.appendingPathComponent(apiPrefix + path),
+                                             resolvingAgainstBaseURL: false) else { return nil }
         var values = query
         if let accessToken { values.append(URLQueryItem(name: "api_key", value: accessToken)) }
         components.queryItems = values
