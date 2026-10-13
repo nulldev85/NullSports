@@ -86,7 +86,7 @@ struct LiveView: View {
                     continuing: item.preview
                 )
             }
-            .sheet(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
+            .fullScreenCover(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream,
                                                     startsMultiview: manualSelectionStartsMultiview)
@@ -335,92 +335,204 @@ extension EnvironmentValues {
     }
 }
 
-/// Choosing the channel to watch a game on, as the iPhone asks it: Lineup's
-/// own match and the teams' saved channels first, then the viewer's
-/// favorites, and every other channel a search away.
+/// Choosing the channel to watch a game on: the whole screen, browsed the
+/// way the TV Guide is. The provider's categories down the left, as the
+/// Guide's sidebar has them, with Lineup's own suggestions first -- its
+/// match and the channels saved for either team -- and the chosen list
+/// across the rest, each channel with what it is showing now.
 private struct ManualGameChannelPicker: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    /// Nil until one is chosen: Suggested when there is anything to
+    /// suggest, every channel when there is not.
+    @State private var source: Source?
+    @FocusState private var sidebarFocus: String?
     let game: SportsGame
     let onSelect: (XtreamStream) -> Void
+
+    private enum Source: Hashable {
+        case suggested, favorites, all, category(String)
+    }
 
     var body: some View {
         let notes = suggestionNotes()
         let suggested = suggestions()
-        let shown = Set(suggested.map(\.id))
-        let results = library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)
-            .filter { !shown.contains($0.id) }
-        HStack(alignment: .top, spacing: 64) {
-            summary
-                .frame(width: 520)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
-            VStack(alignment: .leading, spacing: 22) {
-                TextField("Search channels", text: $query)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if suggested.isEmpty && results.isEmpty {
-                    VStack(spacing: 14) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 44)).foregroundStyle(LineupStyle.secondary)
-                        Text(query.isEmpty ? "No channels yet" : "Nothing matched \u{201C}\(query)\u{201D}")
-                            .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
-                        if query.isEmpty {
-                            Text("Refresh your TV Guide to load this provider's channels.")
-                                .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
-                            if !suggested.isEmpty {
-                                Section {
-                                    ForEach(suggested) { stream in
-                                        row(stream, note: notes[stream.id],
-                                            first: stream.id == suggested.first?.id)
-                                    }
-                                } header: { heading("Suggested") }
-                            }
-                            Section {
-                                ForEach(results) { stream in
-                                    row(stream, note: notes[stream.id],
-                                        first: suggested.isEmpty && stream.id == results.first?.id)
-                                }
-                            } header: { heading(query.isEmpty ? "All Channels" : "Results") }
-                        }
-                        // Room for a focused row's lift at both ends.
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 80)
-                    }
-                }
+        let current = source ?? (suggested.isEmpty ? .all : .suggested)
+        let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let streams = searching
+            ? library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)
+            : channels(in: current, suggested: suggested)
+        VStack(alignment: .leading, spacing: 30) {
+            header
+            HStack(alignment: .top, spacing: 36) {
+                sidebar(current: current, hasSuggestions: !suggested.isEmpty)
+                    .frame(width: 400)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .background(GuidePalette.rail, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .focusSection()
+                list(streams, title: searching ? "Results" : title(of: current), notes: notes, searching: searching)
+                    // A new list for each source, so the first channel in
+                    // it is where the remote lands.
+                    .id(searching ? "search" : String(describing: current))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .focusSection()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(.horizontal, 90)
-        .padding(.top, 70)
+        .padding(.horizontal, 80)
+        .padding(.top, 56)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupStyle.background.ignoresSafeArea())
     }
 
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("CHOOSE A CHANNEL")
-                .font(.inter(16, .bold)).tracking(1.8).foregroundStyle(LineupStyle.secondary)
-            Text("\(game.awayTeam) vs. \(game.homeTeam)")
-                .font(.inter(44, .semibold)).foregroundStyle(LineupStyle.text)
-                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
-            Text(game.broadcast.isEmpty ? "No network listed" : "Listed on \(game.broadcast)")
-                .font(.inter(22)).foregroundStyle(LineupStyle.secondary)
-            Text("Suggested first: Lineup's own match, the channels saved for either team, and your favorites.")
-                .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)
+    private var header: some View {
+        HStack(alignment: .center, spacing: 28) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("CHOOSE A CHANNEL")
+                    .font(.inter(16, .bold)).tracking(1.8).foregroundStyle(LineupStyle.secondary)
+                Text("\(game.awayTeam) vs. \(game.homeTeam)")
+                    .font(.inter(40, .semibold)).foregroundStyle(LineupStyle.text)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(game.broadcast.isEmpty ? "No network listed" : "Listed on \(game.broadcast)")
+                    .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+            }
             Spacer(minLength: 24)
+            TextField("Search channels", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .frame(width: 560)
             Button("Cancel", role: .cancel) { dismiss() }
                 .lineupButtonStyle()
         }
-        .padding(.bottom, 60)
+        .focusSection()
+    }
+
+    private func sidebar(current: Source, hasSuggestions: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            GuideSidebarHeading(title: "BROWSE")
+            if hasSuggestions {
+                GuideSidebarButton(title: "Suggested", symbol: "sparkles", selected: current == .suggested,
+                                   focus: $sidebarFocus, focusID: "suggested") { choose(.suggested) }
+            }
+            GuideSidebarButton(title: "Favorites", symbol: "star", selected: current == .favorites,
+                               focus: $sidebarFocus, focusID: "favorites") { choose(.favorites) }
+            GuideSidebarButton(title: "All channels", symbol: "square.grid.2x2", selected: current == .all,
+                               focus: $sidebarFocus, focusID: "all") { choose(.all) }
+            GuideSidebarHeading(title: "CATEGORIES").padding(.top, 10)
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(library.categories) { category in
+                        GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2",
+                                           selected: current == .category(category.id),
+                                           focus: $sidebarFocus, focusID: "category-" + category.id) {
+                            choose(.category(category.id))
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func list(_ streams: [XtreamStream], title: String, notes: [Int: String],
+                      searching: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title.uppercased())
+                    .font(.inter(16, .bold)).tracking(1.6).foregroundStyle(LineupStyle.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 16)
+                Text(streams.count == 1 ? "1 channel" : "\(streams.count.formatted()) channels")
+                    .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(.horizontal, 14)
+            if streams.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: searching ? "magnifyingglass" : "tv")
+                        .font(.system(size: 44)).foregroundStyle(LineupStyle.secondary)
+                    Text(searching ? "Nothing matched \u{201C}\(query)\u{201D}" : "No channels here")
+                        .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text(searching ? "Try another name, or browse a category on the left."
+                                   : "Choose another category on the left.")
+                        .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(streams) { stream in
+                            // Typing is left alone: focus is only sent into a
+                            // list chosen from the sidebar or the one first shown.
+                            row(stream, note: notes[stream.id],
+                                first: !searching && stream.id == streams.first?.id)
+                        }
+                    }
+                    // Room for a focused row's lift at both ends.
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .padding(.bottom, 80)
+                }
+            }
+        }
+    }
+
+    private func row(_ stream: XtreamStream, note: String?, first: Bool) -> some View {
+        let now = library.guidePrograms(for: stream).normalizedEPG().first { $0.isLive }
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return TVSelectable(scale: 1.012, fillRadius: 14, action: { onSelect(stream) }, requestInitialFocus: first) {
+            HStack(spacing: 22) {
+                ChannelLogo(url: stream.streamIcon, width: 96, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(stream.name)
+                        .font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text).lineLimit(1)
+                    Text(now?.title ?? "No guide information")
+                        .font(.inter(19)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                if let note {
+                    Text(note.uppercased())
+                        .font(.inter(14, .bold)).tracking(1).foregroundStyle(LineupStyle.text)
+                        .lineLimit(1).fixedSize()
+                        .padding(.horizontal, 12).frame(height: 28)
+                        .background(LineupStyle.raised, in: Capsule())
+                }
+                if library.isFavorite(stream) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 18)).foregroundStyle(LineupStyle.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 88)
+            .background(LineupStyle.surface, in: shape)
+        }
+        .accessibilityLabel("Watch \(game.awayTeam) versus \(game.homeTeam) on \(stream.name)")
+    }
+
+    private func choose(_ next: Source) {
+        query = ""
+        source = next
+    }
+
+    private func title(of source: Source) -> String {
+        switch source {
+        case .suggested: return "Suggested"
+        case .favorites: return "Favorites"
+        case .all: return "All Channels"
+        case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "Category"
+        }
+    }
+
+    private func channels(in source: Source, suggested: [XtreamStream]) -> [XtreamStream] {
+        switch source {
+        case .suggested: return suggested
+        case .favorites: return library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+        case .all: return library.guideStreams(categoryID: nil, favoritesOnly: false, query: "")
+        case .category(let id): return library.guideStreams(categoryID: id, favoritesOnly: false, query: "")
+        }
     }
 
     /// Why a suggested channel is suggested, by its id.
@@ -428,17 +540,15 @@ private struct ManualGameChannelPicker: View {
         var notes: [Int: String] = [:]
         for side in library.preferenceSides(for: game) {
             if let saved = library.teamPreferences.preference(for: side.key) {
-                notes[saved.streamID] = "\(side.team)"
+                notes[saved.streamID] = side.team
             }
         }
         if let matched = library.verifiedStream(for: game) { notes[matched.id] = "Lineup's match" }
         return notes
     }
 
-    /// Lineup's match, the teams' saved channels, then favorites -- none of
-    /// them while a search is under way, which lists everything it finds.
+    /// Lineup's match and the teams' saved channels, then a few favorites.
     private func suggestions() -> [XtreamStream] {
-        guard query.isEmpty else { return [] }
         var seen: Set<Int> = []
         var out: [XtreamStream] = []
         func add(_ stream: XtreamStream?) {
@@ -450,41 +560,6 @@ private struct ManualGameChannelPicker: View {
         }
         for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "") { add(favorite) }
         return Array(out.prefix(8))
-    }
-
-    private func heading(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.inter(16, .bold)).tracking(1.6).foregroundStyle(LineupStyle.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 10)
-            .background(LineupStyle.background)
-    }
-
-    private func row(_ stream: XtreamStream, note: String?, first: Bool) -> some View {
-        TVSelectable(scale: 1.015, fillRadius: 14, action: { onSelect(stream) }, requestInitialFocus: first) {
-            HStack(spacing: 18) {
-                ChannelLogo(url: stream.streamIcon, width: 80, height: 50)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Text(stream.name)
-                    .font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text).lineLimit(1)
-                Spacer(minLength: 12)
-                if let note {
-                    Text(note.uppercased())
-                        .font(.inter(14, .bold)).tracking(1).foregroundStyle(LineupStyle.secondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10).frame(height: 26)
-                        .background(LineupStyle.raised, in: Capsule())
-                }
-                if library.isFavorite(stream) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 18)).foregroundStyle(LineupStyle.secondary)
-                }
-            }
-            .padding(.horizontal, 20)
-            .frame(height: 76)
-            .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .accessibilityLabel("Watch \(game.awayTeam) versus \(game.homeTeam) on \(stream.name)")
     }
 }
 
@@ -2460,7 +2535,7 @@ private struct LiveSelectedPreview: View {
             controller.start(urls: urls, muted: false, channelID: stream.id)
             TVPreviewHandoff.previewing(stream.id, in: controller)
         }
-        .sheet(item: $choosingGame, onDismiss: {
+        .fullScreenCover(item: $choosingGame, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { game in
@@ -5572,7 +5647,7 @@ private struct MultiviewView: View {
         }
         .onPlayPauseCommand { switchLayout() }
         .onExitCommand(perform: back)
-        .sheet(item: $choosingChannel, onDismiss: {
+        .fullScreenCover(item: $choosingChannel, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { choice in
@@ -6191,7 +6266,7 @@ struct PlayerView: View {
             }
         }
         .background(Color.black)
-        .sheet(item: $choosingGame, onDismiss: {
+        .fullScreenCover(item: $choosingGame, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { game in
