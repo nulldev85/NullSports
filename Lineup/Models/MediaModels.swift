@@ -882,6 +882,22 @@ enum AIOStreamsItemID {
     }
 }
 
+/// A list chosen for the Library hero without being a shelf: a server's
+/// library or collection, an IPTV provider's category, or an MDBList list.
+struct LibraryHeroSource: Codable, Hashable, Sendable {
+    /// The library, collection or category, marked with its server.
+    var root: MediaItem?
+    var mdbListID: Int?
+    var name: String
+
+    /// The same id the list would have as a shelf.
+    var id: String {
+        if let mdbListID { return "mdblist:\(mdbListID)" }
+        if let root { return MediaCatalog.id(for: root) }
+        return name
+    }
+}
+
 enum MediaHeroCatalogSelection {
     static func resolve(_ catalogs: [MediaCatalog], selectedID: String?) -> MediaCatalog? {
         if let selectedID,

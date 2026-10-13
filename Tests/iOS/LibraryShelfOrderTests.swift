@@ -46,6 +46,17 @@ final class LibraryShelfOrderTests: XCTestCase {
         XCTAssertEqual(LibraryShelfOrder.move(ids, from: 5, by: 1), ids)
     }
 
+    func testAHeroListHasTheIDItWouldHaveAsAShelf() {
+        let server = UUID()
+        let root = MediaItem(id: "lib", name: "Movies", type: "CollectionFolder", overview: nil,
+                             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, serverID: server)
+        XCTAssertEqual(LibraryHeroSource(root: root, name: "Movies").id, MediaCatalog.id(for: root))
+        XCTAssertEqual(LibraryHeroSource(mdbListID: 42, name: "Top").id, "mdblist:42")
+        let source = LibraryHeroSource(root: root, name: "Movies")
+        let decoded = try? JSONDecoder().decode(LibraryHeroSource.self, from: JSONEncoder().encode(source))
+        XCTAssertEqual(decoded, source)
+    }
+
     func testRowsOfAnyKindAreArrangedByID() {
         struct Row { let id: String; let title: String }
         let rows = [Row(id: "a", title: "A"), Row(id: "b", title: "B")]

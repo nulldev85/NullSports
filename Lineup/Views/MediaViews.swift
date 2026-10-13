@@ -3996,29 +3996,121 @@ private struct MediaHeroButton: View {
 struct LibraryHeroSettingsView: View {
     @EnvironmentObject private var media: MediaLibrary
 
-    private var catalogs: [MediaCatalog] { media.catalogs.filter { !$0.items.isEmpty } }
+    /// Something the hero can feature: a shelf already on the Library, or
+    /// any list the Library could add as one.
+    private struct Choice: Identifiable {
+        enum Pick {
+            case shelf(MediaCatalog)
+            case list(LibraryHeroSource)
+        }
+        let id: String
+        let title: String
+        let detail: String?
+        let pick: Pick
+    }
+
+    private struct ChoiceGroup: Identifiable {
+        let id: String
+        let title: String
+        let detail: String?
+        /// The logo of the server the group is named for.
+        var brand: MediaServerBrand? = nil
+        let choices: [Choice]
+    }
+
+    /// The shelves first, then every list Add Shelf offers, grouped the way
+    /// it groups them.
+    private var groups: [ChoiceGroup] {
+        var groups: [ChoiceGroup] = []
+        let shelves = media.catalogs.filter { !$0.items.isEmpty }.map { catalog in
+            Choice(id: catalog.id, title: catalog.title,
+                   detail: [featured(catalog.items.count), media.serverName(for: catalog)]
+                       .compactMap { $0 }.joined(separator: " · "),
+                   pick: .shelf(catalog))
+        }
+        groups.append(ChoiceGroup(id: "shelves", title: "YOUR SHELVES", detail: "Already in the Library",
+                                  choices: shelves))
+        let several = media.profiles.count > 1
+        for server in media.profiles {
+            let owner = several ? " · " + server.name.uppercased() : ""
+            let brand = several ? MediaServerBrand.of(server) : nil
+            groups.append(ChoiceGroup(id: server.id.uuidString + "|libraries", title: "LIBRARIES" + owner,
+                                      detail: nil, brand: brand,
+                                      choices: media.availableLibraries(on: server).map(rootChoice)))
+            groups.append(ChoiceGroup(id: server.id.uuidString + "|catalogs", title: "IMPORTED CATALOGS" + owner,
+                                      detail: nil, brand: brand,
+                                      choices: media.availableCatalogs(on: server).map(rootChoice)))
+        }
+        if let name = media.providerVOD.profile?.name {
+            let categories = media.availableProviderShelves
+            groups.append(ChoiceGroup(id: "provider|films", title: "MOVIES · " + name.uppercased(),
+                                      detail: "Film categories from your IPTV provider",
+                                      choices: categories.films.map(rootChoice)))
+            groups.append(ChoiceGroup(id: "provider|shows", title: "SERIES · " + name.uppercased(),
+                                      detail: "Series categories from your IPTV provider",
+                                      choices: categories.shows.map(rootChoice)))
+        }
+        for section in MDBListCatalogSection.allCases {
+            let lists = media.availableMDBListCatalogs.filter { $0.section == section }
+            groups.append(ChoiceGroup(id: "mdblist|" + section.rawValue, title: section.title,
+                                      detail: section.detail,
+                                      choices: lists.map { list in
+                                          Choice(id: list.shelfID, title: list.name,
+                                                 detail: list.itemCount.map { "\($0) list titles" },
+                                                 pick: .list(LibraryHeroSource(mdbListID: list.id, name: list.name)))
+                                      }))
+        }
+        return groups.filter { !$0.choices.isEmpty }
+    }
+
+    private func rootChoice(_ root: MediaItem) -> Choice {
+        Choice(id: MediaCatalog.id(for: root), title: root.name,
+               detail: root.childCount.map { $0 == 1 ? "1 title" : "\($0) titles" },
+               pick: .list(LibraryHeroSource(root: root, name: root.name)))
+    }
+
+    private func featured(_ count: Int) -> String {
+        let shown = min(10, count)
+        return "\(shown) featured title\(shown == 1 ? "" : "s")"
+    }
+
+    private func choose(_ choice: Choice) {
+        switch choice.pick {
+        case .shelf(let catalog): media.selectHeroCatalog(catalog)
+        case .list(let source): Task { await media.selectHeroSource(source) }
+        }
+    }
+
+    /// The lists that are read on request, so every one is offered.
+    private func loadSources() async {
+        async let mdbList: Void = media.loadMDBListIntegration()
+        async let provider: Void = media.loadProviderCatalog()
+        _ = await (mdbList, provider)
+    }
 
     var body: some View {
         #if os(tvOS)
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 PageTitle(eyebrow: "Library", title: "Library Hero",
-                          detail: "Choose the catalog whose first ten titles fill the Library hero.")
-                if catalogs.isEmpty {
-                    ContentUnavailableView("No Catalogs", systemImage: "rectangle.stack.badge.plus",
-                        description: Text("Add a shelf in Library, then choose it here."))
+                          detail: "Choose any list. Its first ten titles fill the Library hero.")
+                if groups.isEmpty {
+                    ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Add a media server, then choose a list here."))
                         .frame(maxWidth: .infinity, minHeight: 280)
                         .mediaFocusAnchor()
                 } else {
-                    VStack(spacing: 14) {
-                        ForEach(catalogs) { catalog in
-                            TVSelectable(scale: LineupStyle.controlLift,
-                                         action: { media.selectHeroCatalog(catalog) }) {
-                                catalogRow(catalog)
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: 14) {
+                            groupHeading(group)
+                            ForEach(group.choices) { choice in
+                                TVSelectable(scale: LineupStyle.controlLift, action: { choose(choice) }) {
+                                    choiceRow(choice)
+                                }
                             }
                         }
+                        .lineupFocusRegion()
                     }
-                    .lineupFocusRegion()
                 }
             }
             .frame(maxWidth: 980, alignment: .leading)
@@ -4026,55 +4118,73 @@ struct LibraryHeroSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(LineupStyle.background.ignoresSafeArea())
+        .task { await loadSources() }
         #else
         List {
-            if catalogs.isEmpty {
-                ContentUnavailableView("No Catalogs", systemImage: "rectangle.stack.badge.plus",
-                    description: Text("Add a shelf in Library, then choose it here."))
+            if groups.isEmpty {
+                ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                    description: Text("Add a media server, then choose a list here."))
                     .listRowBackground(Color.clear)
             } else {
-                Section {
-                    ForEach(catalogs) { catalog in
-                        Button { media.selectHeroCatalog(catalog) } label: { catalogRow(catalog) }
-                            .buttonStyle(.plain)
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.choices) { choice in
+                            Button { choose(choice) } label: { choiceRow(choice) }
+                                .buttonStyle(.plain)
+                        }
+                    } header: {
+                        groupHeading(group)
+                    } footer: {
+                        if group.id == groups.first?.id {
+                            Text("The first ten titles of the list you choose become the swipeable Library hero.")
+                        }
                     }
-                } footer: {
-                    Text("The first ten titles in this catalog become the swipeable Library hero.")
+                    .listRowBackground(LineupRowBackground())
                 }
-                .listRowBackground(LineupRowBackground())
             }
         }
         .scrollContentBackground(.hidden)
         .background(LineupStyle.background)
         .navigationTitle("Library Hero")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadSources() }
         #endif
     }
 
-    private func catalogRow(_ catalog: MediaCatalog) -> some View {
-        HStack(spacing: 16) {
+    private func groupHeading(_ group: ChoiceGroup) -> some View {
+        HStack(spacing: 7) {
+            if let brand = group.brand {
+                MediaServerLogo(brand: brand).frame(width: headingLogoSize, height: headingLogoSize)
+            }
+            Text(group.title)
+                .font(.inter(headingSize, .heavy)).tracking(1.4)
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                .lineLimit(1)
+        }
+        .textCase(nil)
+    }
+
+    private func choiceRow(_ choice: Choice) -> some View {
+        let selected = media.heroCatalog?.id == choice.id
+        let busy = media.loadingHeroSource == choice.id
+        return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")
                 .font(.system(size: rowSymbolSize, weight: .semibold))
-                .foregroundStyle(LineupStyle.highlight)
+                .foregroundStyle(selected ? LineupStyle.highlight : LineupStyle.secondary)
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
-                Text(catalog.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
-                HStack(spacing: 6) {
-                    Text("\(min(10, catalog.items.count)) featured title\(min(10, catalog.items.count) == 1 ? "" : "s")"
-                         + (media.serverName(for: catalog) == nil ? "" : " · "))
-                    if let server = media.serverName(for: catalog) {
-                        if let brand = media.serverBrand(for: catalog) {
-                            MediaServerLogo(brand: brand).frame(width: rowDetailSize, height: rowDetailSize)
-                        }
-                        Text(server)
-                    }
+                Text(choice.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
+                if let detail = choice.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.inter(rowDetailSize))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .lineLimit(1)
                 }
-                .font(.inter(rowDetailSize))
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
-                .lineLimit(1)
             }
             Spacer(minLength: 12)
-            if media.heroCatalog?.id == catalog.id {
+            if busy {
+                ProgressView().controlSize(.small)
+            } else if selected {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: checkSize, weight: .semibold))
                     .foregroundStyle(LineupStyle.highlight)
@@ -4100,6 +4210,8 @@ struct LibraryHeroSettingsView: View {
     private var checkSize: CGFloat { 24 }
     private var rowHorizontalPadding: CGFloat { 24 }
     private var rowHeight: CGFloat { 82 }
+    private var headingSize: CGFloat { 13 }
+    private var headingLogoSize: CGFloat { 16 }
     #else
     private var rowSymbolSize: CGFloat { 20 }
     private var rowSymbolFrame: CGFloat { 30 }
@@ -4108,6 +4220,8 @@ struct LibraryHeroSettingsView: View {
     private var checkSize: CGFloat { 20 }
     private var rowHorizontalPadding: CGFloat { 0 }
     private var rowHeight: CGFloat { 58 }
+    private var headingSize: CGFloat { 11 }
+    private var headingLogoSize: CGFloat { 13 }
     #endif
 }
 

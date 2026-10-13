@@ -69,6 +69,10 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var shelfOrder: [String] = []
     /// The shelf driving the large Library feature card.
     @Published private(set) var selectedHeroCatalogID: String? = nil
+    /// The hero's own list, when what was chosen for it is not a shelf.
+    @Published private(set) var heroListCatalog: MediaCatalog?
+    /// The list being read for the hero, while it is.
+    @Published private(set) var loadingHeroSource: String?
     /// Catalogs switched on and waiting for their server to finish importing,
     /// by server and catalog.
     @Published private(set) var importing: Set<String> = []
@@ -119,6 +123,7 @@ final class MediaLibrary: ObservableObject {
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
     private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
+    private let heroSourceKey = "Lineup.mediaHeroSource.v1"
     /// The entry, in the stores that used to keep one per server, for a choice
     /// that is now the whole Library's.
     private static let libraryWide = "library"
@@ -133,6 +138,7 @@ final class MediaLibrary: ObservableObject {
     /// the tab: a load owned by a view's task is cancelled the moment the
     /// viewer looks at another tab, which is most of a slow one.
     private var libraryLoad: Task<Void, Never>?
+    private var heroListRefresh: Task<Void, Never>?
     /// The Streaming Services row's build, when one is running.
     private var streamingLoad: Task<Void, Never>?
     private var streamingBuiltAt: Date?
@@ -222,6 +228,7 @@ final class MediaLibrary: ObservableObject {
         }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        heroListCatalog = restoreHeroList()
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -358,13 +365,18 @@ final class MediaLibrary: ObservableObject {
     /// That keeps the hub useful immediately while leaving the actual saved
     /// choice untouched until the viewer deliberately picks one.
     var heroCatalog: MediaCatalog? {
-        MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
+        if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
+           !catalogs.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
+            return list
+        }
+        return MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
     }
 
     func selectHeroCatalog(_ catalog: MediaCatalog) {
         guard catalogs.contains(where: { $0.id == catalog.id }) else { return }
         selectedHeroCatalogID = catalog.id
         saveHeroCatalogID(catalog.id)
+        forgetHeroList()
     }
 
     // MARK: - Servers
@@ -560,6 +572,7 @@ final class MediaLibrary: ObservableObject {
         // catalog. The shelves should not wait behind either.
         await loadMDBListShelves()
         await loadAddonCatalogs(on: targets)
+        refreshHeroList()
         refreshStreamingServicesIfNeeded()
     }
 
@@ -3077,6 +3090,7 @@ final class MediaLibrary: ObservableObject {
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        if heroListCatalog?.id != selectedHeroCatalogID { refreshHeroList() }
         if !arriving.isEmpty { await reload(servers: arriving) }
     }
 }
@@ -3448,5 +3462,107 @@ extension MediaLibrary {
         shelfOrder = []
         defaults.removeObject(forKey: shelfOrderKey)
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+    }
+}
+
+// MARK: - The hero from any list
+
+extension MediaLibrary {
+    /// Features a list that is not a shelf. Its titles are read now; the
+    /// hero changes once they are in, and stays as it was if the list has
+    /// nothing to feature.
+    func selectHeroSource(_ source: LibraryHeroSource) async {
+        guard loadingHeroSource == nil else { return }
+        loadingHeroSource = source.id
+        defer { loadingHeroSource = nil }
+        guard let catalog = await heroList(for: source), !catalog.items.isEmpty else {
+            errorMessage = "“\(source.name)” has nothing to feature right now."
+            return
+        }
+        heroListCatalog = catalog
+        selectedHeroCatalogID = catalog.id
+        saveHeroCatalogID(catalog.id)
+        if let data = try? JSONEncoder().encode(source) { defaults.set(data, forKey: heroSourceKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        persistHeroList()
+    }
+
+    /// The hero's own list read again, as the Library is: its titles change
+    /// as the list does. What was shown stays up until the new ones are in.
+    func refreshHeroList() {
+        guard heroListRefresh == nil, let source = savedHeroSource(),
+              source.id == selectedHeroCatalogID else { return }
+        heroListRefresh = Task { [weak self] in
+            guard let self else { return }
+            if let catalog = await self.heroList(for: source), !catalog.items.isEmpty,
+               self.selectedHeroCatalogID == catalog.id {
+                self.heroListCatalog = catalog
+                self.persistHeroList()
+            }
+            self.heroListRefresh = nil
+        }
+    }
+
+    /// A list's titles, the first of them, as a catalog with the id it would
+    /// have as a shelf.
+    private func heroList(for source: LibraryHeroSource) async -> MediaCatalog? {
+        let limit = 20
+        if let listID = source.mdbListID {
+            guard let apiKey = MDBListKeychainStore.apiKey(),
+                  let entries = try? await MDBListClient(apiKey: apiKey).items(in: listID, limit: 60) else { return nil }
+            let titles = await combinedInventory().items
+            let root = MediaItem(id: source.id, name: source.name, type: "Folder", overview: "MDBList catalog",
+                                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+            let matched = MDBListCatalogMatcher.match(entries, to: titles)
+            return MediaCatalog(root: root, items: matched.prefix(limit).map(\.cardOnly))
+        }
+        guard let root = source.root else { return nil }
+        if ProviderItem(id: root.id) != nil {
+            guard let provider = root.serverID, provider == providerVOD.profile?.id,
+                  let loaded = try? await providerVOD.catalog(),
+                  let shelf = providerShelf(root.id, catalog: loaded.catalog, index: loaded.index,
+                                            provider: provider) else { return nil }
+            return MediaCatalog(root: shelf.root, items: Array(shelf.items.prefix(limit)))
+        }
+        guard let profile = profile(for: root), let server = try? client(for: profile),
+              let items = try? await server.items(userID: profile.userID, parentID: root.id,
+                                                  sortBy: MediaServerQuery.shelfSort, limit: limit) else { return nil }
+        return MediaCatalog(root: root.servedBy(profile.id), items: items.map { $0.servedBy(profile.id).cardOnly })
+    }
+
+    private func savedHeroSource() -> LibraryHeroSource? {
+        defaults.data(forKey: heroSourceKey).flatMap { try? JSONDecoder().decode(LibraryHeroSource.self, from: $0) }
+    }
+
+    /// A shelf chosen for the hero has no list of its own to keep.
+    private func forgetHeroList() {
+        heroListRefresh?.cancel()
+        heroListRefresh = nil
+        guard heroListCatalog != nil || defaults.object(forKey: heroSourceKey) != nil else { return }
+        heroListCatalog = nil
+        defaults.removeObject(forKey: heroSourceKey)
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
+        try? FileManager.default.removeItem(at: Self.heroListURL)
+    }
+
+    nonisolated private static var heroListURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-hero-list.json")
+    }
+
+    private func persistHeroList() {
+        guard let catalog = heroListCatalog else { return }
+        let url = Self.heroListURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(catalog) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Twenty titles, read at launch so the hero is up in its first frame.
+    func restoreHeroList() -> MediaCatalog? {
+        guard defaults.object(forKey: heroSourceKey) != nil,
+              let data = try? Data(contentsOf: Self.heroListURL) else { return nil }
+        return try? JSONDecoder().decode(MediaCatalog.self, from: data)
     }
 }
