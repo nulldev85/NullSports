@@ -177,7 +177,7 @@ extension MobileAccentPicker {
                 Spacer(minLength: 8)
                 Circle().fill(accent.color).frame(width: 22, height: 22)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
             .font(.inter(.body))
@@ -320,7 +320,7 @@ private struct AccentPreviewCard: View {
 
     private func tab(symbol: String, selected: Bool) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 18))
+            .font(.system(size: 18, design: .rounded))
             .foregroundStyle(selected ? accent.color : LineupStyle.text)
             .opacity(selected ? 1 : 0.38)
             .frame(width: 32, height: 34)

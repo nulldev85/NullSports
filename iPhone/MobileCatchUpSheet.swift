@@ -230,7 +230,7 @@ struct MobileCatchUpRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "play.fill")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)

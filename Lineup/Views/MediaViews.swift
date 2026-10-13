@@ -272,7 +272,7 @@ struct LineupAccountCard<Actions: View>: View {
                     MediaServerLogo(brand: brand).frame(width: glyph * 0.52, height: glyph * 0.52)
                 } else {
                     Image(systemName: symbol)
-                        .font(.system(size: glyphSize, weight: .semibold))
+                        .font(.system(size: glyphSize, weight: .semibold, design: .rounded))
                 }
             }
                 .frame(width: glyph, height: glyph)
@@ -552,7 +552,7 @@ private struct TVMediaServersHome: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if media.roots.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
+                    Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light, design: .rounded))
                     Text("No libraries found").font(.inter(.title2, .semibold))
                     Text(media.profiles.count > 1
                          ? "Refresh your servers, or confirm these accounts can access a library."
@@ -1412,7 +1412,7 @@ private struct MediaCatalogsScreen: View {
                         .font(.interDigits(16, .semibold))
                     Image(systemName: "chevron.right")
                 }
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.text.opacity(focused ? 0.8 : 0.45))
                 .accessibilityHidden(true)
             }
@@ -1445,7 +1445,7 @@ private struct MediaCatalogsScreen: View {
                     Text("\(index + 1) of \(count)").font(.interDigits(15, .semibold))
                     Image(systemName: "chevron.down").opacity(index < count - 1 ? 1 : 0.3)
                 }
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                 .accessibilityHidden(true)
             }
@@ -1536,7 +1536,7 @@ private struct MediaCatalogsScreen: View {
                 .aspectRatio(shape.ratio, contentMode: .fit)
                 .overlay {
                     VStack(spacing: 10) {
-                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold))
+                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold, design: .rounded))
                         Text("See All").font(.inter(20, .semibold))
                     }
                     .foregroundStyle(LineupStyle.lightPurple)
@@ -2783,7 +2783,7 @@ private struct MediaDetailScreen: View {
             .overlay(alignment: .topLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
                         .frame(width: 56, height: 56)
                         .background(LineupStyle.background.opacity(0.72), in: Circle())
                 }
@@ -2887,7 +2887,7 @@ private struct MediaDetailScreen: View {
 
     @ViewBuilder
     private func iconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        let label = Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+        let label = Image(systemName: symbol).font(.system(size: 17, weight: .semibold, design: .rounded))
             .frame(width: buttonHeight + 8, height: buttonHeight)
             .modifier(MediaChromeFocus())
         #if os(tvOS)
@@ -3037,7 +3037,7 @@ private struct MediaDetailScreen: View {
                     else { Color.clear }
                 }
                 Image(systemName: "play.fill")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .padding(15)
                     .background(.black.opacity(0.58), in: Circle())
@@ -3081,7 +3081,7 @@ private struct MediaDetailScreen: View {
                                             image.resizable().scaledToFill()
                                         } else {
                                             Image(systemName: "person.fill")
-                                                .font(.largeTitle)
+                                                .font(.inter(.largeTitle))
                                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.35))
                                         }
                                     }
@@ -3184,7 +3184,7 @@ private struct MediaDetailScreen: View {
             TVSelectable(scale: LineupStyle.controlLift, action: { choosingSeason = true }) {
                 HStack(spacing: 7) {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold, design: .rounded))
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .modifier(MediaChromeSurface())
@@ -3203,7 +3203,7 @@ private struct MediaDetailScreen: View {
             } label: {
                 HStack(spacing: 7) {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold, design: .rounded))
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .modifier(MediaChromeSurface(focused: seasonFocused))
@@ -3421,7 +3421,7 @@ private struct MediaEpisodeCard: View {
                             startPoint: .topLeading, endPoint: .bottomTrailing)
                         LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
                             if let image = loaded { image.resizable().scaledToFill() }
-                            else { Image(systemName: "film.fill").font(.largeTitle) }
+                            else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
                         }
                     }
                     .overlay(alignment: .bottom) {
@@ -3436,7 +3436,7 @@ private struct MediaEpisodeCard: View {
                 .lineupFocusLayer(episodeArtworkIsFocused, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     if playback?.watched == true {
-                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 26, height: 26)
                             .background(LineupStyle.lightPurple, in: Circle())
@@ -4315,7 +4315,7 @@ struct LibraryHeroSettingsView: View {
         let busy = media.loadingHeroSource == choice.id
         return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")
-                .font(.system(size: rowSymbolSize, weight: .semibold))
+                .font(.system(size: rowSymbolSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(selected ? LineupStyle.highlight : LineupStyle.secondary)
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
@@ -4332,7 +4332,7 @@ struct LibraryHeroSettingsView: View {
                 ProgressView().controlSize(.small)
             } else if selected {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: checkSize, weight: .semibold))
+                    .font(.system(size: checkSize, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.highlight)
                     .accessibilityLabel("Selected")
             }
@@ -5070,7 +5070,7 @@ private struct MediaStreamBoard: View {
     private func notice(_ symbol: String, title: String, detail: String?) -> some View {
         VStack(spacing: Style.lineGap * 2) {
             Image(systemName: symbol)
-                .font(.system(size: Style.noticeSymbolSize, weight: .semibold))
+                .font(.system(size: Style.noticeSymbolSize, weight: .semibold, design: .rounded))
                 .opacity(0.5)
             Text(title).font(.inter(Style.noticeTitleSize, .semibold))
                 .multilineTextAlignment(.center)
@@ -5183,7 +5183,7 @@ private struct MediaStreamTab: View {
             Text("—").font(.inter(Style.tabCountSize, .bold)).opacity(0.5)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: Style.tabCountSize - 3, weight: .bold)).opacity(0.6)
+                .font(.system(size: Style.tabCountSize - 3, weight: .bold, design: .rounded)).opacity(0.6)
         }
     }
 }
@@ -5612,7 +5612,7 @@ struct MediaItemCard: View {
                                 startPoint: .topLeading, endPoint: .bottomTrailing)
                             LineupArtView(url: artworkURL, width: artWidth) { loaded in
                                 if let image = loaded { image.resizable().scaledToFill() }
-                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                             }
                         }
                     }
@@ -5632,7 +5632,7 @@ struct MediaItemCard: View {
                 .overlay(alignment: .topTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 11, weight: .heavy))
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 25, height: 25)
                             .background(LineupStyle.lightPurple, in: Circle())
@@ -5751,7 +5751,7 @@ private struct MediaArtworkProgress: View {
         VStack(spacing: playback.episodeFraction == nil ? 0 : rowToEdge) {
             HStack(spacing: gap) {
                 Image(systemName: "play.fill")
-                    .font(.system(size: glyph, weight: .bold))
+                    .font(.system(size: glyph, weight: .bold, design: .rounded))
                 MediaProgressTrack(fraction: playback.fraction, thickness: track)
                 Text(playback.label)
                     .font(.interDigits(labelSize, .semibold))

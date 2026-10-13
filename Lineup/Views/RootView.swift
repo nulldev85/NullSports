@@ -141,8 +141,9 @@ struct MainView: View {
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(4)
+            // Not rebuilt for a new accent: the accent is chosen here, and
+            // rebuilding would throw the remote off the swatch it is on.
             AccountView(selectedTab: $selectedTab)
-                .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)

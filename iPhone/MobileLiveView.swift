@@ -796,7 +796,7 @@ private struct MobileMatchupRow: View {
                     Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
                         .foregroundStyle(LineupStyle.secondary)
                 }
-                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10))
+                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10, design: .rounded))
                     .padding(.top, 2).accessibilityHidden(true)
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }

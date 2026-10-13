@@ -463,7 +463,7 @@ private struct ManualGameChannelPicker: View {
             if streams.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: searching ? "magnifyingglass" : "tv")
-                        .font(.system(size: 44)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 44, design: .rounded)).foregroundStyle(LineupStyle.secondary)
                     Text(searching ? "Nothing matched \u{201C}\(query)\u{201D}" : "No channels here")
                         .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
                     Text(searching ? "Try another name, or browse a category on the left."
@@ -513,7 +513,7 @@ private struct ManualGameChannelPicker: View {
                 }
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 18)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 18, design: .rounded)).foregroundStyle(LineupStyle.secondary)
                 }
             }
             .padding(.horizontal, 20)
@@ -636,7 +636,7 @@ private struct TVCatchUpScreen: View {
         } else if programmes.isEmpty {
             VStack(spacing: 14) {
                 Image(systemName: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath")
-                    .font(.system(size: 44, weight: .regular))
+                    .font(.system(size: 44, weight: .regular, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
                 Text(failed ? "The provider didn't answer" : "Nothing kept yet")
                     .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
@@ -1396,7 +1396,7 @@ private struct LiveSlate: View {
         HStack(alignment: .center, spacing: 20) {
             HStack(spacing: 8) {
                 if let place = game.placeLine {
-                    Image(systemName: "mappin").font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "mappin").font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text(place).lineLimit(1)
                 }
             }
@@ -1404,7 +1404,7 @@ private struct LiveSlate: View {
             LiveActionHint(hint: hint)
             HStack(spacing: 8) {
                 if let channel {
-                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text(channel).lineLimit(1)
                 }
             }
@@ -1562,7 +1562,7 @@ private struct LiveActionHint: View {
         if hint != .refreshing {
             HStack(spacing: 10) {
                 Image(systemName: hint == .secondGame ? "rectangle.split.2x1.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                 Text(hint == .secondGame ? "SELECT TO WATCH SIDE BY SIDE" : "SELECT TO PREVIEW")
                     .font(.inter(15, .heavy)).tracking(0.6)
             }
@@ -1586,7 +1586,7 @@ private struct LiveEmptySlate: View {
             LiveSlateBackdrop()
             VStack(spacing: 18) {
                 Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
-                    .font(.system(size: 52, weight: .ultraLight))
+                    .font(.system(size: 52, weight: .ultraLight, design: .rounded))
                     .foregroundStyle(LivePalette.secondary)
                 Text(isLoading ? "Setting the board." :
                      (isAvailable ? "A moment between games." : "The schedule is unavailable."))
@@ -1741,7 +1741,7 @@ private struct LiveMyTeamsHideButton: View {
         let focused = focus.wrappedValue == .hide
         let shape = Capsule()
         HStack(spacing: 7) {
-            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold, design: .rounded))
             Text("Hide").font(.inter(15, .semibold))
         }
         .foregroundStyle(LivePalette.text)
@@ -1771,8 +1771,8 @@ private struct LiveMyTeamsTab: View {
         let focused = focus.wrappedValue == .show
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(spacing: 10) {
-            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold))
-            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
+            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold, design: .rounded))
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold, design: .rounded))
         }
         .foregroundStyle(LivePalette.text)
         .frame(width: 48, height: 116)
@@ -1825,7 +1825,7 @@ private struct LiveMyTeamsEmpty: View {
             ZStack {
                 Circle().fill(LivePalette.accent.opacity(0.16))
                 Image(systemName: teams.isEmpty ? "star" : "moon.zzz")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(LivePalette.accent)
             }
             .frame(width: 58, height: 58)
@@ -1970,7 +1970,7 @@ private struct LiveTag: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+            Image(systemName: symbol).font(.system(size: 11, weight: .bold, design: .rounded))
             if !compact {
                 Text(title).font(.inter(12, .heavy)).tracking(0.6)
             }
@@ -2128,7 +2128,7 @@ private struct LiveEmptyLane: View {
 
     var body: some View {
         HStack(spacing: 18) {
-            Image(systemName: "calendar").font(.system(size: 28, weight: .light))
+            Image(systemName: "calendar").font(.system(size: 28, weight: .light, design: .rounded))
                 .foregroundStyle(LivePalette.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
@@ -2231,11 +2231,11 @@ private struct LiveChipLabel: View {
             if let league {
                 LeagueLogo(league: league, size: 24)
             } else {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 16, weight: .semibold, design: .rounded))
             }
             Text(title).font(.inter(17, .semibold)).lineLimit(1)
             if let trailing {
-                Image(systemName: trailing).font(.system(size: 13, weight: .bold)).opacity(0.7)
+                Image(systemName: trailing).font(.system(size: 13, weight: .bold, design: .rounded)).opacity(0.7)
             }
         }
         .foregroundStyle(LivePalette.text)
@@ -2459,7 +2459,7 @@ private struct LiveMatchupCard: View {
             }
             if let hint {
                 HStack(spacing: 7) {
-                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold))
+                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold, design: .rounded))
                     Text(hint.title).lineLimit(1)
                 }
                 .layoutPriority(1)
@@ -3060,7 +3060,7 @@ private struct ChannelLogo: View {
     var body: some View {
         LineupArtView(url: URL(string: url ?? ""), width: width) { loaded in
             if let image = loaded { image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) }
-            else { Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary) }
+            else { Image(systemName: "tv").font(.inter(.caption)).foregroundStyle(LineupStyle.secondary) }
         }
         .transaction { $0.animation = nil }
         .padding(4).frame(width: width, height: height).background(LineupStyle.raised)
@@ -3603,7 +3603,7 @@ private struct GuideControlBar: View {
             } else if searchActive {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
                         .foregroundStyle(GuidePalette.secondary)
                     TextField("Search channels", text: $query)
                         .textFieldStyle(.plain).focusEffectDisabled()
@@ -3804,7 +3804,7 @@ private struct GuidePreviewArtwork: View {
                     image.resizable().scaledToFit().padding(40)
                 } else {
                     VStack(spacing: 12) {
-                        Image(systemName: "tv").font(.system(size: 38, weight: .light))
+                        Image(systemName: "tv").font(.system(size: 38, weight: .light, design: .rounded))
                         Text(stream.name).font(.inter(18, .semibold))
                             .lineLimit(2).multilineTextAlignment(.center)
                     }
@@ -3920,7 +3920,7 @@ private struct GuideSidebarButton: View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         HStack(spacing: 14) {
             Image(systemName: symbol)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .frame(width: 24)
             Text(title)
                 .font(.inter(21, selected ? .semibold : .medium))
@@ -4202,7 +4202,7 @@ private struct GuideChannelArtwork: View {
                     image.resizable().scaledToFit()
                 } else {
                     Image(systemName: "tv")
-                        .font(.system(size: 20, weight: .regular))
+                        .font(.system(size: 20, weight: .regular, design: .rounded))
                         .foregroundStyle(GuidePalette.secondary)
                 }
             }
@@ -4220,7 +4220,7 @@ private struct GuideChannelArtwork: View {
         .overlay(alignment: .topTrailing) {
             if isFavorite {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(GuidePalette.text)
                     .padding(9)
             }
@@ -4587,6 +4587,9 @@ struct AccountView: View {
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
+    /// The accent, chosen here too: iCloud brings the phone's choice over
+    /// once it is switched on, and until then the two are set by hand.
+    @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
 
     private let columnWidth: CGFloat = 1400
     private let gutter: CGFloat = 24
@@ -4600,6 +4603,7 @@ struct AccountView: View {
                     // and its hairline inside, the cards a step lighter.
                     sources.modifier(TVSettingsPanel())
                     libraryAndCatalogs.modifier(TVSettingsPanel())
+                    appearance.modifier(TVSettingsPanel())
                     diagnostics.modifier(TVSettingsPanel())
                     about.modifier(TVSettingsPanel())
                 }
@@ -4682,7 +4686,7 @@ struct AccountView: View {
         return TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeamChannels = true }) {
             HStack(spacing: 20) {
                 Image(systemName: "star.square.on.square")
-                    .font(.system(size: 28, weight: .semibold)).foregroundStyle(LineupStyle.text)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
                     .frame(width: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
@@ -4693,7 +4697,7 @@ struct AccountView: View {
                 }
                 Spacer(minLength: 16)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
             }
             .padding(.horizontal, 30)
             .frame(height: 96)
@@ -4866,6 +4870,34 @@ struct AccountView: View {
         }
     }
 
+    // MARK: Appearance
+
+    /// The phone's accent colours, one press each. The chosen one wears a
+    /// white ring and a tick.
+    private var appearance: some View {
+        let chosen = LineupAccent.accent(forHex: accentHex)
+        return VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("APPEARANCE")
+            Text("Accent color · \(chosen.name). It marks what's chosen and what's live. Pick the same one as on your iPhone.")
+                .font(.inter(20, .medium)).foregroundStyle(LineupStyle.secondary)
+            HStack(spacing: 18) {
+                ForEach(LineupAccent.presets, id: \.hex) { accent in
+                    TVSelectable(scale: LineupStyle.controlLift, fillRadius: 40, action: { choose(accent.hex) }) {
+                        AccentSwatchTV(accent: accent, selected: accent.hex == chosen.hex)
+                    }
+                    .accessibilityLabel(accent.name)
+                    .accessibilityAddTraits(accent.hex == chosen.hex ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    private func choose(_ hex: String) {
+        guard hex != accentHex else { return }
+        accentHex = hex
+        CloudSettingsSync.shared.localSettingsChanged()
+    }
+
     private var about: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("ABOUT")
@@ -4880,6 +4912,31 @@ struct AccountView: View {
 }
 
 /// A section's name, small and spaced, with a hairline running out from it.
+/// One accent on the television's Settings: its colour, and its name under it.
+private struct AccentSwatchTV: View {
+    let accent: LineupAccent
+    let selected: Bool
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().fill(accent.color).frame(width: 64, height: 64)
+                if selected {
+                    Circle().strokeBorder(.white, lineWidth: 4).frame(width: 78, height: 78)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .foregroundStyle(accent.onAccent)
+                }
+            }
+            .frame(width: 80, height: 80)
+            Text(accent.name)
+                .font(.inter(16, selected ? .heavy : .semibold))
+                .foregroundStyle(selected ? LineupStyle.text : LineupStyle.secondary)
+        }
+        .padding(8)
+    }
+}
+
 /// A Settings section as a panel: the panels' fill and corners round its
 /// header and everything under it.
 private struct TVSettingsPanel: ViewModifier {
@@ -4902,6 +4959,7 @@ private struct AccountSectionHeading: View {
         case "SOURCES": "antenna.radiowaves.left.and.right"
         case "LIBRARY": "rectangle.stack"
         case "DIAGNOSTICS": "waveform.path.ecg"
+        case "APPEARANCE": "paintpalette"
         default: "info.circle"
         }
     }
@@ -5083,7 +5141,7 @@ private struct AccountGlyph: View {
                 MediaServerLogo(brand: brand).frame(width: 36, height: 36)
             } else {
                 Image(systemName: symbol)
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.text)
             }
         }
@@ -5154,7 +5212,7 @@ private struct AccountTile<Destination: View>: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
             .padding(28)
@@ -5265,7 +5323,7 @@ private struct TVPreferredChannelsView: View {
             Text(entry.key.league.uppercased())
                 .font(.inter(16, .bold)).tracking(1.2).foregroundStyle(LineupStyle.secondary)
             Image(systemName: "trash")
-                .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+                .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
         }
         .padding(.horizontal, 28)
         .frame(height: 96)
@@ -5331,7 +5389,7 @@ private struct AccountButtonFace: View {
     var body: some View {
         let shape = Capsule()
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+            Image(systemName: symbol).font(.system(size: 17, weight: .semibold, design: .rounded))
             Text(title).font(.inter(18, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
@@ -5397,7 +5455,7 @@ private struct TVStartupTraceView: View {
     var body: some View {
         ScrollView {
             Text(trace.report)
-                .font(.system(size: 21, design: .monospaced))
+                .font(.interDigits(21))
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(40)
@@ -6044,7 +6102,7 @@ private struct MultiviewTile: View {
     private var label: some View {
         HStack(spacing: 12) {
             Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .frame(width: 24)
                 .opacity(audible ? 1 : 0.6)
             VStack(alignment: .leading, spacing: 2) {
@@ -6073,7 +6131,7 @@ private struct MultiviewStatus: View {
     var body: some View {
         if controller.error != nil {
             VStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 26, weight: .semibold))
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 26, weight: .semibold, design: .rounded))
                 Text("Stream unavailable").font(.inter(18, .semibold))
                 Text("Select to retry  ·  Hold for more").font(.inter(14)).opacity(0.72)
             }
@@ -6111,10 +6169,10 @@ private struct MultiviewControlLabel: View {
     var body: some View {
         let shape = Capsule()
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .bold)).frame(width: 22)
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold, design: .rounded)).frame(width: 22)
             Text(title).font(.inter(18, .semibold)).fixedSize()
             if selected {
-                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy))
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy, design: .rounded))
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -6932,7 +6990,7 @@ private struct TVChannelBanner: View {
                 if let loaded {
                     loaded.resizable().scaledToFit()
                 } else {
-                    Image(systemName: "tv").font(.system(size: 26, weight: .light)).opacity(0.6)
+                    Image(systemName: "tv").font(.system(size: 26, weight: .light, design: .rounded)).opacity(0.6)
                 }
             }
             .frame(width: 84, height: 56)
@@ -7095,7 +7153,7 @@ private struct TVPlayerButton: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
-                Image(systemName: symbol).font(.system(size: 18, weight: .bold)).frame(width: 22)
+                Image(systemName: symbol).font(.system(size: 18, weight: .bold, design: .rounded)).frame(width: 22)
                 Text(title).font(.inter(18, .semibold)).fixedSize()
             }
             .foregroundStyle(LineupStyle.lightPurple)
@@ -7120,9 +7178,9 @@ private struct TVPlayerMenuLabel: View {
     let focused: Bool
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .bold))
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold, design: .rounded))
             Text(title).font(.inter(18, .semibold)).fixedSize()
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 22).frame(height: 52)

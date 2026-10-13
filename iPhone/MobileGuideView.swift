@@ -565,7 +565,7 @@ struct MobileGuideView: View {
             }
             .overlay(alignment: .topLeading) {
                 if library.isFavorite(stream) {
-                    Image(systemName: "star.fill").font(.caption2)
+                    Image(systemName: "star.fill").font(.inter(.caption2))
                         .padding(4).background(LineupStyle.background.opacity(0.85), in: Circle())
                         .padding(3)
                 }

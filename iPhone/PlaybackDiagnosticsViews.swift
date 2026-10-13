@@ -27,7 +27,7 @@ struct PlaybackDiagnosticsOverlay: View {
                     }
                 }
             }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.interDigits(9, .medium))
             .padding(6)
             .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             .padding(6)
@@ -54,7 +54,7 @@ struct PlaybackDiagnosticsReportView: View {
     var body: some View {
         ScrollView {
             Text(diagnostics.report)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
@@ -90,7 +90,7 @@ struct StartupTraceReportView: View {
     var body: some View {
         ScrollView {
             Text(trace.report)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)

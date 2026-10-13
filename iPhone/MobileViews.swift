@@ -624,7 +624,7 @@ private struct MobileAccountView: View {
                                 Spacer(minLength: 8)
                                 Text(accent.name).foregroundStyle(LineupStyle.secondary)
                                 Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
+                                    .font(.inter(.caption, .semibold))
                                     .foregroundStyle(LineupStyle.secondary)
                             }
                             .contentShape(Rectangle())

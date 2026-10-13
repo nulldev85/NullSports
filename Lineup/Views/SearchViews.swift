@@ -504,7 +504,7 @@ private struct AppSearchSeeAll: View {
     var body: some View {
         HStack(spacing: 6) {
             Text("See All")
-            Image(systemName: "chevron.right").font(.system(size: AppSearchMetrics.headerSize - 2, weight: .bold))
+            Image(systemName: "chevron.right").font(.system(size: AppSearchMetrics.headerSize - 2, weight: .bold, design: .rounded))
         }
         #if os(tvOS)
         .font(.inter(AppSearchMetrics.headerSize + 1, .semibold))
@@ -530,7 +530,7 @@ private struct AppSearchPlace: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: place.symbol)
-                .font(.system(size: AppSearchMetrics.placeSize - 1, weight: .semibold))
+                .font(.system(size: AppSearchMetrics.placeSize - 1, weight: .semibold, design: .rounded))
             Text(place.path.joined(separator: " › "))
                 .font(.inter(AppSearchMetrics.placeSize, .semibold))
                 .lineLimit(1)
@@ -591,7 +591,7 @@ private struct AppSearchLiveRow: View {
                     Image(systemName: "square.stack")
                     Text("+\(more)").font(.interDigits(Metrics.rowDetailSize, .bold))
                 }
-                .font(.system(size: Metrics.rowDetailSize, weight: .semibold))
+                .font(.system(size: Metrics.rowDetailSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(LineupStyle.text.opacity(0.8))
                 .padding(.horizontal, 14)
                 .frame(height: Metrics.moreHeight)
@@ -655,7 +655,7 @@ private struct AppSearchLiveArt: View {
             if let image {
                 image.resizable().scaledToFit()
             } else {
-                Image(systemName: "shield.lefthalf.filled").font(.system(size: Metrics.crestSize / 2))
+                Image(systemName: "shield.lefthalf.filled").font(.system(size: Metrics.crestSize / 2, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
         }
@@ -703,7 +703,7 @@ private struct AppSearchPrompt: View {
                 ProgressView().controlSize(.large)
             } else {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: AppSearchMetrics.promptSymbol, weight: .semibold))
+                    .font(.system(size: AppSearchMetrics.promptSymbol, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
                 Text("Search everything")
                     .font(.inter(AppSearchMetrics.promptTitle, .bold))
@@ -747,7 +747,7 @@ private struct AppSearchEmpty: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: AppSearchMetrics.promptSymbol * 0.7, weight: .semibold))
+                .font(.system(size: AppSearchMetrics.promptSymbol * 0.7, weight: .semibold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
             Text(title).font(.inter(AppSearchMetrics.rowTitleSize, .bold))
                 .multilineTextAlignment(.center)

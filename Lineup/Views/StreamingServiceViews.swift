@@ -7,10 +7,49 @@ import SwiftUI
 struct StreamingServicePoster: View {
     let service: StreamingService
 
+    /// Each service's own colours: a ground in its brand colours, darkest
+    /// at the corner, and a glow of its signature colour rising from the
+    /// bottom, under its logo -- the way the services draw their own tiles.
+    private struct Brand {
+        let top: Color
+        let bottom: Color
+        let glow: Color
+    }
+
+    private static func hex(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255,
+              blue: Double(value & 0xFF) / 255)
+    }
+
+    private static func brand(_ id: String) -> Brand {
+        switch id {
+        // The red mark on Netflix black.
+        case "netflix": Brand(top: hex(0x221F1F), bottom: hex(0x000000), glow: hex(0xE50914))
+        // Prime Video's midnight with its blue.
+        case "prime": Brand(top: hex(0x1A2A3A), bottom: hex(0x00050D), glow: hex(0x1399FF))
+        // Disney+'s deep blue night.
+        case "disney": Brand(top: hex(0x1A3D8F), bottom: hex(0x040E2B), glow: hex(0x1F80E0))
+        // HBO Max's electric blue.
+        case "hbomax": Brand(top: hex(0x2A35FF), bottom: hex(0x0A0F5C), glow: hex(0x5B3BFF))
+        // Apple TV's black.
+        case "appletv": Brand(top: hex(0x2C2C2E), bottom: hex(0x000000), glow: hex(0x8E8E93))
+        // Paramount+'s blue.
+        case "paramount": Brand(top: hex(0x0064FF), bottom: hex(0x00226B), glow: hex(0x3D8BFF))
+        // Hulu's green mark on black.
+        case "hulu": Brand(top: hex(0x14241B), bottom: hex(0x040405), glow: hex(0x1CE783))
+        // Peacock's black, warmed by its feathers.
+        case "peacock": Brand(top: hex(0x1C1C1D), bottom: hex(0x000000), glow: hex(0x6E55DC))
+        default: Brand(top: LineupPanelStyle.fill, bottom: LineupStyle.background, glow: .clear)
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
+            let brand = Self.brand(service.id)
             ZStack {
-                LineupStyle.raised
+                LinearGradient(colors: [brand.top, brand.bottom], startPoint: .top, endPoint: .bottom)
+                RadialGradient(colors: [brand.glow.opacity(0.5), brand.glow.opacity(0)],
+                               center: .bottom, startRadius: 0, endRadius: proxy.size.height * 0.75)
                 if UIImage(named: service.logoAsset) != nil {
                     Image(service.logoAsset)
                         .resizable()
@@ -20,8 +59,8 @@ struct StreamingServicePoster: View {
                 } else {
                     // A mark not yet in the catalog: its name, set plainly.
                     Text(service.name)
-                        .font(.inter(proxy.size.width * 0.12, .bold))
-                        .foregroundStyle(LineupStyle.text)
+                        .font(.inter(proxy.size.width * 0.12, .heavy))
+                        .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.6)
                         .padding(.horizontal, proxy.size.width * 0.1)
@@ -319,11 +358,11 @@ private struct StreamingSortLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: Metrics.chipSize - 3, weight: .bold))
+                .font(.system(size: Metrics.chipSize - 3, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
             Text(sort.label).font(.inter(Metrics.chipSize, .semibold)).lineLimit(1)
             Image(systemName: "chevron.down")
-                .font(.system(size: Metrics.chipSize - 5, weight: .bold))
+                .font(.system(size: Metrics.chipSize - 5, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
         }
         .foregroundStyle(LineupStyle.text)

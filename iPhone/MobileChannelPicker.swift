@@ -142,11 +142,11 @@ struct MobileChannelPicker: View {
                     .lineLimit(2).multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
                 if library.isFavorite(stream) {
-                    Image(systemName: "star.fill").font(.caption2)
+                    Image(systemName: "star.fill").font(.inter(.caption2))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 }
                 if suggested {
-                    Image(systemName: "sparkles").font(.caption2)
+                    Image(systemName: "sparkles").font(.inter(.caption2))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 }
             }

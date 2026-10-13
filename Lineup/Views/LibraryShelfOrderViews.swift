@@ -235,7 +235,7 @@ private struct LibraryShelfOrderRow: View {
                     MediaServerLogo(brand: brand)
                 } else {
                     Image(systemName: row.symbol)
-                        .font(.system(size: Metrics.symbolSize, weight: .semibold))
+                        .font(.system(size: Metrics.symbolSize, weight: .semibold, design: .rounded))
                         .foregroundStyle(LineupStyle.secondary)
                 }
             }
@@ -259,7 +259,7 @@ private struct LibraryShelfOrderRow: View {
                     Image(systemName: "chevron.up")
                     Image(systemName: "chevron.down")
                 }
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 15, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.text)
             } else if let position {
                 Text("\(position)")

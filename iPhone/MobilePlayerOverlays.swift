@@ -21,7 +21,7 @@ struct MobileChannelBanner: View {
                 if let loaded {
                     loaded.resizable().scaledToFit()
                 } else {
-                    Image(systemName: "tv").font(.system(size: 17, weight: .light)).opacity(0.6)
+                    Image(systemName: "tv").font(.system(size: 17, weight: .light, design: .rounded)).opacity(0.6)
                 }
             }
             .frame(width: 48, height: 32)
@@ -111,7 +111,7 @@ struct MobileGameAlertBanner: View {
             }
             .buttonStyle(.plain)
             Button(action: onDismiss) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold, design: .rounded))
                     .frame(width: 32, height: 32)
                     .contentShape(Circle())
             }
@@ -168,7 +168,7 @@ struct MobileCatchUpBar: View {
             Group {
                 if compact {
                     Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .frame(width: 30, height: 30)
                 } else {
                     Label("Start Over", systemImage: "backward.end.fill")
