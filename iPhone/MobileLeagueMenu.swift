@@ -130,6 +130,8 @@ struct MobileLeagueMenu: View {
                         .font(.inter(11, .medium)).foregroundStyle(LineupStyle.secondary)
                 }
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .layoutPriority(1)
                 Spacer(minLength: 8)
                 tally(entry)
                 Image(systemName: "checkmark")
