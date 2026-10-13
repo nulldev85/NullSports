@@ -1,131 +1,5 @@
 import SwiftUI
 
-enum LineupTheme: String, CaseIterable, Identifiable {
-    // Declaration order is the order the settings screens list them, and the
-    // default belongs at the top.
-    case signal
-    case graphiteIce
-    case velvet
-    // Keep the former Sea Glass raw value so existing selections upgrade to
-    // OLED instead of unexpectedly falling back to the default theme.
-    case oled = "seaGlass"
-
-    static let storageKey = "lineup.appearance.theme"
-    var id: String { rawValue }
-
-    var name: String {
-        switch self {
-        case .signal: "Signal"
-        case .graphiteIce: "Graphite Ice"
-        case .velvet: "Velvet"
-        case .oled: "OLED"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .signal: "Charcoal & electric blue"
-        case .graphiteIce: "Graphite & ice blue"
-        case .velvet: "Plum & lilac"
-        case .oled: "Pure black & crisp white"
-        }
-    }
-
-    fileprivate var palette: LineupPalette {
-        switch self {
-        case .graphiteIce:
-            LineupPalette(
-                accent: rgb(0xF1F5F9), background: rgb(0x080B10), surface: rgb(0x121720),
-                raised: rgb(0x1A2230), sidebar: rgb(0x0D1219), selected: rgb(0x172435),
-                focused: rgb(0x20364D), warning: rgb(0xF2B35D),
-                highlight: rgb(0x38BDF8), highlightSoft: rgb(0x7DD3FC),
-                selectionBorder: rgb(0x38BDF8),
-                positive: rgb(0x34D399), logoPlate: rgb(0xF1F5F9),
-                line: rgb(0x8491A3).opacity(0.18),
-                leagues: LeagueColors(
-                    football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
-                )
-            )
-        case .velvet:
-            LineupPalette(
-                accent: rgb(0xD4C7E1), background: rgb(0x221D27), surface: rgb(0x28212D),
-                raised: rgb(0x332B3A), sidebar: rgb(0x251F2A), selected: rgb(0x2D2633),
-                focused: rgb(0x3D3444), warning: rgb(0xC78259),
-                // Velvet has never had a colour of its own apart from its text
-                // tint, so its highlight is that tint: nothing about the theme
-                // changes by giving the slot a value.
-                highlight: rgb(0xD4C7E1), highlightSoft: rgb(0xE6DEEE),
-                selectionBorder: rgb(0xFFFFFF),
-                positive: rgb(0x6BC77A), logoPlate: rgb(0xFFFFFF),
-                line: rgb(0xD4C7E1).opacity(0.11),
-                leagues: LeagueColors(
-                    football: rgb(0x9C6E4F), college: rgb(0x9E754D), basketball: rgb(0xB36347),
-                    hockey: rgb(0x738C96), baseball: rgb(0x6B7DA8), combat: rgb(0xD20A0A)
-                )
-            )
-        case .oled:
-            // A true OLED treatment, not Graphite Ice with darker values.
-            // Most pixels stay completely off: the canvas, navigation layer,
-            // and resting panels are black. Only content-bearing cards rise a
-            // few neutral steps, while crisp white is reserved for focus and
-            // active edges. This keeps the screen sleek without erasing
-            // hierarchy or adding a colour cast.
-            LineupPalette(
-                accent: rgb(0xFAFAFA), background: rgb(0x000000), surface: rgb(0x000000),
-                raised: rgb(0x0A0A0A), sidebar: rgb(0x000000), selected: rgb(0x060606),
-                focused: rgb(0x171717), warning: rgb(0xFFB020),
-                highlight: rgb(0xF2F2F2), highlightSoft: rgb(0xFFFFFF),
-                selectionBorder: rgb(0xFFFFFF),
-                positive: rgb(0x32D583), logoPlate: rgb(0xF7FAFC),
-                line: rgb(0xFFFFFF).opacity(0.09),
-                leagues: LeagueColors(
-                    football: rgb(0xA78BFA), college: rgb(0x2DD4BF), basketball: rgb(0xFF8A3D),
-                    hockey: rgb(0xF472B6), baseball: rgb(0x4ADE80), combat: rgb(0xFF4D4D)
-                )
-            )
-        case .signal:
-            // Charcoal and electric blue. Velvet is warm, soft and
-            // low-contrast: plum ground, lilac text, nothing saturated
-            // anywhere. This is the opposite on every axis -- a charcoal
-            // ground with surfaces that climb clear of it, white type, and one
-            // electric blue carrying every live and active state in the app.
-            //
-            // White is the whole light-grey tier as well. Secondary text here
-            // is the accent at reduced opacity, which is how the app has
-            // always drawn it, and white at two thirds is a light grey -- so
-            // the four colours asked for are four, not five.
-            LineupPalette(
-                // Neutral greys, not cool ones. These leaned towards blue by a
-                // dozen levels and more, which is invisible in a swatch and
-                // reads as navy on a television -- most sets run a cool picture
-                // and a dark grey with any blue in it is where that shows. The
-                // blue in this theme is the accent's job and nothing else's.
-                accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
-                raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
-                // Focus is a step up in the same grey. It used to lean towards
-                // the accent, which is a good idea on paper and another source
-                // of navy in a room; the blue border and glow around a focused
-                // thing say it far more clearly than its fill ever did.
-                focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
-                highlight: rgb(0x5B9DFF), highlightSoft: rgb(0xA6C8FF),
-                selectionBorder: rgb(0x5B9DFF),
-                positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
-                // A charcoal ground is lighter than carbon, so a hairline needs
-                // a little more to draw on it than it did on near-black.
-                line: rgb(0xFFFFFF).opacity(0.14),
-                // No blue among them. The accent is blue now, and a league
-                // chip that shares it reads as the app talking rather than as
-                // the league it stands for.
-                leagues: LeagueColors(
-                    football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
-                    hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
-                )
-            )
-        }
-    }
-}
-
 /// One colour per league, so a theme decides the whole set rather than each
 /// league carrying a literal that was picked against one background.
 fileprivate struct LeagueColors {
@@ -195,6 +69,51 @@ fileprivate extension LineupPalette {
 }
 #endif
 
+#if !os(tvOS)
+fileprivate extension LineupPalette {
+    /// The phone's only look. It was one of four themes, Signal, and the one
+    /// the app opened in; the others are gone, and with them the setting.
+    // Charcoal and broadcast red: a charcoal ground with surfaces that
+    // climb clear of it, white type, and one red carrying every live and
+    // active state in the app. It is the
+    // red of the on-air dot, so the marks that say "active" and the
+    // ones that say "live" are one colour rather than two that clash;
+    // this was an electric blue, the only blue left in the app.
+    //
+    // White is the whole light-grey tier as well. Secondary text here
+    // is the accent at reduced opacity, which is how the app has
+    // always drawn it, and white at two thirds is a light grey -- so
+    // the four colours asked for are four, not five.
+    static let phone = LineupPalette(
+        // Neutral greys, not cool ones. These leaned towards blue by a
+        // dozen levels and more, which is invisible in a swatch and
+        // reads as navy on a television -- most sets run a cool picture
+        // and a dark grey with any blue in it is where that shows. The
+        // colour in this theme is the accent's job and nothing else's.
+        accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
+        raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
+        // Focus is a step up in the same grey. It used to lean towards
+        // the accent, which is a good idea on paper and another source
+        // of navy in a room; the accent's border and glow around a
+        // focused thing say it far more clearly than its fill ever did.
+        focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
+        highlight: rgb(0xFF3347), highlightSoft: rgb(0xFF8A95),
+        selectionBorder: rgb(0xFF3347),
+        positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
+        // A charcoal ground is lighter than carbon, so a hairline needs
+        // a little more to draw on it than it did on near-black.
+        line: rgb(0xFFFFFF).opacity(0.14),
+        // A league chip in the accent's own colour reads as the app
+        // talking rather than as the league it stands for. Combat's is
+        // the deeper red of its own posters, not the accent's.
+        leagues: LeagueColors(
+            football: rgb(0x8B5CF6), college: rgb(0x00C2A8), basketball: rgb(0xFF6A1F),
+            hockey: rgb(0xE14D8A), baseball: rgb(0x3DDC84), combat: rgb(0xD20A0A)
+        )
+    )
+}
+#endif
+
 private func rgb(_ value: UInt32) -> Color {
     Color(
         red: Double((value >> 16) & 0xFF) / 255,
@@ -204,28 +123,23 @@ private func rgb(_ value: UInt32) -> Color {
 }
 
 enum LineupStyle {
-    /// Both platforms read the same stored choice. The television used to be
-    /// pinned to Velvet because the themes it could have picked were not
-    /// finished for it; the available themes are, and each has its own settings
-    /// entry to choose from.
-    /// Signal is what the app looks like out of the box. A device that has
-    /// been through the settings screen keeps whatever was chosen there --
-    /// changing the default is not a reason to overrule someone's pick.
-    static var theme: LineupTheme {
-        LineupTheme(rawValue: UserDefaults.standard.string(forKey: LineupTheme.storageKey) ?? "") ?? .signal
-    }
     #if os(tvOS)
-    /// The television has one palette, whatever the phone has chosen.
     private static var palette: LineupPalette { .television }
     #else
-    private static var palette: LineupPalette { theme.palette }
+    private static var palette: LineupPalette { .phone }
     #endif
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
     static var lightPurple: Color { palette.accent }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
-    static var liveSelectionBorder: Color { palette.selectionBorder }
+    static var liveSelectionBorder: Color {
+        #if os(tvOS)
+        return palette.selectionBorder
+        #else
+        return LineupAccent.current.color
+        #endif
+    }
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
     static var raised: Color { palette.raised }
@@ -233,54 +147,78 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
-    static var highlight: Color { palette.highlight }
-    static var highlightSoft: Color { palette.highlightSoft }
-    static var liveBorder: Color { palette.highlight.opacity(0.72) }
-    static var line: Color { palette.line }
-    static var text: Color {
+    /// The phone's is the accent its viewer chose; the television keeps
+    /// its white.
+    static var highlight: Color {
         #if os(tvOS)
-        return palette.accent
+        return palette.highlight
         #else
-        switch theme {
-        case .velvet: return rgb(0xF6F2F8)
-        case .graphiteIce: return rgb(0xF1F5F9)
-        case .signal: return lightPurple
-        case .oled: return rgb(0xFAFAFA)
-        }
+        return LineupAccent.current.color
         #endif
     }
+    static var highlightSoft: Color {
+        #if os(tvOS)
+        return palette.highlightSoft
+        #else
+        return LineupAccent.current.soft
+        #endif
+    }
+    /// Type set on the highlight, legible whatever accent was chosen.
+    static var onHighlight: Color {
+        #if os(tvOS)
+        return palette.background
+        #else
+        return LineupAccent.current.onAccent
+        #endif
+    }
+    static var liveBorder: Color { highlight.opacity(0.72) }
+    static var line: Color { palette.line }
+    static var text: Color { palette.accent }
     static var secondary: Color {
         #if os(tvOS)
         // The light grey: a solid colour rather than white at an opacity, so
         // it reads the same over a card, a row or the picture.
         return rgb(0xA1A1A6)
         #else
-        switch theme {
-        case .velvet: return rgb(0xA9A1AE)
-        case .graphiteIce: return rgb(0x8491A3)
-        case .signal: return lightPurple.opacity(0.66)
-        case .oled: return rgb(0x8C8C8C)
-        }
+        return lightPurple.opacity(0.66)
         #endif
     }
-    /// Playback chrome stays legible against video. OLED uses its crisp white
-    /// focus colour while the other themes retain their text tint.
+    /// Playback chrome stays legible against video.
     static var mediaText: Color { text }
     static var mediaSecondary: Color { secondary }
-    static var mediaAccent: Color {
+    static var mediaAccent: Color { text }
+    static var field: Color { lightPurple }
+    /// An error on the phone is red whatever its accent.
+    static var live: Color {
         #if os(tvOS)
-        return text
+        return palette.highlight
         #else
-        return theme == .oled ? highlight : lightPurple
+        return broadcastRed
         #endif
     }
-    static var field: Color { lightPurple }
-    static var live: Color { palette.highlight }
     static var warning: Color { palette.warning }
-    /// Broadcast red is identity, not theme decoration. A channel that is on
-    /// air uses the exact same red in every appearance and every theme.
-    static var liveDot: Color { rgb(0xFF3347) }
+    /// What is on air. On the phone it is the accent, so the live marks and
+    /// the active ones are one colour whatever the viewer chose -- Red by
+    /// default, which is the broadcast red it always was. The television
+    /// keeps the broadcast red.
+    static var liveDot: Color {
+        #if os(tvOS)
+        return broadcastRed
+        #else
+        return LineupAccent.current.color
+        #endif
+    }
     static var liveStatus: Color { liveDot }
+    /// Type set on a live mark, legible whatever the accent is.
+    static var onLive: Color {
+        #if os(tvOS)
+        return .white
+        #else
+        return LineupAccent.current.onAccent
+        #endif
+    }
+    /// The red of failure, which is not a matter of taste.
+    static var broadcastRed: Color { rgb(0xFF3347) }
     /// Confirmation -- a channel was found, a server answered.
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
@@ -405,53 +343,20 @@ extension View {
     }
 }
 
-struct LineupThemeSwatch: View {
-    let theme: LineupTheme
-
-    var body: some View {
-        HStack(spacing: 0) {
-            theme.palette.background
-            theme.palette.surface
-            theme.palette.accent
-            theme.palette.highlight
-        }
-        .frame(width: 64, height: 24)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(theme.palette.accent.opacity(0.18), lineWidth: 1))
-        .accessibilityHidden(true)
-    }
-}
-
 extension View {
-    /// Rebuilds this subtree whenever the theme changes.
+    /// Rebuilds this subtree when the accent changes.
     ///
-    /// Every colour in the app is read from `LineupStyle`, which answers from
-    /// stored state rather than from anything SwiftUI watches. A view is only
-    /// asked for its body again when one of its own inputs changes, and a theme
-    /// is not an input to any of them -- so on a switch the screens that
-    /// happened to re-render took the new palette and the rest kept the old
-    /// one, which is the half-repainted screen this fixes.
-    ///
-    /// Observing the stored value higher up does not help, because the same
-    /// rule applies one level down: a panel whose title and rows have not
-    /// changed is not rebuilt just because its parent was. Nothing short of
-    /// threading the theme through every view's inputs makes the dependency
-    /// real, so the subtree is re-identified instead and drawn again from
-    /// scratch in the new palette.
-    ///
-    /// Apply it below whatever holds state worth keeping -- the selected tab
-    /// sits above this, so switching a theme does not also move the viewer.
-    ///
-    /// The television has one palette whatever is stored, so there is nothing
-    /// there to redraw -- and the stored choice reaches it from the phone
-    /// through iCloud, where re-identifying a tab tore down whatever it was
-    /// showing, a film playing full screen included.
+    /// Every colour is read from `LineupStyle`, which answers from stored
+    /// state rather than from anything SwiftUI watches, so a view is not
+    /// drawn again just because the accent moved. Re-identifying the subtree
+    /// draws all of it again in the new colour. Apply it below whatever holds
+    /// state worth keeping, such as the selected tab.
     @ViewBuilder
-    func lineupThemeScope(_ theme: String) -> some View {
+    func lineupAccentScope(_ accent: String) -> some View {
         #if os(tvOS)
         self
         #else
-        id(theme)
+        id(accent)
         #endif
     }
 
