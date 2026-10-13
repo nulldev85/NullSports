@@ -185,8 +185,7 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
-    /// The phone's is the accent its viewer chose; the television keeps
-    /// its white.
+    /// The accent the viewer chose, on the phone and the television alike.
     static var highlight: Color {
         return LineupAccent.current.color
     }
