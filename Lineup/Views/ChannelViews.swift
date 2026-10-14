@@ -4623,6 +4623,8 @@ struct AccountView: View {
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
+    @State private var choosingAccent = false
+    @State private var pendingAccent: String?
     /// The accent, chosen here too: iCloud brings the phone's choice over
     /// once it is switched on, and until then the two are set by hand.
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
@@ -4667,6 +4669,14 @@ struct AccountView: View {
             }
             .sheet(isPresented: $managingTeamChannels) {
                 TVPreferredChannelsView().environmentObject(library)
+            }
+            .fullScreenCover(isPresented: $choosingAccent, onDismiss: {
+                if let hex = pendingAccent {
+                    pendingAccent = nil
+                    choose(hex)
+                }
+            }) {
+                TVAccentPicker(hex: accentHex) { pendingAccent = $0 }
             }
         }
     }
@@ -4908,22 +4918,26 @@ struct AccountView: View {
 
     // MARK: Appearance
 
-    /// The phone's accent colours, one press each. The chosen one wears a
-    /// white ring and a tick.
+    /// Opens the same preset, custom and saved color choices as the phone.
     private var appearance: some View {
         let chosen = LineupAccent.accent(forHex: accentHex)
         return VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("APPEARANCE")
-            Text("Accent color · \(chosen.name). It marks what's chosen and what's live. Pick the same one as on your iPhone.")
-                .font(.inter(20, .medium)).foregroundStyle(LineupStyle.secondary)
-            HStack(spacing: 18) {
-                ForEach(LineupAccent.presets, id: \.hex) { accent in
-                    TVSelectable(scale: LineupStyle.controlLift, fillRadius: 40, action: { choose(accent.hex) }) {
-                        AccentSwatchTV(accent: accent, selected: accent.hex == chosen.hex)
+            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingAccent = true }) {
+                HStack(spacing: 20) {
+                    Circle().fill(chosen.color).frame(width: 48, height: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Accent Color").font(.inter(24, .semibold))
+                        Text("Presets, custom colors, and My Colors")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
                     }
-                    .accessibilityLabel(accent.name)
-                    .accessibilityAddTraits(accent.hex == chosen.hex ? .isSelected : [])
+                    Spacer()
+                    Text(chosen.isPreset ? chosen.name : "#\(chosen.hex)")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
                 }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }
@@ -4944,32 +4958,6 @@ struct AccountView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-/// A section's name, small and spaced, with a hairline running out from it.
-/// One accent on the television's Settings: its colour, and its name under it.
-private struct AccentSwatchTV: View {
-    let accent: LineupAccent
-    let selected: Bool
-
-    var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle().fill(accent.color).frame(width: 64, height: 64)
-                if selected {
-                    Circle().strokeBorder(.white, lineWidth: 4).frame(width: 78, height: 78)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 24, weight: .heavy, design: .rounded))
-                        .foregroundStyle(accent.onAccent)
-                }
-            }
-            .frame(width: 80, height: 80)
-            Text(accent.name)
-                .font(.inter(16, selected ? .heavy : .semibold))
-                .foregroundStyle(selected ? LineupStyle.text : LineupStyle.secondary)
-        }
-        .padding(8)
     }
 }
 

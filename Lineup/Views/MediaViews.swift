@@ -2632,6 +2632,7 @@ private struct MediaDetailScreen: View {
     @State private var pageReady = false
     #if os(tvOS)
     @State private var preparedHero: UIImage?
+    @State private var summaryItem: MediaItem?
     #endif
     @State private var favorite = false
     @State private var watched = false
@@ -2701,6 +2702,9 @@ private struct MediaDetailScreen: View {
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
+        .fullScreenCover(item: $summaryItem) { item in
+            TVMediaSummarySheet(item: item).presentationBackground(.clear)
+        }
         #else
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #endif
@@ -2752,6 +2756,11 @@ private struct MediaDetailScreen: View {
                         .frame(height: 460)
                         .allowsHitTesting(false)
                     tvActions.padding(.horizontal, horizontalPadding)
+                    if let overview = subject.overview, !overview.isEmpty {
+                        TVMediaSummaryPreview(text: overview) { summaryItem = subject }
+                            .padding(.horizontal, horizontalPadding)
+                            .lineupFocusRegion()
+                    }
                     episodesSection
                     trailersSection
                     relatedSection
@@ -3058,11 +3067,10 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 22) {
                         ForEach(episodes) { episode in
-                            TVSelectable(drawsFocusChrome: false, action: { chosen = episode }) {
-                                MediaEpisodeCard(episode: episode)
-                            }
+                            MediaEpisodeCard(episode: episode,
+                                             onPlay: { startingOver = false; chosen = episode },
+                                             onSummary: { summaryItem = episode })
                             .frame(width: 420, alignment: .topLeading)
-                            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
                         }
                     }
                     .padding(.vertical, 8)
@@ -3514,16 +3522,59 @@ private struct TVMediaActionSurface: ViewModifier {
 private struct MediaEpisodeCard: View {
     @EnvironmentObject private var media: MediaLibrary
     #if os(tvOS)
-    @Environment(\.lineupTVSelectableFocused) private var artworkFocused
+    @State private var artworkFocused = false
     #endif
     let episode: MediaItem
+    var onPlay: () -> Void = {}
+    var onSummary: () -> Void = {}
 
     var body: some View {
         let playback = playbackPresentation
         return VStack(alignment: .leading, spacing: 7) {
-            Color.clear
-                .frame(maxWidth: .infinity)
+            #if os(tvOS)
+            TVSelectable(drawsFocusChrome: false, action: onPlay,
+                         onFocusChange: { artworkFocused = $0 }) {
+                artwork(playback: playback)
+                    .frame(height: 236.25)
+            }
+            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
+            .accessibilityLabel("Play \(episode.name)")
+            #else
+            artwork(playback: playback)
                 .aspectRatio(16 / 9, contentMode: .fit)
+            #endif
+            if let label = episode.episodeCode ?? episode.episodeLabel {
+                Text(label).font(.inter(.caption, .semibold))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+            }
+            #if os(tvOS)
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
+            #else
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
+            #endif
+            if let overview = episode.overview, !overview.isEmpty {
+                #if os(tvOS)
+                TVMediaSummaryPreview(text: overview, compact: true, action: onSummary)
+                #else
+                Text(overview).font(.inter(.caption))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                #endif
+            }
+            if !footer.isEmpty {
+                Text(footer).font(.inter(.caption2))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(LineupStyle.lightPurple)
+    }
+
+    private func artwork(playback: MediaCardPlayback?) -> some View {
+        Color.clear
+                .frame(maxWidth: .infinity)
                 .overlay {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
@@ -3552,26 +3603,6 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let label = episode.episodeCode ?? episode.episodeLabel {
-                Text(label).font(.inter(.caption, .semibold))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            }
-            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
-            if let overview = episode.overview, !overview.isEmpty {
-                Text(overview).font(.inter(.caption))
-                    .lineLimit(episodeArtworkIsFocused ? nil : 3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                    .animation(.easeInOut(duration: 0.2), value: episodeArtworkIsFocused)
-            }
-            if !footer.isEmpty {
-                Text(footer).font(.inter(.caption2))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-            }
-        }
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(LineupStyle.lightPurple)
     }
 
     private var episodeArtworkIsFocused: Bool {
