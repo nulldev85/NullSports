@@ -135,7 +135,9 @@ private struct TVSelectActionModifier: ViewModifier {
     func body(content: Content) -> some View {
         if let hold {
             content.highPriorityGesture(
-                LongPressGesture(minimumDuration: 0.5, maximumDistance: 30)
+                // tvOS has a duration-only initializer for remote presses;
+                // the touch-distance overload is unavailable on this platform.
+                LongPressGesture(minimumDuration: 0.5)
                     .exclusively(before: TapGesture())
                     .onEnded { press in
                         switch press {
