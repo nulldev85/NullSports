@@ -95,30 +95,27 @@ struct LiveView: View {
             }
             // Both teams have a saved channel and they disagree -- the one
             // case where a preference cannot answer on its own.
-            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
-                                titleVisibility: .visible, presenting: feedChoice) { choice in
-                Button(choice.home.channelName) { startFeed(choice.home, of: choice) }
-                Button(choice.away.channelName) { startFeed(choice.away, of: choice) }
-                Button("Choose Another Channel") {
-                    let game = choice.game
-                    let multiview = choice.startsMultiview
-                    feedChoice = nil
-                    // The dialog has to be gone before the picker comes up.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
+            .tvChoices("Which feed?", symbol: "tv", isPresented: presenting($feedChoice),
+                       message: feedChoice.map {
+                           "\($0.home.team) prefers \($0.home.channelName). \($0.away.team) prefers \($0.away.channelName)."
+                       }) {
+                guard let choice = feedChoice else { return [] }
+                return [
+                    TVChoice(choice.home.channelName, id: "home") { startFeed(choice.home, of: choice) },
+                    TVChoice(choice.away.channelName, id: "away") { startFeed(choice.away, of: choice) },
+                    // Run once the sheet has gone, so the picker can come up.
+                    TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle", id: "other") {
+                        let game = choice.game
+                        let multiview = choice.startsMultiview
+                        feedChoice = nil
                         chooseChannel(for: game, startsMultiview: multiview)
                     }
-                }
-                Button("Cancel", role: .cancel) { feedChoice = nil }
-            } message: { choice in
-                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
-            }
+                ]
+            } onCancel: { feedChoice = nil }
             .channelScopePrompt($scopingChannel)
-            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Please wait for channel syncing to finish, then select the game again.").foregroundColor(LineupStyle.lightPurple)
-            }
+            .tvChoices("Channels are still syncing", symbol: "arrow.clockwise", isPresented: $showsChannelSyncMessage,
+                       message: "Please wait for channel syncing to finish, then select the game again.",
+                       cancelTitle: "OK") { [] }
             .fullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
@@ -303,19 +300,19 @@ private struct TVChannelScopePrompt: ViewModifier {
     @Binding var picked: TVPickedChannel?
 
     func body(content: Content) -> some View {
-        content.confirmationDialog("Use this channel for…",
-                                   isPresented: Binding(get: { picked != nil },
-                                                        set: { if !$0 { picked = nil } }),
-                                   titleVisibility: .visible, presenting: picked) { choice in
-            Button("Just This Game") { picked = nil }
-            ForEach(library.preferenceSides(for: choice.game)) { side in
-                Button("Always for the \(side.role) (\(side.team))") {
+        content.tvChoices("Use this channel for…", symbol: "star.square.on.square",
+                          isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } }),
+                          message: picked.map {
+                              "\($0.stream.name) is on now. Lineup can remember it for either team's games."
+                          }) {
+            guard let choice = picked else { return [] }
+            let sides = library.preferenceSides(for: choice.game).map { side in
+                TVChoice("Always for the \(side.role) (\(side.team))", symbol: "star", id: "side-\(side.id)") {
                     library.savePreference(choice.stream, for: side.key, teamName: side.team)
                     picked = nil
                 }
             }
-        } message: { choice in
-            Text("\(choice.stream.name) is on now. Lineup can remember it for either team's games.")
+            return [TVChoice("Just This Game", symbol: "sportscourt", id: "game") { picked = nil }] + sides
         }
     }
 }
@@ -1988,30 +1985,31 @@ private struct LiveGameMenu: ViewModifier {
     let onStartMultiview: () -> Void
 
     func body(content: Content) -> some View {
-        content.contextMenu {
+        content.tvHoldMenu(game.matchupLine, symbol: "sportscourt") {
+            var items: [TVChoice] = []
             if game.isUpcoming {
-                Button(reminders.reminds(game) ? "Remove Reminder" : "Remind Me",
-                       systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
+                let on = reminders.reminds(game)
+                items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
                     reminders.toggleGame(game)
-                }
+                })
             }
             // A channel of the viewer's own for this game, and whether to
             // keep it for either team, as on iPhone.
             if let chooseChannel {
-                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(game) }
+                items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(game) })
             }
-            ForEach(library.followableSides(of: game)) { team in
+            for team in library.followableSides(of: game) {
                 let following = library.isFollowing(team.key)
-                Button(following ? "Remove \(team.name) from My Teams"
-                                 : "Add \(team.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
+                items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
+                                      symbol: following ? "star.slash" : "star", id: "follow-\(team.id)") {
                     library.toggleFollow(team)
-                }
+                })
             }
             if library.stream(for: game) != nil {
-                Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
-                    .disabled(isPrimary)
+                items.append(TVChoice("Start Multiview", symbol: "rectangle.split.2x1", isEnabled: !isPrimary,
+                                      action: onStartMultiview))
             }
+            return items
         }
     }
 }
@@ -2198,11 +2196,13 @@ private struct LiveLeagueFilter: View {
             LiveChipLabel(symbol: "line.3.horizontal.decrease", title: title,
                           league: selectedLeague, trailing: "chevron.down")
         }
-        .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
-            Button("All sports") { selectedLeague = nil }
-            ForEach(SportsLeague.allCases) { league in
-                Button(liveLeagueName(league)) { selectedLeague = league }
-            }
+        .tvChoices("Show which sport?", symbol: "sportscourt", isPresented: $choosing) {
+            [TVChoice("All Sports", id: "all", isSelected: selectedLeague == nil) { selectedLeague = nil }]
+                + SportsLeague.allCases.map { league in
+                    TVChoice(liveLeagueName(league), id: league.rawValue, isSelected: selectedLeague == league) {
+                        selectedLeague = league
+                    }
+                }
         }
         .accessibilityLabel("Filter by sport")
     }
@@ -2946,33 +2946,33 @@ private struct GameEventCard: View {
             }
         }
         .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
-        .contextMenu {
+        .tvHoldMenu(event.matchupLine, symbol: "sportscourt") {
+            var items: [TVChoice] = []
             if event.isUpcoming {
-                Button(reminders.reminds(event) ? "Remove Reminder" : "Remind Me",
-                       systemImage: reminders.reminds(event) ? "bell.slash" : "bell") {
+                let on = reminders.reminds(event)
+                items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
                     reminders.toggleGame(event)
-                }
+                })
             }
             if let chooseChannel {
-                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(event) }
+                items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(event) })
             }
             // Following is offered wherever a game is, not only in the rail.
             // The rail is empty until somebody is followed, so a follow action
             // that lived only there could never be reached from a fresh install.
-            ForEach(library.followableSides(of: event)) { team in
+            for team in library.followableSides(of: event) {
                 let following = library.isFollowing(team.key)
-                Button(following ? "Remove \(team.name) from My Teams"
-                                 : "Add \(team.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
+                items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
+                                      symbol: following ? "star.slash" : "star", id: "follow-\(team.id)") {
                     library.toggleFollow(team)
-                }
+                })
             }
             if stream != nil {
-                Button(multiviewPrimaryID == stream?.id ? "First Multiview Game" : "Start Multiview", systemImage: "rectangle.split.2x1") {
-                    onStartMultiview()
-                }
-                .disabled(multiviewPrimaryID == stream?.id)
+                let first = multiviewPrimaryID == stream?.id
+                items.append(TVChoice(first ? "First Multiview Game" : "Start Multiview", symbol: "rectangle.split.2x1",
+                                      isEnabled: !first) { onStartMultiview() })
             }
+            return items
         }
         .focusLift(isFocused)
         .animation(.easeOut(duration: 0.18), value: isFocused)
@@ -4147,28 +4147,37 @@ private struct GuideChannelRow: View {
             }
         }
         .contentShape(Rectangle())
-        .contextMenu {
+        .tvHoldMenu(stream.name, symbol: "tv") {
+            var items: [TVChoice] = []
             if stream.hasCatchUp {
-                Button("Start Over", systemImage: "backward.end.fill") { onStartOver() }
-                Button("Catch Up", systemImage: "clock.arrow.circlepath") { onCatchUp() }
+                items.append(TVChoice("Start Over", symbol: "backward.end") { onStartOver() })
+                items.append(TVChoice("Catch Up", symbol: "clock.arrow.circlepath") { onCatchUp() })
             }
-            Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
-                onStartMultiview()
-            }
-            .disabled(multiviewPrimaryID == stream.id)
+            let first = multiviewPrimaryID == stream.id
+            items.append(TVChoice(first ? "First Multiview Channel" : "Start Multiview", symbol: "rectangle.split.2x1",
+                                  isEnabled: !first) { onStartMultiview() })
             if favoritesMode {
-                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
-                Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
-                    .disabled(!library.canMoveFavorite(stream, offset: -1))
-                Button("Move Down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
-                    .disabled(!library.canMoveFavorite(stream, offset: 1))
-                Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down") { onReorderFavorites() })
+                items.append(TVChoice("Move Up", symbol: "arrow.up",
+                                      isEnabled: library.canMoveFavorite(stream, offset: -1)) {
+                    library.moveFavorite(stream, offset: -1)
+                })
+                items.append(TVChoice("Move Down", symbol: "arrow.down",
+                                      isEnabled: library.canMoveFavorite(stream, offset: 1)) {
+                    library.moveFavorite(stream, offset: 1)
+                })
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
             } else if library.isFavorite(stream) {
-                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
-                Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down") { onReorderFavorites() })
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
             } else {
-                Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
+                items.append(TVChoice("Add to Favorites", symbol: "star") { library.addFavorite(stream) })
             }
+            return items
         }
     }
 }
@@ -5257,24 +5266,18 @@ private struct TVPreferredChannelsView: View {
             .padding(.vertical, 56)
         }
         .background(LineupStyle.background.ignoresSafeArea())
-        .confirmationDialog("Forget this channel?",
-                            isPresented: Binding(get: { forgetting != nil },
-                                                 set: { if !$0 { forgetting = nil } }),
-                            titleVisibility: .visible, presenting: forgetting) { entry in
-            Button("Forget", role: .destructive) {
+        .tvChoices("Forget this channel?", symbol: "trash",
+                   isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
+                   message: forgetting.map { "\(name(of: $0)) games will open on Lineup's own match again." }) {
+            guard let entry = forgetting else { return [] }
+            return [TVChoice("Forget", isDestructive: true) {
                 library.removePreference(for: entry.key)
                 forgetting = nil
-            }
-            Button("Cancel", role: .cancel) { forgetting = nil }
-        } message: { entry in
-            Text("\(name(of: entry)) games will open on Lineup's own match again.")
-        }
-        .confirmationDialog("Remove every preferred channel?", isPresented: $clearingAll,
-                            titleVisibility: .visible) {
-            Button("Remove All", role: .destructive) { library.removeAllPreferences() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+            }]
+        } onCancel: { forgetting = nil }
+        .tvChoices("Remove every preferred channel?", symbol: "trash", isPresented: $clearingAll,
+                   message: "This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.") {
+            [TVChoice("Remove All", isDestructive: true) { library.removeAllPreferences() }]
         }
     }
 
@@ -5762,7 +5765,9 @@ private struct MultiviewView: View {
             .focusEffectDisabled()
             .onTapGesture { select(index) }
             .onMoveCommand(perform: flip(from: index))
-            .contextMenu { menu(for: index) }
+            .tvHoldMenu(currentGame(index)?.matchupLine ?? stream(index).name, symbol: "rectangle.split.2x1") {
+                menuItems(for: index)
+            }
             .position(x: frame.midX, y: frame.midY)
             .opacity(shown ? 1 : 0)
             .zIndex(zIndex(index))
@@ -5779,31 +5784,25 @@ private struct MultiviewView: View {
     }
 
     /// Held on a picture: the arrangement, the stream, and the way out.
-    @ViewBuilder
-    private func menu(for index: Int) -> some View {
+    private func menuItems(for index: Int) -> [TVChoice] {
+        var items: [TVChoice] = []
         if fullScreenTile == nil {
-            Button(layout.other.title, systemImage: layout.other.symbol) { switchLayout() }
-                .lineupFlatButton()
+            items.append(TVChoice(layout.other.title, symbol: layout.other.symbol) { switchLayout() })
             if layout == .bigAndSmall {
-                Button("Swap Screens", systemImage: "arrow.left.arrow.right") { swapPictures() }
-                    .lineupFlatButton()
+                items.append(TVChoice("Swap Screens", symbol: "arrow.left.arrow.right") { swapPictures() })
             }
-            Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) }
-                .lineupFlatButton()
+            items.append(TVChoice("Full Screen", symbol: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) })
         } else {
-            Button("Back to Multiview", systemImage: "arrow.down.right.and.arrow.up.left") { leaveFullScreen() }
-                .lineupFlatButton()
+            items.append(TVChoice("Back to Multiview", symbol: "arrow.down.right.and.arrow.up.left") { leaveFullScreen() })
         }
-        Button("Retry Stream", systemImage: "arrow.clockwise") { players.tiles[index].retry() }
-            .lineupFlatButton()
+        items.append(TVChoice("Retry Stream", symbol: "arrow.clockwise") { players.tiles[index].retry() })
         if let game = currentGame(index), players.tiles[index].failover != nil {
-            Button("Choose Another Channel", systemImage: "list.bullet") {
+            items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") {
                 choosingChannel = MultiviewChannelChoice(tile: index, game: game)
-            }
-            .lineupFlatButton()
+            })
         }
-        Button("Exit Multiview", systemImage: "xmark", role: .destructive) { dismiss() }
-            .lineupFlatButton()
+        items.append(TVChoice("Exit Multiview", symbol: "xmark", isDestructive: true) { dismiss() })
+        return items
     }
 
     // MARK: Arrangement
@@ -6904,16 +6903,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
                             .focused(focusedControl, equals: .subtitles)
-                            .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.subtitleTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+                                controller.subtitleTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedSubtitleID) {
                                         controller.selectSubtitle(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // A file with more than one audio stream -- languages,
                         // commentary, a stereo mix beside the surround one.
@@ -6924,16 +6922,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .audio)
                             }
                             .focused(focusedControl, equals: .audio)
-                            .confirmationDialog("Audio", isPresented: $showingAudio,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.audioTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedAudioTrackID ? "  ✓" : "")) {
+                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio) {
+                                controller.audioTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedAudioTrackID) {
                                         controller.selectAudioTrack(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // And one with more than one video stream.
                         if !isLive && controller.videoTracks.count > 1 {
@@ -6943,16 +6940,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .video)
                             }
                             .focused(focusedControl, equals: .video)
-                            .confirmationDialog("Video", isPresented: $showingVideo,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.videoTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedVideoTrackID ? "  ✓" : "")) {
+                            .tvChoices("Video", symbol: "film", isPresented: $showingVideo) {
+                                controller.videoTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedVideoTrackID) {
                                         controller.selectVideoTrack(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // A Menu renders through tvOS's own chrome, so this is a
                         // plain selectable with a dialog, like every other control.
@@ -6962,13 +6958,11 @@ private struct TVPlayerChrome: View {
                                               focused: focusedControl.wrappedValue == .quality)
                         }
                         .focused(focusedControl, equals: .quality)
-                        .confirmationDialog("Quality · \(controller.qualityLabel)",
-                                            isPresented: $showingQuality, titleVisibility: .visible) {
-                            Button(isLive ? "Refresh stream" : "Restart playback") {
+                        .tvChoices("Quality · \(controller.qualityLabel)", symbol: "gearshape", isPresented: $showingQuality) {
+                            [TVChoice(isLive ? "Refresh Stream" : "Restart Playback", symbol: "arrow.clockwise") {
                                 controller.goLive(); onInteraction()
-                            }
-                            Button("Cancel", role: .cancel) { onInteraction() }
-                        }
+                            }]
+                        } onCancel: { onInteraction() }
                         Spacer(minLength: 0)
                     }
                     }

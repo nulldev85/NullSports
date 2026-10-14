@@ -88,18 +88,14 @@ struct LibraryShelfOrderSheet: View {
         }
         .tint(LineupStyle.highlight)
         .onAppear { rows = media.libraryRows }
-        .alert("Rename Shelf", isPresented: Binding(get: { renaming != nil },
-                                                   set: { if !$0 { renaming = nil } }),
-               presenting: renaming) { row in
-            TextField(row.originalTitle ?? row.title, text: $newName)
-                .textInputAutocapitalization(.words)
-            Button("Save") { rename(row, to: newName) }
-            if row.title != (row.originalTitle ?? row.title) {
-                Button("Use Original Name") { rename(row, to: "") }
-            }
-            Button("Cancel", role: .cancel) { renaming = nil }
-        } message: { row in
-            Text("Originally “\(row.originalTitle ?? row.title)”.")
+        .sheet(item: $renaming) { row in
+            MobileShelfRenameSheet(row: row, name: $newName,
+                                   onSave: { rename(row, to: newName) },
+                                   onRestore: { rename(row, to: "") },
+                                   onCancel: { renaming = nil })
+                .presentationDetents([.height(320)])
+                .presentationBackground(LineupPanelStyle.fill)
+                .preferredColorScheme(.dark)
         }
     }
     #endif
@@ -183,10 +179,9 @@ struct LibraryShelfOrderSheet: View {
             .onTapGesture {
                 if isCarried { setDown() } else { carrying = row.id }
             }
-            .contextMenu {
-                if carrying == nil {
-                    Button("Rename", systemImage: "pencil") { startRenaming(row) }
-                }
+            .tvHoldMenu(row.title, symbol: "pencil") {
+                guard carrying == nil else { return [] }
+                return [TVChoice("Rename", symbol: "pencil") { startRenaming(row) }]
             }
             .onMoveCommand { direction in
                 guard isCarried else { return }
@@ -287,6 +282,52 @@ private struct LibraryShelfOrderRow: View {
         #endif
     }
 }
+
+#if !os(tvOS)
+/// Naming a row on the phone: its name to type over, and the way back to its
+/// own, in the app's panel and type rather than the system's alert.
+private struct MobileShelfRenameSheet: View {
+    let row: MediaLibrary.LibraryRow
+    @Binding var name: String
+    let onSave: () -> Void
+    let onRestore: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                LineupIconTile(symbol: "pencil", size: 30)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Rename Shelf").font(.inter(17, .bold)).foregroundStyle(LineupStyle.text)
+                    Text("Originally “\(row.originalTitle ?? row.title)”.")
+                        .font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
+                }
+                .padding(.top, 5)
+            }
+            TextField(row.originalTitle ?? row.title, text: $name)
+                .font(.inter(17, .semibold))
+                .textInputAutocapitalization(.words)
+                .submitLabel(.done)
+                .focused($typing)
+                .onSubmit(onSave)
+                .padding(.horizontal, 14).frame(height: 48)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(spacing: 0) {
+                MobileMenuRow(item: MobileMenuItem("Save", symbol: "checkmark", action: onSave)) { onSave() }
+                if row.title != (row.originalTitle ?? row.title) {
+                    MobileMenuRow(item: MobileMenuItem("Use Original Name", symbol: "arrow.uturn.backward",
+                                                       action: onRestore)) { onRestore() }
+                }
+                MobileMenuRow(item: MobileMenuItem("Cancel", symbol: "xmark", action: onCancel)) { onCancel() }
+            }
+        }
+        .padding(LineupPanelStyle.inset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { typing = true }
+    }
+}
+#endif
 
 #if os(tvOS)
 /// Naming a row on the television: its name to type over, and the way back

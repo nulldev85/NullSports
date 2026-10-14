@@ -140,18 +140,13 @@ struct MediaServersView: View {
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             #if os(tvOS)
-            .alert("Media Server", isPresented: Binding(
-                get: { media.errorMessage != nil },
-                set: { if !$0 { media.errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: { Text(media.errorMessage ?? "Unknown error") }
-            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                                titleVisibility: .visible) {
-                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes Continue Watching and local watched status from this device.")
+            .tvChoices("Media Server", symbol: "exclamationmark.triangle",
+                       isPresented: Binding(get: { media.errorMessage != nil },
+                                            set: { if !$0 { media.errorMessage = nil } }),
+                       message: media.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+            .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                       message: "This removes Continue Watching and local watched status from this Apple TV.") {
+                [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
             }
             #else
             .lineupChoices("Media Server", symbol: "exclamationmark.triangle",
@@ -619,20 +614,17 @@ private struct TVMediaServersHome: View {
         // Back on the Library's own screen: no title's page is over it, so
         // the tab bar is up whatever the pages that closed did or did not say.
         .onAppear { tabBar?.reset() }
-        .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
-            ForEach(media.removableShelves) { shelf in
-                Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
+        .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
+                   message: "Its titles stay on your server; only the shelf leaves the Library.") {
+            media.removableShelves.map { shelf in
+                TVChoice(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
+                    media.removeShelf(shelf)
+                }
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Its titles stay on your server; only the shelf leaves the Library.")
         }
-        .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                            titleVisibility: .visible) {
-            Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This removes Continue Watching and local watched status from this Apple TV.")
+        .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                   message: "This removes Continue Watching and local watched status from this Apple TV.") {
+            [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
         }
         .background(
             ZStack {
@@ -1125,11 +1117,10 @@ private struct MediaCatalogsScreen: View {
                 }
                 // Holding Select on a shelf's See All offers to take the
                 // shelf away, without going up to the options for it.
-                .contextMenu {
-                    Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+                .tvHoldMenu(media.shelfTitle(catalog), symbol: "rectangle.stack") {
+                    [TVChoice("Remove Shelf", symbol: "minus.rectangle", isDestructive: true) {
                         media.removeShelf(catalog)
-                    }
-                    .lineupFlatButton()
+                    }]
                 }
                 #endif
             }
@@ -1460,11 +1451,9 @@ private struct MediaCatalogsScreen: View {
             .focusEffectDisabled()
             .onTapGesture { playHero() }
             .onMoveCommand { moveTV($0, from: .hero) }
-            .contextMenu {
-                if let item, item.opensPage {
-                    Button("Details", systemImage: "info.circle") { pushed = item }
-                        .lineupFlatButton()
-                }
+            .tvHoldMenu(item?.name ?? "", symbol: "info.circle") {
+                guard let item, item.opensPage else { return [] }
+                return [TVChoice("Details", symbol: "info.circle") { pushed = item }]
             }
             .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
             if count > 1 {
@@ -1584,7 +1573,7 @@ private struct MediaCatalogsScreen: View {
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
-            .contextMenu { MediaCardActions(item: item) }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
     }
 
     /// The end of a catalog's row: the whole catalog, and holding Select to
@@ -1617,11 +1606,10 @@ private struct MediaCatalogsScreen: View {
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
         .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
-        .contextMenu {
-            Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+        .tvHoldMenu(media.shelfTitle(catalog), symbol: "rectangle.stack") {
+            [TVChoice("Remove Shelf", symbol: "minus.rectangle", isDestructive: true) {
                 media.removeShelf(catalog)
-            }
-            .lineupFlatButton()
+            }]
         }
         .accessibilityLabel("See all of \(catalog.title)")
     }
@@ -1808,7 +1796,7 @@ private struct MediaCatalogsScreen: View {
                                              onFocusChange: { focused in preview(trackedItem, when: focused) }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
-                                .contextMenu { continueWatchingAction(for: trackedItem) }
+                                .tvHoldMenu(trackedItem.name, symbol: "play.circle") { media.tvCardChoices(for: trackedItem) }
                                 #else
                                 MediaItemCard(item: trackedItem, shape: shape)
                                     .lineupHoldMenu(trackedItem.name, symbol: "play.circle",
@@ -1843,10 +1831,6 @@ private struct MediaCatalogsScreen: View {
         guard opensPages else { return item.opensPage ? item : nil }
         if item.type == "Episode" { return media.series(of: item) }
         return item.opensPage || item.isPlayable ? item : nil
-    }
-
-    private func continueWatchingAction(for item: MediaItem) -> some View {
-        MediaCardActions(item: item)
     }
 
     /// The field lives here rather than on the shelf screen. tvOS draws its own
@@ -3047,7 +3031,7 @@ private struct MediaDetailScreen: View {
                                 MediaEpisodeCard(episode: episode)
                             }
                             .frame(width: 420, alignment: .topLeading)
-                            .contextMenu { episodeLibraryActions(episode) }
+                            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
                         }
                     }
                     .padding(.vertical, 8)
@@ -3127,21 +3111,6 @@ private struct MediaDetailScreen: View {
             Text(title).font(.inter(.subheadline, .semibold)).lineLimit(1)
         }
         .frame(width: trailerWidth, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func episodeLibraryActions(_ episode: MediaItem) -> some View {
-        let watched = media.isWatched(episode)
-        Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-            Task { await media.setEpisodePlayedAndAdvance(!watched, for: episode) }
-        }
-        .lineupFlatButton()
-        let favorite = media.isLocalFavorite(episode)
-        Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
-            media.setLocalFavorite(!favorite, for: episode)
-            Task { await media.setFavorite(!favorite, for: episode) }
-        }
-        .lineupFlatButton()
     }
 
     @ViewBuilder
@@ -3269,27 +3238,16 @@ private struct MediaDetailScreen: View {
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .modifier(MediaChromeSurface())
             }
-            .confirmationDialog("Season", isPresented: $choosingSeason, titleVisibility: .visible) {
-                ForEach(seasons) { season in
-                    Button(season.name) { Task { await loadSeason(season) } }
+            .tvChoices("Season", symbol: "list.number", isPresented: $choosingSeason) {
+                seasons.map { season in
+                    TVChoice(season.name, id: "\(season.id)", isSelected: season.id == selectedSeason?.id) {
+                        Task { await loadSeason(season) }
+                    }
                 }
-                Button("Cancel", role: .cancel) { }
             }
             #else
-            Menu {
-                ForEach(seasons) { season in
-                    Button(season.name) { Task { await loadSeason(season) } }
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold, design: .rounded))
-                }
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .modifier(MediaChromeSurface(focused: seasonFocused))
-            }
-            .focused($seasonFocused)
-            .focusEffectDisabled()
+            // The phone's episodes header has its own Seasons dropdown.
+            Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
             #endif
         } else {
             Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
@@ -3618,7 +3576,7 @@ private struct MediaPlayableCard: View {
         TVSelectable(drawsFocusChrome: false, action: choose, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
-            .contextMenu { libraryActions }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
             .fullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -3636,8 +3594,6 @@ private struct MediaPlayableCard: View {
     private func choose() {
         if let playMedia { playMedia(item) } else { choosingSource = true }
     }
-
-    private var libraryActions: some View { MediaCardActions(item: item) }
 }
 
 #if !os(tvOS)
@@ -3675,35 +3631,40 @@ extension MediaLibrary {
 }
 #endif
 
-/// What a long press on a Library card offers: leaving Continue Watching,
-/// and for an episode, watched and favorite. One list, whether the card opens
-/// a page or the streams.
-private struct MediaCardActions: View {
-    @EnvironmentObject private var media: MediaLibrary
-    let item: MediaItem
+#if os(tvOS)
+extension MediaLibrary {
+    /// What holding Select on a Library card offers: leaving Continue
+    /// Watching, and for an episode, watched and favorite. One list, whether
+    /// the card opens a page or the streams.
+    func tvCardChoices(for item: MediaItem) -> [TVChoice] {
+        var choices: [TVChoice] = []
+        if isInContinueWatching(item) {
+            choices.append(TVChoice("Remove from Continue Watching", symbol: "rectangle.stack.badge.minus",
+                                    isDestructive: true) {
+                self.removeFromContinueWatching(item)
+            })
+        }
+        if item.type == "Episode" { choices += tvEpisodeChoices(for: item) }
+        return choices
+    }
 
-    var body: some View {
-        if media.isInContinueWatching(item) {
-            Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
-                media.removeFromContinueWatching(item)
+    /// An episode's own: watched, and the Favorites library.
+    func tvEpisodeChoices(for episode: MediaItem) -> [TVChoice] {
+        let watched = isWatched(episode)
+        let favorite = isLocalFavorite(episode)
+        return [
+            TVChoice(watched ? "Remove from Watched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
+                Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
+            },
+            TVChoice(favorite ? "Remove from Favorites" : "Add to Favorites",
+                     symbol: favorite ? "heart.slash" : "heart") {
+                self.setLocalFavorite(!favorite, for: episode)
+                Task { await self.setFavorite(!favorite, for: episode) }
             }
-            .lineupFlatButton()
-        }
-        if item.type == "Episode" {
-            let watched = media.isWatched(item)
-            Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-                Task { await media.setEpisodePlayedAndAdvance(!watched, for: item) }
-            }
-            .lineupFlatButton()
-            let favorite = media.isLocalFavorite(item)
-            Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
-                media.setLocalFavorite(!favorite, for: item)
-                Task { await media.setFavorite(!favorite, for: item) }
-            }
-            .lineupFlatButton()
-        }
+        ]
     }
 }
+#endif
 
 #if os(tvOS)
 /// Owns the rapidly changing focus preview outside the catalog view tree. A
@@ -6805,15 +6766,12 @@ struct MDBListIntegrationView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             #endif
             #if os(tvOS)
-            .confirmationDialog("Disconnect MDBList?", isPresented: $disconnecting,
-                                titleVisibility: .visible) {
-                Button("Disconnect", role: .destructive) {
+            .tvChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,
+                       message: "MDBList shelves will be removed. Your lists on MDBList will not be changed.") {
+                [TVChoice("Disconnect", isDestructive: true) {
                     media.disconnectMDBList()
                     dismiss()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("MDBList shelves will be removed. Your lists on MDBList will not be changed.")
+                }]
             }
             #else
             .lineupChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,

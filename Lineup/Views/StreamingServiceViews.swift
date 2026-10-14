@@ -92,10 +92,10 @@ struct StreamingServiceScreen: View {
     @State private var order = StreamingOrderMemo()
     @AppStorage("Lineup.streamingSort.movie") private var movieSort: StreamingSort = .popular
     @AppStorage("Lineup.streamingSort.show") private var showSort: StreamingSort = .popular
+    @State private var choosingSort = false
     #if os(tvOS)
     // tvOS pushes by hand: its cards are not NavigationLinks.
     @State private var pushed: MediaItem?
-    @State private var choosingSort = false
     #endif
 
     private var titles: StreamingServiceTitles { media.streamingTitles(for: service) }
@@ -138,12 +138,13 @@ struct StreamingServiceScreen: View {
         }
         #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        .confirmationDialog("Sort \(kind == .movie ? "Movies" : "TV Shows")", isPresented: $choosingSort,
-                            titleVisibility: .visible) {
-            ForEach(StreamingSort.allCases) { option in
-                Button(option == sort ? "\(option.label) ✓" : option.label) { sortBinding.wrappedValue = option }
+        .tvChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
+                   isPresented: $choosingSort) {
+            StreamingSort.allCases.map { option in
+                TVChoice(option.label, symbol: option.symbol, id: option.id, isSelected: option == sort) {
+                    sortBinding.wrappedValue = option
+                }
             }
-            Button("Cancel", role: .cancel) { }
         }
         #else
         .navigationTitle(service.name)
@@ -156,6 +157,14 @@ struct StreamingServiceScreen: View {
             }
         }
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+        .lineupChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
+                       isPresented: $choosingSort) {
+            StreamingSort.allCases.map { option in
+                MobileMenuItem(option.label, symbol: option.symbol, id: option.id, isSelected: option == sort) {
+                    sortBinding.wrappedValue = option
+                }
+            }
+        }
         #endif
     }
 
@@ -242,15 +251,12 @@ struct StreamingServiceScreen: View {
             StreamingSortLabel(sort: sort)
         }
         #else
-        Menu {
-            Picker("Sort By", selection: sortBinding) {
-                ForEach(StreamingSort.allCases) { option in
-                    Label(option.label, systemImage: option.symbol).tag(option)
-                }
-            }
-        } label: {
+        // The app's own sheet of choices rather than the system's menu,
+        // which draws in its own glass and type.
+        Button { choosingSort = true } label: {
             StreamingSortLabel(sort: sort)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Sort by \(sort.label)")
         #endif
     }

@@ -61,17 +61,13 @@ struct AppSearchView: View {
         }
         .task(id: query) { await search(query) }
         #if os(tvOS)
-        .confirmationDialog(choice.map(choiceTitle) ?? "", isPresented: Binding(
-            get: { choice != nil }, set: { if !$0 { choice = nil } }
-        ), titleVisibility: .visible, presenting: choice) { hit in
+        .tvChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",
+                   isPresented: Binding(get: { choice != nil }, set: { if !$0 { choice = nil } }),
+                   message: choice.map(choiceMessage)) {
             // Only what is not on yet is asked about, so the channel is tuned
             // for what it shows now rather than for the game.
-            if let station = channel(of: hit) {
-                Button("Watch \(station.name) Now") { tune(station, game: nil) }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: { hit in
-            Text(choiceMessage(hit))
+            guard let hit = choice, let station = channel(of: hit) else { return [] }
+            return [TVChoice("Watch \(station.name) Now", symbol: "play.rectangle") { tune(station, game: nil) }]
         }
         #else
         .lineupChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",

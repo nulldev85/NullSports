@@ -52,14 +52,17 @@ struct RootView: View {
         .onReceive(library.$gamesByLeague) { games in
             GameAlertCenter.shared.observe(games.values.flatMap { $0 }, isFollowing: library.isFollowing)
         }
-        .alert("Couldn’t Connect", isPresented: Binding(
-            get: { library.errorMessage != nil },
-            set: { if !$0 { library.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(library.errorMessage ?? "Unknown error").foregroundColor(LineupStyle.lightPurple)
-        }
+        #if os(tvOS)
+        .tvChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
+                   isPresented: Binding(get: { library.errorMessage != nil },
+                                        set: { if !$0 { library.errorMessage = nil } }),
+                   message: library.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+        #else
+        .lineupChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
+                       isPresented: Binding(get: { library.errorMessage != nil },
+                                            set: { if !$0 { library.errorMessage = nil } }),
+                       message: library.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+        #endif
     }
 }
 
