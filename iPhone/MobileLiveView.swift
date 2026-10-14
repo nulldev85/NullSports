@@ -254,27 +254,25 @@ struct MobileLiveView: View {
                 // comes back upright as the preview, not as full screen.
                 if value { expanded = false }
             }
-            .alert("Game has not started yet", isPresented: Binding(
-                get: { upcomingGame != nil },
-                set: { if !$0 { upcomingGame = nil } }
-            )) {
-                if let game = upcomingGame {
-                    Button(reminders.reminds(game) ? "Remove reminder" : "Remind me") {
-                        reminders.toggleGame(game)
-                        upcomingGame = nil
-                    }
-                }
-                Button("OK", role: .cancel) { upcomingGame = nil }
-            } message: {
-                if let game = upcomingGame {
-                    Text("\(game.matchupLine)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
-                }
-            }
-            .alert("Streams are still syncing…", isPresented: $showsChannelSyncMessage) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.")
-            }
+            .lineupChoices("Game has not started yet", symbol: "clock",
+                           isPresented: Binding(get: { upcomingGame != nil },
+                                                set: { if !$0 { upcomingGame = nil } }),
+                           message: upcomingGame.map {
+                               "\($0.matchupLine)\nScheduled for \($0.start.formatted(date: .abbreviated, time: .shortened))."
+                           },
+                           cancelTitle: "OK") {
+                guard let game = upcomingGame else { return [] }
+                let reminded = reminders.reminds(game)
+                return [MobileMenuItem(reminded ? "Remove Reminder" : "Remind Me",
+                                       symbol: reminded ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                    upcomingGame = nil
+                }]
+            } onCancel: { upcomingGame = nil }
+            .lineupChoices("Streams are still syncing…", symbol: "arrow.clockwise",
+                           isPresented: $showsChannelSyncMessage,
+                           message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
+                           cancelTitle: "OK") { [] }
             .sheet(item: $choosingChannel, onDismiss: {
                 // The scope prompt has to wait for the sheet to be gone, or it
                 // would try to present over a dismissing sheet.
@@ -293,38 +291,41 @@ struct MobileLiveView: View {
             }
             // Both teams have a saved channel and they disagree — the one case
             // where a preference cannot answer on its own.
-            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
-                                titleVisibility: .visible, presenting: feedChoice) { choice in
-                Button(choice.home.channelName) {
-                    feedChoice = nil
-                    if let stream = library.stream(withID: choice.home.streamID) {
-                        showPreview(stream, for: choice.game)
+            .lineupChoices("Which feed?", symbol: "tv", isPresented: presenting($feedChoice),
+                           message: feedChoice.map {
+                               "\($0.home.team) prefers \($0.home.channelName). \($0.away.team) prefers \($0.away.channelName)."
+                           }) {
+                guard let choice = feedChoice else { return [] }
+                return [
+                    MobileMenuItem(choice.home.channelName, id: "home") {
+                        feedChoice = nil
+                        if let stream = library.stream(withID: choice.home.streamID) {
+                            showPreview(stream, for: choice.game)
+                        }
+                    },
+                    MobileMenuItem(choice.away.channelName, id: "away") {
+                        feedChoice = nil
+                        if let stream = library.stream(withID: choice.away.streamID) {
+                            showPreview(stream, for: choice.game)
+                        }
+                    },
+                    MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle", id: "other") {
+                        let game = choice.game
+                        feedChoice = nil
+                        choosingChannel = game
                     }
-                }
-                Button(choice.away.channelName) {
-                    feedChoice = nil
-                    if let stream = library.stream(withID: choice.away.streamID) {
-                        showPreview(stream, for: choice.game)
-                    }
-                }
-                Button("Choose another channel") {
-                    let game = choice.game
-                    feedChoice = nil
-                    choosingChannel = game
-                }
-                Button("Cancel", role: .cancel) { feedChoice = nil }
-            } message: { choice in
-                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
-            }
+                ]
+            } onCancel: { feedChoice = nil }
             // After a manual pick: how long should it apply?
-            .confirmationDialog("Use this channel for…", isPresented: presenting($scopingSelection),
-                                titleVisibility: .visible, presenting: scopingSelection) { selection in
-                Button("Just this game") {
-                    library.saveGameSelection(selection.stream, for: selection.game)
-                    scopingSelection = nil
-                }
-                ForEach(library.preferenceSides(for: selection.game)) { side in
-                    Button("Always use this channel for the \(side.role) (\(side.team))") {
+            .lineupChoices("Use this channel for…", symbol: "star.square.on.square",
+                           isPresented: presenting($scopingSelection),
+                           message: scopingSelection.map {
+                               "\($0.stream.name) is playing now. Lineup can remember it for one of these teams."
+                           }) {
+                guard let selection = scopingSelection else { return [] }
+                let sides = library.preferenceSides(for: selection.game).map { side in
+                    MobileMenuItem("Always for the \(side.role) (\(side.team))", symbol: "star",
+                                   id: "side-\(side.id)") {
                         // The broader team preference also remembers the
                         // channel for this exact game. That makes all three
                         // scope choices deterministic even when an ad-hoc
@@ -334,8 +335,10 @@ struct MobileLiveView: View {
                         scopingSelection = nil
                     }
                 }
-            } message: { selection in
-                Text("\(selection.stream.name) is playing now. Lineup can remember it for one of these teams.")
+                return [MobileMenuItem("Just This Game", symbol: "sportscourt", id: "game") {
+                    library.saveGameSelection(selection.stream, for: selection.game)
+                    scopingSelection = nil
+                }] + sides
             }
             .onChange(of: isActive) { _, active in
                 // Leaving the Live tab still closes the preview, unless it is

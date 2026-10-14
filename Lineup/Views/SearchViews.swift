@@ -60,6 +60,7 @@ struct AppSearchView: View {
             #endif
         }
         .task(id: query) { await search(query) }
+        #if os(tvOS)
         .confirmationDialog(choice.map(choiceTitle) ?? "", isPresented: Binding(
             get: { choice != nil }, set: { if !$0 { choice = nil } }
         ), titleVisibility: .visible, presenting: choice) { hit in
@@ -72,6 +73,18 @@ struct AppSearchView: View {
         } message: { hit in
             Text(choiceMessage(hit))
         }
+        #else
+        .lineupChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",
+                       isPresented: Binding(get: { choice != nil }, set: { if !$0 { choice = nil } }),
+                       message: choice.map(choiceMessage)) {
+            // Only what is not on yet is asked about, so the channel is tuned
+            // for what it shows now rather than for the game.
+            guard let hit = choice, let station = channel(of: hit) else { return [] }
+            return [MobileMenuItem("Watch \(station.name) Now", symbol: "play.rectangle") {
+                tune(station, game: nil)
+            }]
+        }
+        #endif
         #if os(tvOS)
         .fullScreenCover(item: $playback) { playback in
             PlayerView(urls: library.playbackURLs(for: playback.channel),

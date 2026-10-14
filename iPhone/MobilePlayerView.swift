@@ -179,16 +179,15 @@ struct MobilePlayerView: View {
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
-                            titleVisibility: .visible) {
-            ForEach(controller.subtitleTracks) { track in
-                Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+            controller.subtitleTracks.map { track in
+                MobileMenuItem(track.title, id: "\(track.id)",
+                               isSelected: track.id == controller.selectedSubtitleID) {
                     controller.selectSubtitle(track)
                     showControls()
                 }
             }
-            Button("Cancel", role: .cancel) { showControls() }
-        }
+        } onCancel: { showControls() }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)

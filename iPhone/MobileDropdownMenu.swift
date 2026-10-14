@@ -140,14 +140,25 @@ struct MobileDropdownPanel: View {
     }
 
     private func row(_ item: MobileMenuItem) -> some View {
-        Button {
+        MobileMenuRow(item: item) {
             if item.children != nil {
                 withAnimation(.snappy(duration: 0.22)) { openedID = item.id }
             } else {
                 dismiss()
                 item.action()
             }
-        } label: {
+        }
+    }
+}
+
+/// One row of a dropdown or a choice sheet: its tile, its name, the accent's
+/// tick on the panel's grey well when it is the one chosen.
+struct MobileMenuRow: View {
+    let item: MobileMenuItem
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
             HStack(spacing: 12) {
                 if let symbol = item.symbol {
                     LineupIconTile(symbol: symbol, size: 28)
@@ -155,7 +166,8 @@ struct MobileDropdownPanel: View {
                 Text(item.title)
                     .font(.inter(16, .semibold))
                     .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                     .minimumScaleFactor(0.85)
                 Spacer(minLength: 8)
                 if item.isSelected {
@@ -169,8 +181,8 @@ struct MobileDropdownPanel: View {
                         .foregroundStyle(LineupPanelStyle.quiet)
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: Self.rowHeight)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: MobileDropdownPanel.rowHeight)
             .background(item.isSelected ? LineupPanelStyle.well : .clear,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
@@ -248,5 +260,126 @@ private struct MobileDropdownRowStyle: ButtonStyle {
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
+extension View {
+    /// The app's own sheet of choices, in place of the system's action sheet
+    /// and alert, which draw in the system's glass and its type: a panel
+    /// that rises from the foot of the screen with a tile, the question and
+    /// what it means, a row a choice, and Cancel on its own beneath.
+    func lineupChoices(_ title: String, symbol: String, isPresented: Binding<Bool>,
+                       message: String? = nil, cancelTitle: String = "Cancel",
+                       items: @escaping () -> [MobileMenuItem],
+                       onCancel: @escaping () -> Void = {}) -> some View {
+        modifier(MobileChoiceSheet(isPresented: isPresented, title: title, symbol: symbol,
+                                   message: message, cancelTitle: cancelTitle,
+                                   items: items, onCancel: onCancel))
+    }
+}
+
+private struct MobileChoiceSheet: ViewModifier {
+    @Binding var isPresented: Bool
+    let title: String
+    let symbol: String
+    let message: String?
+    let cancelTitle: String
+    let items: () -> [MobileMenuItem]
+    let onCancel: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            ZStack(alignment: .bottom) {
+                if isPresented {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { cancel() }
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                    sheet
+                        .frame(maxWidth: 440)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
+                        .transition(reduceMotion ? .opacity
+                                    : .move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(reduceMotion ? .easeOut(duration: 0.15)
+                       : .spring(response: 0.34, dampingFraction: 0.88), value: isPresented)
+        }
+    }
+
+    private var sheet: some View {
+        let shape = LineupPanelStyle.shape
+        let list = items()
+        return VStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 12) {
+                    LineupIconTile(symbol: symbol, size: 30)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.inter(17, .bold))
+                            .foregroundStyle(LineupStyle.text)
+                        if let message {
+                            Text(message)
+                                .font(.inter(14))
+                                .foregroundStyle(LineupPanelStyle.quiet)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 5)
+                    Spacer(minLength: 0)
+                }
+                .padding(LineupPanelStyle.inset)
+                if !list.isEmpty {
+                    Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                        .padding(.horizontal, LineupPanelStyle.inset)
+                    // As tall as its rows, until a long list -- a film's
+                    // subtitle tracks -- needs to scroll.
+                    ViewThatFits(in: .vertical) {
+                        rows(list)
+                        ScrollView { rows(list) }
+                            .scrollIndicators(.hidden)
+                    }
+                    .frame(maxHeight: 380)
+                }
+            }
+            .background(LineupPanelStyle.fill, in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .clipShape(shape)
+            Button { cancel() } label: {
+                Text(cancelTitle)
+                    .font(.inter(17, .bold))
+                    .foregroundStyle(LineupStyle.text)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(LineupPanelStyle.fill, in: shape)
+                    .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                    .contentShape(shape)
+            }
+            .buttonStyle(MobileDropdownRowStyle())
+        }
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { cancel() }
+    }
+
+    private func rows(_ list: [MobileMenuItem]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(list) { item in
+                MobileMenuRow(item: item) {
+                    isPresented = false
+                    item.action()
+                }
+            }
+        }
+        .padding(8)
+    }
+
+    private func cancel() {
+        isPresented = false
+        onCancel()
     }
 }

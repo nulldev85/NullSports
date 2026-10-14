@@ -236,12 +236,10 @@ private struct MobilePreferredChannelsView: View {
             }
         }
         .lineupSettingsList()
-        .confirmationDialog("Remove every preferred channel?", isPresented: $clearingPreferences,
-                            titleVisibility: .visible) {
-            Button("Remove all", role: .destructive) { library.removeAllPreferences() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+        .lineupChoices("Remove every preferred channel?", symbol: "trash",
+                       isPresented: $clearingPreferences,
+                       message: "This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.") {
+            [MobileMenuItem("Remove All", isDestructive: true) { library.removeAllPreferences() }]
         }
         .navigationTitle("Preferred Channels")
         .navigationBarTitleDisplayMode(.inline)
@@ -498,15 +496,14 @@ private struct MobileIPTVSettingsView: View {
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
         }
-        .confirmationDialog("Remove \(removingProfile?.name ?? "provider") and its saved password?",
-            isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } }),
-            titleVisibility: .visible) {
-            Button("Remove provider", role: .destructive) {
+        .lineupChoices("Remove \(removingProfile?.name ?? "provider") and its saved password?",
+                       symbol: "trash",
+                       isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } })) {
+            [MobileMenuItem("Remove Provider", isDestructive: true) {
                 if let profile = removingProfile { Task { await library.removeProfile(profile) } }
                 removingProfile = nil
-            }
-            Button("Cancel", role: .cancel) { removingProfile = nil }
-        }
+            }]
+        } onCancel: { removingProfile = nil }
     }
 }
 
@@ -550,15 +547,13 @@ private struct MobileMediaServerSettingsView: View {
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
         }
-        .confirmationDialog("Remove \(removingMediaProfile?.name ?? "media server")?",
-            isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } }),
-            titleVisibility: .visible) {
-            Button("Remove media server", role: .destructive) {
+        .lineupChoices("Remove \(removingMediaProfile?.name ?? "media server")?", symbol: "trash",
+                       isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } })) {
+            [MobileMenuItem("Remove Media Server", isDestructive: true) {
                 if let profile = removingMediaProfile { media.remove(profile) }
                 removingMediaProfile = nil
-            }
-            Button("Cancel", role: .cancel) { removingMediaProfile = nil }
-        }
+            }]
+        } onCancel: { removingMediaProfile = nil }
     }
 }
 

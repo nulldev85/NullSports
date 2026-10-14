@@ -139,6 +139,7 @@ struct MediaServersView: View {
                 media.providerVOD.prefetch()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
+            #if os(tvOS)
             .alert("Media Server", isPresented: Binding(
                 get: { media.errorMessage != nil },
                 set: { if !$0 { media.errorMessage = nil } }
@@ -152,6 +153,16 @@ struct MediaServersView: View {
             } message: {
                 Text("This removes Continue Watching and local watched status from this device.")
             }
+            #else
+            .lineupChoices("Media Server", symbol: "exclamationmark.triangle",
+                           isPresented: Binding(get: { media.errorMessage != nil },
+                                                set: { if !$0 { media.errorMessage = nil } }),
+                           message: media.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+            .lineupChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                           message: "This removes Continue Watching and local watched status from this device.") {
+                [MobileMenuItem("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
+            }
+            #endif
         }
     }
 
@@ -6756,6 +6767,7 @@ struct MDBListIntegrationView: View {
             #if !os(tvOS)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             #endif
+            #if os(tvOS)
             .confirmationDialog("Disconnect MDBList?", isPresented: $disconnecting,
                                 titleVisibility: .visible) {
                 Button("Disconnect", role: .destructive) {
@@ -6766,6 +6778,15 @@ struct MDBListIntegrationView: View {
             } message: {
                 Text("MDBList shelves will be removed. Your lists on MDBList will not be changed.")
             }
+            #else
+            .lineupChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,
+                           message: "MDBList shelves will be removed. Your lists on MDBList will not be changed.") {
+                [MobileMenuItem("Disconnect", isDestructive: true) {
+                    media.disconnectMDBList()
+                    dismiss()
+                }]
+            }
+            #endif
         }
     }
 
