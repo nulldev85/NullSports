@@ -1427,9 +1427,7 @@ private struct MediaCatalogsScreen: View {
         let art = width / shape.ratio
         let caption: CGFloat = 10 + 56
         let heading: CGFloat = 34 + 14
-        // The panel's room above its header, and the hairline under it.
-        let panel = Self.tvPanelTop + 1 + 14
-        return panel + heading + 16 + art + caption + 18
+        return Self.tvShelfTop + heading + 16 + art + caption + 18
     }
 
     /// The hero's own control: Play, and left or right for the title before
@@ -1508,9 +1506,9 @@ private struct MediaCatalogsScreen: View {
             .id(shelf.id)
             .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 18 : -18)))
             .padding(.horizontal, horizontalPadding)
-            // The panel's hairline under its header.
-            Rectangle().fill(LineupStyle.line).frame(height: 1)
-                .padding(.horizontal, horizontalPadding)
+            // On the artwork itself, with no panel behind it: a soft shadow
+            // keeps the heading read over a bright picture.
+            .shadow(color: .black.opacity(0.55), radius: 10, y: 2)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: itemSpacing) {
@@ -1541,24 +1539,15 @@ private struct MediaCatalogsScreen: View {
                 }
             }
         }
-        .padding(.top, Self.tvPanelTop)
+        .padding(.top, Self.tvShelfTop)
         .padding(.bottom, 18)
-        // The shelf sits in a panel over the artwork, as the phone's do: the
-        // panels' fill and corners, held in from the screen's edges. Drawn
-        // behind, so it moves nothing the focus engine has measured.
-        .background {
-            RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
-                .fill(LineupPanelStyle.fill.opacity(0.94))
-                .padding(.horizontal, Self.tvPanelSide)
-                .padding(.bottom, 10)
-        }
+        // No panel: the shelf sits straight on the full-screen artwork, its
+        // heading and cards over the picture, which the backdrop's shade
+        // darkens toward the foot.
     }
 
-    /// Above the header, inside the panel.
-    private static let tvPanelTop: CGFloat = 24
-    /// The panel's edge from the screen's: the shelf's own inset, less the
-    /// panel's inner margin.
-    private static let tvPanelSide: CGFloat = 26
+    /// Between the hero's Play and the shelf's heading.
+    private static let tvShelfTop: CGFloat = 10
 
     private func tvCard(_ item: MediaItem, slot: Int, shelf: TVLibraryShelf, shape: MediaArtShape) -> some View {
         let focused = tvFocus == .card(slot)
