@@ -383,3 +383,116 @@ private struct MobileChoiceSheet: ViewModifier {
         onCancel()
     }
 }
+
+// MARK: - Touch and hold
+
+/// What a touch held on a card or a row has asked to show, for the screen
+/// that hosts it to raise over everything.
+final class MobileHoldMenu: ObservableObject {
+    struct Request {
+        let title: String
+        let symbol: String
+        let message: String?
+        let items: [MobileMenuItem]
+    }
+
+    @Published var request: Request?
+
+    func present(_ title: String, symbol: String, message: String?, items: [MobileMenuItem]) {
+        guard !items.isEmpty else { return }
+        request = Request(title: title, symbol: symbol, message: message, items: items)
+    }
+}
+
+private struct MobileHoldMenuKey: EnvironmentKey {
+    static let defaultValue: MobileHoldMenu? = nil
+}
+
+extension EnvironmentValues {
+    var mobileHoldMenu: MobileHoldMenu? {
+        get { self[MobileHoldMenuKey.self] }
+        set { self[MobileHoldMenuKey.self] = newValue }
+    }
+}
+
+/// How a held card shows it is being pressed.
+enum MobileHoldPress {
+    /// A little give, as an artwork card has.
+    case scale
+    /// The panel's grey well behind it, as a row in a panel has.
+    case well
+    /// Dimmed a little, for something on a ground of its own that must keep
+    /// its size, as the Guide's frozen channel column does.
+    case dim
+}
+
+extension View {
+    /// Where the touch-and-hold choices of everything inside rise: over all
+    /// of it, tab bar and all.
+    func lineupHoldMenuHost() -> some View {
+        modifier(MobileHoldMenuHost())
+    }
+
+    /// A tap does `action`; a touch held a moment lifts the app's own sheet
+    /// of `items`, in place of the system's context menu, which draws in
+    /// its own glass and type.
+    func lineupHoldMenu(_ title: String, symbol: String, message: String? = nil,
+                        press: MobileHoldPress = .scale,
+                        items: @escaping () -> [MobileMenuItem],
+                        action: @escaping () -> Void) -> some View {
+        modifier(MobileHoldButton(title: title, symbol: symbol, message: message,
+                                  press: press, items: items, action: action))
+    }
+}
+
+private struct MobileHoldMenuHost: ViewModifier {
+    @StateObject private var menu = MobileHoldMenu()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.mobileHoldMenu, menu)
+            .lineupChoices(menu.request?.title ?? "", symbol: menu.request?.symbol ?? "ellipsis",
+                           isPresented: Binding(get: { menu.request != nil },
+                                                set: { if !$0 { menu.request = nil } }),
+                           message: menu.request?.message) {
+                menu.request?.items ?? []
+            }
+    }
+}
+
+/// A tap and a held touch told apart the way the system tells them apart:
+/// the tap only if the finger lifts before the hold is reached, the choices
+/// only once it is, and neither once the finger has moved to scroll.
+private struct MobileHoldButton: ViewModifier {
+    let title: String
+    let symbol: String
+    let message: String?
+    let press: MobileHoldPress
+    let items: () -> [MobileMenuItem]
+    let action: () -> Void
+
+    @Environment(\.mobileHoldMenu) private var menu
+    @State private var pressing = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .background(press == .well && pressing ? LineupPanelStyle.well : Color.clear)
+            .scaleEffect(press == .scale && pressing ? 0.97 : 1)
+            .opacity(press == .dim && pressing ? 0.6 : 1)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: pressing)
+            .onTapGesture(perform: action)
+            .onLongPressGesture(minimumDuration: 0.4, perform: open,
+                                onPressingChanged: { pressing = $0 })
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+            .accessibilityAction(named: Text("More")) { open() }
+    }
+
+    private func open() {
+        let list = items()
+        guard !list.isEmpty, let menu else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        menu.present(title, symbol: symbol, message: message, items: list)
+    }
+}

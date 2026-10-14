@@ -26,6 +26,7 @@ struct MobileAccentPicker: View {
 
     var body: some View {
         let accent = LineupAccent.accent(forHex: draft)
+        // A sheet of its own, so a held colour's choices rise over it here.
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -85,6 +86,7 @@ struct MobileAccentPicker: View {
                 AccentColorChart(hex: draft) { chosen in choose(chosen) }
             }
         }
+        .lineupHoldMenuHost()
         .presentationBackground(LineupStyle.background)
         .preferredColorScheme(.dark)
     }
@@ -215,14 +217,13 @@ extension MobileAccentPicker {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(saved, id: \.self) { hex in
-                    Button { choose(hex) } label: {
-                        AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Remove", systemImage: "trash", role: .destructive) { forget(hex) }
-                    }
-                    .accessibilityLabel("Saved color #\(hex)")
+                    AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
+                        .lineupHoldMenu("#\(hex)", symbol: "paintpalette", items: {
+                            [MobileMenuItem("Remove from My Colors", symbol: "trash", isDestructive: true) {
+                                forget(hex)
+                            }]
+                        }) { choose(hex) }
+                        .accessibilityLabel("Saved color #\(hex)")
                 }
             }
             .padding(.vertical, 14)

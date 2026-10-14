@@ -316,6 +316,40 @@ struct MobileGuideView: View {
 
     /// One of the Guide's choices, ticked when it is the one shown. Picking
     /// it replaces whatever was ticked; picking the ticked one again keeps it.
+    /// Touch and hold on a channel: its place in the favorites, and for a
+    /// channel the provider records, what is on now from its start and what
+    /// it showed before.
+    private func channelMenuItems(_ stream: XtreamStream) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if library.isFavorite(stream) {
+            if filter == .favorites && !searching {
+                items.append(MobileMenuItem("Move Up", symbol: "arrow.up",
+                                            isEnabled: library.canMoveFavorite(stream, offset: -1)) {
+                    library.moveFavorite(stream, offset: -1)
+                })
+                items.append(MobileMenuItem("Move Down", symbol: "arrow.down",
+                                            isEnabled: library.canMoveFavorite(stream, offset: 1)) {
+                    library.moveFavorite(stream, offset: 1)
+                })
+            }
+            items.append(MobileMenuItem("Reorder Favorites", symbol: "arrow.up.arrow.down") {
+                reorderingFavorites = true
+            })
+            items.append(MobileMenuItem("Remove Favorite", symbol: "star.slash", isDestructive: true) {
+                library.removeFavorite(stream)
+            })
+        } else {
+            items.append(MobileMenuItem("Add Favorite", symbol: "star") { library.addFavorite(stream) })
+        }
+        if stream.hasCatchUp && game == nil {
+            items.append(MobileMenuItem("Start Over", symbol: "backward.end") {
+                openRecording(stream, programme: nil)
+            })
+            items.append(MobileMenuItem("Catch Up", symbol: "clock.arrow.circlepath") { catchUpChannel = stream })
+        }
+        return items
+    }
+
     private func setOptions(_ open: Bool) {
         guard optionsOpen != open else { return }
         if open { searchFocused = false }
@@ -576,7 +610,7 @@ struct MobileGuideView: View {
     }
 
     private func channelTile(_ stream: XtreamStream) -> some View {
-        Button { selectChannel(stream) } label: {
+        Group {
             ZStack(alignment: .center) {
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
                     if let image = loaded {
@@ -613,31 +647,10 @@ struct MobileGuideView: View {
             // The frozen column masks scrolling programs with the guide's base color.
             .background(LineupStyle.background)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
-        .contextMenu {
-            if library.isFavorite(stream) {
-                if filter == .favorites && !searching {
-                    Button("Move up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
-                        .disabled(!library.canMoveFavorite(stream, offset: -1))
-                    Button("Move down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
-                        .disabled(!library.canMoveFavorite(stream, offset: 1))
-                }
-                Button("Reorder favorites", systemImage: "arrow.up.arrow.down") { reorderingFavorites = true }
-                Button("Remove favorite", systemImage: "star.slash", role: .destructive) {
-                    library.removeFavorite(stream)
-                }
-            } else {
-                Button("Add favorite", systemImage: "star") { library.addFavorite(stream) }
-            }
-            // A channel the provider records: what is on now from its start,
-            // and what it showed before.
-            if stream.hasCatchUp && game == nil {
-                Divider()
-                Button("Start Over", systemImage: "backward.end.fill") { openRecording(stream, programme: nil) }
-                Button("Catch Up", systemImage: "clock.arrow.circlepath") { catchUpChannel = stream }
-            }
+        .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
+            selectChannel(stream)
         }
+        .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
     private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {

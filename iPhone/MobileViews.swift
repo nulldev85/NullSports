@@ -53,6 +53,8 @@ struct MainView: View {
                     .padding(.top, 4)
             }
         }
+        // Touch-and-hold choices anywhere in the tabs rise over all of them.
+        .lineupHoldMenuHost()
         .preferredColorScheme(.dark)
         .ignoresSafeArea(inlinePlayerFullscreen ? .all : [], edges: .all)
         .onChange(of: library.activeProfile?.id) { _, _ in

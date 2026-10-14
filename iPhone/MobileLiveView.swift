@@ -520,51 +520,47 @@ struct MobileLiveView: View {
     }
 
     private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
-        Button {
-            guard !game.isUpcoming else {
-                upcomingGame = game
-                return
+        MobileMatchupRow(game: game, showsDay: showsDay,
+                         isWatching: previewStream != nil && previewGame?.id == game.id)
+            .accessibilityElement(children: .combine)
+            .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", press: .well,
+                            items: { gameMenuItems(game) }) {
+                guard !game.isUpcoming else {
+                    upcomingGame = game
+                    return
+                }
+                open(game)
             }
-            open(game)
-        } label: {
-            MobileMatchupRow(game: game, showsDay: showsDay,
-                             isWatching: previewStream != nil && previewGame?.id == game.id)
-        }
-        .buttonStyle(MobileMatchupButtonStyle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
-        .contextMenu { gameMenu(game) }
+            .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
     }
 
     /// Touch and hold on any game: watch it or be reminded, another channel,
-    /// or follow either side.
-    @ViewBuilder
-    private func gameMenu(_ game: SportsGame) -> some View {
-        Section {
-            if game.isLive {
-                let watching = previewGame?.id == game.id && previewStream != nil
-                Button(watching ? "Watching" : "Watch", systemImage: "play.fill") { open(game) }
-                    .disabled(watching)
-            } else {
-                let on = reminders.reminds(game)
-                Button(on ? "Remove reminder" : "Remind me", systemImage: on ? "bell.slash" : "bell") {
-                    reminders.toggleGame(game)
-                }
-            }
-            Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+    /// or follow either side -- following happens here rather than on a
+    /// settings screen, because this is where the team is already in front
+    /// of the viewer.
+    private func gameMenuItems(_ game: SportsGame) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if game.isLive {
+            let watching = previewGame?.id == game.id && previewStream != nil
+            items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
+                                        isEnabled: !watching) { open(game) })
+        } else {
+            let on = reminders.reminds(game)
+            items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
+                reminders.toggleGame(game)
+            })
         }
-        // Following happens here rather than on a settings screen: this is
-        // where the team is already in front of the viewer.
-        Section {
-            ForEach(library.followableSides(of: game)) { side in
-                let following = library.isFollowing(side.key)
-                Button(following ? "Remove \(side.name) from My Teams"
-                                 : "Add \(side.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
-                    library.toggleFollow(side)
-                }
-            }
+        items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
+            choosingChannel = game
+        })
+        for side in library.followableSides(of: game) {
+            let following = library.isFollowing(side.key)
+            items.append(MobileMenuItem(following ? "Remove \(side.name) from My Teams" : "Add \(side.name) to My Teams",
+                                        symbol: following ? "star.slash" : "star", id: "follow-\(side.id)") {
+                library.toggleFollow(side)
+            })
         }
+        return items
     }
 
     /// One game, one decision. `PreferredChannel` is resolved entirely from
@@ -845,13 +841,6 @@ private struct MobileMatchupRow: View {
                 Text(score).font(.interDigits(.title3, .bold))
             }
         }
-    }
-}
-
-private struct MobileMatchupButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? LineupPanelStyle.well : Color.clear)
     }
 }
 

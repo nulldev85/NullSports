@@ -1810,11 +1810,11 @@ private struct MediaCatalogsScreen: View {
                                 }
                                 .contextMenu { continueWatchingAction(for: trackedItem) }
                                 #else
-                                NavigationLink(value: page) {
-                                    MediaItemCard(item: trackedItem, shape: shape)
-                                }
-                                .lineupFlatButton()
-                                .contextMenu { continueWatchingAction(for: trackedItem) }
+                                MediaItemCard(item: trackedItem, shape: shape)
+                                    .lineupHoldMenu(trackedItem.name, symbol: "play.circle",
+                                                    items: { media.cardMenuItems(for: trackedItem) }) {
+                                        pushed = page
+                                    }
                                 #endif
                             } else {
                                 #if os(tvOS)
@@ -3058,10 +3058,12 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(episodes) { episode in
-                            Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
-                                .lineupFlatButton()
+                            MediaEpisodeCard(episode: episode)
+                                .lineupHoldMenu(episode.name, symbol: "tv",
+                                                items: { media.episodeMenuItems(for: episode) }) {
+                                    chosen = episode
+                                }
                                 .frame(width: 265)
-                                .contextMenu { episodeLibraryActions(episode) }
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
@@ -3621,9 +3623,9 @@ private struct MediaPlayableCard: View {
                 MediaSourcePicker(item: item)
             }
         #else
-        Button(action: choose) { MediaItemCard(item: item, shape: shape) }
-            .lineupFlatButton()
-            .contextMenu { libraryActions }
+        MediaItemCard(item: item, shape: shape)
+            .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
+                            items: { media.cardMenuItems(for: item) }, action: choose)
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -3637,6 +3639,41 @@ private struct MediaPlayableCard: View {
 
     private var libraryActions: some View { MediaCardActions(item: item) }
 }
+
+#if !os(tvOS)
+extension MediaLibrary {
+    /// What a touch held on a Library card offers: leaving Continue
+    /// Watching, and for an episode, watched and favorite.
+    func cardMenuItems(for item: MediaItem) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if isInContinueWatching(item) {
+            items.append(MobileMenuItem("Remove from Continue Watching", symbol: "rectangle.stack.badge.minus",
+                                        isDestructive: true) {
+                self.removeFromContinueWatching(item)
+            })
+        }
+        if item.type == "Episode" { items += episodeMenuItems(for: item) }
+        return items
+    }
+
+    /// An episode's own: watched, and the Favorites library.
+    func episodeMenuItems(for episode: MediaItem) -> [MobileMenuItem] {
+        let watched = isWatched(episode)
+        let favorite = isLocalFavorite(episode)
+        return [
+            MobileMenuItem(watched ? "Remove from Watched" : "Mark Watched",
+                           symbol: watched ? "eye.slash" : "eye") {
+                Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
+            },
+            MobileMenuItem(favorite ? "Remove from Favorites" : "Add to Favorites",
+                           symbol: favorite ? "heart.slash" : "heart") {
+                self.setLocalFavorite(!favorite, for: episode)
+                Task { await self.setFavorite(!favorite, for: episode) }
+            }
+        ]
+    }
+}
+#endif
 
 /// What a long press on a Library card offers: leaving Continue Watching,
 /// and for an episode, watched and favorite. One list, whether the card opens
