@@ -44,6 +44,9 @@ struct MediaServersView: View {
     @State private var playing: MediaPlayRequest?
     /// The Library's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
+    /// Bumped to take the phone's Library back to its front page: an episode
+    /// that ended with nothing after it leads there.
+    @State private var frontPage = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -159,6 +162,14 @@ struct MediaServersView: View {
             }
             #endif
         }
+        #if !os(tvOS)
+        // A new stack is the front page: whatever pages were pushed go with
+        // the old one.
+        .id(frontPage)
+        .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
+            frontPage += 1
+        }
+        #endif
     }
 
     #if !os(tvOS)
@@ -4668,11 +4679,14 @@ private struct MediaSourcePicker: View {
                 }
         }
         .task(id: item.libraryKey) { await loadSources() }
-        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        .task(id: item.libraryKey) {
+            nextEpisode = nil
+            nextEpisode = await media.episodeAfter(item)
+        }
+        .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
         #endif
     }
 
-    #if os(tvOS)
     /// Where the player's closing leads. Next Episode plays the next one on
     /// its best stream. An episode that ran to its end without it leads to
     /// the next one's streams to choose from, or, with none after it, back to
@@ -4720,7 +4734,6 @@ private struct MediaSourcePicker: View {
         }
         return nil
     }
-    #endif
 
     private var board: some View {
         MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
@@ -4812,7 +4825,6 @@ private struct MediaSourcePicker: View {
                 }
                 sources = found.keys.sorted().flatMap { found[$0] ?? [] }
                 if !sources.isEmpty { loading = false }
-                #if os(tvOS)
                 if autoPicks, selectedSource == nil,
                    let best = Self.bestSource(found: found, places: lookups.count) {
                     autoPicks = false
@@ -4824,13 +4836,10 @@ private struct MediaSourcePicker: View {
                         if selectedSource == nil { selectedSource = best }
                     }
                 }
-                #endif
             }
         }
-        #if os(tvOS)
         // Nothing to play: the list says so, and the viewer chooses from here.
         autoPicks = false
-        #endif
         guard !Task.isCancelled else { return }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
@@ -4918,9 +4927,16 @@ private struct MediaSourcePicker: View {
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
                              // Start Over starts over here too; it resumed.
-                             initialPosition: startsOver ? nil : media.resumePosition(for: item)) { position, duration in
-                media.trackPlayback(of: item, position: position, duration: duration)
-            }
+                             initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                             onProgress: { position, duration in
+                                 media.trackPlayback(of: item, position: position, duration: duration)
+                             },
+                             nextEpisode: nextEpisode.map { next in
+                                 MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
+                                     advance = .playNext(next)
+                                 }
+                             },
+                             onReachedEnd: { if advance == nil { advance = .reachedEnd } })
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #endif
         } else {
