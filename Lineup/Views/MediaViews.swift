@@ -4027,8 +4027,8 @@ private struct MediaLibraryHero: View {
             if !items.isEmpty {
                 heroSlide(item: items[min(index, items.count - 1)])
                     .overlay(alignment: .bottom) { pageIndicator }
-                    .accessibilityAction(named: "Next title") { move(1) }
-                    .accessibilityAction(named: "Previous title") { move(-1) }
+                    .accessibilityAction(named: Text("Next title")) { move(1) }
+                    .accessibilityAction(named: Text("Previous title")) { move(-1) }
             }
             #else
             if !items.isEmpty {
@@ -4047,6 +4047,8 @@ private struct MediaLibraryHero: View {
                     .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion),
                                value: items[current].libraryKey)
                     .overlay(alignment: .bottom) { pageIndicator }
+                    .accessibilityAction(named: Text("Next title")) { move(1) }
+                    .accessibilityAction(named: Text("Previous title")) { move(-1) }
                     .simultaneousGesture(DragGesture(minimumDistance: 12)
                         .updating($isDragging) { _, dragging, _ in dragging = true }
                         .onEnded { value in
