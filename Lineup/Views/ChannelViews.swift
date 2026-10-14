@@ -2620,8 +2620,9 @@ private struct LiveTicker: View {
     @State private var displayedEvents: [SportsGame] = []
     /// Points a second: with each score's column wider for its larger
     /// words, a score stays in view as long as it did before.
-    private let speed: Double = 68
-    private let cardWidth: CGFloat = 780
+    private let speed: Double = 65
+    private let cardWidth: CGFloat = 744
+    private let logoSize: CGFloat = 30
     private let cardSpacing: CGFloat = 38
     private let loopSpacing: CGFloat = 72
     private let emptyWidth: CGFloat = 520
@@ -2698,10 +2699,12 @@ private struct LiveTicker: View {
                 // above counts in whole items of `cardWidth`.
                 ForEach(displayedEvents) { game in
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(game.league.shortName)
-                            .font(.inter(18, .heavy)).tracking(0.7)
-                            .foregroundStyle(LineupStyle.secondary)
-                            .frame(width: 80, alignment: .leading)
+                        // The league's own mark, as the board shows it,
+                        // centred on the team codes' capitals.
+                        LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: logoSize)
+                            .frame(width: logoSize + 14, alignment: .leading)
+                            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 10 }
+                            .accessibilityLabel(game.league.shortName)
                         Text(game.awayAbbreviation)
                             .font(.inter(28, .bold))
                             .foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? LineupStyle.text)
