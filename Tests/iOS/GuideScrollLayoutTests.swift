@@ -22,40 +22,66 @@ final class GuideScrollLayoutTests: XCTestCase {
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a
     /// navigation stack, inside the tab bar.
     @MainActor
-    func testTheListsEndRestsOnTheTabBar() async throws {
+    func testTheListsEndStaysReachableInBothNavigationStyles() async throws {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw XCTSkip("No screen to lay the guide out on")
         }
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let model = GuideNavigationTestState()
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: GuideEndHarness())
+        window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer { window.isHidden = true; previousWindow?.makeKey() }
         // Time for SwiftUI to lay out, the list to measure, and the margin
         // it reports to be applied.
-        for _ in 0..<10 {
-            try await Task.sleep(for: .milliseconds(100))
-            window.layoutIfNeeded()
+        for glass in [false, true, false] {
+            model.glass = glass
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(100))
+                window.layoutIfNeeded()
+            }
+            let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
+            let list = try XCTUnwrap(probe.enclosingScrollView)
+            let barTop: CGFloat
+            if glass && MobileNavigationStyle.supportsGlass {
+                let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
+                barTop = bar.convert(bar.bounds, to: window).minY
+            } else {
+                // The custom bar reserves its area above the home indicator;
+                // the Guide viewport must end before that area begins.
+                XCTAssertGreaterThan(model.viewportBottom, 0)
+                XCTAssertLessThan(model.viewportBottom, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
+                barTop = model.viewportBottom
+            }
+            let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
+            list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
+            let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
+            XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
+                           "glass \(glass), list ends at \(list.convert(list.bounds, to: window).maxY), "
+                           + "insets \(list.adjustedContentInset), overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
         }
-
-        let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
-        let list = try XCTUnwrap(probe.enclosingScrollView)
-        let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
-        let barTop = bar.convert(bar.bounds, to: window).minY
-        let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
-        list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
-        let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
-        XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
-                       "list ends at \(list.convert(list.bounds, to: window).maxY), insets \(list.adjustedContentInset), "
-                       + "overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
     }
 }
 
 /// The TV Guide tab's scrollers, with plain rows.
+@MainActor
+private final class GuideNavigationTestState: ObservableObject {
+    @Published var glass = false
+    @Published var selection = 1
+    @Published var viewportBottom: CGFloat = 0
+}
+
+private struct GuideViewportBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 private struct GuideEndHarness: View {
+    @ObservedObject var model: GuideNavigationTestState
     @State private var bottomInset: CGFloat = 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $model.selection) {
             NavigationStack {
                 GeometryReader { _ in
                     ZStack(alignment: .top) {
@@ -64,9 +90,12 @@ private struct GuideEndHarness: View {
                 }
                 .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
             }
-            .tabItem { Label("TV Guide", systemImage: "tv") }
-            Color.clear.tabItem { Label("Settings", systemImage: "gear") }
+            .mobileNativeTabBar(liquidGlass: model.glass)
+            .tabItem { Label("TV Guide", systemImage: "tv") }.tag(1)
+            Color.clear.mobileNativeTabBar(liquidGlass: model.glass)
+                .tabItem { Label("Settings", systemImage: "gear") }.tag(3)
         }
+        .mobileNavigationChrome(selection: $model.selection, liquidGlass: model.glass)
     }
 
     private var guide: some View {
@@ -92,6 +121,13 @@ private struct GuideEndHarness: View {
             .safeAreaPadding(.horizontal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: GuideViewportBottomKey.self,
+                                       value: geometry.frame(in: .global).maxY)
+            }
+        }
+        .onPreferenceChange(GuideViewportBottomKey.self) { model.viewportBottom = $0 }
     }
 }
 

@@ -46,8 +46,7 @@ final class NavigationStyleTests: XCTestCase {
     }
 
     @MainActor
-    func testNativeTabViewKeepsItsControllerAndSelectionAndCapturesBothStyles() async throws {
-        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass requires iOS 26") }
+    func testCustomAndGlassNavigationKeepControllersSelectionAndCaptureBothStyles() async throws {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw XCTSkip("No iPhone scene for the navigation preview")
         }
@@ -70,13 +69,42 @@ final class NavigationStyleTests: XCTestCase {
             XCTAssertTrue(tabs.selectedViewController === selected)
             XCTAssertEqual(model.selection, 2)
             XCTAssertEqual(tabs.tabBar.items?.count, 5)
+            XCTAssertEqual(tabs.tabBar.isHidden, !(glass && MobileNavigationStyle.supportsGlass))
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
             }
             let attachment = XCTAttachment(image: image)
-            attachment.name = glass ? "Native-Apple-Liquid-Glass-On" : "Solid-Navigation-Off"
+            attachment.name = glass && MobileNavigationStyle.supportsGlass
+                ? "Native-Apple-Liquid-Glass-On" : "Lineup-Rectangular-Navigation-Off"
             attachment.lifetime = .keepAlways
             add(attachment)
+        }
+
+        // Both bars address the same TabView. Keep each destination's actual
+        // controller alive while selecting in visual order (Search precedes
+        // Settings even though their original numeric tags do not).
+        var visited: [Int: UIViewController] = [2: selected]
+        for glass in [false, true, false] {
+            model.glass = glass
+            for (index, destination) in MobileNavigationTab.allCases.enumerated() {
+                model.selection = destination.rawValue
+                try await Task.sleep(for: .milliseconds(150))
+                window.layoutIfNeeded()
+                XCTAssertTrue(Self.tabController(in: window.rootViewController) === tabs)
+                XCTAssertEqual(tabs.selectedIndex, index)
+                let controller = try XCTUnwrap(tabs.selectedViewController)
+                if let previous = visited[destination.rawValue] { XCTAssertTrue(controller === previous) }
+                visited[destination.rawValue] = controller
+            }
+            // The same visibility used by inline Sports and Guide playback.
+            model.fullscreen = true
+            try await Task.sleep(for: .milliseconds(300))
+            window.layoutIfNeeded()
+            XCTAssertTrue(tabs.tabBar.isHidden)
+            model.fullscreen = false
+            try await Task.sleep(for: .milliseconds(300))
+            window.layoutIfNeeded()
+            XCTAssertEqual(tabs.tabBar.isHidden, !(glass && MobileNavigationStyle.supportsGlass))
         }
     }
 
@@ -94,16 +122,15 @@ final class NavigationStyleTests: XCTestCase {
 private final class NavigationPreviewState: ObservableObject {
     @Published var glass = false
     @Published var selection = 2
+    @Published var fullscreen = false
 }
 
 private struct NavigationStylePreview: View {
     @ObservedObject var model: NavigationPreviewState
-    private let titles = ["Sports", "TV Guide", "Library", "Search", "Settings"]
-    private let symbols = ["play.rectangle", "list.bullet.rectangle", "play.square.stack", "magnifyingglass", "person.crop.circle"]
 
     var body: some View {
         TabView(selection: $model.selection) {
-            ForEach(titles.indices, id: \.self) { index in
+            ForEach(MobileNavigationTab.allCases) { tab in
                 NavigationStack {
                     ScrollView {
                         VStack(spacing: 20) {
@@ -117,12 +144,14 @@ private struct NavigationStylePreview: View {
                         }.padding(20)
                     }
                     .background(LineupStyle.background)
-                    .navigationTitle(titles[index])
+                    .navigationTitle(tab.title)
                 }
-                .tabItem { Label(titles[index], systemImage: symbols[index]) }.tag(index)
+                .mobileNativeTabBar(liquidGlass: model.glass, fullscreen: model.fullscreen)
+                .tabItem { Label { Text(tab.title) } icon: { tab.icon(selected: model.selection == tab.rawValue) } }
+                .tag(tab.rawValue)
             }
         }
         .tint(.white).preferredColorScheme(.dark)
-        .background(MobileTabBarAppearance(liquidGlass: model.glass).frame(width: 0, height: 0))
+        .mobileNavigationChrome(selection: $model.selection, liquidGlass: model.glass, fullscreen: model.fullscreen)
     }
 }

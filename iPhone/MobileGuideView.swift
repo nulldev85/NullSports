@@ -30,6 +30,7 @@ struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var showsSearch = false
@@ -254,7 +255,7 @@ struct MobileGuideView: View {
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
-            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in

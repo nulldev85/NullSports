@@ -23,28 +23,33 @@ struct MainView: View {
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView { playing = $0 }
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
-        // Tab chrome stays neutral; the selected asset changes from outline
-        // to fill, with white providing the quiet emphasis.
+        // Both navigation styles share this TabView and its selection. The
+        // Lineup panel supplies its own accent marker; native glass stays white.
         .tint(.white)
-        .background(MobileTabBarAppearance(liquidGlass: navigationGlass)
-            .frame(width: 0, height: 0).allowsHitTesting(false))
+        .mobileNavigationChrome(selection: $tab, liquidGlass: navigationGlass,
+                                fullscreen: inlinePlayerFullscreen)
         // Over every tab while channels, the guide and the matches refresh.
         // Never over a picture: the full-screen player covers it, and it
         // stands aside while the inline player fills the screen.
@@ -704,8 +709,8 @@ private struct MobileAccountView: View {
                     .disabled(!MobileNavigationStyle.supportsGlass)
                 } footer: {
                     Text(MobileNavigationStyle.supportsGlass
-                         ? "Changes only the bottom navigation bar."
-                         : "Liquid Glass for the navigation bar requires iOS 26 or later.")
+                         ? "Off uses Lineup’s rectangular navigation bar. On uses Apple’s Liquid Glass."
+                         : "Lineup’s rectangular navigation bar is enabled. Liquid Glass requires iOS 26 or later.")
                         .lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
