@@ -76,6 +76,21 @@ jobs:
           xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Export navigation preview screenshots
+        if: always()
+        run: |
+          result=$(find build-tests/Logs/Test -maxdepth 1 -name '*.xcresult' -print -quit 2>/dev/null || true)
+          if [ -n "$result" ]; then
+            xcrun xcresulttool export attachments --path "$result" --output-path navigation-previews || echo "::warning::Could not export test screenshots"
+          fi
+      - name: Upload navigation previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lineup-iPhone-navigation-previews
+          path: navigation-previews
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Build unsigned iPhone app
         if: env.PACKAGES_IPA == 'true'
         run: |

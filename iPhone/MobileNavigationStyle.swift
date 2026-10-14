@@ -65,57 +65,32 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 final class MobileTabBarStyle {
     private weak var bar: UITabBar?
     private var appliedGlass: Bool?
-    private(set) var glassSurface: UIView?
+    private var nativeAppearance: UITabBarAppearance?
+    private var nativeScrollEdgeAppearance: UITabBarAppearance?
 
     func apply(to bar: UITabBar, liquidGlass: Bool) {
         let enabled = liquidGlass && MobileNavigationStyle.supportsGlass
         guard self.bar !== bar || appliedGlass != enabled else { return }
-        glassSurface?.removeFromSuperview()
-        glassSurface = nil
+        if self.bar !== bar {
+            // Preserve UIKit's untouched appearance before applying the solid
+            // option. Restore it for On so Apple owns all glass and selection
+            // rendering, including the floating geometry and native animation.
+            nativeAppearance = bar.standardAppearance.copy() as? UITabBarAppearance
+            nativeScrollEdgeAppearance = bar.scrollEdgeAppearance?.copy() as? UITabBarAppearance
+        }
         self.bar = bar
         appliedGlass = enabled
 
-        let appearance = bar.standardAppearance.copy() as? UITabBarAppearance ?? UITabBarAppearance()
-        if enabled, #available(iOS 26.0, *) {
-            appearance.configureWithTransparentBackground()
-            let surface = MobileTabGlassBackground()
-            surface.frame = bar.bounds
-            surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            // Decoration never receives a touch. Native tab buttons keep
-            // their original target and immediate selection behavior.
-            surface.isUserInteractionEnabled = false
-            surface.accessibilityElementsHidden = true
-            bar.insertSubview(surface, at: 0)
-            glassSurface = surface
+        if enabled {
+            bar.standardAppearance = nativeAppearance ?? UITabBarAppearance()
+            bar.scrollEdgeAppearance = nativeScrollEdgeAppearance
         } else {
+            let appearance = nativeAppearance?.copy() as? UITabBarAppearance ?? UITabBarAppearance()
             appearance.configureWithOpaqueBackground()
             appearance.backgroundColor = UIColor(LineupStyle.background)
+            bar.standardAppearance = appearance
+            bar.scrollEdgeAppearance = appearance
         }
-        bar.standardAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
         bar.setNeedsLayout()
-    }
-}
-
-@available(iOS 26.0, *)
-private final class MobileTabGlassBackground: UIView {
-    private let glass: UIVisualEffectView
-
-    override init(frame: CGRect) {
-        let effect = UIGlassEffect(style: .regular)
-        glass = UIVisualEffectView(effect: effect)
-        super.init(frame: frame)
-        glass.isUserInteractionEnabled = false
-        glass.clipsToBounds = true
-        addSubview(glass)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let height = max(44, bounds.height - safeAreaInsets.bottom)
-        glass.frame = CGRect(x: 8, y: 0, width: max(0, bounds.width - 16), height: height)
-        glass.layer.cornerRadius = height / 2
     }
 }

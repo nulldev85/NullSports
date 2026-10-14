@@ -27,6 +27,16 @@ struct LineupApp: App {
         UISearchTextField.appearance().font = roundedUIFont(17, .regular)
         UISegmentedControl.appearance().setTitleTextAttributes([.font: roundedUIFont(13, .semibold)], for: .normal)
         UIBarButtonItem.appearance().setTitleTextAttributes([.font: roundedUIFont(17, .semibold)], for: .normal)
+        // The optional glass belongs to the bottom tab bar. Page headers keep
+        // the app's solid background when linked against the current SDK.
+        let navigationAppearance = UINavigationBarAppearance()
+        navigationAppearance.configureWithOpaqueBackground()
+        navigationAppearance.backgroundColor = UIColor(LineupStyle.background)
+        navigationAppearance.titleTextAttributes = [.font: roundedUIFont(17, .heavy), .foregroundColor: UIColor.white]
+        navigationAppearance.largeTitleTextAttributes = [.font: roundedUIFont(34, .heavy), .foregroundColor: UIColor.white]
+        UINavigationBar.appearance().standardAppearance = navigationAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navigationAppearance
+        UINavigationBar.appearance().compactAppearance = navigationAppearance
         #endif
     }
 

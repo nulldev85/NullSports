@@ -50,9 +50,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!-- Keep system sheets and controls in the app's solid style. The iPhone
-	     navigation toggle applies explicit UIGlassEffect only to the tab bar. -->
-	<key>UIDesignRequiresCompatibility</key>
-	<true/>
+	<!-- Use the current SDK design so TabView can render Apple's native Liquid
+	     Glass. The navigation switch changes only the tab bar's appearance. -->
 </dict>
 </plist>
