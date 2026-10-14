@@ -14,6 +14,7 @@ struct MainView: View {
     @State private var playing: XtreamStream?
     @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
+    @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
 
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
@@ -42,7 +43,8 @@ struct MainView: View {
         // Tab chrome stays neutral; the selected asset changes from outline
         // to fill, with white providing the quiet emphasis.
         .tint(.white)
-        .lineupTabBarBackground(LineupStyle.background)
+        .background(MobileTabBarAppearance(liquidGlass: navigationGlass)
+            .frame(width: 0, height: 0).allowsHitTesting(false))
         // Over every tab while channels, the guide and the matches refresh.
         // Never over a picture: the full-screen player covers it, and it
         // stands aside while the inline player fills the screen.
@@ -623,6 +625,7 @@ private struct MobileAccountView: View {
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+    @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @State private var choosingAccent = false
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
@@ -691,6 +694,19 @@ private struct MobileAccountView: View {
                             }
                         }
                     }
+                    Toggle(isOn: Binding(
+                        get: { navigationGlass && MobileNavigationStyle.supportsGlass },
+                        set: { navigationGlass = $0 }
+                    )) {
+                        SettingsRow("Liquid Glass", symbol: "sparkles")
+                    }
+                    .tint(LineupStyle.highlight)
+                    .disabled(!MobileNavigationStyle.supportsGlass)
+                } footer: {
+                    Text(MobileNavigationStyle.supportsGlass
+                         ? "Changes only the bottom navigation bar."
+                         : "Liquid Glass for the navigation bar requires iOS 26 or later.")
+                        .lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
                 Section {
