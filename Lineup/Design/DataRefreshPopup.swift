@@ -58,7 +58,7 @@ private struct DataRefreshCapsule: View {
 }
 
 private enum DataRefreshMetrics {
-    static let fill = Color(red: 0.055, green: 0.06, blue: 0.07).opacity(0.97)
+    static let fill = LineupPanelStyle.fill
     #if os(tvOS)
     static let radius: CGFloat = 30
     static let side: CGFloat = 32

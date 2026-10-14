@@ -502,12 +502,12 @@ struct MobileLiveView: View {
                                games: dayGames)
                 }
                 if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
-                    ContentUnavailableView("Nothing for your teams",
+                    LineupUnavailableView("Nothing for your teams",
                         systemImage: "star",
                         description: Text("None of the teams you follow are playing in this range. Tap My Teams again to see everything."))
                         .padding(.top, 40)
                 } else if slate.all.isEmpty && !library.isScheduleLoading {
-                    ContentUnavailableView(
+                    LineupUnavailableView(
                         library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                         systemImage: "sportscourt",
                         description: Text("Pull down to refresh, or find your channels in Guide."))

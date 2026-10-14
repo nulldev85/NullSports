@@ -2222,7 +2222,7 @@ private struct LiveChipLabel: View {
             if let league {
                 LeagueLogo(league: league, size: 24)
             } else {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold, design: .rounded))
+                LineupIconTile(symbol: symbol, size: 30)
             }
             Text(title).font(.inter(17, .semibold)).lineLimit(1)
             if let trailing {
@@ -2230,7 +2230,7 @@ private struct LiveChipLabel: View {
             }
         }
         .foregroundStyle(LivePalette.text)
-        .padding(.horizontal, 20).frame(height: 46)
+        .padding(.leading, league == nil ? 8 : 20).padding(.trailing, 20).frame(height: 46)
         // The phone's pill: the panels' fill, no outline.
         .background(LivePalette.card, in: Capsule())
         .lineupFocusLayer(focused, in: Capsule())
@@ -2665,7 +2665,7 @@ private struct LiveTicker: View {
             }
         }
         .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 2)
-        .background(Color.black.ignoresSafeArea(edges: .bottom))
+        .background(LineupStyle.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
@@ -3905,9 +3905,7 @@ private struct GuideSidebarButton: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .frame(width: 24)
+            LineupIconTile(symbol: symbol, size: 32)
             Text(title)
                 .font(.inter(21, selected ? .semibold : .medium))
                 .lineLimit(2)
@@ -3938,10 +3936,10 @@ private struct GuideHeaderButton: View {
     let action: () -> Void
     var body: some View {
         let shape = Capsule()
-        Label(title, systemImage: symbol)
+        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
             .font(.inter(18, .semibold))
             .foregroundStyle(GuidePalette.text)
-            .padding(.horizontal, 22).frame(height: 48)
+            .padding(.leading, 8).padding(.trailing, 22).frame(height: 48)
             .background(GuidePalette.surface, in: shape)
             .lineupFocusLayer(isFocused, in: shape)
             .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
@@ -4265,7 +4263,7 @@ private struct TVFavoritesOrderView: View {
 
                 Group {
                     if favorites.isEmpty {
-                        ContentUnavailableView("No favorites", systemImage: "star",
+                        LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Add channels to Favorites from the TV Guide."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
@@ -5373,15 +5371,16 @@ private struct AccountButtonFace: View {
 
     var body: some View {
         let shape = Capsule()
-        HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .semibold, design: .rounded))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: symbol, size: 34)
             Text(title).font(.inter(18, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
         .foregroundStyle(quiet && !focused ? LineupStyle.secondary : LineupStyle.text)
-        .padding(.horizontal, 24).frame(height: 56)
+        .padding(.leading, 11).padding(.trailing, 24).frame(height: 56)
         .frame(maxWidth: .infinity)
-        .background(quiet ? Color.clear : LineupStyle.raised, in: shape)
+        // On a card, a step lighter than the card, as a pressed row is.
+        .background(quiet ? Color.clear : LineupPanelStyle.well, in: shape)
         .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
                                     lineWidth: prominent ? 1.5 : 1))
         .lineupFocusLayer(focused, in: shape)
@@ -7231,13 +7230,13 @@ private struct TVPlayerButton: View {
         let selected = focus.wrappedValue == id
         let shape = Capsule()
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
-                Image(systemName: symbol).font(.system(size: 18, weight: .bold, design: .rounded)).frame(width: 22)
+                LineupIconTile(symbol: symbol, size: 32)
                 Text(title).font(.inter(18, .semibold)).fixedSize()
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 22).frame(height: 52)
+            .padding(.leading, badge ? 16 : 10).padding(.trailing, 22).frame(height: 52)
             .lineupLiquidGlass(shape, fallback: prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
                                border: LineupStyle.line, prominent: prominent)
             .lineupFocusLayer(selected, in: shape)
@@ -7257,13 +7256,13 @@ private struct TVPlayerMenuLabel: View {
     let symbol: String
     let focused: Bool
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .bold, design: .rounded))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: symbol, size: 32)
             Text(title).font(.inter(18, .semibold)).fixedSize()
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.horizontal, 22).frame(height: 52)
+        .padding(.leading, 10).padding(.trailing, 22).frame(height: 52)
         .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
         .lineupFocusLayer(focused, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)

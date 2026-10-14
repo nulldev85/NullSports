@@ -44,7 +44,7 @@ struct MobileCatchUpSheet: View {
                     if loading {
                         ProgressView().frame(maxHeight: .infinity)
                     } else if programmes.isEmpty {
-                        ContentUnavailableView(failed ? "Catch Up unavailable" : "Nothing kept yet",
+                        LineupUnavailableView(failed ? "Catch Up unavailable" : "Nothing kept yet",
                             systemImage: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath",
                             description: Text(failed
                                 ? "The provider didn't answer. Try again in a moment."

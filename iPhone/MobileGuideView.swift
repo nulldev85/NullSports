@@ -146,10 +146,10 @@ struct MobileGuideView: View {
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
                         if channels.isEmpty && filter == .favorites && !searching {
-                            ContentUnavailableView("No favorites", systemImage: "star",
+                            LineupUnavailableView("No favorites", systemImage: "star",
                                 description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
                         } else if channels.isEmpty {
-                            ContentUnavailableView("No channels", systemImage: "tv",
+                            LineupUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
                         } else if isActive {
                             TimelineView(.periodic(from: .now, by: 5)) { clock in
@@ -739,7 +739,7 @@ private struct FavoritesOrderView: View {
         NavigationStack {
             Group {
                 if listed.isEmpty {
-                    ContentUnavailableView("No favorites", systemImage: "star",
+                    LineupUnavailableView("No favorites", systemImage: "star",
                         description: Text("Touch and hold a channel in the guide to add it."))
                 } else {
                     List {

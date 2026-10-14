@@ -69,16 +69,13 @@ struct MediaServersView: View {
             #else
             Group {
                 if !media.hasAnySource {
-                    ContentUnavailableView {
-                        Label {
-                            Text("Add a Media Server")
-                        } icon: {
-                            MediaServerLogoRow(size: 40)
+                    LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
+                                          description: Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")) {
+                        VStack(spacing: 18) {
+                            MediaServerLogoRow(size: 34)
+                            Button("Add Media Server") { addingServer = true }
+                                .lineupProminentButton()
                         }
-                    } description: {
-                        Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")
-                    } actions: {
-                        Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
                 } else if media.roots.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
@@ -87,17 +84,14 @@ struct MediaServersView: View {
                     // server with nothing selected look identical from here,
                     // and telling a viewer to pick shelves that could not be
                     // fetched sends them looking for a setting to fix.
-                    ContentUnavailableView {
-                        Label(media.profiles.count > 1 ? "Can't Reach Your Servers" : "Can't Reach Your Server",
-                              systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(media.profiles.count > 1
+                    LineupUnavailableView(
+                        title: media.profiles.count > 1 ? "Can't Reach Your Servers" : "Can't Reach Your Server",
+                        symbol: "exclamationmark.triangle",
+                        description: Text(media.profiles.count > 1
                              ? "Lineup couldn't load your libraries. Check that your servers are running and reachable from this network."
-                             : "Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")
-                    } actions: {
-                        Button("Try Again", systemImage: "arrow.clockwise") {
-                            Task { await media.reload() }
-                        }
+                             : "Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")) {
+                        Button("Try Again") { Task { await media.reload() } }
+                            .lineupProminentButton()
                     }
                 } else {
                     MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
@@ -282,9 +276,8 @@ struct LineupAccountCard<Actions: View>: View {
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
         #else
-        // Inside a Settings panel, a well a step lighter than the panel,
-        // rounded to sit inside its corners.
-        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+        // A card in the panels' grey: in a Settings row it is the row.
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
         #endif
     }
 
@@ -488,20 +481,21 @@ struct LineupCardAction: View {
     var body: some View {
         Button(action: action) {
             #if os(tvOS)
-            Label(title, systemImage: symbol)
+            LineupTileLabel(title: title, symbol: symbol, tileSize: 34)
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 66)
-                .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised, border: LineupStyle.line)
+                .background(LineupPanelStyle.well, in: Capsule())
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
-            // An unchosen chip's outline in the accent, dimmed while
-            // unavailable.
-            Label(title, systemImage: symbol)
+            // The reference app's way with a labelled control: the icon on
+            // its coloured tile, the words beside it, on a step lighter than
+            // the card. Dimmed while unavailable.
+            LineupTileLabel(title: title, symbol: symbol, tileSize: 24)
                 .font(.inter(.subheadline, .bold))
-                .foregroundStyle(LineupStyle.highlight)
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .overlay(Capsule().strokeBorder(LineupStyle.highlight, lineWidth: 1.5))
+                .foregroundStyle(LineupStyle.text)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(LineupPanelStyle.well, in: Capsule())
                 .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.5)
             #endif
@@ -958,9 +952,9 @@ private struct MediaCatalogsScreen: View {
                     if searching && results.isEmpty {
                         ProgressView("Searching your library…").frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let searchError {
-                        ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
+                        LineupUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
                     } else if results.isEmpty {
-                        ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                        LineupUnavailableView("No Results", systemImage: "magnifyingglass",
                             description: Text("Nothing in your connected libraries matched that."))
                     } else {
                         // One section per server once there is more than
@@ -984,7 +978,7 @@ private struct MediaCatalogsScreen: View {
                                 .zIndex(1)
                         }
                         #endif
-                        ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                             description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
                     }
                 } else {
@@ -1446,7 +1440,7 @@ private struct MediaCatalogsScreen: View {
         let count = heroItems.count
         return HStack(spacing: 22) {
             HStack(spacing: 12) {
-                Image(systemName: "play.fill")
+                LineupIconTile(symbol: "play.fill", size: 32)
                 Text(item?.isSeries == true ? "Play Show" : "Play Movie")
             }
             .font(.inter(20, .semibold))
@@ -2173,7 +2167,7 @@ private struct TrendingRowScreen: View {
     var body: some View {
         let items = media.trendingShelves.first { $0.id == id }?.items ?? []
         if items.isEmpty {
-            ContentUnavailableView("Nothing to Play Yet", systemImage: "chart.line.uptrend.xyaxis",
+            LineupUnavailableView("Nothing to Play Yet", systemImage: "chart.line.uptrend.xyaxis",
                 description: Text("None of what is trending right now is on your servers or your IPTV provider."))
                 .mediaFocusAnchor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2197,10 +2191,10 @@ private struct MediaFolderScreen: View {
             if loading {
                 ProgressView("Loading \(folder.name)…").mediaFocusAnchor()
             } else if let error {
-                ContentUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
+                LineupUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
                     description: Text(error)).mediaFocusAnchor()
             } else if items.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack",
+                LineupUnavailableView("Nothing Here", systemImage: "film.stack",
                     description: Text("This library did not return any playable items.")).mediaFocusAnchor()
             } else {
                 MediaGridScreen(title: folder.name, items: items)
@@ -2340,7 +2334,7 @@ private struct MediaShelfPicker: View {
     @ViewBuilder
     private var list: some View {
         if !hasAnything {
-            ContentUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
+            LineupUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
                 description: Text(emptyDetail))
                 .mediaFocusAnchor()
         } else {
@@ -2751,8 +2745,8 @@ private struct MediaDetailScreen: View {
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
                          action: { startingOver = false; chosen = playTarget },
                          requestInitialFocus: true) {
-                HStack(spacing: 10) {
-                    Image(systemName: "play.fill")
+                HStack(spacing: 12) {
+                    LineupIconTile(symbol: "play.fill", size: 32)
                     Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
                     if let code = playTarget?.episodeCode {
                         Text(code).opacity(0.62)
@@ -2796,9 +2790,9 @@ private struct MediaDetailScreen: View {
     }
 
     private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol)
+        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
             .font(.inter(17, .semibold))
-            .padding(.horizontal, 20).frame(height: 52)
+            .padding(.leading, 10).padding(.trailing, 20).frame(height: 52)
             .modifier(TVMediaActionSurface())
     }
     #endif
@@ -2905,12 +2899,12 @@ private struct MediaDetailScreen: View {
             // Keep the Library useful even when a server cannot write user
             // state, while still mirroring the choice back when it can.
             Group {
-                iconButton(favorite ? "heart.fill" : "heart") {
+                iconButton("heart", on: favorite) {
                     favorite.toggle()
                     media.setLocalFavorite(favorite, for: subject)
                     Task { await media.setFavorite(favorite, for: subject) }
                 }
-                iconButton(watched ? "eye.fill" : "eye") {
+                iconButton("eye", on: watched) {
                     watched.toggle()
                     media.setLocallyPlayed(watched, for: subject)
                     Task { await media.setPlayed(watched, for: subject) }
@@ -2918,7 +2912,7 @@ private struct MediaDetailScreen: View {
             }
             // Nothing to shuffle through on a film.
             if subject.isSeries {
-                iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
+                iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
                     .disabled(episodes.isEmpty)
             }
         }
@@ -2938,8 +2932,8 @@ private struct MediaDetailScreen: View {
     /// main one. Width is the emphasis now; brightness was too much of it.
     @ViewBuilder
     private var playLabel: some View {
-        let text = HStack(spacing: 8) {
-            Image(systemName: "play.fill")
+        let text = HStack(spacing: 10) {
+            LineupIconTile(symbol: "play.fill", size: 26)
             Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
                 .font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
@@ -2957,9 +2951,13 @@ private struct MediaDetailScreen: View {
     }
 
     @ViewBuilder
-    private func iconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        let label = Image(systemName: symbol).font(.system(size: 17, weight: .semibold, design: .rounded))
-            .frame(width: buttonHeight + 8, height: buttonHeight)
+    private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        // The reference app's tile, in its own colour while on and grey
+        // while off, standing in for the button it is.
+        let label = LineupIconTile(symbol: symbol, size: buttonHeight,
+                                   tint: on ? nil : LineupIconTile.gray)
+            .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
             .modifier(MediaChromeFocus())
         #if os(tvOS)
         TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
@@ -4364,7 +4362,7 @@ struct LibraryHeroSettingsView: View {
                 PageTitle(eyebrow: "Library", title: "Library Hero",
                           detail: "Choose any list. Its first ten titles fill the Library hero.")
                 if groups.isEmpty {
-                    ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                    LineupUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add a media server, then choose a list here."))
                         .frame(maxWidth: .infinity, minHeight: 280)
                         .mediaFocusAnchor()
@@ -4391,7 +4389,7 @@ struct LibraryHeroSettingsView: View {
         #else
         List {
             if groups.isEmpty {
-                ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                LineupUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
                     description: Text("Add a media server, then choose a list here."))
                     .listRowBackground(Color.clear)
             } else {
@@ -4940,7 +4938,7 @@ private struct MediaSourcePicker: View {
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #endif
         } else {
-            ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
+            LineupUnavailableView("Playback Unavailable", systemImage: "play.slash")
         }
     }
 

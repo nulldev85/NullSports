@@ -122,7 +122,7 @@ struct StreamingServiceScreen: View {
     var body: some View {
         Group {
             if titles.isEmpty {
-                ContentUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
+                LineupUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
                     description: Text("None of what \(service.name) has on right now is on your servers or your IPTV provider."))
                     .mediaFocusAnchor()
             } else {
@@ -288,7 +288,7 @@ struct StreamingServicesScreen: View {
     var body: some View {
         Group {
             if services.isEmpty {
-                ContentUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
+                LineupUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
                     description: Text("None of what the streaming services have on right now is on your servers or your IPTV provider."))
                     .mediaFocusAnchor()
             } else {

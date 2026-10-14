@@ -49,7 +49,7 @@ struct MobileChannelPicker: View {
                     header
                     searchField
                     if results.isEmpty && suggested.isEmpty {
-                        ContentUnavailableView("No channels", systemImage: "magnifyingglass",
+                        LineupUnavailableView("No channels", systemImage: "magnifyingglass",
                             description: Text(query.isEmpty
                                 ? "Refresh your guide to load this provider's channels."
                                 : "Nothing matched “\(query)”."))
