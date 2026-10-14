@@ -2612,34 +2612,34 @@ private struct PulsingLiveDot: View {
 }
 
 private struct LiveTicker: View {
-    /// Sized to be read from the couch: the scores at the size of the
-    /// board's own team names.
-    static let height: CGFloat = 60
+    /// The strip keeps its height; its words fill more of it, to be read
+    /// from the couch.
+    static let height: CGFloat = 38
 
     let events: [SportsGame]
     @State private var displayedEvents: [SportsGame] = []
-    /// Points a second: each score stays in view about as long as it did
-    /// when the strip was smaller.
-    private let speed: Double = 74
-    private let cardWidth: CGFloat = 860
-    private let cardSpacing: CGFloat = 52
-    private let loopSpacing: CGFloat = 96
-    private let emptyWidth: CGFloat = 560
+    /// Points a second: with each score's column wider for its larger
+    /// words, a score stays in view as long as it did before.
+    private let speed: Double = 68
+    private let cardWidth: CGFloat = 780
+    private let cardSpacing: CGFloat = 38
+    private let loopSpacing: CGFloat = 72
+    private let emptyWidth: CGFloat = 520
 
     private func cycleWidth(for count: Int) -> CGFloat {
         count == 0 ? emptyWidth + loopSpacing : CGFloat(count) * (cardWidth + cardSpacing) - cardSpacing + loopSpacing
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 30) {
+        HStack(alignment: .bottom, spacing: 24) {
             // The crawl's bug, in the theme's own colour, the way a broadcast
             // brands the corner its scores come in from.
             Text("SCORES")
-                .font(.inter(18, .heavy)).tracking(0.8)
+                .font(.inter(17, .heavy)).tracking(0.7)
                 .foregroundStyle(LineupStyle.onHighlight)
-                .padding(.horizontal, 16).frame(height: 38)
-                .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .padding(.bottom, 9)
+                .padding(.horizontal, 14).frame(height: 31)
+                .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .padding(.bottom, 3)
             GeometryReader { viewport in
                 let cycle = cycleWidth(for: displayedEvents.count)
                 let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
@@ -2671,7 +2671,7 @@ private struct LiveTicker: View {
                 }
             }
         }
-        .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 6)
+        .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 2)
         .background(LineupStyle.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
@@ -2690,35 +2690,35 @@ private struct LiveTicker: View {
         HStack(spacing: cardSpacing) {
             if displayedEvents.isEmpty {
                 Text("NO LIVE OR FINAL SCORES YET")
-                    .font(.inter(22, .heavy)).tracking(0.8)
+                    .font(.inter(21, .heavy)).tracking(0.7)
                     .foregroundStyle(LineupStyle.secondary).lineLimit(1)
                     .frame(width: emptyWidth, alignment: .leading)
             } else {
                 // Every column keeps its fixed width: the scroll arithmetic
                 // above counts in whole items of `cardWidth`.
                 ForEach(displayedEvents) { game in
-                    HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(game.league.shortName)
-                            .font(.inter(19, .heavy)).tracking(0.8)
+                            .font(.inter(18, .heavy)).tracking(0.7)
                             .foregroundStyle(LineupStyle.secondary)
-                            .frame(width: 84, alignment: .leading)
+                            .frame(width: 80, alignment: .leading)
                         Text(game.awayAbbreviation)
-                            .font(.inter(30, .bold))
+                            .font(.inter(28, .bold))
                             .foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? LineupStyle.text)
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 92, alignment: .leading)
                         Text(game.awayScore)
-                            .font(.interDigits(32, .bold)).foregroundStyle(LineupStyle.text)
-                            .frame(width: 66, alignment: .trailing)
-                        Text("–").font(.inter(26, .medium)).foregroundStyle(LineupStyle.secondary)
+                            .font(.interDigits(30, .bold)).foregroundStyle(LineupStyle.text)
+                            .frame(width: 62, alignment: .trailing)
+                        Text("–").font(.inter(24, .medium)).foregroundStyle(LineupStyle.secondary)
                         Text(game.homeAbbreviation)
-                            .font(.inter(30, .bold))
+                            .font(.inter(28, .bold))
                             .foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? LineupStyle.text)
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 92, alignment: .leading)
                         Text(game.homeScore)
-                            .font(.interDigits(32, .bold)).foregroundStyle(LineupStyle.text)
-                            .frame(width: 66, alignment: .trailing)
+                            .font(.interDigits(30, .bold)).foregroundStyle(LineupStyle.text)
+                            .frame(width: 62, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL")
-                            .font(.inter(19, .heavy)).tracking(0.8)
+                            .font(.inter(18, .heavy)).tracking(0.7)
                             .foregroundStyle(game.isLive ? LineupStyle.liveStatus : LineupStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
