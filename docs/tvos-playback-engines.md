@@ -31,8 +31,9 @@ Swift package. This keeps its FFmpeg references separate from VLC's FFmpeg.
 The release build checks `_avcodec_open2` binds to AetherLibavcodec, verifies
 embedded decoder resources and notices, and checks the tvOS 18 deployment floor.
 Both app targets explicitly embed the nine FFmpeg runtime products without
-linking them into the app, and copy Aether's SwiftPM resource bundle. Keeping the
-engine inside the bridge does not automatically embed those files in the app.
+linking them into the app. Xcode automatically copies Aether's SwiftPM resource
+bundle through the package dependency graph. A separate bundle dependency would
+create duplicate copy tasks and fail the build.
 `Tools/check-aether-bundle.py` checks every runtime binary and its framework
 dependencies, reporting the exact missing file if packaging is incomplete.
 Both runners use Xcode 27, the upstream tested toolchain. iPhone also supports
