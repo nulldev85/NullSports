@@ -42,6 +42,9 @@ struct MediaServersView: View {
     @State private var clearingHistory = false
     @State private var searchingLibrary = false
     @State private var playing: MediaPlayRequest?
+    /// The Library's options, dropped from the bar's ellipsis.
+    @State private var optionsOpen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         stack
@@ -98,10 +101,16 @@ struct MediaServersView: View {
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen, title: "Library", symbol: "rectangle.stack",
+                                    sections: optionsSections) { setOptions(false) }
+            }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    mediaOptionsMenu
+                    MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
+                        setOptions(!optionsOpen)
+                    }
                 }
             }
             #endif
@@ -147,33 +156,50 @@ struct MediaServersView: View {
     }
 
     #if !os(tvOS)
-    private var mediaOptionsMenu: some View {
-        Menu {
-            Button("Search", systemImage: "magnifyingglass") { searchingLibrary = true }
-                .disabled(media.shelves.isEmpty)
-            Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                .disabled(!media.hasAnySource)
-            Menu("Remove Shelf", systemImage: "minus.rectangle") {
-                ForEach(media.removableShelves) { shelf in
-                    Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
-                }
-            }
-            .disabled(media.removableShelves.isEmpty)
-            Button("Edit Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
-                .disabled(media.libraryRows.count < 2)
-            Divider()
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                .disabled(media.isLoading || !media.hasAnySource)
-            Button("Add Server", systemImage: "plus") { addingServer = true }
-            if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                Button("Clear Local Tracking", systemImage: "clock.arrow.circlepath", role: .destructive) {
-                    clearingHistory = true
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
+    private func setOptions(_ open: Bool) {
+        guard optionsOpen != open else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            optionsOpen = open
         }
-        .accessibilityLabel("Library options")
+    }
+
+    /// What the Library's dropdown offers: its shelves -- the ones that can
+    /// go a list of their own inside it -- then its servers.
+    private var optionsSections: [MobileMenuSection] {
+        let removable = media.removableShelves.map { shelf in
+            MobileMenuItem(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
+                media.removeShelf(shelf)
+            }
+        }
+        var servers = [
+            MobileMenuItem("Refresh", symbol: "arrow.clockwise",
+                           isEnabled: !media.isLoading && media.hasAnySource) {
+                Task { await media.reload() }
+            },
+            MobileMenuItem("Add Server", symbol: "externaldrive.badge.plus") { addingServer = true }
+        ]
+        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+            servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
+                clearingHistory = true
+            })
+        }
+        return [
+            MobileMenuSection(id: "shelves", items: [
+                MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
+                    searchingLibrary = true
+                },
+                MobileMenuItem("Add Shelf", symbol: "plus.rectangle.on.rectangle", isEnabled: media.hasAnySource) {
+                    choosingShelf = true
+                },
+                MobileMenuItem("Remove Shelf", symbol: "minus.rectangle", isEnabled: !removable.isEmpty,
+                               children: [MobileMenuSection(id: "removable", items: removable)]),
+                MobileMenuItem("Edit Shelves", symbol: "arrow.up.arrow.down",
+                               isEnabled: media.libraryRows.count >= 2) {
+                    reorderingShelves = true
+                }
+            ]),
+            MobileMenuSection(id: "servers", items: servers)
+        ]
     }
     #endif
 }
@@ -648,7 +674,7 @@ private struct TVLibraryMenuBar: View {
                 .overlay(alignment: .topTrailing) {
                     if open {
                         panel
-                            .alignmentGuide(.top) { $0[.top] - 48 }
+                            .alignmentGuide(.top) { $0[.top] - 64 }
                             .transition(.opacity.combined(with: .offset(y: -8)))
                     }
                 }
@@ -664,17 +690,21 @@ private struct TVLibraryMenuBar: View {
         .animation(.easeOut(duration: 0.16), value: open)
     }
 
+    // A pill in the panels' own grey, as the phone's Sports menu opens
+    // from: its tile, its name and a chevron, a step lighter while open.
     private var button: some View {
-        MediaChromeLabel {
-            HStack(spacing: 10) {
-                Image(systemName: "slider.horizontal.3")
-                Text("Library")
-                Image(systemName: open ? "chevron.up" : "chevron.down")
-                    .font(.inter(13, .bold))
-            }
-            .font(.inter(16, .semibold))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: "slider.horizontal.3", size: 34)
+            Text("Library").font(.inter(19, .semibold))
+            Image(systemName: open ? "chevron.up" : "chevron.down")
+                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                .foregroundStyle(LineupPanelStyle.quiet)
         }
-        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 12))
+        .foregroundStyle(LineupStyle.text)
+        .padding(.leading, 9).padding(.trailing, 20)
+        .frame(height: 52)
+        .background(open ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
+        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 26))
         .focusable()
         .focused($focus, equals: .button)
         .focusEffectDisabled()
@@ -693,31 +723,42 @@ private struct TVLibraryMenuBar: View {
         .accessibilityLabel("Library options")
     }
 
+    // A panel like every other: its header and hairline inside it, then a
+    // row a choice, each with its coloured tile.
     private var panel: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                HStack(spacing: 14) {
-                    Image(systemName: option.symbol)
-                        .frame(width: 28)
-                    Text(option.title)
-                    Spacer(minLength: 0)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader("Library", systemImage: "rectangle.stack")
+                .padding(.horizontal, 22)
+                .frame(width: 400, height: 62, alignment: .leading)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, 22)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                    HStack(spacing: 16) {
+                        LineupIconTile(symbol: option.symbol, size: 38)
+                        Text(option.title)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.inter(19, .semibold))
+                    .foregroundStyle(option.destructive ? LineupIconTile.red : LineupStyle.text)
+                    .padding(.horizontal, 14)
+                    .frame(width: 384, height: 60)
+                    .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 16))
+                    .focusable()
+                    .focused($focus, equals: .row(index))
+                    .focusEffectDisabled()
+                    .onTapGesture { choose(option) }
+                    .onMoveCommand { direction in move(direction, from: index) }
                 }
-                .font(.inter(17, .semibold))
-                .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
-                .padding(.horizontal, 16)
-                .frame(width: 340, height: 50)
-                .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 10))
-                .focusable()
-                .focused($focus, equals: .row(index))
-                .focusEffectDisabled()
-                .onTapGesture { choose(option) }
-                .onMoveCommand { direction in move(direction, from: index) }
             }
+            .padding(8)
         }
-        .padding(8)
-        .background(LineupStyle.surface.opacity(0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
-        .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
+        .background(LineupPanelStyle.fill, in: shape)
+        // It floats over panels of its own colour: a hairline of light round
+        // its edge and a deep shadow under it.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.6), radius: 34, y: 18)
         .fixedSize()
         .onAppear { focus = .row(0) }
     }
@@ -2589,6 +2630,10 @@ private struct MediaDetailScreen: View {
     #endif
     @State private var choosingSeason = false
     #if !os(tvOS)
+    /// The seasons, dropped from the Seasons button under the episodes'
+    /// header.
+    @State private var seasonMenuOpen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
     /// page through the hero's own view, which finds them itself.
     @State private var pageRatings: MediaRatings?
@@ -2612,6 +2657,16 @@ private struct MediaDetailScreen: View {
         }
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
+        #if !os(tvOS)
+        .overlayPreferenceValue(MediaSeasonMenuAnchor.self) { anchor in
+            GeometryReader { proxy in
+                if seasonMenuOpen, let anchor {
+                    seasonDropdown(from: proxy[anchor], in: proxy.size)
+                }
+            }
+            .allowsHitTesting(seasonMenuOpen)
+        }
+        #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
         #if !os(tvOS)
@@ -2939,19 +2994,21 @@ private struct MediaDetailScreen: View {
             #else
             PhoneShelfHeader(title: selectedSeason?.name ?? "Episodes", symbol: "list.number") {
                 if seasons.count > 1 {
-                    Menu {
-                        ForEach(seasons) { season in
-                            Button(season.name) { Task { await loadSeason(season) } }
-                        }
-                    } label: {
+                    Button { setSeasonMenu(!seasonMenuOpen) } label: {
                         HStack(spacing: 3) {
                             Text("Seasons")
                             Image(systemName: "chevron.down").font(.system(size: 12, weight: .heavy, design: .rounded))
+                                .rotationEffect(.degrees(seasonMenuOpen ? -180 : 0))
                         }
                         .font(.inter(14, .bold))
                         .foregroundStyle(LineupStyle.highlight)
                         .fixedSize()
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .anchorPreference(key: MediaSeasonMenuAnchor.self, value: .bounds) { $0 }
+                    .accessibilityLabel("Seasons")
+                    .accessibilityHint(seasonMenuOpen ? "Closes the list of seasons" : "Shows the list of seasons")
                 }
             }
             #endif
@@ -3284,6 +3341,46 @@ private struct MediaDetailScreen: View {
             pageReady = true
         }
     }
+
+    #if !os(tvOS)
+    private func setSeasonMenu(_ open: Bool) {
+        guard seasonMenuOpen != open else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            seasonMenuOpen = open
+        }
+    }
+
+    /// The seasons, hung from the button that opens them: under it where
+    /// there is room, above it where it sits near the foot of the screen.
+    private func seasonDropdown(from button: CGRect, in size: CGSize) -> some View {
+        let width = min(260, size.width - 32)
+        let x = min(max(16, button.maxX - width), size.width - width - 16)
+        let below = size.height - button.maxY - 24
+        let above = button.minY - 24
+        let opensUp = below < 200 && above > below
+        let sections = [MobileMenuSection(id: "seasons", items: seasons.map { season in
+            MobileMenuItem(season.name, id: "\(season.id)", isSelected: season.id == selectedSeason?.id) {
+                Task { await loadSeason(season) }
+            }
+        })]
+        return ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.45)
+                .contentShape(Rectangle())
+                .onTapGesture { setSeasonMenu(false) }
+                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                if opensUp { Spacer(minLength: 0) } else { Color.clear.frame(height: button.maxY + 6) }
+                MobileDropdownPanel(title: "Seasons", symbol: "list.number", sections: sections,
+                                    maxHeight: opensUp ? above : below) { setSeasonMenu(false) }
+                    .frame(width: width)
+                if opensUp { Color.clear.frame(height: size.height - button.minY + 6) } else { Spacer(minLength: 0) }
+            }
+            .padding(.leading, x)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+        }
+        .transition(.opacity)
+    }
+    #endif
 
     private func loadSeason(_ season: MediaItem) async {
         selectedSeason = season
@@ -6800,3 +6897,13 @@ private struct PhoneShelfPanel: ViewModifier {
         #endif
     }
 }
+
+#if !os(tvOS)
+/// Where the Seasons button is, so its dropdown can hang from it.
+private struct MediaSeasonMenuAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+#endif

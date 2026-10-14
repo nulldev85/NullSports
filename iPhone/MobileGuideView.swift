@@ -33,6 +33,8 @@ struct MobileGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var showsSearch = false
+    /// The TV Guide's options, dropped from the bar's ellipsis.
+    @State private var optionsOpen = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -235,31 +237,20 @@ struct MobileGuideView: View {
                     .background(LineupStyle.background)
                 }
             }
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                    symbol: "list.bullet.rectangle", sections: optionsSections) {
+                    setOptions(false)
+                }
+            }
             .toolbar {
                 if game != nil {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button("Return to Now", systemImage: "clock.arrow.circlepath") { returnToNow() }
-                        Button(showsSearch ? "Close Search" : "Search Channels",
-                               systemImage: showsSearch ? "xmark" : "magnifyingglass") {
-                            if showsSearch { closeSearch() }
-                            else { showsSearch = true }
-                        }
-                        Divider()
-                        filterChoice("Favorites", .favorites)
-                        filterChoice("Recently watched", .recents)
-                            .disabled(library.recentStreams.isEmpty)
-                        Divider()
-                        filterChoice("All channels", .all)
-                        ForEach(library.categories) { filterChoice($0.categoryName, .category($0.id)) }
-                        Divider()
-                        Button("Refresh guide", systemImage: "arrow.clockwise") {
-                            Task { await library.reload() }
-                        }.disabled(library.channelsAreSyncing)
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityLabel("TV Guide options")
+                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                        setOptions(!optionsOpen)
+                    }
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
@@ -277,7 +268,7 @@ struct MobileGuideView: View {
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: fillsScreen) { _, value in
-                if value { searchFocused = false }
+                if value { searchFocused = false; optionsOpen = false }
                 onFullscreenChange(value)
             }
             .onChange(of: sideways) { _, value in
@@ -291,6 +282,7 @@ struct MobileGuideView: View {
                 // asked to keep watching.
                 if !active {
                     searchFocused = false
+                    optionsOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else { returnToNow() }
             }
@@ -324,10 +316,56 @@ struct MobileGuideView: View {
 
     /// One of the Guide's choices, ticked when it is the one shown. Picking
     /// it replaces whatever was ticked; picking the ticked one again keeps it.
-    private func filterChoice(_ title: String, _ choice: MobileGuideFilter) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { filter == choice },
-            set: { if $0 { chosenFilter = choice } }))
+    private func setOptions(_ open: Bool) {
+        guard optionsOpen != open else { return }
+        if open { searchFocused = false }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            optionsOpen = open
+        }
+    }
+
+    /// What the TV Guide's dropdown offers: getting about, which channels the
+    /// guide lists -- the categories a list of their own inside it -- and a
+    /// refresh.
+    private var optionsSections: [MobileMenuSection] {
+        let categories = library.categories.map { category in
+            MobileMenuItem(category.categoryName, id: "category-\(category.id)",
+                           isSelected: filter == .category(category.id)) {
+                chosenFilter = .category(category.id)
+            }
+        }
+        let inCategory: Bool = { if case .category = filter { return true } else { return false } }()
+        return [
+            MobileMenuSection(id: "move", items: [
+                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
+                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
+                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
+                    if showsSearch { closeSearch() } else { showsSearch = true }
+                }
+            ]),
+            MobileMenuSection(id: "channels", items: [
+                MobileMenuItem("Favorites", symbol: "star", isSelected: filter == .favorites) {
+                    chosenFilter = .favorites
+                },
+                MobileMenuItem("Recently Watched", symbol: "clock.arrow.circlepath",
+                               isSelected: filter == .recents,
+                               isEnabled: !library.recentStreams.isEmpty) {
+                    chosenFilter = .recents
+                },
+                MobileMenuItem("All Channels", symbol: "tv", isSelected: filter == .all) {
+                    chosenFilter = .all
+                },
+                MobileMenuItem("Categories", symbol: "square.stack", isSelected: inCategory,
+                               isEnabled: !categories.isEmpty,
+                               children: [MobileMenuSection(id: "categories", items: categories)])
+            ]),
+            MobileMenuSection(id: "refresh", items: [
+                MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
+                               isEnabled: !library.channelsAreSyncing) {
+                    Task { await library.reload() }
+                }
+            ])
+        ]
     }
 
     private func selectChannel(_ stream: XtreamStream) {

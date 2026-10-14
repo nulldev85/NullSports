@@ -1,0 +1,252 @@
+import SwiftUI
+
+/// One thing a dropdown offers: a tile, its name, and either what it does or
+/// a list of its own to go into.
+struct MobileMenuItem: Identifiable {
+    let id: String
+    let title: String
+    /// The row's coloured tile. Nil for a plain choice in a long list, such
+    /// as a channel category or a season, where a tile on every row would
+    /// say nothing.
+    var symbol: String?
+    var isSelected = false
+    var isEnabled = true
+    var isDestructive = false
+    /// Opens in the same panel, in place of the list it is in, with the way
+    /// back in its header.
+    var children: [MobileMenuSection]?
+    var action: () -> Void = {}
+
+    init(_ title: String, symbol: String? = nil, id: String? = nil,
+         isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false,
+         children: [MobileMenuSection]? = nil, action: @escaping () -> Void = {}) {
+        self.id = id ?? title
+        self.title = title
+        self.symbol = symbol
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.isDestructive = isDestructive
+        self.children = children
+        self.action = action
+    }
+}
+
+/// Rows that belong together, with a hairline between one group and the next.
+struct MobileMenuSection: Identifiable {
+    let id: String
+    let items: [MobileMenuItem]
+}
+
+/// The app's dropdown, in place of the system's menu: a panel like every
+/// other one -- its header and hairline inside it, then rows with coloured
+/// tiles, the chosen one ticked in the accent on the panel's grey well. The
+/// Sports tab's league list is drawn the same way.
+struct MobileDropdownPanel: View {
+    let title: String
+    let symbol: String
+    let sections: [MobileMenuSection]
+    /// The room it has; past it the list scrolls.
+    let maxHeight: CGFloat
+    /// Called before a row's own action, so the panel is gone by the time a
+    /// sheet that action opens comes up.
+    let dismiss: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The row whose own list is showing, if one is.
+    @State private var openedID: String?
+    @State private var shown = false
+
+    static let rowHeight: CGFloat = 50
+    private static let headerHeight: CGFloat = 46
+    private static let inset: CGFloat = 8
+    /// A hairline between groups, with the room around it.
+    private static let rule: CGFloat = 9
+
+    private var opened: MobileMenuItem? {
+        guard let openedID else { return nil }
+        return sections.flatMap(\.items).first { $0.id == openedID }
+    }
+
+    private var shownSections: [MobileMenuSection] { opened?.children ?? sections }
+
+    var body: some View {
+        let shape = LineupPanelStyle.shape
+        let list = shownSections
+        let rows = list.reduce(0) { $0 + $1.items.count }
+        let content = CGFloat(rows) * Self.rowHeight
+            + CGFloat(max(0, list.count - 1)) * Self.rule + Self.inset * 2
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, LineupPanelStyle.inset)
+                .frame(height: Self.headerHeight - 1)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(list.enumerated()), id: \.element.id) { index, section in
+                        if index > 0 {
+                            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                                .padding(.horizontal, 12).padding(.vertical, 4)
+                        }
+                        ForEach(section.items) { item in
+                            row(item)
+                                .opacity(shown ? 1 : 0)
+                                .offset(y: shown || reduceMotion ? 0 : -6)
+                        }
+                    }
+                }
+                .padding(Self.inset)
+                // A list gone into starts at its top, not where its parent
+                // was scrolled to.
+                .id(openedID ?? "")
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
+            .frame(height: min(content, max(Self.rowHeight * 2, maxHeight - Self.headerHeight)))
+        }
+        .background(LineupPanelStyle.fill, in: shape)
+        // It floats over panels of its own colour, so it takes a hairline of
+        // light round its edge and a deep shadow under it.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(shape)
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
+        .onAppear {
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15)
+                          : .spring(response: 0.32, dampingFraction: 0.88)) { shown = true }
+        }
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { dismiss() }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if let opened {
+            Button {
+                withAnimation(.snappy(duration: 0.22)) { openedID = nil }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundStyle(LineupStyle.highlight)
+                    LineupPanelHeader(opened.title, systemImage: opened.symbol)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to \(title)")
+        } else {
+            LineupPanelHeader(title, systemImage: symbol)
+        }
+    }
+
+    private func row(_ item: MobileMenuItem) -> some View {
+        Button {
+            if item.children != nil {
+                withAnimation(.snappy(duration: 0.22)) { openedID = item.id }
+            } else {
+                dismiss()
+                item.action()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                if let symbol = item.symbol {
+                    LineupIconTile(symbol: symbol, size: 28)
+                }
+                Text(item.title)
+                    .font(.inter(16, .semibold))
+                    .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Spacer(minLength: 8)
+                if item.isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(LineupStyle.highlight)
+                }
+                if item.children != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: Self.rowHeight)
+            .background(item.isSelected ? LineupPanelStyle.well : .clear,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Rectangle())
+            .opacity(item.isEnabled ? 1 : 0.4)
+        }
+        .buttonStyle(MobileDropdownRowStyle())
+        .disabled(!item.isEnabled)
+        .accessibilityAddTraits(item.isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// The dropdown hung under the bar button that opens it, at the screen's top
+/// trailing corner, with everything under it stepping back. A tap outside
+/// closes it, as the button does.
+struct MobileDropdownLayer: View {
+    let isPresented: Bool
+    let title: String
+    let symbol: String
+    let sections: [MobileMenuSection]
+    let close: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topTrailing) {
+                if isPresented {
+                    Color.black.opacity(0.45)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: close)
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                    MobileDropdownPanel(title: title, symbol: symbol, sections: sections,
+                                        maxHeight: proxy.size.height - 24, dismiss: close)
+                        .frame(width: min(300, proxy.size.width - 32))
+                        .padding(.trailing, 16)
+                        .padding(.top, 6)
+                        // Opens with a little growth from the button; closes
+                        // as one flat layer fading out at once.
+                        .compositingGroup()
+                        .transition(.asymmetric(
+                            insertion: reduceMotion ? AnyTransition.opacity
+                                : AnyTransition.scale(scale: 0.94, anchor: .topTrailing).combined(with: .opacity),
+                            removal: AnyTransition.opacity.animation(.easeOut(duration: 0.14))))
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topTrailing)
+        }
+        .allowsHitTesting(isPresented)
+    }
+}
+
+/// The bar button that opens a dropdown: the system's ellipsis, filled while
+/// its list is open.
+struct MobileDropdownButton: View {
+    let isOpen: Bool
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isOpen ? "ellipsis.circle.fill" : "ellipsis.circle")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .accessibilityLabel(label)
+        .accessibilityHint(isOpen ? "Closes the list" : "Shows the list")
+    }
+}
+
+/// A row pressed in: the grey of a chosen row, and a little give.
+private struct MobileDropdownRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? LineupPanelStyle.well.opacity(0.8) : .clear,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
