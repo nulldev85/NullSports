@@ -871,10 +871,10 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 #endif
 
 private enum LibraryHeroRotation {
-    static let interval: Duration = .seconds(3)
+    static let interval: Duration = .seconds(4)
 
     static func animation(reduceMotion: Bool) -> Animation {
-        .easeInOut(duration: reduceMotion ? 0.2 : 0.45)
+        .easeInOut(duration: reduceMotion ? 0.2 : 0.75)
     }
 }
 
@@ -1272,7 +1272,7 @@ private struct MediaCatalogsScreen: View {
         let current = min(heroIndex, candidates.count - 1)
         let nextIndex = (current + 1) % candidates.count
         let next = candidates[nextIndex]
-        // Begin both upcoming downloads during this title's three-second dwell.
+        // Begin both upcoming downloads during this title's four-second dwell.
         for offset in [nextIndex, (nextIndex + 1) % candidates.count] {
             if let art = backdropArt(for: candidates[offset]) {
                 LineupArt.prefetch(art.url, pixels: art.pixels)
@@ -4033,7 +4033,7 @@ private struct TVMediaLibraryPreview: View {
 
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
 /// It advances gently when left alone. Changing the page by touch restarts the
-/// three-second interval, so it never fights a swipe or immediately skips the
+/// four-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
     @EnvironmentObject private var media: MediaLibrary
