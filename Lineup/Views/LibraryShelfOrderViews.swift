@@ -79,10 +79,10 @@ struct LibraryShelfOrderSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Reset", action: reset).disabled(media.shelfOrder.isEmpty)
+                    Button("Reset", action: reset).buttonStyle(LineupBarButtonStyle()).disabled(media.shelfOrder.isEmpty)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", action: dismiss.callAsFunction).fontWeight(.semibold)
+                    Button("Done", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle(prominent: true))
                 }
             }
         }

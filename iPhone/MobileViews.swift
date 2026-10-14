@@ -150,7 +150,7 @@ struct ProfileSetupView: View {
             .toolbar {
                 if addingProvider {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }.disabled(connecting)
+                        Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()).disabled(connecting)
                     }
                 }
             }

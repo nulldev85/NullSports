@@ -1909,6 +1909,7 @@ private struct MediaCatalogsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { searchPresented = false }
+                        .buttonStyle(LineupBarButtonStyle())
                 }
             }
             .onAppear { searchFocused = true }
@@ -2324,6 +2325,7 @@ private struct MediaShelfPicker: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done", action: dismiss.callAsFunction)
+                            .buttonStyle(LineupBarButtonStyle(prominent: true))
                     }
                 }
         }
@@ -4673,7 +4675,7 @@ private struct MediaSourcePicker: View {
             board
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
+                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle()) }
                 }
         }
         .task(id: item.libraryKey) { await loadSources() }
@@ -6174,7 +6176,7 @@ struct MediaServerSetupView: View {
             .background(LineupStyle.background)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             .disabled(media.isAddingServer)
             .onChange(of: page) { _, brand in
                 guard let brand, brand != software else { return }
@@ -6777,7 +6779,7 @@ struct MDBListIntegrationView: View {
             }
             .navigationTitle("MDBList")
             #if !os(tvOS)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             #endif
             #if os(tvOS)
             .tvChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,

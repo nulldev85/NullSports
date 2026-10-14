@@ -72,12 +72,14 @@ struct PlaybackDiagnosticsReportView: View {
                     UIPasteboard.general.string = diagnostics.report
                     copied = true
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
             ToolbarItem(placement: .bottomBar) {
                 Button("Clear", role: .destructive) {
                     diagnostics.clear()
                     copied = false
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
         }
     }
@@ -112,6 +114,7 @@ struct StartupTraceReportView: View {
                     UIPasteboard.general.string = trace.report
                     copied = true
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
         }
     }

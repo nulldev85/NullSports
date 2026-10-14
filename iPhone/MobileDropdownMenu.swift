@@ -235,8 +235,9 @@ struct MobileDropdownLayer: View {
     }
 }
 
-/// The bar button that opens a dropdown: the system's ellipsis, filled while
-/// its list is open.
+/// The bar button that opens a dropdown: the reference app's round button --
+/// the card grey, a hairline of light, a white ellipsis -- a step lighter
+/// while its list is open.
 struct MobileDropdownButton: View {
     let isOpen: Bool
     let label: String
@@ -244,9 +245,15 @@ struct MobileDropdownButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: isOpen ? "ellipsis.circle.fill" : "ellipsis.circle")
-                .contentTransition(.symbolEffect(.replace))
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(LineupStyle.text)
+                .frame(width: 36, height: 36)
+                .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint(isOpen ? "Closes the list" : "Shows the list")
     }

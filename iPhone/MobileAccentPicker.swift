@@ -65,7 +65,7 @@ struct MobileAccentPicker: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(LineupStyle.text)
+                    Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -73,8 +73,7 @@ struct MobileAccentPicker: View {
                         onChoose(draft)
                         dismiss()
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(accent.color)
+                    .buttonStyle(LineupBarButtonStyle(prominent: true, fill: accent.color, ink: accent.onAccent))
                 }
             }
             // The swatches and the mixer keep the code in step; typing waits
@@ -395,7 +394,7 @@ private struct AccentColorChart: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(LineupStyle.text)
+                    Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Use") {
@@ -403,8 +402,7 @@ private struct AccentColorChart: View {
                         onUse(hex)
                         dismiss()
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(accent.color)
+                    .buttonStyle(LineupBarButtonStyle(prominent: true, fill: accent.color, ink: accent.onAccent))
                 }
             }
             // The field and the strip keep the hex in step; typing waits for

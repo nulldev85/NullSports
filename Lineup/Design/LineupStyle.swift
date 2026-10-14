@@ -665,21 +665,91 @@ struct LineupButtonStyle: ButtonStyle {
         PurpleButtonLabel(configuration: configuration)
     }
 
+    // The reference app's control: a capsule a step lighter than the card it
+    // sits on, its words in white -- red for one that takes something away --
+    // and its icon on a tile in the accent.
     private struct PurpleButtonLabel: View {
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
         let configuration: ButtonStyle.Configuration
 
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+            let shape = Capsule()
             configuration.label
-                .foregroundStyle(LineupStyle.lightPurple)
+                .labelStyle(LineupTileLabelStyle())
+                .font(.inter(17, .semibold))
+                .foregroundStyle(configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text)
                 .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(LineupStyle.raised, in: shape)
+                .frame(minHeight: Self.height)
+                .background(LineupPanelStyle.well, in: shape)
                 .lineupFocusLayer(focused, in: shape)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.easeOut(duration: 0.16), value: focused)
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+        }
+
+        #if os(tvOS)
+        static let height: CGFloat = 60
+        #else
+        static let height: CGFloat = 46
+        #endif
+    }
+}
+
+/// A Label's icon on a tile in the accent, beside its words: how a control
+/// with an icon reads anywhere in the app.
+struct LineupTileLabelStyle: LabelStyle {
+    #if os(tvOS)
+    var tile: CGFloat = 34
+    #else
+    var tile: CGFloat = 26
+    #endif
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: tile * 0.42) {
+            configuration.icon
+                .font(.system(size: tile * 0.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: tile, height: tile)
+                .background(LineupStyle.highlight,
+                            in: RoundedRectangle(cornerRadius: tile * 0.26, style: .continuous))
+            configuration.title
+        }
+    }
+}
+
+/// A button in a bar: its words in white on a capsule of the card grey with a
+/// hairline of light, as the reference app draws its round close button. The
+/// one that finishes the screen -- Done, Use -- is the accent, filled.
+struct LineupBarButtonStyle: ButtonStyle {
+    var prominent = false
+    /// A prominent button's fill and words in a colour of their own -- the
+    /// accent picker's, which shows the colour being tried.
+    var fill: Color? = nil
+    var ink: Color? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        Face(configuration: configuration, prominent: prominent, fill: fill, ink: ink)
+    }
+
+    private struct Face: View {
+        @Environment(\.isEnabled) private var enabled
+        let configuration: ButtonStyle.Configuration
+        let prominent: Bool
+        let fill: Color?
+        let ink: Color?
+
+        var body: some View {
+            configuration.label
+                .font(.inter(15, .semibold))
+                .foregroundStyle(prominent ? (ink ?? LineupStyle.onHighlight)
+                                 : (configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text))
+                .padding(.horizontal, 14)
+                .frame(minWidth: 36, minHeight: 34)
+                .background(prominent ? (fill ?? LineupStyle.highlight) : LineupPanelStyle.fill, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(prominent ? 0 : 0.08), lineWidth: 1))
+                .contentShape(Capsule())
+                .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
         }
     }
 }
