@@ -104,6 +104,17 @@ final class MediaLibrary: ObservableObject {
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
     @Published private(set) var localPlayback: [LocalMediaPlayback] = []
+    @Published private var continueWatchingDismissals: [LocalContinueWatchingDismissal] = []
+    /// Only an actual new viewing session can restore a hidden title. A
+    /// closing player's final samples and server Up Next refreshes cannot.
+    private struct PlaybackSession {
+        let profileID: UUID
+        let itemID: String
+        let initialPosition: TimeInterval
+        let dismissalIDs: Set<UUID>
+        var hasAdvanced = false
+    }
+    private var playbackSessions: [UUID: PlaybackSession] = [:]
     /// Where each episode falls in its show, counted through every season,
     /// keyed by server and show: what "8 of 16" on a poster is read from.
     @Published private(set) var episodeOrders: [String: SeriesEpisodeOrder] = [:]
@@ -126,6 +137,7 @@ final class MediaLibrary: ObservableObject {
     private let deviceKey = "NullSports.mediaDeviceID"
     private let shelvesKey = "NullSports.mediaShelves"
     private let localPlaybackKey = "Lineup.localMediaPlayback.v1"
+    private let continueWatchingDismissalsKey = "Lineup.continueWatchingDismissals.v1"
     private let localFavoritesKey = "Lineup.localMediaFavorites.v1"
     private let mdbListShelvesKey = "Lineup.mdbListShelves.v1"
     private let providerShelvesKey = "Lineup.providerShelves.v1"
@@ -225,6 +237,10 @@ final class MediaLibrary: ObservableObject {
         if let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
             localPlayback = saved.map { Self.marked($0) }
+        }
+        if let data = defaults.data(forKey: continueWatchingDismissalsKey),
+           let saved = try? JSONDecoder().decode([LocalContinueWatchingDismissal].self, from: data) {
+            continueWatchingDismissals = saved
         }
         if let data = defaults.data(forKey: localFavoritesKey),
            let saved = try? JSONDecoder().decode([LocalMediaFavorite].self, from: data) {
@@ -337,7 +353,8 @@ final class MediaLibrary: ObservableObject {
     /// exact file duration.
     var continueWatching: [LocalMediaPlayback] {
         let candidates = playbackForConnectedServers.filter {
-            !$0.completed && ($0.isUpNext == true
+            !isHiddenFromContinueWatching($0.item, profileID: $0.profileID)
+                && !$0.completed && ($0.isUpNext == true
                 || ($0.explicitlyUnwatched != true && $0.position >= 5))
         }
         // One show should occupy one place in Continue Watching. A genuine
@@ -511,6 +528,9 @@ final class MediaLibrary: ObservableObject {
         if heldPlayback?.profileID == profile.id { heldPlayback = nil }
         localPlayback.removeAll { $0.profileID == profile.id }
         persistLocalPlayback()
+        playbackSessions = playbackSessions.filter { $0.value.profileID != profile.id }
+        continueWatchingDismissals.removeAll { $0.profileID == profile.id }
+        persistContinueWatchingDismissals()
         localFavorites.removeAll { $0.profileID == profile.id }
         persistLocalFavorites()
         var shelfChoices = savedShelves()
@@ -1288,15 +1308,57 @@ final class MediaLibrary: ObservableObject {
         return LocalMediaTrackingPolicy.resumePosition(for: record)
     }
 
-    func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval) {
+    func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false) {
+        guard playbackSessions[id] == nil, let profileID = serverID(of: item) else { return }
+        playbackSessions[id] = PlaybackSession(profileID: profileID, itemID: item.id,
+            initialPosition: startsOver ? 0 : (resumePosition(for: item) ?? 0),
+            dismissalIDs: Set(continueWatchingDismissals.filter {
+                $0.matches(item, profileID: profileID)
+            }.map(\.id)))
+    }
+
+    func endPlaybackSession(_ id: UUID) {
+        flushLocalPlayback()
+        playbackSessions[id] = nil
+    }
+
+    private func acceptsPlayback(of item: MediaItem, profileID: UUID, sessionID: UUID?) -> Bool {
+        guard let sessionID else { return true }
+        guard let session = playbackSessions[sessionID] else { return false }
+        return session.profileID == profileID && session.itemID == item.id
+    }
+
+    func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval,
+                       sessionID: UUID? = nil) {
         guard let profileID = serverID(of: item), position.isFinite, duration.isFinite,
-              position >= 0, duration > 0 else { return }
+              position >= 0, duration > 0,
+              acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
 
         let safePosition = min(position, duration)
         // A title only becomes history after somebody has genuinely started it.
         // This also prevents opening and immediately closing a stream from
         // displacing something the viewer was actually watching.
         guard safePosition >= 5 else { return }
+        var startedPlaying = false
+        if let sessionID, let session = playbackSessions[sessionID],
+           !session.hasAdvanced, abs(safePosition - session.initialPosition) >= 5 {
+            playbackSessions[sessionID]?.hasAdvanced = true
+            startedPlaying = true
+            let previousCount = continueWatchingDismissals.count
+            continueWatchingDismissals.removeAll { session.dismissalIDs.contains($0.id) }
+            if continueWatchingDismissals.count != previousCount { persistContinueWatchingDismissals() }
+            // The episode the viewer actually chose supersedes an older
+            // generated or manually queued next episode, without changing
+            // that older episode's watched/unwatched state or resume point.
+            if item.type == "Episode" {
+                let scope = LocalContinueWatchingDismissal(item: item, profileID: profileID)
+                for index in localPlayback.indices where localPlayback[index].item.id != item.id
+                    && localPlayback[index].isUpNext == true
+                    && scope.matches(localPlayback[index].item, profileID: localPlayback[index].profileID) {
+                    localPlayback[index].isUpNext = nil
+                }
+            }
+        }
         let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
         let record = LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
@@ -1306,7 +1368,7 @@ final class MediaLibrary: ObservableObject {
         // A first record, a finish, or a change from Up Next or unwatched is
         // a change the Library should show at once; the minute-by-minute
         // creep of a position is not.
-        let changesState = stored == nil || stored?.completed != completed
+        let changesState = startedPlaying || stored == nil || stored?.completed != completed
             || stored?.isUpNext == true || stored?.explicitlyUnwatched == true
         heldPlayback = record
         if changesState || Date().timeIntervalSince(lastPlaybackCommit) >= 30 {
@@ -1334,9 +1396,14 @@ final class MediaLibrary: ObservableObject {
             localPlayback.append(record)
         }
         // Keep plenty of useful history without letting artwork-rich item
-        // records grow defaults forever. Each server retains its newest 200.
+        // records grow defaults forever. Hidden, unfinished resume points
+        // survive even when they fall outside a server's newest 200 records.
         let retained = Dictionary(grouping: localPlayback, by: \.profileID).values.flatMap { records in
-            records.sorted { $0.updatedAt > $1.updatedAt }.prefix(200)
+            records.sorted { $0.updatedAt > $1.updatedAt }.enumerated().compactMap { index, record -> LocalMediaPlayback? in
+                let keepHiddenProgress = !record.completed
+                    && isHiddenFromContinueWatching(record.item, profileID: record.profileID)
+                return index < 200 || keepHiddenProgress ? record : nil
+            }
         }
         localPlayback = Array(retained)
         persistLocalPlayback()
@@ -1352,32 +1419,31 @@ final class MediaLibrary: ObservableObject {
         if let held = heldPlayback, connected.contains(held.profileID) { heldPlayback = nil }
         localPlayback.removeAll { connected.contains($0.profileID) }
         persistLocalPlayback()
+        playbackSessions = playbackSessions.filter { !connected.contains($0.value.profileID) }
+        continueWatchingDismissals.removeAll { connected.contains($0.profileID) }
+        persistContinueWatchingDismissals()
     }
 
     func isInContinueWatching(_ item: MediaItem) -> Bool {
-        let profileID = serverID(of: item)
-        return continueWatching.contains { $0.profileID == profileID && $0.item.id == item.id }
+        guard let profileID = serverID(of: item) else { return false }
+        let scope = LocalContinueWatchingDismissal(item: item, profileID: profileID)
+        return continueWatching.contains { scope.matches($0.item, profileID: $0.profileID) }
     }
 
-    /// Forget one resume point without telling the media server that the title
-    /// was watched or unwatched. Playing it again naturally creates a fresh
-    /// progress record.
+    private func isHiddenFromContinueWatching(_ item: MediaItem, profileID: UUID) -> Bool {
+        continueWatchingDismissals.contains { $0.matches(item, profileID: profileID) }
+    }
+
+    /// Hide a movie or the whole show while retaining progress and watched
+    /// history. Only genuine playback in a later session restores its card.
     func removeFromContinueWatching(_ item: MediaItem) {
         guard let profileID = serverID(of: item) else { return }
-        if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { heldPlayback = nil }
-        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
-        // A show sits in Continue Watching as one card, whichever of its
-        // episodes put it there. Taking only the one shown left a generated
-        // Up Next behind, and the show came straight back. What was finished
-        // stays in History.
-        if item.type == "Episode" {
-            let key = Self.seriesKey(for: item)
-            localPlayback.removeAll { record in
-                record.profileID == profileID && record.item.type == "Episode" && !record.completed
-                    && Self.seriesKey(for: record.item) == key
-            }
-        }
-        persistLocalPlayback()
+        continueWatchingDismissals.removeAll { $0.matches(item, profileID: profileID) }
+        continueWatchingDismissals.append(LocalContinueWatchingDismissal(item: item, profileID: profileID))
+        persistContinueWatchingDismissals()
+        // Preserve the freshest sample too, even if the usual 30-second
+        // write interval has not elapsed yet.
+        flushLocalPlayback()
     }
 
     func isLocalFavorite(_ item: MediaItem) -> Bool {
@@ -1401,6 +1467,7 @@ final class MediaLibrary: ObservableObject {
         // A queued progress sample must not undo an explicit watched change
         // when the player or app later flushes its pending write.
         if heldPlayback?.profileID == profileID, heldPlayback?.item.id == item.id { heldPlayback = nil }
+        playbackSessions = playbackSessions.filter { $0.value.profileID != profileID || $0.value.itemID != item.id }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) }
             ?? previousDuration.map { max(1, $0) } ?? 1
@@ -1412,8 +1479,9 @@ final class MediaLibrary: ObservableObject {
 
     /// A real end-of-file is authoritative even when a stream reported no
     /// duration. Persist before the player closes or opens the next episode.
-    func completePlayback(of item: MediaItem) {
-        guard let profileID = serverID(of: item) else { return }
+    func completePlayback(of item: MediaItem, sessionID: UUID? = nil) {
+        guard let profileID = serverID(of: item),
+              acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
         let alreadyCompleted = localPlaybackRecord(for: item)?.completed == true
         setLocallyPlayed(true, for: item)
         if item.type == "Episode", !alreadyCompleted {
@@ -1481,13 +1549,14 @@ final class MediaLibrary: ObservableObject {
                          serverID: serverID(of: episode))
     }
 
-    /// The episode of a show that Continue Watching has the viewer on, for
-    /// the show's page to open at.
+    /// The show's saved position also remains available when its Continue
+    /// Watching card is hidden or its server is offline.
     func continueWatchingEpisode(in series: MediaItem) -> MediaItem? {
         guard let server = serverID(of: series) else { return nil }
-        return continueWatching.first { record in
-            record.profileID == server && record.item.type == "Episode" && record.item.seriesID == series.id
-        }?.item
+        return seriesRecords(of: series, profileID: server).filter {
+            !$0.completed && ($0.isUpNext == true
+                || ($0.explicitlyUnwatched != true && $0.position >= 5))
+        }.sorted { Self.prefersForDisplay($0, over: $1) }.first?.item
     }
 
     /// Where a show picks up -- see `SeriesResumePolicy` -- with the show's
@@ -1520,15 +1589,14 @@ final class MediaLibrary: ObservableObject {
 
     /// This device's records of a show's episodes.
     private func seriesRecords(of series: MediaItem, profileID: UUID) -> [LocalMediaPlayback] {
+        let scope = LocalContinueWatchingDismissal(item: series, profileID: profileID)
         var records = localPlayback
         if let held = heldPlayback {
             records.removeAll { $0.id == held.id }
             records.append(held)
         }
         return records.filter { record in
-            guard record.profileID == profileID, record.item.type == "Episode" else { return false }
-            if let seriesID = record.item.seriesID, !seriesID.isEmpty { return seriesID == series.id }
-            return record.item.seriesName?.localizedCaseInsensitiveCompare(series.name) == .orderedSame
+            record.item.type == "Episode" && scope.matches(record.item, profileID: record.profileID)
         }
     }
 
@@ -1776,6 +1844,14 @@ final class MediaLibrary: ObservableObject {
             defaults.removeObject(forKey: localFavoritesKey)
         } else if let data = try? JSONEncoder().encode(localFavorites) {
             defaults.set(data, forKey: localFavoritesKey)
+        }
+    }
+
+    private func persistContinueWatchingDismissals() {
+        if continueWatchingDismissals.isEmpty {
+            defaults.removeObject(forKey: continueWatchingDismissalsKey)
+        } else if let data = try? JSONEncoder().encode(continueWatchingDismissals) {
+            defaults.set(data, forKey: continueWatchingDismissalsKey)
         }
     }
 

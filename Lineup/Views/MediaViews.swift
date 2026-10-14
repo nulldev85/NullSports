@@ -4763,6 +4763,7 @@ private struct MediaSourcePicker: View {
     @State private var loading = true
     @State private var error: String?
     @State private var selectedSource: MediaPlaybackSource?
+    @State private var trackingSessionID = UUID()
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
     @State private var pendingServers = 0
@@ -4807,6 +4808,8 @@ private struct MediaSourcePicker: View {
     /// the next one's streams to choose from, or, with none after it, back to
     /// the Library's front page. Backing out of the player is where it was.
     private func playerClosed() {
+        media.endPlaybackSession(trackingSessionID)
+        trackingSessionID = UUID()
         let step = advance
         advance = nil
         switch step {
@@ -5021,12 +5024,18 @@ private struct MediaSourcePicker: View {
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
+            // Capture this presentation's identity. A late callback from the
+            // previous episode must not write progress for the next one.
+            let trackedItem = item
+            let sessionID = trackingSessionID
+            let fromBeginning = startsOver
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
                        initialPosition: startsOver ? nil : media.resumePosition(for: item),
                        expectedDuration: item.runTimeTicks.map { Double($0) / 10_000_000 },
                        onProgress: { position, duration in
-                           media.trackPlayback(of: item, position: position, duration: duration)
+                           media.trackPlayback(of: trackedItem, position: position, duration: duration,
+                                               sessionID: sessionID)
                        },
                        synopsis: tvPlayerSynopsis,
                        nextEpisode: nextEpisode.map { next in
@@ -5035,11 +5044,12 @@ private struct MediaSourcePicker: View {
                            }
                        },
                        onReachedEnd: {
-                           media.completePlayback(of: item)
+                           media.completePlayback(of: trackedItem, sessionID: sessionID)
                            if advance == nil { advance = .reachedEnd }
                        })
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
-            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
+            .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
                              sourceBitrate: source.formattedBitrate,
@@ -5048,15 +5058,20 @@ private struct MediaSourcePicker: View {
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in
-                                 media.trackPlayback(of: item, position: position, duration: duration)
+                                 media.trackPlayback(of: trackedItem, position: position, duration: duration,
+                                                     sessionID: sessionID)
                              },
                              nextEpisode: nextEpisode.map { next in
                                  MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
                                      advance = .playNext(next)
                                  }
                              },
-                             onReachedEnd: { if advance == nil { advance = .reachedEnd } })
-            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
+                             onReachedEnd: {
+                                 media.completePlayback(of: trackedItem, sessionID: sessionID)
+                                 if advance == nil { advance = .reachedEnd }
+                             })
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {
             LineupUnavailableView("Playback Unavailable", systemImage: "play.slash")

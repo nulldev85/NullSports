@@ -82,20 +82,24 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertFalse(restored.isWatched(episode))
     }
 
-    func testRemoveFromContinueWatchingForgetsOnlyThatResumePoint() throws {
+    func testRemoveFromContinueWatchingPreservesTheLatestResumePointAcrossRelaunch() throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }
         let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
         library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        library.trackPlayback(of: movie, position: 940, duration: 5_400)
         XCTAssertTrue(library.isInContinueWatching(movie))
 
         library.removeFromContinueWatching(movie)
 
         XCTAssertFalse(library.isInContinueWatching(movie))
-        XCTAssertNil(library.localPlaybackRecord(for: movie))
+        XCTAssertEqual(library.resumePosition(for: movie), 940)
         XCTAssertTrue(library.watchHistory.isEmpty)
         XCTAssertFalse(library.isWatched(movie))
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertFalse(restored.isInContinueWatching(movie))
+        XCTAssertEqual(restored.resumePosition(for: movie), 940)
     }
 
     func testEpisodeWatchedAdvancesAndUnwatchedRollsContinueWatchingBack() throws {
@@ -309,7 +313,7 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertEqual(library.continueWatching.first { $0.item.id == first.id }?.position, 700)
     }
 
-    func testRemovingAShowFromContinueWatchingTakesItsUpNextToo() throws {
+    func testRemovingAShowHidesAllItsEpisodesWithoutLosingProgressOrHistory() throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = MediaItem(id: "e1", name: "First", type: "Episode", overview: nil,
@@ -325,8 +329,247 @@ final class LocalMediaTrackingTests: XCTestCase {
         library.removeFromContinueWatching(second)
 
         XCTAssertTrue(library.continueWatching.isEmpty)
-        // What was finished stays.
+        XCTAssertEqual(library.resumePosition(for: second), 300)
         XCTAssertTrue(library.isWatched(first))
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        XCTAssertEqual(restored.continueWatchingEpisode(in: series)?.id, second.id)
+        XCTAssertEqual(restored.displayedPlaybackRecord(for: series)?.item.id, second.id)
+        XCTAssertEqual(restored.resumePosition(for: second), 300)
+        XCTAssertTrue(restored.isWatched(first))
+    }
+
+    func testClosingPlayerAndBackgroundSamplesCannotRestoreARemovedMovie() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        let session = UUID()
+        library.beginPlaybackSession(for: movie, id: session)
+        library.trackPlayback(of: movie, position: 900, duration: 5_400, sessionID: session)
+        library.removeFromContinueWatching(movie)
+        library.trackPlayback(of: movie, position: 920, duration: 5_400, sessionID: session)
+        library.flushLocalPlayback()
+        XCTAssertFalse(library.isInContinueWatching(movie))
+        XCTAssertEqual(library.resumePosition(for: movie), 920)
+        library.endPlaybackSession(session)
+        // Out-of-order progress and EOF after dismissal cannot overwrite it.
+        library.trackPlayback(of: movie, position: 960, duration: 5_400, sessionID: session)
+        library.completePlayback(of: movie, sessionID: session)
+        library.trackPlayback(of: movie, position: 925, duration: 5_400)
+        library.flushLocalPlayback()
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertFalse(restored.isInContinueWatching(movie))
+        XCTAssertEqual(restored.resumePosition(for: movie), 925)
+        XCTAssertFalse(restored.isWatched(movie))
+    }
+
+    func testActuallyResumingARemovedTitleRestoresItsCardAndUpdatesSavedProgress() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        library.removeFromContinueWatching(movie)
+        let restored = MediaLibrary(defaults: defaults)
+        let session = UUID()
+        restored.beginPlaybackSession(for: movie, id: session)
+        restored.trackPlayback(of: movie, position: 900, duration: 5_400, sessionID: session)
+        XCTAssertFalse(restored.isInContinueWatching(movie), "An initial resume seek is not new viewing")
+        restored.trackPlayback(of: movie, position: 904, duration: 5_400, sessionID: session)
+        XCTAssertFalse(restored.isInContinueWatching(movie))
+        restored.trackPlayback(of: movie, position: 910, duration: 5_400, sessionID: session)
+        restored.endPlaybackSession(session)
+        XCTAssertTrue(restored.isInContinueWatching(movie))
+        let reopened = MediaLibrary(defaults: defaults)
+        XCTAssertTrue(reopened.isInContinueWatching(movie))
+        XCTAssertEqual(reopened.resumePosition(for: movie), 910)
+    }
+
+    func testBrieflyOpeningThenClosingARemovedTitleKeepsItHidden() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        library.removeFromContinueWatching(movie)
+        let session = UUID()
+        library.beginPlaybackSession(for: movie, id: session)
+        library.trackPlayback(of: movie, position: 901, duration: 5_400, sessionID: session)
+        library.endPlaybackSession(session)
+        XCTAssertFalse(MediaLibrary(defaults: defaults).isInContinueWatching(movie))
+        XCTAssertEqual(MediaLibrary(defaults: defaults).resumePosition(for: movie), 901)
+    }
+
+    func testASecondRemovalCannotBeUndoneByTheSessionThatWasAlreadyPlaying() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        library.removeFromContinueWatching(movie)
+        let session = UUID()
+        library.beginPlaybackSession(for: movie, id: session)
+        library.trackPlayback(of: movie, position: 910, duration: 5_400, sessionID: session)
+        XCTAssertTrue(library.isInContinueWatching(movie))
+        library.removeFromContinueWatching(movie)
+        library.trackPlayback(of: movie, position: 930, duration: 5_400, sessionID: session)
+        library.endPlaybackSession(session)
+        XCTAssertFalse(library.isInContinueWatching(movie))
+        XCTAssertEqual(library.resumePosition(for: movie), 930)
+    }
+
+    func testStartOverRestoresARemovedMovieAfterPlaybackBegins() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        library.trackPlayback(of: movie, position: 900, duration: 5_400)
+        library.removeFromContinueWatching(movie)
+        let session = UUID()
+        library.beginPlaybackSession(for: movie, id: session, startsOver: true)
+        library.trackPlayback(of: movie, position: 0, duration: 5_400, sessionID: session)
+        XCTAssertFalse(library.isInContinueWatching(movie))
+        XCTAssertEqual(library.resumePosition(for: movie), 900)
+        library.trackPlayback(of: movie, position: 10, duration: 5_400, sessionID: session)
+        library.endPlaybackSession(session)
+        XCTAssertTrue(library.isInContinueWatching(movie))
+        XCTAssertEqual(library.resumePosition(for: movie), 10)
+    }
+
+    func testRefreshedUpNextAndManualMarksNeverUnhideAShow() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = trackingEpisode(1)
+        let second = trackingEpisode(2)
+        let third = trackingEpisode(3)
+        library.rememberNextUp(first)
+        library.removeFromContinueWatching(first)
+        library.rememberNextUp(second)
+        library.applyLocalEpisodeProgression(true, for: second, following: third)
+        library.applyLocalEpisodeProgression(false, for: first, following: nil)
+        XCTAssertTrue(library.continueWatching.isEmpty)
+        let restored = MediaLibrary(defaults: defaults)
+        restored.rememberNextUp(third)
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        let session = UUID()
+        restored.beginPlaybackSession(for: third, id: session)
+        restored.trackPlayback(of: third, position: 60, duration: 3_600, sessionID: session)
+        restored.endPlaybackSession(session)
+        XCTAssertTrue(restored.isInContinueWatching(third))
+        XCTAssertEqual(restored.continueWatching.map(\.item.id), [third.id])
+        XCTAssertEqual(restored.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
+        XCTAssertTrue(restored.isWatched(second))
+    }
+
+    func testRemovalIsScopedToTheTitleAndItsServer() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let other = MediaServerProfile(name: "Other", serverURL: "http://other",
+            username: "viewer", userID: "user")
+        defaults.set(try JSONEncoder().encode(library.profiles + [other]), forKey: "NullSports.mediaServers")
+        let both = MediaLibrary(defaults: defaults)
+        let movie = trackingMovie().servedBy(try XCTUnwrap(both.profiles.first?.id))
+        let elsewhere = movie.servedBy(other.id)
+        let unrelated = trackingMovie("another")
+        both.trackPlayback(of: movie, position: 900, duration: 5_400)
+        both.trackPlayback(of: elsewhere, position: 600, duration: 5_400)
+        both.trackPlayback(of: unrelated, position: 300, duration: 5_400)
+        both.removeFromContinueWatching(movie)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertFalse(restored.isInContinueWatching(movie))
+        XCTAssertTrue(restored.isInContinueWatching(elsewhere))
+        XCTAssertTrue(restored.isInContinueWatching(unrelated))
+        XCTAssertEqual(restored.resumePosition(for: movie), 900)
+        XCTAssertEqual(restored.resumePosition(for: elsewhere), 600)
+    }
+
+    func testShowRemovalSurvivesMetadataEnrichmentWithoutHidingDifferentKnownShows() {
+        let profile = UUID()
+        let first = trackingEpisode(1)
+        let second = trackingEpisode(2)
+        let nameOnly = MediaItem(id: first.id, name: first.name, type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, seriesName: " SHÓW ")
+        let removal = LocalContinueWatchingDismissal(item: nameOnly, profileID: profile)
+        XCTAssertTrue(removal.matches(second, profileID: profile))
+        XCTAssertFalse(removal.matches(second, profileID: UUID()))
+        let identified = LocalContinueWatchingDismissal(item: first, profileID: profile)
+        let differentShow = MediaItem(id: second.id, name: second.name, type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            seriesName: "Show", seriesID: "different-show")
+        XCTAssertFalse(identified.matches(differentShow, profileID: profile))
+        XCTAssertFalse(identified.matches(trackingMovie(), profileID: profile))
+    }
+
+    func testHiddenProgressIsNotEvictedByTheRecentHistoryLimit() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let hidden = trackingMovie("hidden")
+        library.trackPlayback(of: hidden, position: 900, duration: 5_400)
+        library.removeFromContinueWatching(hidden)
+        for index in 1...205 {
+            library.trackPlayback(of: trackingMovie("movie-\(index)"), position: 60, duration: 5_400)
+        }
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.resumePosition(for: hidden), 900)
+        XCTAssertFalse(restored.isInContinueWatching(hidden))
+    }
+
+    func testHiddenNameOnlyEpisodesRemainResumableWhenShowMetadataIsEnriched() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let episode = MediaItem(id: "e1", name: "First", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: " SHÓW ")
+        let series = MediaItem(id: "show", name: "Show", type: "Series", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: episode, position: 900, duration: 3_600)
+        library.removeFromContinueWatching(episode)
+        let restored = MediaLibrary(defaults: defaults)
+        restored.rememberNextUp(trackingEpisode(2))
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        XCTAssertEqual(restored.continueWatchingEpisode(in: series)?.id, episode.id)
+        XCTAssertEqual(restored.resumePosition(for: episode), 900)
+    }
+
+    func testManualWatchedChangesAndCompletionRejectLaterSamplesFromThatSession() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        for markWatched in [false, true] {
+            let session = UUID()
+            library.beginPlaybackSession(for: movie, id: session, startsOver: true)
+            library.trackPlayback(of: movie, position: 900, duration: 5_400, sessionID: session)
+            library.setLocallyPlayed(markWatched, for: movie)
+            library.trackPlayback(of: movie, position: 930, duration: 5_400, sessionID: session)
+            library.completePlayback(of: movie, sessionID: session)
+            library.endPlaybackSession(session)
+            XCTAssertEqual(library.isWatched(movie), markWatched)
+        }
+        let session = UUID()
+        library.beginPlaybackSession(for: movie, id: session, startsOver: true)
+        library.trackPlayback(of: movie, position: 900, duration: 5_400, sessionID: session)
+        library.completePlayback(of: movie, sessionID: session)
+        library.trackPlayback(of: movie, position: 930, duration: 5_400, sessionID: session)
+        library.endPlaybackSession(session)
+        XCTAssertTrue(MediaLibrary(defaults: defaults).isWatched(movie))
+    }
+
+    func testClearingLocalHistoryAlsoClearsRemovalsAndInvalidatesTheOldPlayer() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = trackingMovie()
+        let old = UUID()
+        library.beginPlaybackSession(for: movie, id: old)
+        library.trackPlayback(of: movie, position: 900, duration: 5_400, sessionID: old)
+        library.removeFromContinueWatching(movie)
+        library.clearLocalPlayback()
+        library.trackPlayback(of: movie, position: 930, duration: 5_400, sessionID: old)
+        library.endPlaybackSession(old)
+        XCTAssertNil(library.resumePosition(for: movie))
+        let restored = MediaLibrary(defaults: defaults)
+        let next = UUID()
+        restored.beginPlaybackSession(for: movie, id: next)
+        restored.trackPlayback(of: movie, position: 60, duration: 5_400, sessionID: next)
+        restored.endPlaybackSession(next)
+        XCTAssertTrue(restored.isInContinueWatching(movie))
     }
 
     func testCardsCountAShowsEpisodesAndAFilmsTime() throws {
@@ -398,6 +641,17 @@ final class LocalMediaTrackingTests: XCTestCase {
         let merged = MDBListClient.mergeCatalogs(owned + liked)
         XCTAssertEqual(merged.map(\.id), [11, 22])
         XCTAssertEqual(merged.map(\.section), [.yourLists, .liked])
+    }
+
+    private func trackingMovie(_ id: String = "movie") -> MediaItem {
+        MediaItem(id: id, name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+    }
+
+    private func trackingEpisode(_ number: Int) -> MediaItem {
+        MediaItem(id: "e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: number, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
     }
 
     private func makeLibrary() throws -> (MediaLibrary, UserDefaults, String) {

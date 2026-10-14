@@ -493,6 +493,51 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// Hiding a movie or an entire show is independent of its playback records.
+/// Store only identity here so a refresh cannot replace the viewer's choice.
+struct LocalContinueWatchingDismissal: Codable, Hashable, Sendable {
+    let id: UUID
+    let profileID: UUID
+    let itemID: String
+    let isShow: Bool
+    let seriesID: String?
+    let seriesName: String?
+
+    init(item: MediaItem, profileID: UUID) {
+        id = UUID()
+        self.profileID = profileID
+        itemID = item.id
+        isShow = item.isSeries || item.type == "Episode"
+        seriesID = Self.nonempty(item.isSeries ? item.id : item.seriesID)
+        seriesName = Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    func matches(_ item: MediaItem, profileID: UUID) -> Bool {
+        guard self.profileID == profileID else { return false }
+        let otherIsShow = item.isSeries || item.type == "Episode"
+        guard isShow == otherIsShow else { return false }
+        if itemID == item.id { return true }
+        guard isShow else { return false }
+        if let seriesID, let otherID = Self.nonempty(item.isSeries ? item.id : item.seriesID) {
+            return seriesID == otherID
+        }
+        // Some providers initially supply only a show name, then enrich the
+        // same episodes with an ID. Known, different IDs always stay separate.
+        guard let seriesName else { return false }
+        return seriesName == Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        nonempty(value)?.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                                locale: Locale(identifier: "en_US_POSIX"))
+    }
+}
+
 /// What a card shows of where the viewer is in a title.
 struct MediaCardPlayback: Equatable {
     /// The bar beside the play mark: a film's progress, or how far through
