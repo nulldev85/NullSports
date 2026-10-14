@@ -3166,25 +3166,27 @@ struct GuideView: View {
         previewPlaybackStream == nil ? previewItem : pinnedPreviewItem
     }
 
+    private var controlBar: GuideControlBar {
+        GuideControlBar(
+            title: selectedTitle,
+            channelCount: filtered.count,
+            searchActive: $searchActive,
+            query: $query,
+            multiviewTitle: multiviewPrimary?.name,
+            now: guideNow,
+            onCancelMultiview: { multiviewPrimary = nil }
+        )
+    }
+
     var body: some View {
         GeometryReader { container in
             let layout = GuideLayout(width: container.size.width - 2 * GuideLayout.margin)
             NavigationStack {
                 VStack(alignment: .leading, spacing: 18) {
-                    GuideControlBar(
-                        title: selectedTitle,
-                        channelCount: filtered.count,
-                        searchActive: $searchActive,
-                        query: $query,
-                        multiviewTitle: multiviewPrimary?.name,
-                        now: guideNow,
-                        onCancelMultiview: { multiviewPrimary = nil }
-                    )
-                    .padding(.horizontal, GuideLayout.inset)
-
                     if !previewHidden, let previewItem = displayedPreviewItem {
                         GuidePreviewPanel(
                             player: previewPlayer,
+                            controls: controlBar,
                             item: previewItem,
                             categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                             quality: guideQuality(previewItem.stream),
@@ -3192,9 +3194,14 @@ struct GuideView: View {
                             audible: previewAudible,
                             now: guideNow
                         )
-                        .frame(height: 216)
-                        .padding(.horizontal, GuideLayout.inset)
+                        .frame(height: GuidePreviewPanel.height)
+                        // The video reaches the screen's left edge; the info
+                        // pane keeps the Guide's readable inset on the right.
+                        .padding(.leading, -GuideLayout.margin)
+                        .padding(.trailing, GuideLayout.inset)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else {
+                        controlBar.padding(.horizontal, GuideLayout.inset)
                     }
 
                     ZStack(alignment: .topLeading) {
@@ -3657,10 +3664,15 @@ private struct GuideTitleBlock: View {
     }
 }
 
-/// What the remote is on, larger: the picture or the channel's mark, and the
-/// programme under it, in type that reads from the sofa.
+/// The picture fills the left of the Guide's upper section, with its heading
+/// and programme information together on the right.
 private struct GuidePreviewPanel: View {
+    /// The whole room previously split between the 64pt heading, an 18pt gap,
+    /// and the 216pt preview. The channel grid stays at the same height.
+    static let height: CGFloat = 298
+
     let player: VLCPlaybackController
+    let controls: GuideControlBar
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
@@ -3685,7 +3697,7 @@ private struct GuidePreviewPanel: View {
 
     var body: some View {
         let frame = RoundedRectangle(cornerRadius: 22, style: .continuous)
-        HStack(alignment: .center, spacing: 34) {
+        HStack(alignment: .top, spacing: 20) {
             Group {
                 if let previewURLs {
                     GuidePreviewVideo(controller: player, channelID: item.stream.id,
@@ -3694,61 +3706,72 @@ private struct GuidePreviewPanel: View {
                     GuidePreviewArtwork(stream: item.stream)
                 }
             }
-            .frame(width: 352, height: 198)
+            .frame(width: Self.height * 16 / 9, height: Self.height)
             .clipShape(frame)
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    if item.program.isLive { GuideLiveTag() }
-                    Text(item.stream.name.uppercased())
-                        .font(.inter(14, .heavy)).tracking(0.6)
-                        .foregroundStyle(GuidePalette.text).lineLimit(1)
-                    Text(categoryName.uppercased())
-                        .font(.inter(14, .heavy)).tracking(0.6)
-                        .foregroundStyle(GuidePalette.secondary).lineLimit(1)
-                    if let quality { GuideTinyBadge(title: quality) }
-                    if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
-                }
-                Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
-                    .font(.inter(38, .bold))
-                    .foregroundStyle(GuidePalette.text)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                HStack(spacing: 16) {
-                    Text(guideTimeRange(item.program))
-                        .font(.interDigits(18, .semibold))
-                        .foregroundStyle(GuidePalette.secondary)
-                    if item.program.isLive {
-                        GuideProgressBar(progress: progress).frame(width: 220)
-                        if let remaining {
-                            Text(remaining)
-                                .font(.inter(13, .heavy)).tracking(0.6)
-                                .foregroundStyle(GuidePalette.secondary)
-                        }
+            VStack(alignment: .leading, spacing: 12) {
+                controls
+                programInfo
+                Spacer(minLength: 0)
+                playbackHints.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var programInfo: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                if item.program.isLive { GuideLiveTag() }
+                Text(item.stream.name.uppercased())
+                    .font(.inter(14, .heavy)).tracking(0.6)
+                    .foregroundStyle(GuidePalette.text).lineLimit(1)
+                Text(categoryName.uppercased())
+                    .font(.inter(14, .heavy)).tracking(0.6)
+                    .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                if let quality { GuideTinyBadge(title: quality) }
+                if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
+            }
+            Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
+                .font(.inter(38, .bold))
+                .foregroundStyle(GuidePalette.text)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 16) {
+                Text(guideTimeRange(item.program))
+                    .font(.interDigits(18, .semibold))
+                    .foregroundStyle(GuidePalette.secondary)
+                if item.program.isLive {
+                    GuideProgressBar(progress: progress).frame(width: 220)
+                    if let remaining {
+                        Text(remaining)
+                            .font(.inter(13, .heavy)).tracking(0.6)
+                            .foregroundStyle(GuidePalette.secondary)
                     }
                 }
-                Text(item.program.detail.isEmpty ? "No description for this program." : item.program.detail)
-                    .font(.inter(19))
-                    .foregroundStyle(GuidePalette.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: 980, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Beside the picture, never over it: what Select does next.
-            VStack(alignment: .trailing, spacing: 6) {
-                if previewURLs != nil {
-                    Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
-                          systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
-                        .foregroundStyle(GuidePalette.text.opacity(0.85))
-                }
-                Text("MENU HIDES THE PREVIEW")
-                    .foregroundStyle(GuidePalette.secondary.opacity(0.8))
-            }
-            .font(.inter(12, .heavy)).tracking(0.6)
-            .fixedSize()
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, 8)
+            Text(item.program.detail.isEmpty ? "No description for this program." : item.program.detail)
+                .font(.inter(19))
+                .foregroundStyle(GuidePalette.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: 980, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Beside the picture, never over it: what Select does next.
+    private var playbackHints: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if previewURLs != nil {
+                Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
+                      systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
+                    .foregroundStyle(GuidePalette.text.opacity(0.85))
+            }
+            Text("MENU HIDES THE PREVIEW")
+                .foregroundStyle(GuidePalette.secondary.opacity(0.8))
+        }
+        .font(.inter(12, .heavy)).tracking(0.6)
+        .fixedSize()
+        .padding(.bottom, 8)
     }
 }
 
@@ -4020,8 +4043,8 @@ private struct GuideLayout {
     /// The grid scales as a whole to fill it, cells and rows in proportion,
     /// so nothing is stretched.
     static let margin: CGFloat = 6
-    /// A row's own padding either side, which the header and the preview
-    /// above take too, so everything lines up with the logos.
+    /// A row's own padding either side, which the standalone header takes
+    /// too, so it lines up with the logos.
     static let inset: CGFloat = 14
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 2 * Self.inset) / CGFloat(guideVisibleSlotCount + 1) }
