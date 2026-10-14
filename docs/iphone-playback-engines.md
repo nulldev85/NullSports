@@ -49,6 +49,9 @@ finite recording rather than enabling a separate DVR buffer.
 
 The iPhone workflow uses Xcode 27 and checks the iOS 18 deployment floor, dynamic
 FFmpeg symbol binding, bundled resources/notices, and background audio mode.
+The app explicitly embeds Aether's nine dynamic runtime frameworks without
+linking the engine into the executable, plus its SwiftPM resource bundle. The
+shared bundle check validates all runtime files and their framework dependencies.
 Generated fixtures cover MP4, software-decoded MPEG-2 MKV, and paced live TS over
 a local HTTP server. Tests exercise extensionless server URLs, actual rendering,
 resume, seek, pause, subtitles, surface reuse, preferences, and both PiP source

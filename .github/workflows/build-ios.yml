@@ -158,13 +158,8 @@ jobs:
           set -euo pipefail
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
-          engine="$app/Frameworks/LineupAetherPlayback.framework/LineupAetherPlayback"
-          symbols=$(nm -m "$engine")
-          grep -E '_avcodec_open2.*from AetherLibavcodec' <<< "$symbols"
-          test -d "$app/Frameworks/AetherLibavcodec.framework"
-          test -f "$app/Frameworks/LineupAetherPlayback.framework/AetherLicenses/AetherEngine.txt"
-          find "$app" -name AetherEngine_AetherEngine.bundle -print | grep .
-          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = "18.0"
+          python3 -B Tests/AetherBundleChecks.py
+          python3 Tools/check-aether-bundle.py "$app"
 
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'

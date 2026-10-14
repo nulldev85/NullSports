@@ -30,6 +30,11 @@ recording timeline. Aether's separate DVR buffer is not enabled.
 Swift package. This keeps its FFmpeg references separate from VLC's FFmpeg.
 The release build checks `_avcodec_open2` binds to AetherLibavcodec, verifies
 embedded decoder resources and notices, and checks the tvOS 18 deployment floor.
+Both app targets explicitly embed the nine FFmpeg runtime products without
+linking them into the app, and copy Aether's SwiftPM resource bundle. Keeping the
+engine inside the bridge does not automatically embed those files in the app.
+`Tools/check-aether-bundle.py` checks every runtime binary and its framework
+dependencies, reporting the exact missing file if packaging is incomplete.
 Both runners use Xcode 27, the upstream tested toolchain. iPhone also supports
 AetherEngine with an iOS 18 minimum; see `iphone-playback-engines.md`.
 

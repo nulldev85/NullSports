@@ -68,6 +68,14 @@ targets:
       - package: VLCKitSPM
       - target: LineupAetherPlayback
         embed: true
+      # Aether is linked only inside our bridge. Embed its dynamic runtime
+      # explicitly: an app does not inherit these copies from that framework.
+      - package: FFmpegBuild
+        products: [AetherLibavcodec, AetherLibavformat, AetherLibavutil, AetherLibswresample, AetherLibswscale, AetherLibavfilter, AetherLibdav1d, AetherLibzimg, AetherLibzvbi]
+        link: false
+        embed: true
+      - bundle: AetherEngine_AetherEngine.bundle
+        codeSign: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
@@ -143,6 +151,12 @@ targets:
       - package: VLCKitSPM
       - target: LineupAetherPlaybackiOS
         embed: true
+      - package: FFmpegBuild
+        products: [AetherLibavcodec, AetherLibavformat, AetherLibavutil, AetherLibswresample, AetherLibswscale, AetherLibavfilter, AetherLibdav1d, AetherLibzimg, AetherLibzvbi]
+        link: false
+        embed: true
+      - bundle: AetherEngine_AetherEngine.bundle
+        codeSign: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
