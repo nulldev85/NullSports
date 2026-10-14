@@ -138,6 +138,13 @@ enum LineupArt {
         return cache.object(forKey: key(url, pixels))
     }
 
+    /// A carousel can change once the picture is decoded, or the server has
+    /// confirmed it has no picture. A missing image must not stop rotation.
+    static func isResolved(_ url: URL?, pixels: Int) -> Bool {
+        guard let url else { return true }
+        return ready(url, pixels: pixels) != nil || missing.contains(key(url, pixels) as String)
+    }
+
     /// Fetches and keeps a picture nobody is drawing yet -- the shelf above
     /// or below, the title beside the one in focus -- so it is already made
     /// when it is wanted. Low priority, so it never holds up a picture that

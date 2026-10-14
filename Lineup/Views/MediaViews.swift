@@ -870,8 +870,28 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 }
 #endif
 
+private enum LibraryHeroRotation {
+    static let interval: Duration = .seconds(3)
+
+    static func animation(reduceMotion: Bool) -> Animation {
+        .easeInOut(duration: reduceMotion ? 0.2 : 0.45)
+    }
+}
+
+/// Restart the dwell when the selection, its contents, or interaction changes.
+/// Item identities include the server, since two servers may use the same ID.
+private struct LibraryHeroRotationKey: Equatable {
+    let items: [String]
+    let index: Int
+    let enabled: Bool
+    var pixels: Int = 0
+}
+
 private struct MediaCatalogsScreen: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
     #if os(tvOS)
@@ -890,6 +910,7 @@ private struct MediaCatalogsScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
+    @State private var isVisible = false
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
     @Environment(\.playMedia) private var playMedia
@@ -1003,6 +1024,8 @@ private struct MediaCatalogsScreen: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         // An episode that ended with nothing after it comes back here.
@@ -1036,7 +1059,11 @@ private struct MediaCatalogsScreen: View {
             searching = false
         }
         #if os(tvOS)
-        .task { await rotateLibraryPreview() }
+        .task(id: LibraryHeroRotationKey(items: heroItems.map(\.libraryKey), index: heroIndex,
+                                        enabled: canRotateLibraryPreview)) {
+            guard canRotateLibraryPreview else { return }
+            await rotateLibraryPreview()
+        }
         .onAppear {
             tvPreview.setInitial(defaultPreviewItem)
         }
@@ -1240,28 +1267,37 @@ private struct MediaCatalogsScreen: View {
     }
 
     private func rotateLibraryPreview() async {
+        let candidates = heroItems
+        guard candidates.count > 1 else { return }
+        let current = min(heroIndex, candidates.count - 1)
+        let nextIndex = (current + 1) % candidates.count
+        let next = candidates[nextIndex]
+        // Begin both upcoming downloads during this title's three-second dwell.
+        for offset in [nextIndex, (nextIndex + 1) % candidates.count] {
+            if let art = backdropArt(for: candidates[offset]) {
+                LineupArt.prefetch(art.url, pixels: art.pixels)
+            }
+        }
         while !Task.isCancelled {
-            let candidates = heroItems
-            guard !candidates.isEmpty else {
-                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            do { try await Task.sleep(for: LibraryHeroRotation.interval) } catch { return }
+            guard !Task.isCancelled, canRotateLibraryPreview else { return }
+            // Keep the current picture while a slow download finishes.
+            guard backdropIsReady(for: next) else {
+                if let art = backdropArt(for: next) {
+                    LineupArt.prefetch(art.url, pixels: art.pixels)
+                }
                 continue
             }
-            let nextIndex = (heroIndex + 1) % candidates.count
-            let next = candidates[nextIndex]
-            // Spend the eight-second dwell preloading the next frame. On a
-            // normal connection the transition therefore begins with decoded
-            // artwork already in memory, without making the interval longer.
-            Task { await preloadBackdrop(for: next) }
-            do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            // Held still while the remote is on a card, which owns the
-            // preview, or on the hero's Play, which is about to be pressed.
-            guard !tvPreview.isNavigating, tvFocus != .hero, !Task.isCancelled else { continue }
-            // A weak connection may miss this particular turn, but the hero
-            // never rotates to a blank frame. The already-running shared load
-            // keeps going and the next eight-second tick can use it.
-            guard backdropIsReady(for: next) else { continue }
             showHero(at: nextIndex)
+            return
         }
+    }
+
+    private var canRotateLibraryPreview: Bool {
+        isVisible && scenePhase == .active && !voiceOver && !menuOpen
+            && !searchPresented && submittedQuery.isEmpty
+            && pushed == nil && heroPlayableItem == nil
+            && (tvFocus == nil || tvFocus == .hero)
     }
 
     // MARK: - The television's browser
@@ -1671,7 +1707,7 @@ private struct MediaCatalogsScreen: View {
         let items = heroItems
         guard items.indices.contains(index) else { return }
         heroIndex = index
-        withAnimation(.easeInOut(duration: 0.45)) {
+        withAnimation(LibraryHeroRotation.animation(reduceMotion: reduceMotion)) {
             tvPreview.rotate(to: items[index]) { item in try? await media.details(of: item) }
         }
     }
@@ -1734,14 +1770,9 @@ private struct MediaCatalogsScreen: View {
         if let playMedia { playMedia(item) } else { heroPlayableItem = item }
     }
 
-    private func preloadBackdrop(for item: MediaItem) async {
-        guard let art = backdropArt(for: item) else { return }
-        _ = await LineupArt.load(art.url, pixels: art.pixels)
-    }
-
     private func backdropIsReady(for item: MediaItem) -> Bool {
         guard let art = backdropArt(for: item) else { return true }
-        return LineupArt.ready(art.url, pixels: art.pixels) != nil
+        return LineupArt.isResolved(art.url, pixels: art.pixels)
     }
 
     private func backdropArt(for item: MediaItem) -> (url: URL, pixels: Int)? {
@@ -3786,6 +3817,7 @@ private struct TVLibraryShelf: Identifiable {
 /// repainting a rectangle behind one row.
 private struct TVMediaCinematicBackdrop: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
 
     var body: some View {
@@ -3801,13 +3833,13 @@ private struct TVMediaCinematicBackdrop: View {
                         if let loaded { loaded.resizable().scaledToFill() }
                         else { Color.clear }
                     }
-                    .id(item.id)
+                    .id(item.libraryKey)
                     .transition(.opacity)
                 }
             }
             .clipped()
             .overlay { shade }
-            .animation(.easeInOut(duration: 0.32), value: item?.id)
+            .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
             .ignoresSafeArea()
             .allowsHitTesting(false)
     }
@@ -3835,6 +3867,7 @@ private struct TVMediaCinematicBackdrop: View {
 /// with logo, cast and metadata without changing its geometry.
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
     /// Browsing: every title takes the same room, told from the top, so
     /// nothing moves as the remote goes from title to title or as a title's
@@ -3861,7 +3894,7 @@ private struct TVMediaLibraryPreview: View {
                         castLine(item)
                     }
                 }
-                .id(item.id)
+                .id(item.libraryKey)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: steady ? .topLeading : .bottomLeading)
@@ -3870,7 +3903,7 @@ private struct TVMediaLibraryPreview: View {
                 .padding(.bottom, 24)
             }
         }
-        .animation(.easeInOut(duration: 0.24), value: item?.id)
+        .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
         .task(id: item?.libraryKey) {
             guard let item else { return }
             let found = await media.ratings(for: item)
@@ -3969,13 +4002,18 @@ private struct TVMediaLibraryPreview: View {
 
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
 /// It advances gently when left alone. Changing the page by touch restarts the
-/// eight-second interval, so it never fights a swipe or immediately skips the
+/// three-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
     @State private var index = 0
+    @GestureState private var isDragging = false
+    @State private var isVisible = false
     /// Each title's ratings once found, so a slide shown again has its chips.
     @State private var ratings: [String: MediaRatings] = [:]
 
@@ -3987,21 +4025,41 @@ private struct MediaLibraryHero: View {
         Group {
             #if os(tvOS)
             if !items.isEmpty {
-                heroSlide(item: items[index])
+                heroSlide(item: items[min(index, items.count - 1)])
                     .overlay(alignment: .bottom) { pageIndicator }
+                    .accessibilityAction(named: "Next title") { move(1) }
+                    .accessibilityAction(named: "Previous title") { move(-1) }
             }
             #else
             if !items.isEmpty {
                 GeometryReader { viewport in
-                    TabView(selection: $index) {
-                        ForEach(Array(items.enumerated()), id: \.element.libraryKey) { offset, item in
-                            heroSlide(item: item, loadsArtwork: isAdjacentToCurrent(offset))
-                                .frame(width: viewport.size.width, height: viewport.size.height)
-                                .tag(offset)
-                        }
+                    let current = min(index, items.count - 1)
+                    let rotates = isVisible && scenePhase == .active && !voiceOver && !isDragging
+                    let pixels = LineupArt.pixels(for: viewport.size.width)
+                    // Two overlapping slides fade together, including last to
+                    // first. A page controller otherwise jumps across the list.
+                    ZStack {
+                        heroSlide(item: items[current])
+                            .frame(width: viewport.size.width, height: viewport.size.height)
+                            .id(items[current].libraryKey)
+                            .transition(.opacity)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion),
+                               value: items[current].libraryKey)
                     .overlay(alignment: .bottom) { pageIndicator }
+                    .simultaneousGesture(DragGesture(minimumDistance: 12)
+                        .updating($isDragging) { _, dragging, _ in dragging = true }
+                        .onEnded { value in
+                            let translation = value.translation
+                            guard abs(translation.width) > 40,
+                                  abs(translation.width) > abs(translation.height) * 1.25 else { return }
+                            move(translation.width < 0 ? 1 : -1)
+                        })
+                    .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
+                                                    enabled: rotates, pixels: pixels)) {
+                        guard rotates else { return }
+                        await rotate(pixels: pixels)
+                    }
                 }
             }
             #endif
@@ -4009,6 +4067,8 @@ private struct MediaLibraryHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: heroHeight)
         .clipped()
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         #if os(tvOS)
         // Any focused control inside the hero participates in the same
         // carousel. A left/right press therefore changes the feature directly
@@ -4026,16 +4086,12 @@ private struct MediaLibraryHero: View {
             if count == 0 { index = 0 }
             else { index = min(index, count - 1) }
         }
-        .task(id: index) {
-            guard items.count > 1 else { return }
-            do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.45)) { move(1) }
-        }
         // The title on screen, then the one after it, so the next slide
         // arrives with its chips already found.
         .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
-            for offset in [index, index + 1] where items.indices.contains(offset) {
+            guard !items.isEmpty else { return }
+            let current = min(index, items.count - 1)
+            for offset in [current, (current + 1) % items.count] {
                 let item = items[offset]
                 guard ratings[item.libraryKey] == nil else { continue }
                 let found = await media.ratings(for: item)
@@ -4045,7 +4101,7 @@ private struct MediaLibraryHero: View {
         }
     }
 
-    private func heroSlide(item: MediaItem, loadsArtwork: Bool = true) -> some View {
+    private func heroSlide(item: MediaItem) -> some View {
         GeometryReader { slide in
             let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
             let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
@@ -4054,10 +4110,7 @@ private struct MediaLibraryHero: View {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                LineupArtView(url: loadsArtwork
-                              ? (media.backdropURL(for: item, width: artWidth)
-                                 ?? media.imageURL(for: item, width: artWidth))
-                              : nil,
+                LineupArtView(url: artworkURL(for: item),
                               // Decode for the actual viewport, not the
                               // server request's pixel ceiling. On a 3x phone
                               // the old value produced a 3300-pixel image for
@@ -4096,6 +4149,8 @@ private struct MediaLibraryHero: View {
 
                     if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
                         MediaRatingChips(ratings: shown)
+                    } else {
+                        Color.clear.frame(height: MediaRatingMetrics.height)
                     }
 
                     if !metadata(for: item).isEmpty {
@@ -4135,9 +4190,8 @@ private struct MediaLibraryHero: View {
         }
         .contentShape(Rectangle())
         #if !os(tvOS)
-        // Paging still belongs to the horizontal drag. A release without a
-        // drag opens the title, which makes the artwork itself the familiar
-        // iPhone affordance and removes the redundant Details button.
+        // A horizontal swipe changes title; a tap opens it. The artwork is
+        // the iPhone affordance, without a redundant Details button.
         .onTapGesture { onOpen(item) }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(item.hasDetailPage ? "View details for \(item.name)" : "Play \(item.name)")
@@ -4152,10 +4206,31 @@ private struct MediaLibraryHero: View {
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
 
-    private func isAdjacentToCurrent(_ page: Int) -> Bool {
-        guard items.count > 2 else { return true }
-        let distance = abs(page - index)
-        return distance <= 1 || distance == items.count - 1
+    private func artworkURL(for item: MediaItem) -> URL? {
+        media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
+    }
+
+    private func rotate(pixels: Int) async {
+        let candidates = items
+        guard candidates.count > 1 else { return }
+        let current = min(index, candidates.count - 1)
+        let next = (current + 1) % candidates.count
+        for offset in [current, next, (next + 1) % candidates.count] {
+            LineupArt.prefetch(artworkURL(for: candidates[offset]), pixels: pixels)
+        }
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: LibraryHeroRotation.interval) } catch { return }
+            guard !Task.isCancelled else { return }
+            let nextArtwork = artworkURL(for: candidates[next])
+            guard LineupArt.isResolved(nextArtwork, pixels: pixels) else {
+                // A transient error isn't cached; try again without dropping
+                // the picture already on screen or duplicating an active load.
+                LineupArt.prefetch(nextArtwork, pixels: pixels)
+                continue
+            }
+            move(1)
+            return
+        }
     }
 
     #if os(tvOS)
@@ -4208,7 +4283,9 @@ private struct MediaLibraryHero: View {
 
     private func move(_ delta: Int) {
         guard !items.isEmpty else { return }
-        index = (index + delta + items.count) % items.count
+        withAnimation(LibraryHeroRotation.animation(reduceMotion: reduceMotion)) {
+            index = (min(index, items.count - 1) + delta + items.count) % items.count
+        }
     }
 }
 
