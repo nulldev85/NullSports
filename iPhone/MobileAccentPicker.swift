@@ -45,7 +45,7 @@ struct MobileAccentPicker: View {
                     }
                     if !saved.isEmpty {
                         section("My colors", symbol: "bookmark", footer: "Touch and hold one to remove it.") {
-                            savedRow
+                            savedGrid
                         }
                     }
                     if draft != LineupAccent.red.hex {
@@ -125,9 +125,13 @@ extension MobileAccentPicker {
         withAnimation(.easeOut(duration: 0.18)) { draft = hex }
     }
 
+    fileprivate var swatchColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
+    }
+
     /// The ten presets, five to a row.
     fileprivate var swatchGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+        LazyVGrid(columns: swatchColumns, spacing: 14) {
             ForEach(LineupAccent.presets) { preset in
                 Button { choose(preset.hex) } label: {
                     AccentSwatch(color: preset.color, selected: preset.hex == draft)
@@ -210,25 +214,22 @@ extension MobileAccentPicker {
         .disabled(!(canSave || typingHex))
     }
 
-    /// The colours kept, newest first: a tap tries one, a long press offers
-    /// to forget it.
-    fileprivate var savedRow: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 10) {
-                ForEach(saved, id: \.self) { hex in
-                    AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
-                        .lineupHoldMenu("#\(hex)", symbol: "paintpalette", items: {
-                            [MobileMenuItem("Remove from My Colors", symbol: "trash", isDestructive: true) {
-                                forget(hex)
-                            }]
-                        }) { choose(hex) }
-                        .accessibilityLabel("Saved color #\(hex)")
-                }
+    /// The colours kept, newest first, in the same grid as the presets.
+    /// A tap tries one; a long press offers to forget it.
+    fileprivate var savedGrid: some View {
+        LazyVGrid(columns: swatchColumns, spacing: 14) {
+            ForEach(saved, id: \.self) { hex in
+                AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
+                    .lineupHoldMenu("#\(hex)", symbol: "paintpalette", items: {
+                        [MobileMenuItem("Remove from My Colors", symbol: "trash", isDestructive: true) {
+                            forget(hex)
+                        }]
+                    }) { choose(hex) }
+                    .accessibilityLabel("Saved color #\(hex)")
             }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 12)
         }
-        .scrollIndicators(.hidden)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
     }
 
     /// The typed code, as the colour being tried -- or, if it is not a

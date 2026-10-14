@@ -295,6 +295,7 @@ private struct MobileChoiceSheet: ViewModifier {
     let onCancel: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rowsHeight: CGFloat = 0
 
     func body(content: Content) -> some View {
         content.overlay {
@@ -316,6 +317,9 @@ private struct MobileChoiceSheet: ViewModifier {
             }
             .animation(reduceMotion ? .easeOut(duration: 0.15)
                        : .spring(response: 0.34, dampingFraction: 0.88), value: isPresented)
+        }
+        .onChange(of: isPresented) { _, presented in
+            if !presented { rowsHeight = 0 }
         }
     }
 
@@ -344,14 +348,23 @@ private struct MobileChoiceSheet: ViewModifier {
                 if !list.isEmpty {
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
                         .padding(.horizontal, LineupPanelStyle.inset)
-                    // As tall as its rows, until a long list -- a film's
-                    // subtitle tracks -- needs to scroll.
-                    ViewThatFits(in: .vertical) {
+                    // Measure the rows at their actual width so wrapped text
+                    // gets its room without stretching a short menu to 380pt.
+                    ScrollView {
                         rows(list)
-                        ScrollView { rows(list) }
-                            .scrollIndicators(.hidden)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(key: MobileChoiceRowsHeight.self,
+                                                           value: proxy.size.height)
+                                }
+                            }
                     }
-                    .frame(maxHeight: 380)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollIndicators(.hidden)
+                    .frame(height: min(rowsHeight > 0 ? rowsHeight
+                                       : CGFloat(list.count) * MobileDropdownPanel.rowHeight + 16, 380))
+                    .onPreferenceChange(MobileChoiceRowsHeight.self) { rowsHeight = $0 }
                 }
             }
             .background(LineupPanelStyle.fill, in: shape)
@@ -368,6 +381,7 @@ private struct MobileChoiceSheet: ViewModifier {
             }
             .buttonStyle(MobileDropdownRowStyle())
         }
+        .fixedSize(horizontal: false, vertical: true)
         .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
@@ -389,6 +403,11 @@ private struct MobileChoiceSheet: ViewModifier {
         isPresented = false
         onCancel()
     }
+}
+
+private struct MobileChoiceRowsHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 // MARK: - Touch and hold
