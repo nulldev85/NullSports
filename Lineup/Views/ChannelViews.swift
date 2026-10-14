@@ -2788,7 +2788,9 @@ private struct LeagueLogo: View {
 
     var body: some View {
         Group {
-            if league == .ufc || league.isTennis {
+            // ESPN has no league mark for these: UFC, the NCAA's and the
+            // tennis tours' come with the app.
+            if league == .ufc || league == .ncaaf || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in
