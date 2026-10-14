@@ -45,7 +45,21 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"
     scheme:
-      testTargets: []
+      testTargets:
+        - LineupTests
+  LineupTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources:
+      - Tests/tvOS
+      - Tests/iOS/LocalMediaTrackingTests.swift
+    dependencies:
+      - target: Lineup
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Lineup.app/Lineup"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   LineupiOS:
     type: application
     platform: iOS

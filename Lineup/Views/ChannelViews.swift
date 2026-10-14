@@ -942,7 +942,7 @@ private struct LiveBoardLeagueButton: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityAddTraits(.isButton)
         .onMoveCommand { if $0 == .right { onEnterGames() } }
         .accessibilityLabel(title)
@@ -1745,7 +1745,7 @@ private struct LiveMyTeamsHideButton: View {
         .focusable()
         .focused(focus, equals: .hide)
         .focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityLabel("Hide My Teams")
         .accessibilityAddTraits(.isButton)
     }
@@ -1775,7 +1775,7 @@ private struct LiveMyTeamsTab: View {
         .focusable()
         .focused(focus, equals: .show)
         .focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityLabel("Show My Teams")
         .accessibilityAddTraits(.isButton)
     }
@@ -1903,7 +1903,7 @@ private struct LiveTeamRow: View {
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: onPlay)
+        .tvSelectAction(onPlay)
         .onChange(of: focused) { _, value in if value { onFocus() } }
         .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
@@ -2356,7 +2356,7 @@ private struct LiveMatchupCard: View {
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: onPlay)
+        .tvSelectAction(onPlay)
         .onChange(of: focused) { _, value in if value { onFocus() } }
         .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
@@ -2829,7 +2829,7 @@ private struct LiveFilterButton: View {
             .background(selected ? LineupStyle.lightPurple.opacity(0.10) : Color.clear)
             .clipShape(Capsule()).nullGlass(cornerRadius: 22)
             .overlay(alignment: .bottom) { if selected { Capsule().fill(LineupStyle.field).frame(width: 28, height: 3).offset(y: -4) } }
-            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
     }
 }
@@ -2964,7 +2964,7 @@ private struct GameEventCard: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
             }
         }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(onPlay)
         .tvHoldMenu(event.matchupLine, symbol: "sportscourt") {
             var items: [TVChoice] = []
             if event.isUpcoming {
@@ -3965,7 +3965,7 @@ private struct GuideSidebarButton: View {
             }
         }
         .lineupFocusLayer(isFocused, in: shape)
-        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
+        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().tvSelectAction(action)
         .animation(.easeOut(duration: 0.16), value: isFocused)
     }
 }
@@ -3984,7 +3984,7 @@ private struct GuideHeaderButton: View {
             .padding(.leading, 8).padding(.trailing, 22).frame(height: 48)
             .background(GuidePalette.surface, in: shape)
             .lineupFocusLayer(isFocused, in: shape)
-            .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+            .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
             .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
     }
@@ -4459,7 +4459,7 @@ private struct TVReorderDoneButton: View {
             .lineupFocusLayer(focused, in: Capsule())
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
-            .onTapGesture(perform: action)
+            .tvSelectAction(action)
             .focusLift(focused, scale: LineupStyle.controlLift)
     }
 }
@@ -4570,7 +4570,7 @@ private struct GuideProgramCell: View {
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
         .animation(.easeOut(duration: 0.14), value: isFocused)
-        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
         .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")
         // Keep the focused block in timeline coordinates so its fill stays aligned.
@@ -5792,7 +5792,7 @@ private struct MultiviewView: View {
             .focusable(shown)
             .focused($focusedTile, equals: index)
             .focusEffectDisabled()
-            .onTapGesture { select(index) }
+            .tvSelectAction { select(index) }
             .onMoveCommand(perform: flip(from: index))
             .tvHoldMenu(currentGame(index)?.matchupLine ?? stream(index).name, symbol: "rectangle.split.2x1") {
                 menuItems(for: index)
@@ -6271,6 +6271,7 @@ struct PlayerView: View {
     var program: CurrentProgram? = nil
     var isLive = true
     var initialPosition: TimeInterval? = nil
+    var expectedDuration: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
@@ -6339,7 +6340,8 @@ struct PlayerView: View {
     @State private var closing = false
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
-         initialPosition: TimeInterval? = nil, onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
+         initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
+         onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
          recording: CatchUpProgramme? = nil, startsOver: Bool = false,
@@ -6351,6 +6353,7 @@ struct PlayerView: View {
         self.program = program
         self.isLive = isLive
         self.initialPosition = initialPosition
+        self.expectedDuration = expectedDuration
         self.onProgress = onProgress
         self.game = game
         self.channelID = channelID
@@ -6495,7 +6498,7 @@ struct PlayerView: View {
             } else {
                 PlaybackJournal.shared.note(openingNote)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
-                                 channelID: channelID, isLive: isLive)
+                                 channelID: channelID, isLive: isLive, expectedDuration: expectedDuration)
             }
             if isLive, let currentChannel { library.recordRecentChannel(currentChannel) }
             if continuesPreview { controller.lentToFullScreen = true }
@@ -7497,7 +7500,7 @@ private struct PlaybackClockReader<Content: View>: View {
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
                channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true,
-               keepTrackChoices: Bool = false) {
+               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil) {
         restarting = true
         stop()
         restarting = false
@@ -7507,6 +7510,9 @@ private struct PlaybackClockReader<Content: View>: View {
         // as it stood, which partway through fading out was still off.
         self.muted = muted || targetVolume == 0
         self.isLive = isLive
+        if !isLive, let expectedDuration, expectedDuration.isFinite, expectedDuration > 0 {
+            duration = expectedDuration
+        }
         finished = false
         if !keepTrackChoices {
             chosenAudioTrack = nil
@@ -7690,8 +7696,9 @@ private struct PlaybackClockReader<Content: View>: View {
                 && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
         // A film or an episode that stops at its end has finished. The same
         // stop anywhere earlier is a dropped stream, reopened below.
-        if !isLive, failed, reopenPosition == nil, duration > 0,
-           elapsed >= duration - 15 || player.position >= 0.99 {
+        if !isLive, reopenPosition == nil,
+           LocalMediaTrackingPolicy.reachedEnd(ended: state == .ended, failed: failed,
+               hasPlayed: sawPicture, position: elapsed, duration: duration, fraction: Double(player.position)) {
             log("Reached the end at \(PlaybackJournal.clock(elapsed)) of \(PlaybackJournal.clock(duration))")
             finish()
             return
@@ -8177,7 +8184,7 @@ private struct PlaybackClockReader<Content: View>: View {
         retryAt = nil
         reconnecting = false
         isPlaying = false
-        elapsed = duration
+        if duration > 0 { elapsed = duration }
         finished = true
         holdScreenAwake()
     }

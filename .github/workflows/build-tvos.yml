@@ -114,7 +114,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
 
-      - name: Build for tvOS Simulator
+      - name: Run tvOS Library regression tests
         run: |
           set -euo pipefail
           xcodebuild \
@@ -125,13 +125,13 @@ jobs:
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
-            build
+            test
 
       - name: Smoke test app launch in tvOS Simulator
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
-          xcrun simctl boot "$device"
+          read -r device device_state < <(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); v=next(v for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]); print(v["udid"], v["state"])')
+          if [ "$device_state" != "Booted" ]; then xcrun simctl boot "$device"; fi
           # `simctl boot` returns once booting has started, not once FrontBoard
           # is ready to discover and launch installed apps. Wait for the
           # television home screen instead of racing it on a busy runner.

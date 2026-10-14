@@ -27,6 +27,12 @@ struct TVChoice: Identifiable {
 }
 
 extension View {
+    /// A short Select and a held Select are exclusive. The card must not
+    /// launch playback when the viewer releases Select after opening its menu.
+    func tvSelectAction(_ action: @escaping () -> Void) -> some View {
+        modifier(TVSelectActionModifier(action: action))
+    }
+
     /// The app's own sheet of choices on the television, in place of the
     /// system's alert and action sheet, which draw in tvOS's own chrome and
     /// type: a panel over the dimmed screen with a coloured tile, the
@@ -79,6 +85,7 @@ private struct TVChoicesModifier: ViewModifier {
                 isPresented = false
             }
             .presentationBackground(.clear)
+            .environment(\.tvHoldAction, nil)
         }
     }
 }
@@ -95,13 +102,52 @@ private struct TVHoldMenuModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onLongPressGesture(minimumDuration: 0.5) {
+            .environment(\.tvHoldAction, TVHoldAction {
                 let list = items()
                 guard !list.isEmpty else { return }
                 snapshot = list
                 presented = true
-            }
+            })
             .tvChoices(title, symbol: symbol, isPresented: $presented, message: message) { snapshot }
+    }
+}
+
+private struct TVHoldAction {
+    let perform: () -> Void
+}
+
+private struct TVHoldActionKey: EnvironmentKey {
+    static let defaultValue: TVHoldAction? = nil
+}
+
+private extension EnvironmentValues {
+    var tvHoldAction: TVHoldAction? {
+        get { self[TVHoldActionKey.self] }
+        set { self[TVHoldActionKey.self] = newValue }
+    }
+}
+
+private struct TVSelectActionModifier: ViewModifier {
+    @Environment(\.tvHoldAction) private var hold
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let hold {
+            content.highPriorityGesture(
+                LongPressGesture(minimumDuration: 0.5, maximumDistance: 30)
+                    .exclusively(before: TapGesture())
+                    .onEnded { press in
+                        switch press {
+                        case .first(true): hold.perform()
+                        case .second: action()
+                        default: break
+                        }
+                    }
+            )
+        } else {
+            content.onTapGesture(perform: action)
+        }
     }
 }
 

@@ -1397,20 +1397,38 @@ final class MediaLibrary: ObservableObject {
 
     func setLocallyPlayed(_ played: Bool, for item: MediaItem) {
         guard let profileID = serverID(of: item) else { return }
+        let previousDuration = localPlaybackRecord(for: item)?.duration
+        // A queued progress sample must not undo an explicit watched change
+        // when the player or app later flushes its pending write.
+        if heldPlayback?.profileID == profileID, heldPlayback?.item.id == item.id { heldPlayback = nil }
         localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
-        let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
+        let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) }
+            ?? previousDuration.map { max(1, $0) } ?? 1
         localPlayback.append(LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: played ? duration : 0, duration: duration, updatedAt: Date(),
             completed: played, explicitlyUnwatched: played ? nil : true))
         persistLocalPlayback()
     }
 
+    /// A real end-of-file is authoritative even when a stream reported no
+    /// duration. Persist before the player closes or opens the next episode.
+    func completePlayback(of item: MediaItem) {
+        guard let profileID = serverID(of: item) else { return }
+        let alreadyCompleted = localPlaybackRecord(for: item)?.completed == true
+        setLocallyPlayed(true, for: item)
+        if item.type == "Episode", !alreadyCompleted {
+            Task { [weak self] in await self?.advanceAfterCompletedPlayback(item, profileID: profileID) }
+        }
+    }
+
     /// Update an episode and keep Continue Watching pointed at the episode a
     /// viewer should play next. Generated Up Next records are distinct from
     /// genuine resume points, so rolling back never destroys real progress.
     func setEpisodePlayedAndAdvance(_ played: Bool, for episode: MediaItem) async {
+        // The local mark is immediate and survives a server that is offline.
+        applyLocalEpisodeProgression(played, for: episode, following: nil)
+        let revision = localPlaybackRecord(for: episode)?.updatedAt
         guard episode.type == "Episode", let profile = profile(for: episode) else {
-            setLocallyPlayed(played, for: episode)
             await setPlayed(played, for: episode)
             return
         }
@@ -1426,7 +1444,7 @@ final class MediaLibrary: ObservableObject {
         if played {
             following = await followingUnwatchedEpisode(after: trackedEpisode, profile: profile)
         }
-        guard contains(profile) else { return }
+        guard contains(profile), localPlaybackRecord(for: episode)?.updatedAt == revision else { return }
         applyLocalEpisodeProgression(played, for: trackedEpisode, following: following)
         await setPlayed(played, for: episode)
     }
@@ -1436,6 +1454,7 @@ final class MediaLibrary: ObservableObject {
                                       following: MediaItem?) {
         guard let profileID = serverID(of: episode) else { return }
         setLocallyPlayed(played, for: episode)
+        guard episode.type == "Episode" else { return }
         let seriesKey = Self.seriesKey(for: episode)
         localPlayback.removeAll { record in
             record.profileID == profileID && record.isUpNext == true
@@ -1635,7 +1654,7 @@ final class MediaLibrary: ObservableObject {
         if following == nil, await isLastEpisodeOnServer(tracked, profile: profile) {
             following = await upcomingEpisode(after: tracked, profile: profile)
         }
-        guard contains(profile) else { return }
+        guard contains(profile), localPlaybackRecord(for: episode)?.completed == true else { return }
         let key = Self.seriesKey(for: tracked)
         localPlayback.removeAll { record in
             record.profileID == profileID && record.isUpNext == true
@@ -1691,7 +1710,7 @@ final class MediaLibrary: ObservableObject {
 
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
-        guard let profileID = serverID(of: episode) else { return }
+        guard let profileID = serverID(of: episode), !isWatched(episode) else { return }
         if let index = localPlayback.firstIndex(where: {
             $0.profileID == profileID && $0.item.id == episode.id
         }), localPlayback[index].position >= 5, !localPlayback[index].completed,
@@ -2923,13 +2942,16 @@ final class MediaLibrary: ObservableObject {
               let show = loaded.index.show(seriesID: seriesID, in: loaded.catalog),
               let episodes = try? await providerVOD.episodes(of: show),
               let position = episodes.firstIndex(where: { $0.id == episodeID }) else { return }
+        guard localPlaybackRecord(for: episode)?.completed == true else { return }
         let key = Self.seriesKey(for: episode)
         localPlayback.removeAll { record in
             record.profileID == profileID && record.isUpNext == true && Self.seriesKey(for: record.item) == key
         }
-        if position + 1 < episodes.count {
-            queueAsUpNext(ProviderVOD.item(for: episodes[position + 1], of: show, provider: profileID),
-                          explicitlyUnwatched: false)
+        let following = episodes.dropFirst(position + 1)
+            .map { ProviderVOD.item(for: $0, of: show, provider: profileID) }
+            .first { !isWatched($0) }
+        if let following {
+            queueAsUpNext(following, explicitlyUnwatched: false)
         }
         persistLocalPlayback()
     }

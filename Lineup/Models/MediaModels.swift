@@ -630,6 +630,16 @@ struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
 }
 
 enum LocalMediaTrackingPolicy {
+    /// VLC can reach a real EOF without ever learning the container's length.
+    /// A stopped or failed stream elsewhere is a retry, not a watched title.
+    static func reachedEnd(ended: Bool, failed: Bool, hasPlayed: Bool,
+                           position: TimeInterval, duration: TimeInterval, fraction: Double) -> Bool {
+        guard hasPlayed, position.isFinite, position >= 5 else { return false }
+        if ended { return true }
+        guard failed, duration.isFinite, duration > 0 else { return false }
+        return position >= duration - 15 || (fraction.isFinite && fraction >= 0.99)
+    }
+
     static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
         guard duration > 0, position >= 0 else { return false }
         let safePosition = min(position, duration)

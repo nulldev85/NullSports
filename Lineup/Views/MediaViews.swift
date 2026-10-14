@@ -1203,6 +1203,7 @@ private struct MediaCatalogsScreen: View {
                                                  onFocusChange: { focused in preview(item, when: focused) }) {
                                         MediaItemCard(item: item, shape: shape)
                                     }
+                                    .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
                                     #else
                                     NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                                         .lineupFlatButton()
@@ -1488,11 +1489,12 @@ private struct MediaCatalogsScreen: View {
             .focusable()
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
-            .onTapGesture { playHero() }
+            .tvSelectAction { playHero() }
             .onMoveCommand { moveTV($0, from: .hero) }
             .tvHoldMenu(item?.name ?? "", symbol: "info.circle") {
                 guard let item, item.opensPage else { return [] }
                 return [TVChoice("Details", symbol: "info.circle") { pushed = item }]
+                    + media.tvCardChoices(for: item)
             }
             .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
             if count > 1 {
@@ -1598,7 +1600,7 @@ private struct MediaCatalogsScreen: View {
             .focusable()
             .focused($tvFocus, equals: .card(slot))
             .focusEffectDisabled()
-            .onTapGesture { activate(item, in: shelf) }
+            .tvSelectAction { activate(item, in: shelf) }
             .onMoveCommand { moveTV($0, from: .card(slot)) }
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
@@ -1631,7 +1633,7 @@ private struct MediaCatalogsScreen: View {
         .focusable()
         .focused($tvFocus, equals: .card(slot))
         .focusEffectDisabled()
-        .onTapGesture { pushed = catalog.root }
+        .tvSelectAction { pushed = catalog.root }
         .onMoveCommand { moveTV($0, from: .card(slot)) }
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
@@ -2085,6 +2087,7 @@ private struct MediaGridScreen: View {
             TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
                 MediaItemCard(item: item, shape: shape)
             }
+            .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
             #else
             NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                 .lineupFlatButton()
@@ -2701,7 +2704,9 @@ private struct MediaDetailScreen: View {
         .onDisappear { tabBar?.pageDisappeared() }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
+        .fullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
+            MediaSourcePicker(item: episode, startsOver: startingOver)
+        }
         .fullScreenCover(item: $summaryItem) { item in
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
@@ -2743,6 +2748,14 @@ private struct MediaDetailScreen: View {
     }
 
     #if os(tvOS)
+    private func refreshAfterPlayback() {
+        media.flushLocalPlayback()
+        watched = media.isWatched(subject)
+        if subject.isSeries {
+            Task { nextUp = await media.resumeEpisode(in: subject) }
+        }
+    }
+
     /// Selection keeps the same backdrop and information hierarchy as Library
     /// focus, then adds actions and playable rows without dropping into a
     /// separate card-shaped page.
@@ -2758,6 +2771,7 @@ private struct MediaDetailScreen: View {
                     tvActions.padding(.horizontal, horizontalPadding)
                     if let overview = subject.overview, !overview.isEmpty {
                         TVMediaSummaryPreview(text: overview) { summaryItem = subject }
+                            .tvHoldMenu(subject.name, symbol: "film") { media.tvCardChoices(for: subject) }
                             .padding(.horizontal, horizontalPadding)
                             .lineupFocusRegion()
                     }
@@ -3209,6 +3223,7 @@ private struct MediaDetailScreen: View {
                                 TVSelectable(drawsFocusChrome: false, action: { pushed = title }) {
                                     MediaItemCard(item: title, shape: .poster)
                                 }
+                                .tvHoldMenu(title.name, symbol: "film") { media.tvCardChoices(for: title) }
                                 #else
                                 NavigationLink(destination: MediaBrowseDestination(item: title)) {
                                     MediaItemCard(item: title, shape: .poster)
@@ -3555,6 +3570,7 @@ private struct MediaEpisodeCard: View {
             if let overview = episode.overview, !overview.isEmpty {
                 #if os(tvOS)
                 TVMediaSummaryPreview(text: overview, compact: true, action: onSummary)
+                    .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
                 #else
                 Text(overview).font(.inter(.caption))
                     .lineLimit(3)
@@ -3706,16 +3722,16 @@ extension MediaLibrary {
                 self.removeFromContinueWatching(item)
             })
         }
-        if item.type == "Episode" { choices += tvEpisodeChoices(for: item) }
+        if item.isPlayable { choices += tvEpisodeChoices(for: item) }
         return choices
     }
 
-    /// An episode's own: watched, and the Favorites library.
+    /// Movies and episodes both offer watched status and Favorites.
     func tvEpisodeChoices(for episode: MediaItem) -> [TVChoice] {
         let watched = isWatched(episode)
         let favorite = isLocalFavorite(episode)
         return [
-            TVChoice(watched ? "Remove from Watched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
+            TVChoice(watched ? "Mark Unwatched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
                 Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
             },
             TVChoice(favorite ? "Remove from Favorites" : "Add to Favorites",
@@ -5008,6 +5024,7 @@ private struct MediaSourcePicker: View {
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
                        initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                       expectedDuration: item.runTimeTicks.map { Double($0) / 10_000_000 },
                        onProgress: { position, duration in
                            media.trackPlayback(of: item, position: position, duration: duration)
                        },
@@ -5017,7 +5034,10 @@ private struct MediaSourcePicker: View {
                                advance = .playNext(next)
                            }
                        },
-                       onReachedEnd: { if advance == nil { advance = .reachedEnd } })
+                       onReachedEnd: {
+                           media.completePlayback(of: item)
+                           if advance == nil { advance = .reachedEnd }
+                       })
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #else

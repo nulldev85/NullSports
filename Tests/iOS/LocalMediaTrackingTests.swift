@@ -1,5 +1,9 @@
 import XCTest
+#if os(tvOS)
+@testable import Lineup
+#else
 @testable import LineupiOS
+#endif
 
 @MainActor
 final class LocalMediaTrackingTests: XCTestCase {
@@ -210,6 +214,86 @@ final class LocalMediaTrackingTests: XCTestCase {
         library.trackPlayback(of: movie, position: 5_900, duration: 6_000)
         XCTAssertEqual(library.watchHistory.map(\.item.id), [movie.id])
         XCTAssertTrue(library.continueWatching.isEmpty)
+    }
+
+    func testNaturalEndMarksTwoEpisodesInANewSeasonAndSurvivesRelaunch() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let episodes = (1...2).map { number in
+            MediaItem(id: "s2e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                indexNumber: number, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+        }
+        for episode in episodes {
+            library.trackPlayback(of: episode, position: 600, duration: 0)
+            library.completePlayback(of: episode)
+            library.flushLocalPlayback()
+            XCTAssertTrue(library.isWatched(episode))
+            XCTAssertTrue(library.cardPlayback(for: episode, asShow: false)?.watched == true)
+        }
+        let restored = MediaLibrary(defaults: defaults)
+        for episode in episodes { XCTAssertTrue(restored.isWatched(episode)) }
+    }
+
+    func testMarkWatchedAndUnwatchedOverrideBufferedProgress() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6_000)
+        library.trackPlayback(of: movie, position: 700, duration: 6_000)
+        library.setLocallyPlayed(true, for: movie)
+        library.flushLocalPlayback()
+        XCTAssertTrue(library.isWatched(movie))
+        XCTAssertTrue(MediaLibrary(defaults: defaults).isWatched(movie))
+
+        library.trackPlayback(of: movie, position: 600, duration: 6_000)
+        library.trackPlayback(of: movie, position: 700, duration: 6_000)
+        library.setLocallyPlayed(false, for: movie)
+        library.flushLocalPlayback()
+        XCTAssertFalse(library.isWatched(movie))
+        XCTAssertTrue(library.continueWatching.isEmpty)
+        XCTAssertFalse(MediaLibrary(defaults: defaults).isWatched(movie))
+    }
+
+    func testCompletionDistinguishesUnknownLengthEOFFromDroppedStreams() {
+        XCTAssertTrue(LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: true, hasPlayed: true,
+            position: 2_400, duration: 0, fraction: -1))
+        XCTAssertFalse(LocalMediaTrackingPolicy.reachedEnd(ended: false, failed: true, hasPlayed: true,
+            position: 600, duration: 2_400, fraction: 0.25))
+        XCTAssertFalse(LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: true, hasPlayed: false,
+            position: 0, duration: 2_400, fraction: 0))
+        XCTAssertTrue(LocalMediaTrackingPolicy.reachedEnd(ended: false, failed: true, hasPlayed: true,
+            position: 2_390, duration: 2_400, fraction: 0.99))
+    }
+
+    func testLateUpNextCannotEraseAFinishedEpisode() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = MediaItem(id: "s2e1", name: "First", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+        let second = MediaItem(id: "s2e2", name: "Second", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 2, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")
+        library.setLocallyPlayed(true, for: second)
+        library.applyLocalEpisodeProgression(true, for: first, following: second)
+        XCTAssertTrue(library.isWatched(first))
+        XCTAssertTrue(library.isWatched(second))
+        XCTAssertFalse(library.continueWatching.contains { $0.item.id == second.id })
+        XCTAssertTrue(MediaLibrary(defaults: defaults).isWatched(second))
+    }
+
+    func testMarkingAMovieUnwatchedDoesNotQueueItAsAnEpisode() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        library.trackPlayback(of: movie, position: 600, duration: 6_000)
+        library.applyLocalEpisodeProgression(false, for: movie, following: nil)
+        XCTAssertFalse(library.isWatched(movie))
+        XCTAssertTrue(library.continueWatching.isEmpty)
+        XCTAssertNotEqual(library.localPlaybackRecord(for: movie)?.isUpNext, true)
     }
 
     func testAnotherTitleCommitsTheOneBeforeIt() throws {
