@@ -2620,9 +2620,12 @@ private struct LiveTicker: View {
     @State private var displayedEvents: [SportsGame] = []
     /// Points a second: with each score's column wider for its larger
     /// words, a score stays in view as long as it did before.
-    private let speed: Double = 65
-    private let cardWidth: CGFloat = 744
-    private let logoSize: CGFloat = 30
+    private let speed: Double = 67
+    private let cardWidth: CGFloat = 766
+    /// As tall as the strip has room for with the scores beside it; a wide
+    /// mark has more room across.
+    private let logoSize: CGFloat = 34
+    private let logoWidth: CGFloat = 58
     private let cardSpacing: CGFloat = 38
     private let loopSpacing: CGFloat = 72
     private let emptyWidth: CGFloat = 520
@@ -2701,8 +2704,9 @@ private struct LiveTicker: View {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         // The league's own mark, as the board shows it,
                         // centred on the team codes' capitals.
-                        LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: logoSize)
-                            .frame(width: logoSize + 14, alignment: .leading)
+                        LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league,
+                                   size: logoSize, width: logoWidth)
+                            .frame(width: logoWidth + 8, alignment: .leading)
                             .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 10 }
                             .accessibilityLabel(game.league.shortName)
                         Text(game.awayAbbreviation)
@@ -2780,6 +2784,9 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
 private struct LeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
+    /// Room across for a mark wider than it is tall -- UFC's, the tennis
+    /// tours' -- which a square would shrink. Square by default.
+    var width: CGFloat?
 
     private var logoURL: URL? {
         guard league != .ncaaf && league != .ufc && !league.isTennis else { return nil }
@@ -2806,7 +2813,7 @@ private struct LeagueLogo: View {
             }
         }
         .transaction { $0.animation = nil }
-        .frame(width: size, height: size)
+        .frame(width: width ?? size, height: size)
         .clipped()
     }
 }
