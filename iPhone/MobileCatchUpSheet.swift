@@ -48,7 +48,7 @@ struct MobileCatchUpSheet: View {
                             systemImage: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath",
                             description: Text(failed
                                 ? "The provider didn't answer. Try again in a moment."
-                                : "Programmes from this channel will show here once the provider has kept them."))
+                                : "Programs from this channel will show here once the provider has kept them."))
                             .frame(maxHeight: .infinity)
                     } else {
                         list
@@ -91,7 +91,7 @@ struct MobileCatchUpSheet: View {
                         .foregroundStyle(LineupStyle.text)
                         .accessibilityAddTraits(.isHeader)
                     if !programmes.isEmpty {
-                        Text("\(programmes.count) programmes over \(days.count == 1 ? "1 day" : "\(days.count) days")")
+                        Text("\(programmes.count) programs over \(days.count == 1 ? "1 day" : "\(days.count) days")")
                             .font(.inter(.caption, .medium))
                             .foregroundStyle(LineupStyle.secondary)
                     }
@@ -169,7 +169,7 @@ private struct MobileCatchUpDayHeader: View {
                 .font(.inter(.caption2, .semibold)).tracking(1)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 0)
-            Text(count == 1 ? "1 programme" : "\(count) programmes")
+            Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(.caption2, .medium))
                 .foregroundStyle(LineupStyle.secondary)
         }

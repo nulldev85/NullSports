@@ -638,7 +638,7 @@ private struct TVCatchUpScreen: View {
                 Text(failed ? "The provider didn't answer" : "Nothing kept yet")
                     .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
                 Text(failed ? "Try again in a moment."
-                            : "Programmes from this channel will show here once the provider has kept them.")
+                            : "Programs from this channel will show here once the provider has kept them.")
                     .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 520)
             }
@@ -690,7 +690,7 @@ private struct TVCatchUpDetail: View {
                 }
             }
             if programmeCount > 0 {
-                Text("\(programmeCount) programmes over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
+                Text("\(programmeCount) programs over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
                     .font(.inter(16, .medium)).foregroundStyle(LineupStyle.secondary)
                     .padding(.top, 14)
             }
@@ -755,7 +755,7 @@ private struct TVCatchUpDayHeader: View {
                 .font(.inter(14, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 0)
-            Text(count == 1 ? "1 programme" : "\(count) programmes")
+            Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(14, .medium))
                 .foregroundStyle(LineupStyle.secondary)
         }
@@ -7100,7 +7100,7 @@ private struct TVCatchUpBar: View {
             onInteraction()
         }
         .animation(.easeOut(duration: 0.18), value: selected)
-        .accessibilityLabel("Programme timeline")
+        .accessibilityLabel("Program timeline")
         .accessibilityValue(caption(position: position, now: now))
     }
 }
@@ -8023,7 +8023,7 @@ private struct PlaybackClockReader<Content: View>: View {
         guard let catchUp, let source = catchUpSource else { return false }
         let position = catchUp.position(playedSeconds: elapsed)
         if recordingEndsWithProgramme, position >= catchUp.programmeEnd.addingTimeInterval(-30) {
-            log("The recording reached the end of the programme")
+            log("The recording reached the end of the program")
             finish()
             return true
         }

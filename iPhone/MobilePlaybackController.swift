@@ -1461,7 +1461,7 @@ final class MobilePlaybackController: ObservableObject {
         let until = endsWithProgramme ? programmeEnd : Date()
         let addresses = source.addresses(begin, until)
         guard !addresses.isEmpty else { return false }
-        diag.record("catch-up: recording from \(begin.formatted(date: .omitted, time: .shortened))\(endsWithProgramme ? " to the programme's end" : "")")
+        diag.record("catch-up: recording from \(begin.formatted(date: .omitted, time: .shortened))\(endsWithProgramme ? " to the program's end" : "")")
         // In the order given, the path form first: both forms are transport
         // streams, which VLC plays and `MobileEngineSelection` leaves in place.
         start(urls: addresses, channelID: source.stream.id, resetFailover: false)
@@ -1478,7 +1478,7 @@ final class MobilePlaybackController: ObservableObject {
         guard let catchUp, let source = catchUpSource else { return false }
         let position = catchUp.position(playedSeconds: recordingElapsed)
         if recordingEndsWithProgramme, position >= catchUp.programmeEnd.addingTimeInterval(-30) {
-            diag.record("catch-up: the recording reached the end of the programme")
+            diag.record("catch-up: the recording reached the end of the program")
             finishRecording()
             return true
         }

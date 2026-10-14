@@ -182,7 +182,7 @@ struct MobileCatchUpBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Start over")
-        .accessibilityHint("Plays this programme from its beginning.")
+        .accessibilityHint("Plays this program from its beginning.")
     }
 
     private func timeline(now: Date) -> some View {
@@ -210,7 +210,7 @@ struct MobileCatchUpBar: View {
             .lineLimit(1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Programme timeline")
+        .accessibilityLabel("Program timeline")
         .accessibilityValue(caption)
         .accessibilityAdjustableAction { direction in
             switch direction {
