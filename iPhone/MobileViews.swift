@@ -16,7 +16,6 @@ struct MainView: View {
     @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
-    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
 
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
@@ -633,6 +632,7 @@ private struct MobileAccountView: View {
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
+    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
     @State private var choosingAccent = false
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
