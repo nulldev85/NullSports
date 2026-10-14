@@ -27,6 +27,12 @@ struct MobilePlayerView: View {
     var synopsis: MobilePlayerSynopsis? = nil
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    /// The episode after this one, offered in the last half minute.
+    var nextEpisode: MobileNextEpisodeOffer? = nil
+    /// Told when the title plays to its end, before the player closes.
+    var onReachedEnd: (() -> Void)? = nil
+    /// Sent away for this episode: it does not come back.
+    @State private var nextEpisodeDeclined = false
     @State private var scrubTarget: Double?
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
@@ -167,6 +173,17 @@ struct MobilePlayerView: View {
                 }
             }
         }
+        // Next Episode, in the bottom-right corner while the controls are
+        // away, as on the television.
+        .overlay(alignment: .bottomTrailing) {
+            if showsNextEpisode, let offer = nextEpisode {
+                MobileNextEpisodeCard(offer: offer, play: { playNext(offer) },
+                                      decline: { nextEpisodeDeclined = true })
+                    .padding(.trailing, 16).padding(.bottom, 24)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: showsNextEpisode)
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
         .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
         // The picture and its backing fill the screen; the controls do not.
@@ -179,16 +196,15 @@ struct MobilePlayerView: View {
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
-                            titleVisibility: .visible) {
-            ForEach(controller.subtitleTracks) { track in
-                Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+            controller.subtitleTracks.map { track in
+                MobileMenuItem(track.title, id: "\(track.id)",
+                               isSelected: track.id == controller.selectedSubtitleID) {
                     controller.selectSubtitle(track)
                     showControls()
                 }
             }
-            Button("Cancel", role: .cancel) { showControls() }
-        }
+        } onCancel: { showControls() }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
@@ -203,6 +219,7 @@ struct MobilePlayerView: View {
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
             reportProgress(force: true)
+            onReachedEnd?()
             exit()
         }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
@@ -213,6 +230,22 @@ struct MobilePlayerView: View {
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
         }
+    }
+
+    /// In an episode's last thirty seconds, with the controls away and
+    /// nothing wrong: long enough into a real episode that a short clip does
+    /// not offer one at once.
+    private var showsNextEpisode: Bool {
+        guard nextEpisode != nil, !isLive, !nextEpisodeDeclined, !controlsVisible,
+              controller.error == nil, let progress = controller.progress,
+              progress.duration > 90 else { return false }
+        return progress.duration - progress.position <= 30
+    }
+
+    private func playNext(_ offer: MobileNextEpisodeOffer) {
+        reportProgress(force: true)
+        offer.play()
+        exit()
     }
 
     private func toggleControls() {
@@ -326,17 +359,10 @@ struct MobilePlayerView: View {
         return VStack(spacing: 8) {
             GeometryReader { track in
                 let width = track.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18))
-                    Capsule().fill(LineupStyle.mediaAccent)
-                        .frame(width: max(0, width * fraction))
-                    Circle()
-                        .fill(.white)
-                        .frame(width: scrubTarget == nil ? 13 : 17)
-                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                        .offset(x: max(0, width * fraction - (scrubTarget == nil ? 6.5 : 8.5)))
-                }
-                .frame(height: 5)
+                // The app's own bar, in the accent: no knob, and a little
+                // thicker under a finger to say it has been taken hold of.
+                LineupProgressBar(value: fraction,
+                                  height: scrubTarget == nil ? LineupProgressBar.standardHeight : 12)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .gesture(
@@ -392,10 +418,71 @@ struct MobilePlayerView: View {
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
+            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
                 .lineupGlassControl(Circle(), prominent: size >= 60)
         }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+}
+
+/// The episode after the one playing, offered as it ends.
+struct MobileNextEpisodeOffer {
+    let code: String?
+    let title: String
+    let play: () -> Void
+}
+
+/// Next Episode: a small panel in the bottom-right corner with the episode's
+/// number and name and Play Now in the accent; the cross sends it away.
+private struct MobileNextEpisodeCard: View {
+    let offer: MobileNextEpisodeOffer
+    let play: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                LineupIconTile(symbol: "forward.end.fill", size: 24)
+                Text("NEXT EPISODE")
+                    .font(.inter(12, .heavy)).tracking(0.4)
+                    .foregroundStyle(LineupPanelStyle.caption)
+                Spacer(minLength: 8)
+                Button(action: decline) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .frame(width: 28, height: 28)
+                        .background(LineupPanelStyle.well, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Not now")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if let code = offer.code {
+                    Text(code).font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                }
+                Text(offer.title).font(.inter(16, .bold)).foregroundStyle(LineupStyle.text)
+                    .lineLimit(2)
+            }
+            Button(action: play) {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill").font(.system(size: 13, weight: .bold, design: .rounded))
+                    Text("Play Now").font(.inter(15, .bold))
+                }
+                .foregroundStyle(LineupStyle.onHighlight)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(LineupStyle.highlight, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 250)
+        .background(LineupPanelStyle.fill, in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Next episode, \(offer.code.map { $0 + ", " } ?? "")\(offer.title)")
     }
 }

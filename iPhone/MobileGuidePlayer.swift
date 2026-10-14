@@ -394,7 +394,7 @@ struct MobileGuidePlayer: View {
     private func control(_ symbol: String, label: String, size: CGFloat = 36,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold))
+            Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
                 .lineupGlassControl(Circle(), fallback: Color.black.opacity(0.48), prominent: size >= 42)

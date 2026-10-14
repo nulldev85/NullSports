@@ -170,3 +170,23 @@ private struct JellyfinMark: Shape {
         return path
     }
 }
+
+/// A server's mark as a Settings tile: on a dark rounded square, the way an
+/// app's icon sits in a list. Plex's mark is a square of its own already.
+struct MediaServerLogoTile: View {
+    let brand: MediaServerBrand
+    var size: CGFloat = 30
+
+    var body: some View {
+        Group {
+            if case .plex = brand {
+                MediaServerLogo(brand: brand)
+            } else {
+                MediaServerLogo(brand: brand).padding(size * 0.17)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(LineupPanelStyle.listLogoTile,
+                    in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+    }
+}

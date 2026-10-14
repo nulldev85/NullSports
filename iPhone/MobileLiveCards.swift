@@ -74,8 +74,8 @@ struct MobileLiveScoreboard: View {
         // A scoreboard that moves under VoiceOver's cursor reads as noise,
         // so with VoiceOver it stays on the game being watched.
         let rotates = ids.count > 1 && !voiceOver && scenePhase == .active
-        // Coloured as the Guide colours a programme: grey, a step lighter and
-        // edged in a faint red while it is on.
+        // A panel's own fill and corners; the strip says itself whether the
+        // game is on.
         let shape = RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
         Button {
             if shown.id != watching.id { onWatch(shown) }
@@ -87,10 +87,8 @@ struct MobileLiveScoreboard: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: MobileNowPlayingStrip.height)
-            .background(shown.isLive ? LineupStyle.focused : LineupStyle.raised)
+            .background(LineupPanelStyle.fill)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(shown.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
-                                        lineWidth: shown.isLive ? 1 : 0.5))
             .contentShape(shape)
         }
         .buttonStyle(MobileCardButtonStyle())

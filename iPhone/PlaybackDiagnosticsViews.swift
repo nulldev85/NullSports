@@ -27,7 +27,7 @@ struct PlaybackDiagnosticsOverlay: View {
                     }
                 }
             }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.interDigits(9, .medium))
             .padding(6)
             .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             .padding(6)
@@ -54,13 +54,17 @@ struct PlaybackDiagnosticsReportView: View {
     var body: some View {
         ScrollView {
             Text(diagnostics.report)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+                .padding(16)
+                // On a card like the Settings rows that lead here.
+                .background(LineupPanelStyle.listCard,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(16)
         }
-        .background(LineupStyle.background)
-        .navigationTitle("Playback diagnostics")
+        .background(LineupPanelStyle.listGround)
+        .navigationTitle("Playback Report")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -68,12 +72,14 @@ struct PlaybackDiagnosticsReportView: View {
                     UIPasteboard.general.string = diagnostics.report
                     copied = true
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
             ToolbarItem(placement: .bottomBar) {
                 Button("Clear", role: .destructive) {
                     diagnostics.clear()
                     copied = false
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
         }
     }
@@ -90,13 +96,17 @@ struct StartupTraceReportView: View {
     var body: some View {
         ScrollView {
             Text(trace.report)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.interDigits(11))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+                .padding(16)
+                // On a card like the Settings rows that lead here.
+                .background(LineupPanelStyle.listCard,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(16)
         }
-        .background(LineupStyle.background)
-        .navigationTitle("Launch timing")
+        .background(LineupPanelStyle.listGround)
+        .navigationTitle("Launch Timing")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -104,6 +114,7 @@ struct StartupTraceReportView: View {
                     UIPasteboard.general.string = trace.report
                     copied = true
                 }
+                .buttonStyle(LineupBarButtonStyle())
             }
         }
     }

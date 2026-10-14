@@ -1568,6 +1568,57 @@ final class MediaLibrary: ObservableObject {
             isWatched: { [weak self] in self?.isWatched($0) == true })
     }
 
+    /// Nothing comes after this episode on its server, specials aside.
+    private func isLastEpisodeOnServer(_ episode: MediaItem, profile: MediaServerProfile) async -> Bool {
+        guard let seriesID = episode.seriesID,
+              let episodes = try? await client(for: profile).episodes(userID: profile.userID, seriesID: seriesID)
+        else { return false }
+        let numbered = SeriesResumePolicy.ordered(episodes).filter { ($0.parentIndexNumber ?? 0) > 0 }
+        return numbered.last?.id == episode.id
+    }
+
+    /// The episode after this one when its server does not have it yet: the
+    /// next one the show's schedule lists, as a placeholder Continue Watching
+    /// can hold the show by. Its still, or the show's backdrop when the
+    /// schedule has none, is the card's picture.
+    private func upcomingEpisode(after episode: MediaItem, profile: MediaServerProfile) async -> MediaItem? {
+        guard let season = episode.parentIndexNumber, season > 0, let number = episode.indexNumber,
+              let seriesID = episode.seriesID, let show = series(of: episode) else { return nil }
+        let detailed = (try? await details(of: show)) ?? show
+        guard let ids = detailed.providerIDs, !ids.isEmpty,
+              let next = await TVMazeSchedule.nextEpisode(afterSeason: season, number: number, providerIDs: ids)
+        else { return nil }
+        let still = next.image?.original ?? next.image?.medium
+            ?? backdropURL(for: detailed, width: 1280)?.absoluteString
+        return MediaItem(id: MediaItem.upcomingPrefix + String(next.id),
+                         name: next.name ?? "Episode \(next.number ?? 0)", type: "Episode",
+                         overview: next.summary.map(TVMazeSchedule.plainText),
+                         productionYear: nil, primaryImageAspectRatio: 16.0 / 9, childCount: nil,
+                         premiereDate: next.airstamp, indexNumber: next.number,
+                         parentIndexNumber: next.season, seriesName: episode.seriesName, seriesID: seriesID,
+                         posterURL: still, serverID: profile.id)
+    }
+
+    /// The episode after this one, in watching order, when there is one to
+    /// play: for the player's Next Episode, and for where an episode's end
+    /// leads. Nil for a film, for the last episode, and for one not aired.
+    func episodeAfter(_ episode: MediaItem) async -> MediaItem? {
+        guard episode.type == "Episode", !episode.isUpcomingPlaceholder else { return nil }
+        if ProviderItem(id: episode.id) != nil { return nil }
+        guard let profileID = serverID(of: episode),
+              let profile = profiles.first(where: { $0.id == profileID }) else { return nil }
+        let tracked = episode.seriesID == nil ? ((try? await details(of: episode)) ?? episode) : episode
+        guard let seriesID = tracked.seriesID,
+              let episodes = try? await client(for: profile).episodes(userID: profile.userID, seriesID: seriesID)
+        else { return nil }
+        let ordered = SeriesResumePolicy.ordered(episodes.map { $0.servedBy(profile.id) })
+        guard let index = ordered.firstIndex(where: { $0.id == tracked.id }), index + 1 < ordered.count else {
+            return nil
+        }
+        let next = ordered[index + 1]
+        return next.isUnaired ? nil : next
+    }
+
     private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
         if ProviderItem(id: episode.id) != nil {
             await advanceProviderEpisode(after: episode, profileID: profileID)
@@ -1577,7 +1628,13 @@ final class MediaLibrary: ObservableObject {
         let tracked = episode.seriesID == nil
             ? ((try? await details(of: episode)) ?? episode)
             : episode
-        let following = await followingUnwatchedEpisode(after: tracked, profile: profile)
+        var following = await followingUnwatchedEpisode(after: tracked, profile: profile)
+        // The last episode the server has, of a show still airing: the next
+        // one, from the show's schedule, holds its place in Continue Watching
+        // until it arrives, rather than the show leaving the row.
+        if following == nil, await isLastEpisodeOnServer(tracked, profile: profile) {
+            following = await upcomingEpisode(after: tracked, profile: profile)
+        }
         guard contains(profile) else { return }
         let key = Self.seriesKey(for: tracked)
         localPlayback.removeAll { record in

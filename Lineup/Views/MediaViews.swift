@@ -42,6 +42,12 @@ struct MediaServersView: View {
     @State private var clearingHistory = false
     @State private var searchingLibrary = false
     @State private var playing: MediaPlayRequest?
+    /// The Library's options, dropped from the bar's ellipsis.
+    @State private var optionsOpen = false
+    /// Bumped to take the phone's Library back to its front page: an episode
+    /// that ended with nothing after it leads there.
+    @State private var frontPage = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         stack
@@ -63,16 +69,13 @@ struct MediaServersView: View {
             #else
             Group {
                 if !media.hasAnySource {
-                    ContentUnavailableView {
-                        Label {
-                            Text("Add a Media Server")
-                        } icon: {
-                            MediaServerLogoRow(size: 40)
+                    LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
+                                          description: Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")) {
+                        VStack(spacing: 18) {
+                            MediaServerLogoRow(size: 34)
+                            Button("Add Media Server") { addingServer = true }
+                                .lineupProminentButton()
                         }
-                    } description: {
-                        Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")
-                    } actions: {
-                        Button("Add Media Server", systemImage: "plus") { addingServer = true }
                     }
                 } else if media.roots.isEmpty && media.isLoading {
                     ProgressView("Loading libraries…")
@@ -81,27 +84,30 @@ struct MediaServersView: View {
                     // server with nothing selected look identical from here,
                     // and telling a viewer to pick shelves that could not be
                     // fetched sends them looking for a setting to fix.
-                    ContentUnavailableView {
-                        Label(media.profiles.count > 1 ? "Can't Reach Your Servers" : "Can't Reach Your Server",
-                              systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(media.profiles.count > 1
+                    LineupUnavailableView(
+                        title: media.profiles.count > 1 ? "Can't Reach Your Servers" : "Can't Reach Your Server",
+                        symbol: "exclamationmark.triangle",
+                        description: Text(media.profiles.count > 1
                              ? "Lineup couldn't load your libraries. Check that your servers are running and reachable from this network."
-                             : "Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")
-                    } actions: {
-                        Button("Try Again", systemImage: "arrow.clockwise") {
-                            Task { await media.reload() }
-                        }
+                             : "Lineup couldn't load your libraries. Check that the server is running and reachable from this network.")) {
+                        Button("Try Again") { Task { await media.reload() } }
+                            .lineupProminentButton()
                     }
                 } else {
                     MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen, title: "Library", symbol: "rectangle.stack",
+                                    sections: optionsSections) { setOptions(false) }
+            }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    mediaOptionsMenu
+                    MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
+                        setOptions(!optionsOpen)
+                    }
                 }
             }
             #endif
@@ -130,50 +136,81 @@ struct MediaServersView: View {
                 media.providerVOD.prefetch()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
-            .alert("Media Server", isPresented: Binding(
-                get: { media.errorMessage != nil },
-                set: { if !$0 { media.errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: { Text(media.errorMessage ?? "Unknown error") }
-            .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                                titleVisibility: .visible) {
-                Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes Continue Watching and local watched status from this device.")
+            #if os(tvOS)
+            .tvChoices("Media Server", symbol: "exclamationmark.triangle",
+                       isPresented: Binding(get: { media.errorMessage != nil },
+                                            set: { if !$0 { media.errorMessage = nil } }),
+                       message: media.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+            .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                       message: "This removes Continue Watching and local watched status from this Apple TV.") {
+                [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
             }
+            #else
+            .lineupChoices("Media Server", symbol: "exclamationmark.triangle",
+                           isPresented: Binding(get: { media.errorMessage != nil },
+                                                set: { if !$0 { media.errorMessage = nil } }),
+                           message: media.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+            .lineupChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                           message: "This removes Continue Watching and local watched status from this device.") {
+                [MobileMenuItem("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
+            }
+            #endif
         }
+        #if !os(tvOS)
+        // A new stack is the front page: whatever pages were pushed go with
+        // the old one.
+        .id(frontPage)
+        .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
+            frontPage += 1
+        }
+        #endif
     }
 
     #if !os(tvOS)
-    private var mediaOptionsMenu: some View {
-        Menu {
-            Button("Search", systemImage: "magnifyingglass") { searchingLibrary = true }
-                .disabled(media.shelves.isEmpty)
-            Button("Add Shelf", systemImage: "plus.rectangle.on.rectangle") { choosingShelf = true }
-                .disabled(!media.hasAnySource)
-            Menu("Remove Shelf", systemImage: "minus.rectangle") {
-                ForEach(media.removableShelves) { shelf in
-                    Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
-                }
-            }
-            .disabled(media.removableShelves.isEmpty)
-            Button("Edit Shelves", systemImage: "arrow.up.arrow.down") { reorderingShelves = true }
-                .disabled(media.libraryRows.count < 2)
-            Divider()
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await media.reload() } }
-                .disabled(media.isLoading || !media.hasAnySource)
-            Button("Add Server", systemImage: "plus") { addingServer = true }
-            if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-                Button("Clear Local Tracking", systemImage: "clock.arrow.circlepath", role: .destructive) {
-                    clearingHistory = true
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
+    private func setOptions(_ open: Bool) {
+        guard optionsOpen != open else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            optionsOpen = open
         }
-        .accessibilityLabel("Library options")
+    }
+
+    /// What the Library's dropdown offers: its shelves -- the ones that can
+    /// go a list of their own inside it -- then its servers.
+    private var optionsSections: [MobileMenuSection] {
+        let removable = media.removableShelves.map { shelf in
+            MobileMenuItem(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
+                media.removeShelf(shelf)
+            }
+        }
+        var servers = [
+            MobileMenuItem("Refresh", symbol: "arrow.clockwise",
+                           isEnabled: !media.isLoading && media.hasAnySource) {
+                Task { await media.reload() }
+            },
+            MobileMenuItem("Add Server", symbol: "externaldrive.badge.plus") { addingServer = true }
+        ]
+        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+            servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
+                clearingHistory = true
+            })
+        }
+        return [
+            MobileMenuSection(id: "shelves", items: [
+                MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
+                    searchingLibrary = true
+                },
+                MobileMenuItem("Add Shelf", symbol: "plus.rectangle.on.rectangle", isEnabled: media.hasAnySource) {
+                    choosingShelf = true
+                },
+                MobileMenuItem("Remove Shelf", symbol: "minus.rectangle", isEnabled: !removable.isEmpty,
+                               children: [MobileMenuSection(id: "removable", items: removable)]),
+                MobileMenuItem("Edit Shelves", symbol: "arrow.up.arrow.down",
+                               isEnabled: media.libraryRows.count >= 2) {
+                    reorderingShelves = true
+                }
+            ]),
+            MobileMenuSection(id: "servers", items: servers)
+        ]
     }
     #endif
 }
@@ -239,11 +276,8 @@ struct LineupAccountCard<Actions: View>: View {
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: cardRadius, style: .continuous),
                            fallback: LineupStyle.surface, border: LineupStyle.line)
         #else
-        // The phone's account tab sits on the Guide's quiet ground: a flat
-        // grey card, squared off, with a hairline round it.
-        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-            .strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        // A card in the panels' grey: in a Settings row it is the row.
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
         #endif
     }
 
@@ -261,7 +295,7 @@ struct LineupAccountCard<Actions: View>: View {
     #else
     private var cardPadding: CGFloat { 16 }
     private var maxCardWidth: CGFloat { 720 }
-    private var cardRadius: CGFloat { 4 }
+    private var cardRadius: CGFloat { 18 }
     private var glyph: CGFloat { 42 }
     private var glyphSize: CGFloat { 20 }
     private var rule: CGFloat { 26 }
@@ -269,21 +303,27 @@ struct LineupAccountCard<Actions: View>: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            #if os(tvOS)
             Group {
                 if let brand {
                     MediaServerLogo(brand: brand).frame(width: glyph * 0.52, height: glyph * 0.52)
                 } else {
                     Image(systemName: symbol)
-                        .font(.system(size: glyphSize, weight: .semibold))
+                        .font(.system(size: glyphSize, weight: .semibold, design: .rounded))
                 }
             }
                 .frame(width: glyph, height: glyph)
-                #if os(tvOS)
                 .lineupLiquidGlass(Circle(), fallback: LineupStyle.raised,
                                    border: LineupStyle.line)
-                #else
-                .background(LineupStyle.focused, in: Circle())
-                #endif
+            #else
+            // The same coloured tile as the Settings rows around it; a
+            // server's own mark sits on a dark one, the way an app icon does.
+            if let brand {
+                MediaServerLogoTile(brand: brand, size: glyph)
+            } else {
+                LineupIconTile(symbol: symbol, size: glyph)
+            }
+            #endif
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(title).font(.inter(.headline, .bold)).lineLimit(1)
@@ -441,20 +481,22 @@ struct LineupCardAction: View {
     var body: some View {
         Button(action: action) {
             #if os(tvOS)
-            Label(title, systemImage: symbol)
+            LineupTileLabel(title: title, symbol: symbol, tileSize: 34)
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 66)
-                .lineupLiquidGlass(Capsule(), fallback: LineupStyle.raised, border: LineupStyle.line)
+                .background(LineupPanelStyle.well, in: Capsule())
                 .lineupFocusLayer(focused, in: Capsule())
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
-            // A flat grey capsule with a hairline, dimmed while unavailable.
-            Label(title, systemImage: symbol)
-                .font(.inter(.subheadline, .semibold))
+            // The reference app's way with a labelled control: the icon on
+            // its coloured tile, the words beside it, on a step lighter than
+            // the card. Dimmed while unavailable.
+            LineupTileLabel(title: title, symbol: symbol, tileSize: 24)
+                .font(.inter(.subheadline, .bold))
                 .foregroundStyle(LineupStyle.text)
-                .frame(maxWidth: .infinity, minHeight: 38)
-                .background(LineupStyle.focused, in: Capsule())
-                .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(LineupPanelStyle.well, in: Capsule())
+                .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.5)
             #endif
         }
@@ -553,7 +595,7 @@ private struct TVMediaServersHome: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if media.roots.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light))
+                    Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light, design: .rounded))
                     Text("No libraries found").font(.inter(.title2, .semibold))
                     Text(media.profiles.count > 1
                          ? "Refresh your servers, or confirm these accounts can access a library."
@@ -577,20 +619,17 @@ private struct TVMediaServersHome: View {
         // Back on the Library's own screen: no title's page is over it, so
         // the tab bar is up whatever the pages that closed did or did not say.
         .onAppear { tabBar?.reset() }
-        .confirmationDialog("Remove a Shelf", isPresented: $removingShelf, titleVisibility: .visible) {
-            ForEach(media.removableShelves) { shelf in
-                Button(media.shelfName(shelf), role: .destructive) { media.removeShelf(shelf) }
+        .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
+                   message: "Its titles stay on your server; only the shelf leaves the Library.") {
+            media.removableShelves.map { shelf in
+                TVChoice(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
+                    media.removeShelf(shelf)
+                }
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Its titles stay on your server; only the shelf leaves the Library.")
         }
-        .confirmationDialog("Clear local tracking?", isPresented: $clearingHistory,
-                            titleVisibility: .visible) {
-            Button("Clear Local Tracking", role: .destructive) { media.clearLocalPlayback() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This removes Continue Watching and local watched status from this Apple TV.")
+        .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                   message: "This removes Continue Watching and local watched status from this Apple TV.") {
+            [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
         }
         .background(
             ZStack {
@@ -643,7 +682,7 @@ private struct TVLibraryMenuBar: View {
                 .overlay(alignment: .topTrailing) {
                     if open {
                         panel
-                            .alignmentGuide(.top) { $0[.top] - 48 }
+                            .alignmentGuide(.top) { $0[.top] - 64 }
                             .transition(.opacity.combined(with: .offset(y: -8)))
                     }
                 }
@@ -659,17 +698,21 @@ private struct TVLibraryMenuBar: View {
         .animation(.easeOut(duration: 0.16), value: open)
     }
 
+    // A pill in the panels' own grey, as the phone's Sports menu opens
+    // from: its tile, its name and a chevron, a step lighter while open.
     private var button: some View {
-        MediaChromeLabel {
-            HStack(spacing: 10) {
-                Image(systemName: "slider.horizontal.3")
-                Text("Library")
-                Image(systemName: open ? "chevron.up" : "chevron.down")
-                    .font(.inter(13, .bold))
-            }
-            .font(.inter(16, .semibold))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: "slider.horizontal.3", size: 34)
+            Text("Library").font(.inter(19, .semibold))
+            Image(systemName: open ? "chevron.up" : "chevron.down")
+                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                .foregroundStyle(LineupPanelStyle.quiet)
         }
-        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 12))
+        .foregroundStyle(LineupStyle.text)
+        .padding(.leading, 9).padding(.trailing, 20)
+        .frame(height: 52)
+        .background(open ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
+        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 26))
         .focusable()
         .focused($focus, equals: .button)
         .focusEffectDisabled()
@@ -688,31 +731,42 @@ private struct TVLibraryMenuBar: View {
         .accessibilityLabel("Library options")
     }
 
+    // A panel like every other: its header and hairline inside it, then a
+    // row a choice, each with its coloured tile.
     private var panel: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                HStack(spacing: 14) {
-                    Image(systemName: option.symbol)
-                        .frame(width: 28)
-                    Text(option.title)
-                    Spacer(minLength: 0)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader("Library", systemImage: "rectangle.stack")
+                .padding(.horizontal, 22)
+                .frame(width: 400, height: 62, alignment: .leading)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, 22)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                    HStack(spacing: 16) {
+                        LineupIconTile(symbol: option.symbol, size: 38)
+                        Text(option.title)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.inter(19, .semibold))
+                    .foregroundStyle(option.destructive ? LineupIconTile.red : LineupStyle.text)
+                    .padding(.horizontal, 14)
+                    .frame(width: 384, height: 60)
+                    .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 16))
+                    .focusable()
+                    .focused($focus, equals: .row(index))
+                    .focusEffectDisabled()
+                    .onTapGesture { choose(option) }
+                    .onMoveCommand { direction in move(direction, from: index) }
                 }
-                .font(.inter(17, .semibold))
-                .foregroundStyle(option.destructive ? Color.red.opacity(0.92) : LineupStyle.lightPurple)
-                .padding(.horizontal, 16)
-                .frame(width: 340, height: 50)
-                .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 10))
-                .focusable()
-                .focused($focus, equals: .row(index))
-                .focusEffectDisabled()
-                .onTapGesture { choose(option) }
-                .onMoveCommand { direction in move(direction, from: index) }
             }
+            .padding(8)
         }
-        .padding(8)
-        .background(LineupStyle.surface.opacity(0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
-        .shadow(color: .black.opacity(0.55), radius: 24, y: 10)
+        .background(LineupPanelStyle.fill, in: shape)
+        // It floats over panels of its own colour: a hairline of light round
+        // its edge and a deep shadow under it.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.6), radius: 34, y: 18)
         .fixedSize()
         .onAppear { focus = .row(0) }
     }
@@ -816,8 +870,28 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 }
 #endif
 
+private enum LibraryHeroRotation {
+    static let interval: Duration = .seconds(3)
+
+    static func animation(reduceMotion: Bool) -> Animation {
+        .easeInOut(duration: reduceMotion ? 0.2 : 0.45)
+    }
+}
+
+/// Restart the dwell when the selection, its contents, or interaction changes.
+/// Item identities include the server, since two servers may use the same ID.
+private struct LibraryHeroRotationKey: Equatable {
+    let items: [String]
+    let index: Int
+    let enabled: Bool
+    var pixels: Int = 0
+}
+
 private struct MediaCatalogsScreen: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
     #if os(tvOS)
@@ -836,6 +910,7 @@ private struct MediaCatalogsScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
+    @State private var isVisible = false
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
     @Environment(\.playMedia) private var playMedia
@@ -898,9 +973,9 @@ private struct MediaCatalogsScreen: View {
                     if searching && results.isEmpty {
                         ProgressView("Searching your library…").frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let searchError {
-                        ContentUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
+                        LineupUnavailableView("Search Unavailable", systemImage: "exclamationmark.triangle", description: Text(searchError))
                     } else if results.isEmpty {
-                        ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                        LineupUnavailableView("No Results", systemImage: "magnifyingglass",
                             description: Text("Nothing in your connected libraries matched that."))
                     } else {
                         // One section per server once there is more than
@@ -924,7 +999,7 @@ private struct MediaCatalogsScreen: View {
                                 .zIndex(1)
                         }
                         #endif
-                        ContentUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                             description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
                     }
                 } else {
@@ -934,8 +1009,9 @@ private struct MediaCatalogsScreen: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                             if let heroCatalog = media.heroCatalog {
+                                // The first panel starts a gap below the
+                                // hero, as each starts a gap below the last.
                                 MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
-                                    .padding(.bottom, -catalogSpacing)
                             }
                             libraryShelves
                         }
@@ -948,8 +1024,14 @@ private struct MediaCatalogsScreen: View {
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        // An episode that ended with nothing after it comes back here.
+        .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
+            pushed = nil
+        }
         .sheet(isPresented: $searchPresented) { searchSheet }
         #if os(tvOS)
         .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
@@ -977,7 +1059,11 @@ private struct MediaCatalogsScreen: View {
             searching = false
         }
         #if os(tvOS)
-        .task { await rotateLibraryPreview() }
+        .task(id: LibraryHeroRotationKey(items: heroItems.map(\.libraryKey), index: heroIndex,
+                                        enabled: canRotateLibraryPreview)) {
+            guard canRotateLibraryPreview else { return }
+            await rotateLibraryPreview()
+        }
         .onAppear {
             tvPreview.setInitial(defaultPreviewItem)
         }
@@ -1025,8 +1111,8 @@ private struct MediaCatalogsScreen: View {
     private var libraryShelves: some View {
         ForEach(phoneRows) { row in
             switch row {
-            case .local(_, let title, let items, let opensPages):
-                localShelf(title: title, items: items, opensPages: opensPages)
+            case .local(let id, let title, let items, let opensPages):
+                localShelf(id: id, title: title, items: items, opensPages: opensPages)
             case .catalog(let catalog):
                 catalogShelf(catalog)
             }
@@ -1036,9 +1122,10 @@ private struct MediaCatalogsScreen: View {
     /// A shelf: a server's, MDBList's, the provider's, or the Streaming
     /// Services row.
     private func catalogShelf(_ catalog: MediaCatalog) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: shelfStackSpacing) {
+            #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
-                Text(media.shelfTitle(catalog)).font(sectionTitleFont)
+                TVShelfTitle(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id))
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1062,22 +1149,41 @@ private struct MediaCatalogsScreen: View {
                 }
                 // Holding Select on a shelf's See All offers to take the
                 // shelf away, without going up to the options for it.
-                .contextMenu {
-                    Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+                .tvHoldMenu(media.shelfTitle(catalog), symbol: "rectangle.stack") {
+                    [TVChoice("Remove Shelf", symbol: "minus.rectangle", isDestructive: true) {
                         media.removeShelf(catalog)
-                    }
-                    .lineupFlatButton()
+                    }]
                 }
-                #else
-                NavigationLink(value: catalog.root) {
-                    MediaChromeLabel {
-                        Label("See All", systemImage: "chevron.right")
-                            .font(.inter(14, .semibold))
-                    }
-                }.lineupFlatButton()
                 #endif
             }
             .padding(.horizontal, horizontalPadding)
+            #else
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id)) {
+                // Which server a shelf comes from, once there is more than
+                // one: two of them can each have a "Trending Movies".
+                if let server = media.serverName(for: catalog) {
+                    HStack(spacing: 5) {
+                        if let brand = media.serverBrand(for: catalog) {
+                            MediaServerLogo(brand: brand).frame(width: 11, height: 11)
+                        }
+                        Text(server.uppercased())
+                            .font(.inter(10, .bold)).tracking(1.2)
+                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .lineLimit(1)
+                    }
+                    .layoutPriority(-1)
+                }
+                NavigationLink(value: catalog.root) {
+                    HStack(spacing: 3) {
+                        Text("See All")
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .heavy, design: .rounded))
+                    }
+                    .font(.inter(14, .bold))
+                    .foregroundStyle(LineupStyle.highlight)
+                    .fixedSize()
+                }.lineupFlatButton()
+            }
+            #endif
             // See All is deliberately not a focus section. From the body
             // of a shelf, vertical movement therefore lands in the nearest
             // poster row; the utility remains reachable near its edge.
@@ -1121,6 +1227,7 @@ private struct MediaCatalogsScreen: View {
                 .lineupFocusRegion()
             }
         }
+        .modifier(PhoneShelfPanel())
     }
 
     /// The cards just past one that has come into view.
@@ -1160,28 +1267,37 @@ private struct MediaCatalogsScreen: View {
     }
 
     private func rotateLibraryPreview() async {
+        let candidates = heroItems
+        guard candidates.count > 1 else { return }
+        let current = min(heroIndex, candidates.count - 1)
+        let nextIndex = (current + 1) % candidates.count
+        let next = candidates[nextIndex]
+        // Begin both upcoming downloads during this title's three-second dwell.
+        for offset in [nextIndex, (nextIndex + 1) % candidates.count] {
+            if let art = backdropArt(for: candidates[offset]) {
+                LineupArt.prefetch(art.url, pixels: art.pixels)
+            }
+        }
         while !Task.isCancelled {
-            let candidates = heroItems
-            guard !candidates.isEmpty else {
-                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            do { try await Task.sleep(for: LibraryHeroRotation.interval) } catch { return }
+            guard !Task.isCancelled, canRotateLibraryPreview else { return }
+            // Keep the current picture while a slow download finishes.
+            guard backdropIsReady(for: next) else {
+                if let art = backdropArt(for: next) {
+                    LineupArt.prefetch(art.url, pixels: art.pixels)
+                }
                 continue
             }
-            let nextIndex = (heroIndex + 1) % candidates.count
-            let next = candidates[nextIndex]
-            // Spend the eight-second dwell preloading the next frame. On a
-            // normal connection the transition therefore begins with decoded
-            // artwork already in memory, without making the interval longer.
-            Task { await preloadBackdrop(for: next) }
-            do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            // Held still while the remote is on a card, which owns the
-            // preview, or on the hero's Play, which is about to be pressed.
-            guard !tvPreview.isNavigating, tvFocus != .hero, !Task.isCancelled else { continue }
-            // A weak connection may miss this particular turn, but the hero
-            // never rotates to a blank frame. The already-running shared load
-            // keeps going and the next eight-second tick can use it.
-            guard backdropIsReady(for: next) else { continue }
             showHero(at: nextIndex)
+            return
         }
+    }
+
+    private var canRotateLibraryPreview: Bool {
+        isVisible && scenePhase == .active && !voiceOver && !menuOpen
+            && !searchPresented && submittedQuery.isEmpty
+            && pushed == nil && heroPlayableItem == nil
+            && (tvFocus == nil || tvFocus == .hero)
     }
 
     // MARK: - The television's browser
@@ -1347,7 +1463,7 @@ private struct MediaCatalogsScreen: View {
         let art = width / shape.ratio
         let caption: CGFloat = 10 + 56
         let heading: CGFloat = 34 + 14
-        return heading + 16 + art + caption + 18
+        return Self.tvShelfTop + heading + 16 + art + caption + 18
     }
 
     /// The hero's own control: Play, and left or right for the title before
@@ -1358,7 +1474,7 @@ private struct MediaCatalogsScreen: View {
         let count = heroItems.count
         return HStack(spacing: 22) {
             HStack(spacing: 12) {
-                Image(systemName: "play.fill")
+                LineupIconTile(symbol: "play.fill", size: 32)
                 Text(item?.isSeries == true ? "Play Show" : "Play Movie")
             }
             .font(.inter(20, .semibold))
@@ -1374,11 +1490,9 @@ private struct MediaCatalogsScreen: View {
             .focusEffectDisabled()
             .onTapGesture { playHero() }
             .onMoveCommand { moveTV($0, from: .hero) }
-            .contextMenu {
-                if let item, item.opensPage {
-                    Button("Details", systemImage: "info.circle") { pushed = item }
-                        .lineupFlatButton()
-                }
+            .tvHoldMenu(item?.name ?? "", symbol: "info.circle") {
+                guard let item, item.opensPage else { return [] }
+                return [TVChoice("Details", symbol: "info.circle") { pushed = item }]
             }
             .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
             if count > 1 {
@@ -1388,7 +1502,7 @@ private struct MediaCatalogsScreen: View {
                         .font(.interDigits(16, .semibold))
                     Image(systemName: "chevron.right")
                 }
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.text.opacity(focused ? 0.8 : 0.45))
                 .accessibilityHidden(true)
             }
@@ -1401,7 +1515,7 @@ private struct MediaCatalogsScreen: View {
         let shape = MediaArtShape.forItems(shelf.items)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text(shelf.title).font(sectionTitleFont)
+                TVShelfTitle(title: shelf.title, symbol: Self.shelfSymbol(shelf.id))
                 if let label = shelf.label {
                     HStack(spacing: 7) {
                         if let brand = shelf.catalog.flatMap(media.serverBrand(for:)) {
@@ -1421,13 +1535,16 @@ private struct MediaCatalogsScreen: View {
                     Text("\(index + 1) of \(count)").font(.interDigits(15, .semibold))
                     Image(systemName: "chevron.down").opacity(index < count - 1 ? 1 : 0.3)
                 }
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
                 .accessibilityHidden(true)
             }
             .id(shelf.id)
             .transition(.opacity.combined(with: .offset(y: shelfStepDown ? 18 : -18)))
             .padding(.horizontal, horizontalPadding)
+            // On the artwork itself, with no panel behind it: a soft shadow
+            // keeps the heading read over a bright picture.
+            .shadow(color: .black.opacity(0.55), radius: 10, y: 2)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: itemSpacing) {
@@ -1458,8 +1575,15 @@ private struct MediaCatalogsScreen: View {
                 }
             }
         }
+        .padding(.top, Self.tvShelfTop)
         .padding(.bottom, 18)
+        // No panel: the shelf sits straight on the full-screen artwork, its
+        // heading and cards over the picture, which the backdrop's shade
+        // darkens toward the foot.
     }
+
+    /// Between the hero's Play and the shelf's heading.
+    private static let tvShelfTop: CGFloat = 10
 
     private func tvCard(_ item: MediaItem, slot: Int, shelf: TVLibraryShelf, shape: MediaArtShape) -> some View {
         let focused = tvFocus == .card(slot)
@@ -1479,7 +1603,7 @@ private struct MediaCatalogsScreen: View {
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
-            .contextMenu { MediaCardActions(item: item) }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
     }
 
     /// The end of a catalog's row: the whole catalog, and holding Select to
@@ -1493,7 +1617,7 @@ private struct MediaCatalogsScreen: View {
                 .aspectRatio(shape.ratio, contentMode: .fit)
                 .overlay {
                     VStack(spacing: 10) {
-                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold))
+                        Image(systemName: "square.grid.2x2").font(.system(size: 34, weight: .semibold, design: .rounded))
                         Text("See All").font(.inter(20, .semibold))
                     }
                     .foregroundStyle(LineupStyle.lightPurple)
@@ -1512,11 +1636,10 @@ private struct MediaCatalogsScreen: View {
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
         .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
-        .contextMenu {
-            Button("Remove Shelf", systemImage: "minus.rectangle", role: .destructive) {
+        .tvHoldMenu(media.shelfTitle(catalog), symbol: "rectangle.stack") {
+            [TVChoice("Remove Shelf", symbol: "minus.rectangle", isDestructive: true) {
                 media.removeShelf(catalog)
-            }
-            .lineupFlatButton()
+            }]
         }
         .accessibilityLabel("See all of \(catalog.title)")
     }
@@ -1584,7 +1707,7 @@ private struct MediaCatalogsScreen: View {
         let items = heroItems
         guard items.indices.contains(index) else { return }
         heroIndex = index
-        withAnimation(.easeInOut(duration: 0.45)) {
+        withAnimation(LibraryHeroRotation.animation(reduceMotion: reduceMotion)) {
             tvPreview.rotate(to: items[index]) { item in try? await media.details(of: item) }
         }
     }
@@ -1647,14 +1770,9 @@ private struct MediaCatalogsScreen: View {
         if let playMedia { playMedia(item) } else { heroPlayableItem = item }
     }
 
-    private func preloadBackdrop(for item: MediaItem) async {
-        guard let art = backdropArt(for: item) else { return }
-        _ = await LineupArt.load(art.url, pixels: art.pixels)
-    }
-
     private func backdropIsReady(for item: MediaItem) -> Bool {
         guard let art = backdropArt(for: item) else { return true }
-        return LineupArt.ready(art.url, pixels: art.pixels) != nil
+        return LineupArt.isResolved(art.url, pixels: art.pixels)
     }
 
     private func backdropArt(for item: MediaItem) -> (url: URL, pixels: Int)? {
@@ -1680,14 +1798,18 @@ private struct MediaCatalogsScreen: View {
     /// Continue Watching opens pages rather than streams: a film's own, and an
     /// episode's show's, at that episode's season. If the app has the viewer
     /// on the wrong episode, the right one is a choice away on that page.
-    private func localShelf(title: String, items: [MediaItem], opensPages: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func localShelf(id: String, title: String, items: [MediaItem], opensPages: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: shelfStackSpacing) {
+            #if os(tvOS)
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(sectionTitleFont)
+                TVShelfTitle(title: title, symbol: Self.shelfSymbol(id))
                 Spacer()
             }
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
+            #else
+            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id)) { EmptyView() }
+            #endif
             let shape = MediaArtShape.forItems(items)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
@@ -1699,13 +1821,13 @@ private struct MediaCatalogsScreen: View {
                                              onFocusChange: { focused in preview(trackedItem, when: focused) }) {
                                     MediaItemCard(item: trackedItem, shape: shape)
                                 }
-                                .contextMenu { continueWatchingAction(for: trackedItem) }
+                                .tvHoldMenu(trackedItem.name, symbol: "play.circle") { media.tvCardChoices(for: trackedItem) }
                                 #else
-                                NavigationLink(value: page) {
-                                    MediaItemCard(item: trackedItem, shape: shape)
-                                }
-                                .lineupFlatButton()
-                                .contextMenu { continueWatchingAction(for: trackedItem) }
+                                MediaItemCard(item: trackedItem, shape: shape)
+                                    .lineupHoldMenu(trackedItem.name, symbol: "play.circle",
+                                                    items: { media.cardMenuItems(for: trackedItem) }) {
+                                        pushed = page
+                                    }
                                 #endif
                             } else {
                                 #if os(tvOS)
@@ -1724,6 +1846,7 @@ private struct MediaCatalogsScreen: View {
             .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
             .lineupFocusRegion()
         }
+        .modifier(PhoneShelfPanel())
     }
 
     /// The page a local row's card opens, or nil for a card that goes
@@ -1733,10 +1856,6 @@ private struct MediaCatalogsScreen: View {
         guard opensPages else { return item.opensPage ? item : nil }
         if item.type == "Episode" { return media.series(of: item) }
         return item.opensPage || item.isPlayable ? item : nil
-    }
-
-    private func continueWatchingAction(for item: MediaItem) -> some View {
-        MediaCardActions(item: item)
     }
 
     /// The field lives here rather than on the shelf screen. tvOS draws its own
@@ -1810,6 +1929,7 @@ private struct MediaCatalogsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { searchPresented = false }
+                        .buttonStyle(LineupBarButtonStyle())
                 }
             }
             .onAppear { searchFocused = true }
@@ -1830,15 +1950,37 @@ private struct MediaCatalogsScreen: View {
         #if os(tvOS)
         54
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
     private var catalogSpacing: CGFloat {
         #if os(tvOS)
         32
         #else
-        26
+        LineupPanelStyle.gap
         #endif
+    }
+    /// Header to cards. The phone's header carries its own padding and
+    /// hairline, so the gap under it is the cards' own.
+    private var shelfStackSpacing: CGFloat {
+        #if os(tvOS)
+        14
+        #else
+        8
+        #endif
+    }
+
+    /// Each shelf's icon in its panel header, by what the shelf is rather
+    /// than what it is called, since any shelf can be renamed.
+    static func shelfSymbol(_ id: String) -> String {
+        switch id {
+        case LibraryShelfOrder.continueWatching: "play.circle"
+        case LibraryShelfOrder.favorites: "heart"
+        case LibraryShelfOrder.favoriteEpisodes: "heart.text.square"
+        case LibraryTrendingRow.movies.id, LibraryTrendingRow.shows.id: "flame"
+        case StreamingService.rowID: "tv"
+        default: id.hasPrefix("mdblist:") ? "list.star" : "rectangle.stack"
+        }
     }
     private var itemSpacing: CGFloat {
         #if os(tvOS)
@@ -2009,7 +2151,7 @@ private struct MediaGridScreen: View {
         #if os(tvOS)
         70
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
 }
@@ -2046,7 +2188,7 @@ private struct TrendingRowScreen: View {
     var body: some View {
         let items = media.trendingShelves.first { $0.id == id }?.items ?? []
         if items.isEmpty {
-            ContentUnavailableView("Nothing to Play Yet", systemImage: "chart.line.uptrend.xyaxis",
+            LineupUnavailableView("Nothing to Play Yet", systemImage: "chart.line.uptrend.xyaxis",
                 description: Text("None of what is trending right now is on your servers or your IPTV provider."))
                 .mediaFocusAnchor()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2070,10 +2212,10 @@ private struct MediaFolderScreen: View {
             if loading {
                 ProgressView("Loading \(folder.name)…").mediaFocusAnchor()
             } else if let error {
-                ContentUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
+                LineupUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
                     description: Text(error)).mediaFocusAnchor()
             } else if items.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack",
+                LineupUnavailableView("Nothing Here", systemImage: "film.stack",
                     description: Text("This library did not return any playable items.")).mediaFocusAnchor()
             } else {
                 MediaGridScreen(title: folder.name, items: items)
@@ -2182,8 +2324,7 @@ private struct MediaShelfPicker: View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("ADD A SHELF").font(.inter(12, .heavy)).tracking(1.6)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                Text("ADD A SHELF").modifier(LineupGroupHeading())
                 Text("Pick a row for the Library tab")
                     .font(.inter(22, .semibold)).lineLimit(1)
             }
@@ -2204,6 +2345,7 @@ private struct MediaShelfPicker: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done", action: dismiss.callAsFunction)
+                            .buttonStyle(LineupBarButtonStyle(prominent: true))
                     }
                 }
         }
@@ -2214,7 +2356,7 @@ private struct MediaShelfPicker: View {
     @ViewBuilder
     private var list: some View {
         if !hasAnything {
-            ContentUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
+            LineupUnavailableView("Every Shelf Is Showing", systemImage: "rectangle.stack.badge.plus",
                 description: Text(emptyDetail))
                 .mediaFocusAnchor()
         } else {
@@ -2223,8 +2365,7 @@ private struct MediaShelfPicker: View {
                     // The Library's own row, back once it was taken away.
                     if !media.hiddenBuiltInRows.isEmpty {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("BUILT IN").font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text("BUILT IN").modifier(LineupGroupHeading())
                             Text("Rows Lineup puts together for you").font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
                         }
@@ -2249,8 +2390,7 @@ private struct MediaShelfPicker: View {
                                 if let brand = group.brand {
                                     MediaServerLogo(brand: brand).frame(width: 14, height: 14)
                                 }
-                                Text(group.title).font(.inter(12, .heavy)).tracking(1.6)
-                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                                Text(group.title).modifier(LineupGroupHeading())
                             }
                             Text(group.detail).font(.inter(13))
                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
@@ -2274,8 +2414,7 @@ private struct MediaShelfPicker: View {
                     }
                     ForEach(mdbListGroups) { group in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(group.section.title).font(.inter(12, .heavy)).tracking(1.6)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                            Text(group.section.title).modifier(LineupGroupHeading())
                             Text(group.section.detail + " — playable titles found on "
                                  + (media.profiles.count > 1 ? "your media servers" : "this media server"))
                                 .font(.inter(13))
@@ -2310,8 +2449,7 @@ private struct MediaShelfPicker: View {
                                     MediaServerLogo(brand: brand).frame(width: 14, height: 14)
                                 }
                                 Text(addonHeading(group))
-                                    .font(.inter(12, .heavy)).tracking(1.6)
-                                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                                    .modifier(LineupGroupHeading())
                             }
                             // The server re-imports every enabled catalog when
                             // asked, so this is minutes, not seconds. Saying so
@@ -2452,8 +2590,12 @@ private struct MediaShelfRow: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .padding(.horizontal, 20).padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
         .background(LineupStyle.surface.opacity(0.5),
             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        #else
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        #endif
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Add " + title)
     }
@@ -2510,6 +2652,10 @@ private struct MediaDetailScreen: View {
     #endif
     @State private var choosingSeason = false
     #if !os(tvOS)
+    /// The seasons, dropped from the Seasons button under the episodes'
+    /// header.
+    @State private var seasonMenuOpen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
     /// page through the hero's own view, which finds them itself.
     @State private var pageRatings: MediaRatings?
@@ -2533,6 +2679,16 @@ private struct MediaDetailScreen: View {
         }
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
+        #if !os(tvOS)
+        .overlayPreferenceValue(MediaSeasonMenuAnchor.self) { anchor in
+            GeometryReader { proxy in
+                if seasonMenuOpen, let anchor {
+                    seasonDropdown(from: proxy[anchor], in: proxy.size)
+                }
+            }
+            .allowsHitTesting(seasonMenuOpen)
+        }
+        #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
         #if !os(tvOS)
@@ -2611,8 +2767,8 @@ private struct MediaDetailScreen: View {
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
                          action: { startingOver = false; chosen = playTarget },
                          requestInitialFocus: true) {
-                HStack(spacing: 10) {
-                    Image(systemName: "play.fill")
+                HStack(spacing: 12) {
+                    LineupIconTile(symbol: "play.fill", size: 32)
                     Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
                     if let code = playTarget?.episodeCode {
                         Text(code).opacity(0.62)
@@ -2656,9 +2812,9 @@ private struct MediaDetailScreen: View {
     }
 
     private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol)
+        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
             .font(.inter(17, .semibold))
-            .padding(.horizontal, 20).frame(height: 52)
+            .padding(.leading, 10).padding(.trailing, 20).frame(height: 52)
             .modifier(TVMediaActionSurface())
     }
     #endif
@@ -2714,7 +2870,7 @@ private struct MediaDetailScreen: View {
             .overlay(alignment: .topLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
                         .frame(width: 56, height: 56)
                         .background(LineupStyle.background.opacity(0.72), in: Circle())
                 }
@@ -2765,12 +2921,12 @@ private struct MediaDetailScreen: View {
             // Keep the Library useful even when a server cannot write user
             // state, while still mirroring the choice back when it can.
             Group {
-                iconButton(favorite ? "heart.fill" : "heart") {
+                iconButton("heart", on: favorite) {
                     favorite.toggle()
                     media.setLocalFavorite(favorite, for: subject)
                     Task { await media.setFavorite(favorite, for: subject) }
                 }
-                iconButton(watched ? "eye.fill" : "eye") {
+                iconButton("eye", on: watched) {
                     watched.toggle()
                     media.setLocallyPlayed(watched, for: subject)
                     Task { await media.setPlayed(watched, for: subject) }
@@ -2778,7 +2934,7 @@ private struct MediaDetailScreen: View {
             }
             // Nothing to shuffle through on a film.
             if subject.isSeries {
-                iconButton("shuffle") { chosen = episodes.randomElement() ?? playTarget }
+                iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
                     .disabled(episodes.isEmpty)
             }
         }
@@ -2798,8 +2954,8 @@ private struct MediaDetailScreen: View {
     /// main one. Width is the emphasis now; brightness was too much of it.
     @ViewBuilder
     private var playLabel: some View {
-        let text = HStack(spacing: 8) {
-            Image(systemName: "play.fill")
+        let text = HStack(spacing: 10) {
+            LineupIconTile(symbol: "play.fill", size: 26)
             Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
                 .font(.inter(17, .semibold))
             if let code = playTarget?.episodeCode {
@@ -2817,9 +2973,13 @@ private struct MediaDetailScreen: View {
     }
 
     @ViewBuilder
-    private func iconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        let label = Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
-            .frame(width: buttonHeight + 8, height: buttonHeight)
+    private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        // The reference app's tile, in its own colour while on and grey
+        // while off, standing in for the button it is.
+        let label = LineupIconTile(symbol: symbol, size: buttonHeight,
+                                   tint: on ? nil : LineupIconTile.gray)
+            .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
             .modifier(MediaChromeFocus())
         #if os(tvOS)
         TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
@@ -2855,7 +3015,29 @@ private struct MediaDetailScreen: View {
 
     private var episodeList: some View {
         VStack(alignment: .leading, spacing: 14) {
+            #if os(tvOS)
             seasonHeading.padding(.horizontal, horizontalPadding).lineupFocusRegion()
+            #else
+            PhoneShelfHeader(title: selectedSeason?.name ?? "Episodes", symbol: "list.number") {
+                if seasons.count > 1 {
+                    Button { setSeasonMenu(!seasonMenuOpen) } label: {
+                        HStack(spacing: 3) {
+                            Text("Seasons")
+                            Image(systemName: "chevron.down").font(.system(size: 12, weight: .heavy, design: .rounded))
+                                .rotationEffect(.degrees(seasonMenuOpen ? -180 : 0))
+                        }
+                        .font(.inter(14, .bold))
+                        .foregroundStyle(LineupStyle.highlight)
+                        .fixedSize()
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .anchorPreference(key: MediaSeasonMenuAnchor.self, value: .bounds) { $0 }
+                    .accessibilityLabel("Seasons")
+                    .accessibilityHint(seasonMenuOpen ? "Closes the list of seasons" : "Shows the list of seasons")
+                }
+            }
+            #endif
             if loading {
                 // Play and shuffle are both disabled until an episode is known,
                 // so until then this page has nothing focusable on it at all.
@@ -2880,7 +3062,7 @@ private struct MediaDetailScreen: View {
                                 MediaEpisodeCard(episode: episode)
                             }
                             .frame(width: 420, alignment: .topLeading)
-                            .contextMenu { episodeLibraryActions(episode) }
+                            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
                         }
                     }
                     .padding(.vertical, 8)
@@ -2891,10 +3073,12 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(episodes) { episode in
-                            Button { chosen = episode } label: { MediaEpisodeCard(episode: episode) }
-                                .lineupFlatButton()
+                            MediaEpisodeCard(episode: episode)
+                                .lineupHoldMenu(episode.name, symbol: "tv",
+                                                items: { media.episodeMenuItems(for: episode) }) {
+                                    chosen = episode
+                                }
                                 .frame(width: 265)
-                                .contextMenu { episodeLibraryActions(episode) }
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
@@ -2902,6 +3086,7 @@ private struct MediaDetailScreen: View {
                 #endif
             }
         }
+        .modifier(PhoneShelfPanel(bottom: 18))
     }
 
     // MARK: - More about this title
@@ -2915,8 +3100,7 @@ private struct MediaDetailScreen: View {
         }
         if !trailers.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Trailers").font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle("Trailers", symbol: "play.rectangle")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
                         ForEach(trailers.indices, id: \.self) { index in
@@ -2935,6 +3119,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
+            .modifier(PhoneShelfPanel(bottom: 18))
         }
     }
 
@@ -2947,7 +3132,7 @@ private struct MediaDetailScreen: View {
                     else { Color.clear }
                 }
                 Image(systemName: "play.fill")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .padding(15)
                     .background(.black.opacity(0.58), in: Circle())
@@ -2960,27 +3145,11 @@ private struct MediaDetailScreen: View {
     }
 
     @ViewBuilder
-    private func episodeLibraryActions(_ episode: MediaItem) -> some View {
-        let watched = media.isWatched(episode)
-        Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-            Task { await media.setEpisodePlayedAndAdvance(!watched, for: episode) }
-        }
-        .lineupFlatButton()
-        let favorite = media.isLocalFavorite(episode)
-        Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
-            media.setLocalFavorite(!favorite, for: episode)
-            Task { await media.setFavorite(!favorite, for: episode) }
-        }
-        .lineupFlatButton()
-    }
-
-    @ViewBuilder
     private var castSection: some View {
         let cast = (subject.people ?? []).filter { $0.type?.lowercased() == "actor" }
         if !cast.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Cast").font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle("Cast", symbol: "person.2")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(cast) { person in
@@ -2992,7 +3161,7 @@ private struct MediaDetailScreen: View {
                                             image.resizable().scaledToFill()
                                         } else {
                                             Image(systemName: "person.fill")
-                                                .font(.largeTitle)
+                                                .font(.inter(.largeTitle))
                                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.35))
                                         }
                                     }
@@ -3011,6 +3180,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
+            .modifier(PhoneShelfPanel(bottom: 18))
         }
     }
 
@@ -3021,9 +3191,8 @@ private struct MediaDetailScreen: View {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
-                Text(subject.isSeries ? "Related Shows" : "Related Movies")
-                    .font(sectionTitleFont)
-                    .padding(.horizontal, horizontalPadding)
+                detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
+                                   symbol: "square.stack")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
                         ForEach(related, id: \.libraryKey) { title in
@@ -3052,7 +3221,20 @@ private struct MediaDetailScreen: View {
                 // focus region lets an Up press return to the rows above.
                 .lineupFocusRegion()
             }
+            .modifier(PhoneShelfPanel())
         }
+    }
+
+    /// A section's title: the television's large heading, the phone's
+    /// panel header with its hairline.
+    @ViewBuilder
+    private func detailSectionTitle(_ title: String, symbol: String) -> some View {
+        #if os(tvOS)
+        TVShelfTitle(title: title, symbol: symbol)
+            .padding(.horizontal, horizontalPadding)
+        #else
+        PhoneShelfHeader(title: title, symbol: symbol) { EmptyView() }
+        #endif
     }
 
     private var relatedCardWidth: CGFloat {
@@ -3082,32 +3264,21 @@ private struct MediaDetailScreen: View {
             TVSelectable(scale: LineupStyle.controlLift, action: { choosingSeason = true }) {
                 HStack(spacing: 7) {
                     Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold, design: .rounded))
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .modifier(MediaChromeSurface())
             }
-            .confirmationDialog("Season", isPresented: $choosingSeason, titleVisibility: .visible) {
-                ForEach(seasons) { season in
-                    Button(season.name) { Task { await loadSeason(season) } }
+            .tvChoices("Season", symbol: "list.number", isPresented: $choosingSeason) {
+                seasons.map { season in
+                    TVChoice(season.name, id: "\(season.id)", isSelected: season.id == selectedSeason?.id) {
+                        Task { await loadSeason(season) }
+                    }
                 }
-                Button("Cancel", role: .cancel) { }
             }
             #else
-            Menu {
-                ForEach(seasons) { season in
-                    Button(season.name) { Task { await loadSeason(season) } }
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
-                }
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .modifier(MediaChromeSurface(focused: seasonFocused))
-            }
-            .focused($seasonFocused)
-            .focusEffectDisabled()
+            // The phone's episodes header has its own Seasons dropdown.
+            Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
             #endif
         } else {
             Text(selectedSeason?.name ?? "Episodes").font(sectionTitleFont)
@@ -3172,6 +3343,46 @@ private struct MediaDetailScreen: View {
             pageReady = true
         }
     }
+
+    #if !os(tvOS)
+    private func setSeasonMenu(_ open: Bool) {
+        guard seasonMenuOpen != open else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            seasonMenuOpen = open
+        }
+    }
+
+    /// The seasons, hung from the button that opens them: under it where
+    /// there is room, above it where it sits near the foot of the screen.
+    private func seasonDropdown(from button: CGRect, in size: CGSize) -> some View {
+        let width = min(260, size.width - 32)
+        let x = min(max(16, button.maxX - width), size.width - width - 16)
+        let below = size.height - button.maxY - 24
+        let above = button.minY - 24
+        let opensUp = below < 200 && above > below
+        let sections = [MobileMenuSection(id: "seasons", items: seasons.map { season in
+            MobileMenuItem(season.name, id: "\(season.id)", isSelected: season.id == selectedSeason?.id) {
+                Task { await loadSeason(season) }
+            }
+        })]
+        return ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.45)
+                .contentShape(Rectangle())
+                .onTapGesture { setSeasonMenu(false) }
+                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                if opensUp { Spacer(minLength: 0) } else { Color.clear.frame(height: button.maxY + 6) }
+                MobileDropdownPanel(title: "Seasons", symbol: "list.number", sections: sections,
+                                    maxHeight: opensUp ? above : below) { setSeasonMenu(false) }
+                    .frame(width: width)
+                if opensUp { Color.clear.frame(height: size.height - button.minY + 6) } else { Spacer(minLength: 0) }
+            }
+            .padding(.leading, x)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+        }
+        .transition(.opacity)
+    }
+    #endif
 
     private func loadSeason(_ season: MediaItem) async {
         selectedSeason = season
@@ -3240,7 +3451,7 @@ private struct MediaDetailScreen: View {
         #if os(tvOS)
         70
         #else
-        16
+        LineupPanelStyle.inset
         #endif
     }
     private var buttonHeight: CGFloat {
@@ -3319,7 +3530,7 @@ private struct MediaEpisodeCard: View {
                             startPoint: .topLeading, endPoint: .bottomTrailing)
                         LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
                             if let image = loaded { image.resizable().scaledToFill() }
-                            else { Image(systemName: "film.fill").font(.largeTitle) }
+                            else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
                         }
                     }
                     .overlay(alignment: .bottom) {
@@ -3334,7 +3545,7 @@ private struct MediaEpisodeCard: View {
                 .lineupFocusLayer(episodeArtworkIsFocused, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     if playback?.watched == true {
-                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 26, height: 26)
                             .background(LineupStyle.lightPurple, in: Circle())
@@ -3396,14 +3607,14 @@ private struct MediaPlayableCard: View {
         TVSelectable(drawsFocusChrome: false, action: choose, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
-            .contextMenu { libraryActions }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
             .fullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #else
-        Button(action: choose) { MediaItemCard(item: item, shape: shape) }
-            .lineupFlatButton()
-            .contextMenu { libraryActions }
+        MediaItemCard(item: item, shape: shape)
+            .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
+                            items: { media.cardMenuItems(for: item) }, action: choose)
             .sheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -3414,39 +3625,77 @@ private struct MediaPlayableCard: View {
     private func choose() {
         if let playMedia { playMedia(item) } else { choosingSource = true }
     }
-
-    private var libraryActions: some View { MediaCardActions(item: item) }
 }
 
-/// What a long press on a Library card offers: leaving Continue Watching,
-/// and for an episode, watched and favorite. One list, whether the card opens
-/// a page or the streams.
-private struct MediaCardActions: View {
-    @EnvironmentObject private var media: MediaLibrary
-    let item: MediaItem
+#if !os(tvOS)
+extension MediaLibrary {
+    /// What a touch held on a Library card offers: leaving Continue
+    /// Watching, and for an episode, watched and favorite.
+    func cardMenuItems(for item: MediaItem) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if isInContinueWatching(item) {
+            items.append(MobileMenuItem("Remove from Continue Watching", symbol: "rectangle.stack.badge.minus",
+                                        isDestructive: true) {
+                self.removeFromContinueWatching(item)
+            })
+        }
+        if item.type == "Episode" { items += episodeMenuItems(for: item) }
+        return items
+    }
 
-    var body: some View {
-        if media.isInContinueWatching(item) {
-            Button("Remove from Continue Watching", systemImage: "rectangle.stack.badge.minus", role: .destructive) {
-                media.removeFromContinueWatching(item)
+    /// An episode's own: watched, and the Favorites library.
+    func episodeMenuItems(for episode: MediaItem) -> [MobileMenuItem] {
+        let watched = isWatched(episode)
+        let favorite = isLocalFavorite(episode)
+        return [
+            MobileMenuItem(watched ? "Remove from Watched" : "Mark Watched",
+                           symbol: watched ? "eye.slash" : "eye") {
+                Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
+            },
+            MobileMenuItem(favorite ? "Remove from Favorites" : "Add to Favorites",
+                           symbol: favorite ? "heart.slash" : "heart") {
+                self.setLocalFavorite(!favorite, for: episode)
+                Task { await self.setFavorite(!favorite, for: episode) }
             }
-            .lineupFlatButton()
-        }
-        if item.type == "Episode" {
-            let watched = media.isWatched(item)
-            Button(watched ? "Remove from Watched" : "Mark Watched", systemImage: watched ? "eye.slash" : "eye.fill") {
-                Task { await media.setEpisodePlayedAndAdvance(!watched, for: item) }
-            }
-            .lineupFlatButton()
-            let favorite = media.isLocalFavorite(item)
-            Button(favorite ? "Remove from Favorites Library" : "Add to Favorites Library", systemImage: favorite ? "heart.slash" : "heart.fill") {
-                media.setLocalFavorite(!favorite, for: item)
-                Task { await media.setFavorite(!favorite, for: item) }
-            }
-            .lineupFlatButton()
-        }
+        ]
     }
 }
+#endif
+
+#if os(tvOS)
+extension MediaLibrary {
+    /// What holding Select on a Library card offers: leaving Continue
+    /// Watching, and for an episode, watched and favorite. One list, whether
+    /// the card opens a page or the streams.
+    func tvCardChoices(for item: MediaItem) -> [TVChoice] {
+        var choices: [TVChoice] = []
+        if isInContinueWatching(item) {
+            choices.append(TVChoice("Remove from Continue Watching", symbol: "rectangle.stack.badge.minus",
+                                    isDestructive: true) {
+                self.removeFromContinueWatching(item)
+            })
+        }
+        if item.type == "Episode" { choices += tvEpisodeChoices(for: item) }
+        return choices
+    }
+
+    /// An episode's own: watched, and the Favorites library.
+    func tvEpisodeChoices(for episode: MediaItem) -> [TVChoice] {
+        let watched = isWatched(episode)
+        let favorite = isLocalFavorite(episode)
+        return [
+            TVChoice(watched ? "Remove from Watched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
+                Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
+            },
+            TVChoice(favorite ? "Remove from Favorites" : "Add to Favorites",
+                     symbol: favorite ? "heart.slash" : "heart") {
+                self.setLocalFavorite(!favorite, for: episode)
+                Task { await self.setFavorite(!favorite, for: episode) }
+            }
+        ]
+    }
+}
+#endif
 
 #if os(tvOS)
 /// Owns the rapidly changing focus preview outside the catalog view tree. A
@@ -3568,6 +3817,7 @@ private struct TVLibraryShelf: Identifiable {
 /// repainting a rectangle behind one row.
 private struct TVMediaCinematicBackdrop: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
 
     var body: some View {
@@ -3583,13 +3833,13 @@ private struct TVMediaCinematicBackdrop: View {
                         if let loaded { loaded.resizable().scaledToFill() }
                         else { Color.clear }
                     }
-                    .id(item.id)
+                    .id(item.libraryKey)
                     .transition(.opacity)
                 }
             }
             .clipped()
             .overlay { shade }
-            .animation(.easeInOut(duration: 0.32), value: item?.id)
+            .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
             .ignoresSafeArea()
             .allowsHitTesting(false)
     }
@@ -3617,6 +3867,7 @@ private struct TVMediaCinematicBackdrop: View {
 /// with logo, cast and metadata without changing its geometry.
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
     /// Browsing: every title takes the same room, told from the top, so
     /// nothing moves as the remote goes from title to title or as a title's
@@ -3643,7 +3894,7 @@ private struct TVMediaLibraryPreview: View {
                         castLine(item)
                     }
                 }
-                .id(item.id)
+                .id(item.libraryKey)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: steady ? .topLeading : .bottomLeading)
@@ -3652,7 +3903,7 @@ private struct TVMediaLibraryPreview: View {
                 .padding(.bottom, 24)
             }
         }
-        .animation(.easeInOut(duration: 0.24), value: item?.id)
+        .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
         .task(id: item?.libraryKey) {
             guard let item else { return }
             let found = await media.ratings(for: item)
@@ -3751,13 +4002,18 @@ private struct TVMediaLibraryPreview: View {
 
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
 /// It advances gently when left alone. Changing the page by touch restarts the
-/// eight-second interval, so it never fights a swipe or immediately skips the
+/// three-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
     @State private var index = 0
+    @GestureState private var isDragging = false
+    @State private var isVisible = false
     /// Each title's ratings once found, so a slide shown again has its chips.
     @State private var ratings: [String: MediaRatings] = [:]
 
@@ -3769,21 +4025,43 @@ private struct MediaLibraryHero: View {
         Group {
             #if os(tvOS)
             if !items.isEmpty {
-                heroSlide(item: items[index])
+                heroSlide(item: items[min(index, items.count - 1)])
                     .overlay(alignment: .bottom) { pageIndicator }
+                    .accessibilityAction(named: Text("Next title")) { move(1) }
+                    .accessibilityAction(named: Text("Previous title")) { move(-1) }
             }
             #else
             if !items.isEmpty {
                 GeometryReader { viewport in
-                    TabView(selection: $index) {
-                        ForEach(Array(items.enumerated()), id: \.element.libraryKey) { offset, item in
-                            heroSlide(item: item, loadsArtwork: isAdjacentToCurrent(offset))
-                                .frame(width: viewport.size.width, height: viewport.size.height)
-                                .tag(offset)
-                        }
+                    let current = min(index, items.count - 1)
+                    let rotates = isVisible && scenePhase == .active && !voiceOver && !isDragging
+                    let pixels = LineupArt.pixels(for: viewport.size.width)
+                    // Two overlapping slides fade together, including last to
+                    // first. A page controller otherwise jumps across the list.
+                    ZStack {
+                        heroSlide(item: items[current])
+                            .frame(width: viewport.size.width, height: viewport.size.height)
+                            .id(items[current].libraryKey)
+                            .transition(.opacity)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion),
+                               value: items[current].libraryKey)
                     .overlay(alignment: .bottom) { pageIndicator }
+                    .accessibilityAction(named: Text("Next title")) { move(1) }
+                    .accessibilityAction(named: Text("Previous title")) { move(-1) }
+                    .simultaneousGesture(DragGesture(minimumDistance: 12)
+                        .updating($isDragging) { _, dragging, _ in dragging = true }
+                        .onEnded { value in
+                            let translation = value.translation
+                            guard abs(translation.width) > 40,
+                                  abs(translation.width) > abs(translation.height) * 1.25 else { return }
+                            move(translation.width < 0 ? 1 : -1)
+                        })
+                    .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
+                                                    enabled: rotates, pixels: pixels)) {
+                        guard rotates else { return }
+                        await rotate(pixels: pixels)
+                    }
                 }
             }
             #endif
@@ -3791,6 +4069,8 @@ private struct MediaLibraryHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: heroHeight)
         .clipped()
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         #if os(tvOS)
         // Any focused control inside the hero participates in the same
         // carousel. A left/right press therefore changes the feature directly
@@ -3808,16 +4088,12 @@ private struct MediaLibraryHero: View {
             if count == 0 { index = 0 }
             else { index = min(index, count - 1) }
         }
-        .task(id: index) {
-            guard items.count > 1 else { return }
-            do { try await Task.sleep(for: .seconds(8)) } catch { return }
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.45)) { move(1) }
-        }
         // The title on screen, then the one after it, so the next slide
         // arrives with its chips already found.
         .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
-            for offset in [index, index + 1] where items.indices.contains(offset) {
+            guard !items.isEmpty else { return }
+            let current = min(index, items.count - 1)
+            for offset in [current, (current + 1) % items.count] {
                 let item = items[offset]
                 guard ratings[item.libraryKey] == nil else { continue }
                 let found = await media.ratings(for: item)
@@ -3827,7 +4103,7 @@ private struct MediaLibraryHero: View {
         }
     }
 
-    private func heroSlide(item: MediaItem, loadsArtwork: Bool = true) -> some View {
+    private func heroSlide(item: MediaItem) -> some View {
         GeometryReader { slide in
             let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
             let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
@@ -3836,10 +4112,7 @@ private struct MediaLibraryHero: View {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                LineupArtView(url: loadsArtwork
-                              ? (media.backdropURL(for: item, width: artWidth)
-                                 ?? media.imageURL(for: item, width: artWidth))
-                              : nil,
+                LineupArtView(url: artworkURL(for: item),
                               // Decode for the actual viewport, not the
                               // server request's pixel ceiling. On a 3x phone
                               // the old value produced a 3300-pixel image for
@@ -3878,6 +4151,8 @@ private struct MediaLibraryHero: View {
 
                     if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
                         MediaRatingChips(ratings: shown)
+                    } else {
+                        Color.clear.frame(height: MediaRatingMetrics.height)
                     }
 
                     if !metadata(for: item).isEmpty {
@@ -3917,9 +4192,8 @@ private struct MediaLibraryHero: View {
         }
         .contentShape(Rectangle())
         #if !os(tvOS)
-        // Paging still belongs to the horizontal drag. A release without a
-        // drag opens the title, which makes the artwork itself the familiar
-        // iPhone affordance and removes the redundant Details button.
+        // A horizontal swipe changes title; a tap opens it. The artwork is
+        // the iPhone affordance, without a redundant Details button.
         .onTapGesture { onOpen(item) }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(item.hasDetailPage ? "View details for \(item.name)" : "Play \(item.name)")
@@ -3934,10 +4208,31 @@ private struct MediaLibraryHero: View {
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
 
-    private func isAdjacentToCurrent(_ page: Int) -> Bool {
-        guard items.count > 2 else { return true }
-        let distance = abs(page - index)
-        return distance <= 1 || distance == items.count - 1
+    private func artworkURL(for item: MediaItem) -> URL? {
+        media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
+    }
+
+    private func rotate(pixels: Int) async {
+        let candidates = items
+        guard candidates.count > 1 else { return }
+        let current = min(index, candidates.count - 1)
+        let next = (current + 1) % candidates.count
+        for offset in [current, next, (next + 1) % candidates.count] {
+            LineupArt.prefetch(artworkURL(for: candidates[offset]), pixels: pixels)
+        }
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: LibraryHeroRotation.interval) } catch { return }
+            guard !Task.isCancelled else { return }
+            let nextArtwork = artworkURL(for: candidates[next])
+            guard LineupArt.isResolved(nextArtwork, pixels: pixels) else {
+                // A transient error isn't cached; try again without dropping
+                // the picture already on screen or duplicating an active load.
+                LineupArt.prefetch(nextArtwork, pixels: pixels)
+                continue
+            }
+            move(1)
+            return
+        }
     }
 
     #if os(tvOS)
@@ -3990,7 +4285,9 @@ private struct MediaLibraryHero: View {
 
     private func move(_ delta: Int) {
         guard !items.isEmpty else { return }
-        index = (index + delta + items.count) % items.count
+        withAnimation(LibraryHeroRotation.animation(reduceMotion: reduceMotion)) {
+            index = (min(index, items.count - 1) + delta + items.count) % items.count
+        }
     }
 }
 
@@ -4135,7 +4432,7 @@ struct LibraryHeroSettingsView: View {
                 PageTitle(eyebrow: "Library", title: "Library Hero",
                           detail: "Choose any list. Its first ten titles fill the Library hero.")
                 if groups.isEmpty {
-                    ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                    LineupUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Add a media server, then choose a list here."))
                         .frame(maxWidth: .infinity, minHeight: 280)
                         .mediaFocusAnchor()
@@ -4162,7 +4459,7 @@ struct LibraryHeroSettingsView: View {
         #else
         List {
             if groups.isEmpty {
-                ContentUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
+                LineupUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
                     description: Text("Add a media server, then choose a list here."))
                     .listRowBackground(Color.clear)
             } else {
@@ -4179,12 +4476,13 @@ struct LibraryHeroSettingsView: View {
                             Text("The first ten titles of the list you choose become the swipeable Library hero.")
                         }
                     }
-                    .listRowBackground(LineupRowBackground())
+                    .listRowBackground(LineupPanelStyle.listCard)
+                    .listRowSeparatorTint(LineupPanelStyle.listSeparator)
                 }
             }
         }
         .scrollContentBackground(.hidden)
-        .background(LineupStyle.background)
+        .background(LineupPanelStyle.listGround)
         .navigationTitle("Library Hero")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadSources() }
@@ -4196,10 +4494,14 @@ struct LibraryHeroSettingsView: View {
             if let brand = group.brand {
                 MediaServerLogo(brand: brand).frame(width: headingLogoSize, height: headingLogoSize)
             }
+            #if os(tvOS)
             Text(group.title)
                 .font(.inter(headingSize, .heavy)).tracking(1.4)
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 .lineLimit(1)
+            #else
+            Text(group.title).modifier(LineupGroupHeading()).lineLimit(1)
+            #endif
         }
         .textCase(nil)
     }
@@ -4209,7 +4511,7 @@ struct LibraryHeroSettingsView: View {
         let busy = media.loadingHeroSource == choice.id
         return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")
-                .font(.system(size: rowSymbolSize, weight: .semibold))
+                .font(.system(size: rowSymbolSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(selected ? LineupStyle.highlight : LineupStyle.secondary)
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
@@ -4226,7 +4528,7 @@ struct LibraryHeroSettingsView: View {
                 ProgressView().controlSize(.small)
             } else if selected {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: checkSize, weight: .semibold))
+                    .font(.system(size: checkSize, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.highlight)
                     .accessibilityLabel("Selected")
             }
@@ -4375,12 +4677,37 @@ private struct StreamServerStatus: Identifiable {
     }
 }
 
+extension Notification.Name {
+    /// An episode ended with nothing after it: the Library goes back to its
+    /// front page.
+    static let lineupReturnToLibraryFront = Notification.Name("Lineup.returnToLibraryFront")
+}
+
 private struct MediaSourcePicker: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.dismiss) private var dismiss
-    let item: MediaItem
+    /// The title the streams are for. An episode's end can move it on to the
+    /// next one, so the list follows the viewer from one to the next.
+    @State private var item: MediaItem
     /// Play from the beginning rather than from the saved place.
-    var startsOver = false
+    @State private var startsOver: Bool
+    /// The episode after this one, when there is one to play, for the
+    /// player's Next Episode and for where this one's end leads.
+    @State private var nextEpisode: MediaItem?
+    /// What the player's closing leads to, set as it closes.
+    @State private var advance: Advance?
+    /// Play the best stream as soon as it is known: Next Episode was chosen.
+    @State private var autoPicks = false
+
+    private enum Advance {
+        case playNext(MediaItem)
+        case reachedEnd
+    }
+
+    init(item: MediaItem, startsOver: Bool = false) {
+        _item = State(initialValue: item)
+        _startsOver = State(initialValue: startsOver)
+    }
     /// Set when the picker went straight to the only stream there was, so
     /// closing the player closes the picker too, rather than leaving a list
     /// of one to back out of.
@@ -4404,7 +4731,11 @@ private struct MediaSourcePicker: View {
         board
             .onExitCommand { dismiss() }
             .task(id: item.libraryKey) { await loadSources() }
-            .fullScreenCover(item: $selectedSource, onDismiss: { if playedOnlySource { dismiss() } }) { source in
+            .task(id: item.libraryKey) {
+                nextEpisode = nil
+                nextEpisode = await media.episodeAfter(item)
+            }
+            .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
                 playback(for: source)
             }
         #else
@@ -4412,12 +4743,64 @@ private struct MediaSourcePicker: View {
             board
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction) }
+                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle()) }
                 }
         }
         .task(id: item.libraryKey) { await loadSources() }
-        .fullScreenCover(item: $selectedSource) { source in playback(for: source) }
+        .task(id: item.libraryKey) {
+            nextEpisode = nil
+            nextEpisode = await media.episodeAfter(item)
+        }
+        .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
         #endif
+    }
+
+    /// Where the player's closing leads. Next Episode plays the next one on
+    /// its best stream. An episode that ran to its end without it leads to
+    /// the next one's streams to choose from, or, with none after it, back to
+    /// the Library's front page. Backing out of the player is where it was.
+    private func playerClosed() {
+        let step = advance
+        advance = nil
+        switch step {
+        case .playNext(let next)?:
+            lead(to: next, playing: true)
+        case .reachedEnd?:
+            if let next = nextEpisode {
+                lead(to: next, playing: false)
+            } else if item.type == "Episode" {
+                dismiss()
+                // Once this screen has gone, so the pages under it are not
+                // taken away while it is still leaving.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NotificationCenter.default.post(name: .lineupReturnToLibraryFront, object: nil)
+                }
+            } else if playedOnlySource {
+                dismiss()
+            }
+        case nil:
+            if playedOnlySource { dismiss() }
+        }
+    }
+
+    private func lead(to next: MediaItem, playing: Bool) {
+        autoPicks = playing
+        playedOnlySource = false
+        startsOver = false
+        nextEpisode = nil
+        item = next
+    }
+
+    /// The best stream, as soon as it is known: the first place in the list's
+    /// order to answer with streams, once every place before it has answered
+    /// with none. Waiting for the slowest server would hold Next Episode up
+    /// for a stream that would be listed below the one in hand.
+    private static func bestSource(found: [Int: [MediaPlaybackSource]], places: Int) -> MediaPlaybackSource? {
+        for index in 0..<places {
+            guard let streams = found[index] else { return nil }
+            if let best = MediaStreamSection.sections(of: streams).first?.sources.first { return best }
+        }
+        return nil
     }
 
     private var board: some View {
@@ -4500,6 +4883,7 @@ private struct MediaSourcePicker: View {
                 // The title's own place failing is the error for the screen.
                 // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
+                    found[index] = found[index] ?? []
                     if index == ownIndex { failure = problem }
                     if let miss = problem as? MediaLibrary.StreamLookupError {
                         serverStatus[index].phase = .notOnServer(tried: miss.tried)
@@ -4509,8 +4893,21 @@ private struct MediaSourcePicker: View {
                 }
                 sources = found.keys.sorted().flatMap { found[$0] ?? [] }
                 if !sources.isEmpty { loading = false }
+                if autoPicks, selectedSource == nil,
+                   let best = Self.bestSource(found: found, places: lookups.count) {
+                    autoPicks = false
+                    playedOnlySource = true
+                    // After a moment, as below: a cover asked for while this
+                    // screen is still arriving is dropped.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        if selectedSource == nil { selectedSource = best }
+                    }
+                }
             }
         }
+        // Nothing to play: the list says so, and the viewer chooses from here.
+        autoPicks = false
         guard !Task.isCancelled else { return }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
@@ -4583,7 +4980,13 @@ private struct MediaSourcePicker: View {
                        onProgress: { position, duration in
                            media.trackPlayback(of: item, position: position, duration: duration)
                        },
-                       synopsis: tvPlayerSynopsis)
+                       synopsis: tvPlayerSynopsis,
+                       nextEpisode: nextEpisode.map { next in
+                           TVNextEpisodeOffer(code: next.episodeCode, title: next.name) {
+                               advance = .playNext(next)
+                           }
+                       },
+                       onReachedEnd: { if advance == nil { advance = .reachedEnd } })
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #else
@@ -4592,13 +4995,20 @@ private struct MediaSourcePicker: View {
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
                              // Start Over starts over here too; it resumed.
-                             initialPosition: startsOver ? nil : media.resumePosition(for: item)) { position, duration in
-                media.trackPlayback(of: item, position: position, duration: duration)
-            }
+                             initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                             onProgress: { position, duration in
+                                 media.trackPlayback(of: item, position: position, duration: duration)
+                             },
+                             nextEpisode: nextEpisode.map { next in
+                                 MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
+                                     advance = .playNext(next)
+                                 }
+                             },
+                             onReachedEnd: { if advance == nil { advance = .reachedEnd } })
             .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
             #endif
         } else {
-            ContentUnavailableView("Playback Unavailable", systemImage: "play.slash")
+            LineupUnavailableView("Playback Unavailable", systemImage: "play.slash")
         }
     }
 
@@ -4783,7 +5193,7 @@ private struct MediaStreamBoard: View {
         VStack(alignment: .leading, spacing: Style.headerGap) {
             Text("CHOOSE A STREAM")
                 .font(.inter(Style.eyebrowSize, .heavy)).tracking(Style.eyebrowTracking)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .foregroundStyle(Style.caption)
             Text(heading.title)
                 .font(.inter(Style.titleSize, .bold))
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -4866,7 +5276,7 @@ private struct MediaStreamBoard: View {
             Text("\(section.sources.count)")
                 .font(.interDigits(Style.sectionSize, .heavy))
         }
-        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+        .foregroundStyle(Style.sectionCaption)
         .padding(.horizontal, Style.rowInsetH)
         .padding(.top, first ? 0 : Style.sectionGap - Style.rowSpacing)
     }
@@ -4964,7 +5374,7 @@ private struct MediaStreamBoard: View {
     private func notice(_ symbol: String, title: String, detail: String?) -> some View {
         VStack(spacing: Style.lineGap * 2) {
             Image(systemName: symbol)
-                .font(.system(size: Style.noticeSymbolSize, weight: .semibold))
+                .font(.system(size: Style.noticeSymbolSize, weight: .semibold, design: .rounded))
                 .opacity(0.5)
             Text(title).font(.inter(Style.noticeTitleSize, .semibold))
                 .multilineTextAlignment(.center)
@@ -5048,9 +5458,11 @@ private struct MediaStreamTab: View {
             markView
         }
         .padding(.horizontal, Style.tabPadH).padding(.vertical, Style.tabPadV)
-        .foregroundStyle(active ? LineupStyle.background : LineupStyle.lightPurple)
-        .background(active ? LineupStyle.lightPurple : LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.line, lineWidth: 1))
+        // The app's chips, on both: the accent filled when chosen, outlined
+        // otherwise.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+        .background(active ? LineupStyle.highlight : Color.clear, in: Capsule())
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         .opacity(quiet && !active ? 0.55 : 1)
         .lineupFocusLayer(focused && !active, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -5068,14 +5480,14 @@ private struct MediaStreamTab: View {
             Text("\(count)").font(.interDigits(Style.tabCountSize, .bold)).opacity(0.55)
         case .looking:
             ProgressView()
-                .tint(active ? LineupStyle.background : LineupStyle.lightPurple)
+                .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
                 .scaleEffect(Style.tabSpinnerScale)
                 .frame(width: Style.tabSpinner, height: Style.tabSpinner)
         case .missing:
             Text("—").font(.inter(Style.tabCountSize, .bold)).opacity(0.5)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: Style.tabCountSize - 3, weight: .bold)).opacity(0.6)
+                .font(.system(size: Style.tabCountSize - 3, weight: .bold, design: .rounded)).opacity(0.6)
         }
     }
 }
@@ -5118,9 +5530,14 @@ private struct MediaStreamRow: View {
         }
         .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
         .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        // A panel of its own, as every card on the phone is.
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        #endif
         .foregroundStyle(LineupStyle.lightPurple)
         .accessibilityElement(children: .combine)
     }
@@ -5236,6 +5653,8 @@ private enum MediaStreamStyle {
     static let headerBottom: CGFloat = 30
     static let headerGap: CGFloat = 8
     static let eyebrowSize: CGFloat = 15
+    static var caption: Color { LineupStyle.lightPurple.opacity(0.55) }
+    static var sectionCaption: Color { LineupStyle.lightPurple.opacity(0.5) }
     static let eyebrowTracking: CGFloat = 2.2
     static let titleSize: CGFloat = 54
     static let subtitleSize: CGFloat = 24
@@ -5286,8 +5705,10 @@ private enum MediaStreamStyle {
     static let headerTop: CGFloat = 8
     static let headerBottom: CGFloat = 16
     static let headerGap: CGFloat = 4
-    static let eyebrowSize: CGFloat = 11
-    static let eyebrowTracking: CGFloat = 1.6
+    static let eyebrowSize: CGFloat = 13
+    static var caption: Color { LineupPanelStyle.caption }
+    static var sectionCaption: Color { LineupPanelStyle.caption }
+    static let eyebrowTracking: CGFloat = 0.4
     static let titleSize: CGFloat = 26
     static let subtitleSize: CGFloat = 14
     static let tabSize: CGFloat = 14
@@ -5300,10 +5721,10 @@ private enum MediaStreamStyle {
     static let tabSpinnerScale: CGFloat = 0.6
     static let tabLift: CGFloat = 2
     static let tabsBottom: CGFloat = 14
-    static let sectionSize: CGFloat = 11
+    static let sectionSize: CGFloat = 14
     static let sectionGap: CGFloat = 22
     static let rowSpacing: CGFloat = 8
-    static let rowRadius: CGFloat = 14
+    static let rowRadius: CGFloat = 20
     static let rowInsetH: CGFloat = 12
     static let rowInsetV: CGFloat = 12
     static let rowGap: CGFloat = 12
@@ -5495,7 +5916,7 @@ struct MediaItemCard: View {
                                 startPoint: .topLeading, endPoint: .bottomTrailing)
                             LineupArtView(url: artworkURL, width: artWidth) { loaded in
                                 if let image = loaded { image.resizable().scaledToFill() }
-                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.largeTitle) }
+                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                             }
                         }
                     }
@@ -5512,10 +5933,21 @@ struct MediaItemCard: View {
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
                 .lineupFocusLayer(artworkIsFocused, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+                // An episode the server does not have yet: the day it airs.
+                .overlay(alignment: .topLeading) {
+                    if let label = item.upcomingLabel {
+                        Text(label)
+                            .font(.inter(upcomingLabelSize, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                            .foregroundStyle(LineupStyle.text)
+                            .padding(.horizontal, upcomingLabelSize * 0.8).padding(.vertical, upcomingLabelSize * 0.4)
+                            .background(LineupPanelStyle.fill.opacity(0.92), in: Capsule())
+                            .padding(upcomingLabelSize * 0.8)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if playback?.watched == true {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 11, weight: .heavy))
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 25, height: 25)
                             .background(LineupStyle.lightPurple, in: Circle())
@@ -5603,6 +6035,13 @@ struct MediaItemCard: View {
         12
         #endif
     }
+    private var upcomingLabelSize: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        10
+        #endif
+    }
     private var titleFont: Font {
         #if os(tvOS)
         // tvOS's semantic headline size is designed for page copy and made
@@ -5634,7 +6073,7 @@ private struct MediaArtworkProgress: View {
         VStack(spacing: playback.episodeFraction == nil ? 0 : rowToEdge) {
             HStack(spacing: gap) {
                 Image(systemName: "play.fill")
-                    .font(.system(size: glyph, weight: .bold))
+                    .font(.system(size: glyph, weight: .bold, design: .rounded))
                 MediaProgressTrack(fraction: playback.fraction, thickness: track)
                 Text(playback.label)
                     .font(.interDigits(labelSize, .semibold))
@@ -5665,7 +6104,7 @@ private struct MediaArtworkProgress: View {
 
     #if os(tvOS)
     private var glyph: CGFloat { 17 }
-    private var track: CGFloat { 7 }
+    private var track: CGFloat { 9 }
     private var labelSize: CGFloat { 19 }
     private var gap: CGFloat { 12 }
     private var inset: CGFloat { 14 }
@@ -5673,7 +6112,7 @@ private struct MediaArtworkProgress: View {
     private var rowToEdge: CGFloat { 12 }
     #else
     private var glyph: CGFloat { 10 }
-    private var track: CGFloat { 4 }
+    private var track: CGFloat { 5 }
     private var labelSize: CGFloat { 12 }
     private var gap: CGFloat { 7 }
     private var inset: CGFloat { 9 }
@@ -5682,23 +6121,28 @@ private struct MediaArtworkProgress: View {
     #endif
 }
 
-/// A white bar on a faint track.
+/// The app's progress bar on the art: the accent on a grey track. Along the
+/// card's foot it runs flush, squared off and rounded only by the card's own
+/// corners.
 private struct MediaProgressTrack: View {
     let fraction: Double
     let thickness: CGFloat
     var rounded = true
-    var rest = 0.32
+    var rest = 0.3
 
     var body: some View {
-        GeometryReader { proxy in
-            let filled = proxy.size.width * CGFloat(min(max(fraction, 0), 1))
-            ZStack(alignment: .leading) {
-                Rectangle().fill(.white.opacity(rest))
-                Rectangle().fill(.white).frame(width: filled)
+        if rounded {
+            LineupProgressBar(value: fraction, height: thickness, track: .white.opacity(rest))
+        } else {
+            GeometryReader { proxy in
+                let filled = proxy.size.width * CGFloat(min(max(fraction, 0), 1))
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.white.opacity(rest))
+                    Rectangle().fill(LineupStyle.highlight).frame(width: filled)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: rounded ? thickness / 2 : 0, style: .continuous))
+            .frame(height: thickness)
         }
-        .frame(height: thickness)
     }
 }
 
@@ -5800,7 +6244,7 @@ struct MediaServerSetupView: View {
             .background(LineupStyle.background)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             .disabled(media.isAddingServer)
             .onChange(of: page) { _, brand in
                 guard let brand, brand != software else { return }
@@ -6403,18 +6847,25 @@ struct MDBListIntegrationView: View {
             }
             .navigationTitle("MDBList")
             #if !os(tvOS)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             #endif
-            .confirmationDialog("Disconnect MDBList?", isPresented: $disconnecting,
-                                titleVisibility: .visible) {
-                Button("Disconnect", role: .destructive) {
+            #if os(tvOS)
+            .tvChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,
+                       message: "MDBList shelves will be removed. Your lists on MDBList will not be changed.") {
+                [TVChoice("Disconnect", isDestructive: true) {
                     media.disconnectMDBList()
                     dismiss()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("MDBList shelves will be removed. Your lists on MDBList will not be changed.")
+                }]
             }
+            #else
+            .lineupChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,
+                           message: "MDBList shelves will be removed. Your lists on MDBList will not be changed.") {
+                [MobileMenuItem("Disconnect", isDestructive: true) {
+                    media.disconnectMDBList()
+                    dismiss()
+                }]
+            }
+            #endif
         }
     }
 
@@ -6485,3 +6936,74 @@ struct InitialSourceSetupView: View {
         #endif
     }
 }
+
+#if !os(tvOS)
+/// A Library shelf's header in its panel: icon and caption over a hairline,
+/// with the server and See All on the right.
+private struct PhoneShelfHeader<Accessory: View>: View {
+    let title: String
+    let symbol: String
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LineupPanelHeader(title: title, systemImage: symbol) {
+                HStack(spacing: 10) { accessory() }
+            }
+            .padding(.top, 15).padding(.bottom, 11)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+        }
+        .padding(.horizontal, LineupPanelStyle.inset)
+    }
+}
+#endif
+
+#if os(tvOS)
+/// A shelf's title on the television: the panels' icon and heavy caption in
+/// light grey, at the size it is read at across a room.
+private struct TVShelfTitle: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: symbol, size: LineupPanelStyle.headerSize * 1.6)
+            Text(title.uppercased())
+                .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
+                .tracking(LineupPanelStyle.headerTracking)
+        }
+        .foregroundStyle(LineupPanelStyle.caption)
+        .lineLimit(1)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+#endif
+
+/// A Library shelf as a panel on the phone: its posters scroll inside the
+/// card, between its edges. The television keeps its open rows.
+private struct PhoneShelfPanel: ViewModifier {
+    /// Under the last row: posters bring 8 of their own, other rows none.
+    var bottom: CGFloat = 10
+
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content
+            .padding(.bottom, bottom)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .padding(.horizontal, LineupPanelStyle.margin)
+        #endif
+    }
+}
+
+#if !os(tvOS)
+/// Where the Seasons button is, so its dropdown can hang from it.
+private struct MediaSeasonMenuAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+#endif

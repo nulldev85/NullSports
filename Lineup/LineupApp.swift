@@ -21,6 +21,12 @@ struct LineupApp: App {
         // Navigation titles are drawn by UIKit: set in the app's rounded face.
         UINavigationBar.appearance().titleTextAttributes = [.font: roundedUIFont(17, .heavy)]
         UINavigationBar.appearance().largeTitleTextAttributes = [.font: roundedUIFont(34, .heavy)]
+        // The rest of the text UIKit draws itself: the tab bar's names, the
+        // search field, segmented pickers and the toolbar's buttons.
+        UITabBarItem.appearance().setTitleTextAttributes([.font: roundedUIFont(10, .semibold)], for: .normal)
+        UISearchTextField.appearance().font = roundedUIFont(17, .regular)
+        UISegmentedControl.appearance().setTitleTextAttributes([.font: roundedUIFont(13, .semibold)], for: .normal)
+        UIBarButtonItem.appearance().setTitleTextAttributes([.font: roundedUIFont(17, .semibold)], for: .normal)
         #endif
     }
 
@@ -37,6 +43,10 @@ struct LineupApp: App {
                 // this they keep the system font and the app reads in two
                 // typefaces depending on how carefully each line was written.
                 .environment(\.font, .inter(.body))
+                // And the rounded cut for any font that names no design of
+                // its own -- a symbol's size, a text style set by hand -- so
+                // the whole app, sheets included, reads in the one face.
+                .fontDesign(.rounded)
                 .preferredColorScheme(.dark)
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { return }

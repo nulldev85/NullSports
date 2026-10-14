@@ -33,11 +33,15 @@ struct MobileGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var showsSearch = false
+    /// The TV Guide's options, dropped from the bar's ellipsis.
+    @State private var optionsOpen = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
+    /// How much of the channel list the tab bar covers, measured on screen.
+    @State private var listBottomInset: CGFloat = 0
     @State private var resetPosition = UUID()
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
@@ -142,10 +146,10 @@ struct MobileGuideView: View {
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
                         if channels.isEmpty && filter == .favorites && !searching {
-                            ContentUnavailableView("No favorites", systemImage: "star",
+                            LineupUnavailableView("No favorites", systemImage: "star",
                                 description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
                         } else if channels.isEmpty {
-                            ContentUnavailableView("No channels", systemImage: "tv",
+                            LineupUnavailableView("No channels", systemImage: "tv",
                                 description: Text("Try another category or search, or refresh your guide."))
                         } else if isActive {
                             TimelineView(.periodic(from: .now, by: 5)) { clock in
@@ -228,37 +232,25 @@ struct MobileGuideView: View {
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
-                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: LineupStyle.compactRadius).stroke(LineupStyle.line, lineWidth: 1))
+                    .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(LineupStyle.background)
                 }
             }
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                    symbol: "list.bullet.rectangle", sections: optionsSections) {
+                    setOptions(false)
+                }
+            }
             .toolbar {
                 if game != nil {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button("Return to Now", systemImage: "clock.arrow.circlepath") { returnToNow() }
-                        Button(showsSearch ? "Close Search" : "Search Channels",
-                               systemImage: showsSearch ? "xmark" : "magnifyingglass") {
-                            if showsSearch { closeSearch() }
-                            else { showsSearch = true }
-                        }
-                        Divider()
-                        filterChoice("Favorites", .favorites)
-                        filterChoice("Recently watched", .recents)
-                            .disabled(library.recentStreams.isEmpty)
-                        Divider()
-                        filterChoice("All channels", .all)
-                        ForEach(library.categories) { filterChoice($0.categoryName, .category($0.id)) }
-                        Divider()
-                        Button("Refresh guide", systemImage: "arrow.clockwise") {
-                            Task { await library.reload() }
-                        }.disabled(library.channelsAreSyncing)
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityLabel("TV Guide options")
+                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                        setOptions(!optionsOpen)
+                    }
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
@@ -276,7 +268,7 @@ struct MobileGuideView: View {
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: fillsScreen) { _, value in
-                if value { searchFocused = false }
+                if value { searchFocused = false; optionsOpen = false }
                 onFullscreenChange(value)
             }
             .onChange(of: sideways) { _, value in
@@ -290,6 +282,7 @@ struct MobileGuideView: View {
                 // asked to keep watching.
                 if !active {
                     searchFocused = false
+                    optionsOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else { returnToNow() }
             }
@@ -323,10 +316,90 @@ struct MobileGuideView: View {
 
     /// One of the Guide's choices, ticked when it is the one shown. Picking
     /// it replaces whatever was ticked; picking the ticked one again keeps it.
-    private func filterChoice(_ title: String, _ choice: MobileGuideFilter) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { filter == choice },
-            set: { if $0 { chosenFilter = choice } }))
+    /// Touch and hold on a channel: its place in the favorites, and for a
+    /// channel the provider records, what is on now from its start and what
+    /// it showed before.
+    private func channelMenuItems(_ stream: XtreamStream) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if library.isFavorite(stream) {
+            if filter == .favorites && !searching {
+                items.append(MobileMenuItem("Move Up", symbol: "arrow.up",
+                                            isEnabled: library.canMoveFavorite(stream, offset: -1)) {
+                    library.moveFavorite(stream, offset: -1)
+                })
+                items.append(MobileMenuItem("Move Down", symbol: "arrow.down",
+                                            isEnabled: library.canMoveFavorite(stream, offset: 1)) {
+                    library.moveFavorite(stream, offset: 1)
+                })
+            }
+            items.append(MobileMenuItem("Reorder Favorites", symbol: "arrow.up.arrow.down") {
+                reorderingFavorites = true
+            })
+            items.append(MobileMenuItem("Remove Favorite", symbol: "star.slash", isDestructive: true) {
+                library.removeFavorite(stream)
+            })
+        } else {
+            items.append(MobileMenuItem("Add Favorite", symbol: "star") { library.addFavorite(stream) })
+        }
+        if stream.hasCatchUp && game == nil {
+            items.append(MobileMenuItem("Start Over", symbol: "backward.end") {
+                openRecording(stream, programme: nil)
+            })
+            items.append(MobileMenuItem("Catch Up", symbol: "clock.arrow.circlepath") { catchUpChannel = stream })
+        }
+        return items
+    }
+
+    private func setOptions(_ open: Bool) {
+        guard optionsOpen != open else { return }
+        if open { searchFocused = false }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            optionsOpen = open
+        }
+    }
+
+    /// What the TV Guide's dropdown offers: getting about, which channels the
+    /// guide lists -- the categories a list of their own inside it -- and a
+    /// refresh.
+    private var optionsSections: [MobileMenuSection] {
+        let categories = library.categories.map { category in
+            MobileMenuItem(category.categoryName, id: "category-\(category.id)",
+                           isSelected: filter == .category(category.id)) {
+                chosenFilter = .category(category.id)
+            }
+        }
+        let inCategory: Bool = { if case .category = filter { return true } else { return false } }()
+        return [
+            MobileMenuSection(id: "move", items: [
+                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
+                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
+                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
+                    if showsSearch { closeSearch() } else { showsSearch = true }
+                }
+            ]),
+            MobileMenuSection(id: "channels", items: [
+                MobileMenuItem("Favorites", symbol: "star", isSelected: filter == .favorites) {
+                    chosenFilter = .favorites
+                },
+                MobileMenuItem("Recently Watched", symbol: "clock.arrow.circlepath",
+                               isSelected: filter == .recents,
+                               isEnabled: !library.recentStreams.isEmpty) {
+                    chosenFilter = .recents
+                },
+                MobileMenuItem("All Channels", symbol: "tv", isSelected: filter == .all) {
+                    chosenFilter = .all
+                },
+                MobileMenuItem("Categories", symbol: "square.stack", isSelected: inCategory,
+                               isEnabled: !categories.isEmpty,
+                               children: [MobileMenuSection(id: "categories", items: categories)])
+            ]),
+            MobileMenuSection(id: "refresh", items: [
+                MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
+                               isEnabled: !library.channelsAreSyncing) {
+                    Task { await library.reload() }
+                }
+            ])
+        ]
     }
 
     private func selectChannel(_ stream: XtreamStream) {
@@ -470,14 +543,16 @@ struct MobileGuideView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false))
+                        .background(MobileGuideScrollConfiguration(horizontal: false) { listBottomInset = $0 })
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
                     // Room for the last channel to clear the floating tab bar
                     // is measured, not assumed: `MobileGuideScrollConfiguration`
-                    // gives exactly the part of the list the bar covers, so the
-                    // end settles with the last row flush above it, as the top
-                    // settles on the first.
+                    // reports exactly the part of the list the bar covers, so
+                    // the end bounces and settles with the last row flush above
+                    // the bar, as the top settles on the first.
+                    .contentMargins(.bottom, listBottomInset, for: .scrollContent)
+                    .contentMargins(.bottom, listBottomInset, for: .scrollIndicators)
                     .frame(height: max(0, viewport.size.height - 40))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
@@ -535,7 +610,7 @@ struct MobileGuideView: View {
     }
 
     private func channelTile(_ stream: XtreamStream) -> some View {
-        Button { selectChannel(stream) } label: {
+        Group {
             ZStack(alignment: .center) {
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
                     if let image = loaded {
@@ -562,7 +637,7 @@ struct MobileGuideView: View {
             }
             .overlay(alignment: .topLeading) {
                 if library.isFavorite(stream) {
-                    Image(systemName: "star.fill").font(.caption2)
+                    Image(systemName: "star.fill").font(.inter(.caption2))
                         .padding(4).background(LineupStyle.background.opacity(0.85), in: Circle())
                         .padding(3)
                 }
@@ -572,31 +647,10 @@ struct MobileGuideView: View {
             // The frozen column masks scrolling programs with the guide's base color.
             .background(LineupStyle.background)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
-        .contextMenu {
-            if library.isFavorite(stream) {
-                if filter == .favorites && !searching {
-                    Button("Move up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
-                        .disabled(!library.canMoveFavorite(stream, offset: -1))
-                    Button("Move down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
-                        .disabled(!library.canMoveFavorite(stream, offset: 1))
-                }
-                Button("Reorder favorites", systemImage: "arrow.up.arrow.down") { reorderingFavorites = true }
-                Button("Remove favorite", systemImage: "star.slash", role: .destructive) {
-                    library.removeFavorite(stream)
-                }
-            } else {
-                Button("Add favorite", systemImage: "star") { library.addFavorite(stream) }
-            }
-            // A channel the provider records: what is on now from its start,
-            // and what it showed before.
-            if stream.hasCatchUp && game == nil {
-                Divider()
-                Button("Start Over", systemImage: "backward.end.fill") { openRecording(stream, programme: nil) }
-                Button("Catch Up", systemImage: "clock.arrow.circlepath") { catchUpChannel = stream }
-            }
+        .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
+            selectChannel(stream)
         }
+        .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
     private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {
@@ -611,13 +665,19 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(live ? LineupStyle.focused : LineupStyle.raised)
-                        if program != nil {
-                            // A quiet elapsed-state wash without tying progress
-                            // to the theme accent.
-                            Rectangle().fill(LineupStyle.text.opacity(0.10))
-                                .frame(width: min(width, max(0, window.x(now) - cellX)))
+                        if program != nil, live {
+                            // The app's progress bar along the foot of what is
+                            // on now, its fill ending where the timeline says
+                            // now is.
+                            let played = min(width, max(0, window.x(now) - cellX))
+                            let inset: CGFloat = 8
+                            LineupProgressBar(value: Double((played - inset) / max(1, width - inset * 2)),
+                                              height: 4)
+                                .padding(.horizontal, inset)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .padding(.bottom, 5)
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
@@ -640,16 +700,20 @@ struct MobileGuideView: View {
                             }
                         }
                         .padding(.horizontal, 8)
+                        // Clear of the bar along the foot of what is on now.
+                        .padding(.bottom, live ? 8 : 0)
                         .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line, lineWidth: live ? 1 : 0.5)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            // Only what is on now is edged, in the accent; the
+                            // rest are panels, told apart by their corners.
+                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.45) : Color.clear, lineWidth: 1)
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")
@@ -675,7 +739,7 @@ private struct FavoritesOrderView: View {
         NavigationStack {
             Group {
                 if listed.isEmpty {
-                    ContentUnavailableView("No favorites", systemImage: "star",
+                    LineupUnavailableView("No favorites", systemImage: "star",
                         description: Text("Touch and hold a channel in the guide to add it."))
                 } else {
                     List {
@@ -704,7 +768,7 @@ private struct FavoritesOrderView: View {
             .background(LineupStyle.background)
             .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true)) }
             }
         }
     }
@@ -712,50 +776,94 @@ private struct FavoritesOrderView: View {
 
 /// Navigation already positions this guide within the safe area. Its two nested
 /// scrollers must not add that navigation inset again above the first channel.
+/// The vertical one also reports how much of it the tab bar covers, which the
+/// guide gives back to it as a bottom margin.
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
-    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
-    func updateUIView(_ view: UIView, context: Context) {
-        DispatchQueue.main.async { [weak view] in
-            var ancestor = view?.superview
-            while let candidate = ancestor {
-                if let scroll = candidate as? UIScrollView {
-                    Self.configure(scroll, horizontal: horizontal)
-                    break
-                }
-                ancestor = candidate.superview
-            }
-        }
+    var onBottomOverlap: ((CGFloat) -> Void)? = nil
+
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe(frame: .zero)
+        probe.isUserInteractionEnabled = false
+        return probe
     }
+
+    func updateUIView(_ probe: Probe, context: Context) {
+        probe.horizontal = horizontal
+        probe.onBottomOverlap = onBottomOverlap
+        DispatchQueue.main.async { [weak probe] in probe?.refresh() }
+    }
+
     static func configure(_ scroll: UIScrollView, horizontal: Bool) {
         // Navigation already positions the guide inside the safe area, and
         // letting these scrollers adjust again put that inset in twice. The
         // cost is that they adjust for nothing else either, so the insets that
         // do matter -- the tab bar below, the island at the sides -- are
         // applied by the guide itself rather than left to the scroller.
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.isDirectionalLockEnabled = true
+        // Checked first: this runs on every layout of the list.
+        if scroll.contentInsetAdjustmentBehavior != .never { scroll.contentInsetAdjustmentBehavior = .never }
+        if !scroll.isDirectionalLockEnabled { scroll.isDirectionalLockEnabled = true }
         // Elastic horizontal overscroll would move the ruler beneath frozen logos.
         // Keep vertical elasticity for natural scrolling and pull-to-refresh.
-        if horizontal { scroll.bounces = false }
-        if !horizontal { fitBottom(of: scroll) }
+        if horizontal && scroll.bounces { scroll.bounces = false }
     }
 
-    /// The list's bottom inset: exactly the height of it that the tab bar
-    /// covers, so the last channel comes to rest right on top of the bar.
-    /// A fixed allowance was added on top of the room the layout already
-    /// left, and the guide came to rest with a gap under its last row.
-    static func fitBottom(of scroll: UIScrollView) {
-        guard let window = scroll.window, let container = scroll.superview else { return }
-        let frame = container.convert(scroll.frame, to: window)
+    /// The height of the list the tab bar covers: the room the last channel
+    /// needs to come to rest right on top of the bar. It depends only on where
+    /// the list and the bar are, never on the list's own insets, so applying it
+    /// cannot change it.
+    static func bottomOverlap(of scroll: UIScrollView) -> CGFloat {
+        guard let window = scroll.window else { return 0 }
+        let listBottom = scroll.convert(scroll.bounds, to: window).maxY
         let barTop = tabBar(in: window).flatMap { bar -> CGFloat? in
             guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
             return bar.convert(bar.bounds, to: window).minY
         } ?? (window.bounds.maxY - window.safeAreaInsets.bottom)
-        let inset = max(0, (frame.maxY - barTop).rounded())
-        guard abs(scroll.contentInset.bottom - inset) > 0.5 else { return }
-        scroll.contentInset.bottom = inset
-        scroll.verticalScrollIndicatorInsets.bottom = inset
+        return max(0, (listBottom - barTop).rounded())
+    }
+
+    /// Sits behind the scroller's content and measures as soon as it is on
+    /// screen and whenever the list lays out again. The inset used to be
+    /// written straight onto the scroller after the fact, where SwiftUI's own
+    /// updates could put it back, so the last channel sat under the bar until
+    /// some later update happened to restore it. Now the measurement goes to
+    /// SwiftUI, which applies it with the list's other margins and keeps it.
+    final class Probe: UIView {
+        var horizontal = false
+        var onBottomOverlap: ((CGFloat) -> Void)?
+        private var reported: CGFloat?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            refresh()
+            // The first pass can come before the tab bar has its place.
+            DispatchQueue.main.async { [weak self] in self?.refresh() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            refresh()
+        }
+
+        var enclosingScrollView: UIScrollView? {
+            var ancestor = superview
+            while let candidate = ancestor {
+                if let scroll = candidate as? UIScrollView { return scroll }
+                ancestor = candidate.superview
+            }
+            return nil
+        }
+
+        func refresh() {
+            guard window != nil, let scroll = enclosingScrollView else { return }
+            MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
+            guard !horizontal, let onBottomOverlap else { return }
+            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll)
+            if let reported, abs(reported - overlap) <= 0.5 { return }
+            reported = overlap
+            // Never during SwiftUI's own update of this view.
+            DispatchQueue.main.async { onBottomOverlap(overlap) }
+        }
     }
 
     private static func tabBar(in window: UIWindow) -> UITabBar? {

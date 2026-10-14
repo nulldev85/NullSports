@@ -52,14 +52,17 @@ struct RootView: View {
         .onReceive(library.$gamesByLeague) { games in
             GameAlertCenter.shared.observe(games.values.flatMap { $0 }, isFollowing: library.isFollowing)
         }
-        .alert("Couldn’t Connect", isPresented: Binding(
-            get: { library.errorMessage != nil },
-            set: { if !$0 { library.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(library.errorMessage ?? "Unknown error").foregroundColor(LineupStyle.lightPurple)
-        }
+        #if os(tvOS)
+        .tvChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
+                   isPresented: Binding(get: { library.errorMessage != nil },
+                                        set: { if !$0 { library.errorMessage = nil } }),
+                   message: library.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+        #else
+        .lineupChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
+                       isPresented: Binding(get: { library.errorMessage != nil },
+                                            set: { if !$0 { library.errorMessage = nil } }),
+                       message: library.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
+        #endif
     }
 }
 
@@ -108,6 +111,9 @@ private extension View {
 struct MainView: View {
     @State private var selectedTab = 0
     @StateObject private var tabBar = TVTabBarState()
+    /// The accent chosen on the phone, which iCloud brings here: the tabs
+    /// are drawn again in it when it changes, as the phone's are.
+    @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
 
     var body: some View {
         // The tabs are Lineup's primary navigation, not transient playback
@@ -117,23 +123,29 @@ struct MainView: View {
         // page takes it away (`TVTabBarState`).
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
+                .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView(isActive: selectedTab == 1)
+                .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
+                .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
                 .tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView()
+                .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(4)
+            // Not rebuilt for a new accent: the accent is chosen here, and
+            // rebuilding would throw the remote off the swatch it is on.
             AccountView(selectedTab: $selectedTab)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }

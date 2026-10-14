@@ -8,23 +8,23 @@ on:
     # of break this repo actually hits is an API that does not exist in the
     # pinned VLCKit, which nothing but a real build can catch, and waiting for
     # someone to remember to dispatch a run is how a branch sits broken.
-    branches: [iphone, 'claude/**']
+    branches: [main, iphone, 'claude/**']
 
 # A newer push supersedes an unfinished check on the same branch. Never cancel
-# a run on iphone: that one is producing an IPA someone is waiting for.
+# a run on main or iphone: those produce the shipping IPAs.
 concurrency:
   group: build-ios-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/iphone' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
   build:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      # Packaging an installable build is for the shipping branch and for
+      # Packaging an installable build is for the shipping branches and for
       # anyone who asks for one by hand. Every other branch stops after the
       # tests, so a check costs a fraction of the runner time.
-      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/iphone' }}
+      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
