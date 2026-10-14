@@ -1,4 +1,5 @@
 import SwiftUI
+import LineupAetherPlayback
 
 private struct MobileScheduleRefreshContext: Equatable {
     let scenePhase: ScenePhase
@@ -15,6 +16,7 @@ struct MainView: View {
     @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
+    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
 
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
@@ -716,6 +718,10 @@ private struct MobileAccountView: View {
                 .lineupSettingsRows()
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
+                    NavigationLink { MobilePlaybackSettingsView() } label: {
+                        SettingsRow("Playback Engine", symbol: "play.rectangle",
+                                    value: (MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title)
+                    }
                     NavigationLink {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
                             .environmentObject(library)
@@ -723,6 +729,9 @@ private struct MobileAccountView: View {
                         SettingsRow("Diagnostics", symbol: "waveform.path.ecg")
                     }
                     SettingsRow("Version", symbol: "info.circle", value: version)
+                    NavigationLink { MobilePlaybackAcknowledgementsView() } label: {
+                        SettingsRow("Playback acknowledgements", symbol: "doc.text")
+                    }
                 }
                 .lineupSettingsRows()
             }
@@ -742,6 +751,49 @@ private struct MobileAccountView: View {
                 MobileAccentPicker(hex: accentHex) { pendingAccent = $0 }
             }
         }
+    }
+}
+
+private struct MobilePlaybackSettingsView: View {
+    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.automatic.rawValue
+    var body: some View {
+        List {
+            Section {
+                ForEach(MobilePlaybackPreference.allCases) { choice in
+                    Button { preference = choice.rawValue } label: {
+                        HStack {
+                            Text(choice.title).foregroundStyle(LineupStyle.text)
+                            Spacer()
+                            if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
+                                Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
+                }
+            } footer: {
+                Text("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.")
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Playback Engine")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MobilePlaybackAcknowledgementsView: View {
+    var body: some View {
+        ScrollView {
+            Text(AetherPlaybackSession.openSourceNotices())
+                .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20).textSelection(.enabled)
+        }
+        .background(LineupStyle.background)
+        .navigationTitle("Acknowledgements")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

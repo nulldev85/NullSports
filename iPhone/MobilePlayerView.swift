@@ -115,6 +115,7 @@ struct MobilePlayerView: View {
                             }
                         }
                         if controller.error == nil && !controller.loading {
+                            MobilePlaybackEngineBadge(engine: controller.engine)
                             if isLive { statusBadge }
                             if let detail = badgeDetail { qualityBadge(detail) }
                         }

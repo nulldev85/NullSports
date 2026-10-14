@@ -18,8 +18,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
-    timeout-minutes: 30
+    runs-on: xcode-27
+    timeout-minutes: 45
     env:
       # Packaging an installable build is for the shipping branches and for
       # anyone who asks for one by hand. Every other branch stops after the
@@ -31,7 +31,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "27.0"
       - name: Check shared sports logic
         run: |
           set -euo pipefail
@@ -60,6 +60,12 @@ jobs:
           /tmp/lineup-professional-match-checks
           swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
           /tmp/lineup-provider-refresh-checks
+
+      - name: Generate playback integration fixtures
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          bash Tools/make-tv-playback-fixture.sh ios
 
       - name: Generate project
         run: |
@@ -146,6 +152,19 @@ jobs:
           test -n "$icons"
           legacy_icons=$(find "$app" -maxdepth 1 -name 'AppIcon*.png')
           test -z "$legacy_icons"
+
+      - name: Check AetherEngine linkage, resources, and iOS minimum
+        run: |
+          set -euo pipefail
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
+          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          engine="$app/Frameworks/LineupAetherPlayback.framework/LineupAetherPlayback"
+          symbols=$(nm -m "$engine")
+          grep -E '_avcodec_open2.*from AetherLibavcodec' <<< "$symbols"
+          test -d "$app/Frameworks/AetherLibavcodec.framework"
+          test -f "$app/Frameworks/LineupAetherPlayback.framework/AetherLicenses/AetherEngine.txt"
+          find "$app" -name AetherEngine_AetherEngine.bundle -print | grep .
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = "18.0"
 
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'

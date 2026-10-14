@@ -193,6 +193,7 @@ struct MobileGuidePlayer: View {
             HStack(spacing: 10) {
                 control("xmark", label: "Close player", action: onClose)
                 if controller.error == nil && !controller.loading {
+                    MobilePlaybackEngineBadge(engine: controller.engine)
                     statusBadge
                     // A recording is the channel's own picture, so its
                     // quality is no news, and the badge needs the room.

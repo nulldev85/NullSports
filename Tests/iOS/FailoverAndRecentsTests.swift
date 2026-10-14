@@ -98,9 +98,9 @@ final class FailoverAndRecentsTests: XCTestCase {
         let ts = URL(string: "http://e.com/live/u/p/1.ts")!
         XCTAssertEqual(MobileEngineSelection.ordered([ts, hls]), [hls, ts])
         XCTAssertEqual(MobileEngineSelection.engine(for: hls), .system)
-        XCTAssertEqual(MobileEngineSelection.engine(for: ts), .vlc)
+        XCTAssertEqual(MobileEngineSelection.engine(for: ts), .aether)
         XCTAssertTrue(MobileEngineSelection.canPictureInPicture([ts, hls]))
-        XCTAssertFalse(MobileEngineSelection.canPictureInPicture([ts]))
+        XCTAssertTrue(MobileEngineSelection.canPictureInPicture([ts]))
     }
 
     // MARK: - Recent channels

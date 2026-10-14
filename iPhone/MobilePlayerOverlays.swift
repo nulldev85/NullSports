@@ -1,5 +1,17 @@
 import SwiftUI
 
+struct MobilePlaybackEngineBadge: View {
+    let engine: MobileStreamEngine
+    var body: some View {
+        Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.white).allowsHitTesting(false)
+            .accessibilityLabel("Playback engine: " + engine.title)
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+    }
+}
+
 /// The channel just tuned to, and what the guide says is on it, as the
 /// banner over the picture names them. Worked out once, when the channel
 /// changes, by the screen that changed it: the player itself does not read

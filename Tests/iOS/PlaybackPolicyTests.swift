@@ -109,9 +109,9 @@ final class PlaybackPolicyTests: XCTestCase {
     private let hls = URL(string: "http://example.com/live/u/p/1234.m3u8")!
     private let ts = URL(string: "http://example.com/live/u/p/1234.ts")!
 
-    func testHLSGoesToAVPlayerAndTransportStreamsToVLC() {
+    func testHLSGoesToAVPlayerAndOtherSourcesToAether() {
         XCTAssertEqual(MobileEngineSelection.engine(for: hls), .system)
-        XCTAssertEqual(MobileEngineSelection.engine(for: ts), .vlc)
+        XCTAssertEqual(MobileEngineSelection.engine(for: ts), .aether)
         // Providers append tokens; the query string is not part of the path.
         XCTAssertEqual(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1.m3u8?t=9")!), .system)
     }
@@ -123,7 +123,37 @@ final class PlaybackPolicyTests: XCTestCase {
         XCTAssertEqual(MobileEngineSelection.ordered([ts, hls]), [hls, ts])
         XCTAssertEqual(MobileEngineSelection.ordered([ts]), [ts])
         XCTAssertTrue(MobileEngineSelection.canPictureInPicture([ts, hls]))
-        XCTAssertFalse(MobileEngineSelection.canPictureInPicture([ts]))
+        XCTAssertTrue(MobileEngineSelection.canPictureInPicture([ts]))
+    }
+
+    func testVODAndExtensionlessServerRoutesUsePiPCapablePlayback() {
+        for path in ["movie.mp4", "movie.mkv", "movie.avi", "videos/123/stream", "timeshift.php?token=1"] {
+            let url = URL(string: "https://server.invalid/\(path)")!
+            XCTAssertEqual(MobileEngineSelection.engine(for: url), .aether)
+            XCTAssertTrue(MobileEngineSelection.canPictureInPicture([url]))
+        }
+    }
+
+    func testExplicitPreferencesAndFailureFallbackAreBounded() {
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .aether), .aether)
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .vlc), .vlc)
+        XCTAssertFalse(MobileEngineSelection.canPictureInPicture([ts], preference: .vlc))
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system]), .aether)
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system, .aether]), .vlc)
+        XCTAssertNil(MobileEngineSelection.engine(for: hls, failed: [.system, .aether, .vlc]))
+        XCTAssertEqual(MobileEngineSelection.engine(for: ts, failed: [.aether]), .vlc)
+        XCTAssertNil(MobileEngineSelection.engine(for: ts, preference: .vlc, failed: [.vlc]))
+    }
+
+    func testPlayerPreferencePersistsAndUnknownValuesUseAutomatic() throws {
+        let suite = "PlayerPreference.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .automatic)
+        defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
+        defaults.set("old-or-unknown", forKey: MobilePlaybackPreference.storageKey)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .automatic)
     }
 
     // MARK: - Surface reuse
@@ -155,6 +185,22 @@ final class PlaybackPolicyTests: XCTestCase {
         XCTAssertNotNil(host.playerLayer)
         host.removePlayerLayer()
         XCTAssertNil(host.playerLayer)
+        controller.shutdown()
+    }
+
+    @MainActor
+    func testPiPHandoffKeepsTheOriginalLayerAndPlayer() {
+        let controller = MobilePlaybackController()
+        let original = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 390, height: 220))
+        let layer = original.installPlayerLayer(for: controller.systemPlayer)
+        original.releasePlayerLayerForPictureInPicture()
+        XCTAssertNil(original.playerLayer)
+        XCTAssertTrue(layer.player === controller.systemPlayer)
+        let returned = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 700, height: 394))
+        XCTAssertTrue(returned.installPlayerLayer(for: controller.systemPlayer, reusing: layer) === layer)
+        original.removePlayerLayer()
+        XCTAssertTrue(layer.player === controller.systemPlayer)
+        XCTAssertTrue(layer.superlayer === returned.layer)
         controller.shutdown()
     }
 

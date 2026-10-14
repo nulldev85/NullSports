@@ -10,8 +10,8 @@ channel list with search and favorites. **Media Servers** browses Jellyfin and
 Nullfin libraries, including the catalogs and streams from any addons configured
 on the server.
 
-Xtream-compatible profiles, passwords stored in the device Keychain, and native
-VLC playback throughout. You supply the provider, server and streams you are
+Xtream-compatible profiles, passwords stored in the device Keychain, and
+selectable playback engines. You supply the provider, server and streams you are
 authorized to watch; Lineup does not include or sell content.
 
 ## iCloud sync and game reminders
@@ -46,9 +46,14 @@ Run the **Build Lineup tvOS IPA** workflow in GitHub Actions. The downloadable a
 
 ## iPhone
 
-The `LineupiOS` target supports iPhones on iOS 17 or later, with a touch-first
+The `LineupiOS` target supports iPhones on iOS 18 or later, with a touch-first
 Live screen, league filters, searchable channel guide, favorites, provider setup,
-and full-screen VLC playback in portrait or landscape. Unmatched games open a
+and full-screen playback in portrait or landscape. Settings offers Automatic,
+AetherEngine 7.36.0, or VLC. Automatic uses AVPlayer for HLS and AetherEngine
+for other video, including server routes without extensions. Aether's native
+and sample-buffer sources enable broader Picture in Picture support; VLC fallback
+has no PiP. See [iPhone playback review](docs/iphone-playback-engines.md).
+Unmatched games open a
 manual channel picker. Provider credentials, schedules, guide parsing, and channel
 matching share the Apple TV implementation. Profiles and favorites are stored
 locally on each device; they do not sync between iPhone and Apple TV.

@@ -24,3 +24,13 @@ ffmpeg -hide_banner -loglevel error -y \
   -metadata:s:a:0 language=eng -metadata:s:a:0 title=English \
   -metadata:s:a:1 language=spa -metadata:s:a:1 title=Spanish \
   -metadata:s:s:0 language=eng "$fixture_dir/playback.mkv"
+
+if [ "${1:-}" = "ios" ]; then
+  # Longer iPhone clips leave room to resume, seek, pause, and enter PiP.
+  ffmpeg -hide_banner -loglevel error -y -stream_loop 2 -i "$fixture_dir/playback.mkv" \
+    -map 0 -c:v copy -c:a copy -c:s mov_text -t 36 "$fixture_dir/playback-native.mp4"
+  ffmpeg -hide_banner -loglevel error -y -stream_loop 2 -i "$fixture_dir/playback.mkv" \
+    -map 0 -c:v mpeg2video -q:v 5 -c:a copy -c:s copy -t 36 "$fixture_dir/playback-software.mkv"
+  ffmpeg -hide_banner -loglevel error -y -stream_loop 2 -i "$fixture_dir/playback.mkv" \
+    -map 0:v -map 0:a:0 -c copy -t 36 -f mpegts "$fixture_dir/playback-live.ts"
+fi

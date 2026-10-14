@@ -102,10 +102,30 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Lineup.app/Lineup"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  LineupAetherPlaybackiOS:
+    type: framework
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - AetherPlayback
+      - path: BuildAssets/AetherLicenses
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: AetherEngine
+        product: AetherEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.Lineup.AetherPlayback.iOS
+        PRODUCT_NAME: LineupAetherPlayback
+        PRODUCT_MODULE_NAME: LineupAetherPlayback
+        GENERATE_INFOPLIST_FILE: YES
+        MACH_O_TYPE: mh_dylib
+        SKIP_INSTALL: YES
   LineupiOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - Lineup/Models
       - Lineup/Services
@@ -121,6 +141,8 @@ targets:
       - iPhone
     dependencies:
       - package: VLCKitSPM
+      - target: LineupAetherPlaybackiOS
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
@@ -151,9 +173,12 @@ targets:
   LineupiOSTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - Tests/iOS
+      - path: Tests/tvOS/Fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: LineupiOS
     settings:

@@ -30,8 +30,8 @@ recording timeline. Aether's separate DVR buffer is not enabled.
 Swift package. This keeps its FFmpeg references separate from VLC's FFmpeg.
 The release build checks `_avcodec_open2` binds to AetherLibavcodec, verifies
 embedded decoder resources and notices, and checks the tvOS 18 deployment floor.
-The tvOS runner uses Xcode 27, the upstream tested toolchain. iPhone continues
-to use VLC and retains its iOS 17 minimum.
+Both runners use Xcode 27, the upstream tested toolchain. iPhone also supports
+AetherEngine with an iOS 18 minimum; see `iphone-playback-engines.md`.
 
 Settings → About → Playback acknowledgements contains the complete bundled
 license notices and exact corresponding source links.

@@ -15,7 +15,7 @@ public struct AetherPlaybackTrack {
 /// No Aether or FFmpeg types cross this public interface.
 @MainActor
 public final class AetherPlaybackSession {
-    private let engine: AetherEngine
+    let engine: AetherEngine
     private let canvas: AetherPlaybackCanvas
     private var subscriptions = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
@@ -34,6 +34,45 @@ public final class AetherPlaybackSession {
         return current.width > 0 && current.height > 0 ? current : probedVideoSize
     }
     public var surface: UIView { canvas }
+    #if os(iOS)
+    private lazy var pip = AetherPictureInPicture(session: self)
+    private var restoringForeground = false
+    public var onPictureInPictureChange: ((Bool) -> Void)?
+    public var onPictureInPictureClosed: (() -> Void)?
+    public var onPictureInPictureTransportChange: ((Bool) -> Void)?
+    public var pictureInPicturePossible: Bool { pip.isPossible }
+    public var pictureInPictureActive: Bool { pip.isActuallyActive }
+    public var pictureInPictureRoute: String? {
+        if engine.nativePlayerLayer != nil { return "Native" }
+        if engine.softwarePiPSource != nil { return "Sample buffer" }
+        return nil
+    }
+    public func togglePictureInPicture() { pip.toggle() }
+    public func refreshPictureInPicture() { pip.refresh() }
+    public func stopPictureInPicture() { pip.stop() }
+    func pictureInPictureTransportChanged(playing: Bool) {
+        wantsToPlay = playing
+        onPictureInPictureTransportChange?(playing)
+    }
+    public func restoreForegroundVideo() {
+        guard engine.needsForegroundVideoRestore, isOpen, !loading, !restoringForeground else { return }
+        restoringForeground = true
+        let token = generation
+        loadTask?.cancel()
+        loadTask = Task { [weak self] in
+            guard let self, self.generation == token else { return }
+            defer { if self.generation == token { self.restoringForeground = false } }
+            do {
+                try await self.engine.reloadAtCurrentPosition()
+                guard self.generation == token, !Task.isCancelled else { return }
+                if self.wantsToPlay { self.engine.play() } else { self.engine.pause() }
+            } catch is CancellationError {} catch {
+                guard self.generation == token, !Task.isCancelled else { return }
+                self.failure = error.localizedDescription
+            }
+        }
+    }
+    #endif
 
     public init() throws {
         engine = try AetherEngine()
@@ -41,6 +80,9 @@ public final class AetherPlaybackSession {
         canvas.backgroundColor = .black
         engine.bind(view: canvas.picture)
         engine.videoGravity = .resizeAspect
+        #if os(iOS)
+        engine.backgroundPlaybackEnabled = true
+        #endif
         // A custom transport owns Now Playing through the engine's session,
         // never by writing MPNowPlayingInfoCenter directly on tvOS 26.
         engine.liveSourceReset.receive(on: DispatchQueue.main).sink { [weak self] in
@@ -132,7 +174,11 @@ public final class AetherPlaybackSession {
         loading = true
         initialPosition = startPosition ?? 0
         wantsToPlay = true
+        #if os(iOS)
+        engine.ownsVideoNowPlayingSession = primary
+        #else
         engine.ownsVideoNowPlayingSession = primary && matchContent
+        #endif
         var options = LoadOptions()
         options.isLive = isLive
         options.liveJoinProfile = .fastZap
@@ -142,6 +188,10 @@ public final class AetherPlaybackSession {
         options.suppressDisplayCriteria = !matchContent
         options.matchContentEnabled = matchContent
         options.sharedOutputRole = primary ? .primary : .secondary
+        #if os(iOS)
+        // Native PiP cannot see the host overlay; prepare subtitle renditions.
+        options.prepareNativeSubtitles = true
+        #endif
         // Lineup's provider-backed catch-up is shared by both players. Do not
         // silently enable a second DVR window with different pause semantics.
         options.dvrWindowSeconds = nil
@@ -160,6 +210,9 @@ public final class AetherPlaybackSession {
                 self.loading = false
                 self.applyVolume()
                 if self.wantsToPlay { self.engine.play() } else { self.engine.pause() }
+                #if os(iOS)
+                self.pip.refresh()
+                #endif
             } catch is CancellationError {
                 // A newer tune or stop owns the session now.
             } catch {
@@ -173,6 +226,10 @@ public final class AetherPlaybackSession {
     public func play() { wantsToPlay = true; if !loading { engine.play() } }
     public func pause() { wantsToPlay = false; engine.pause() }
     public func stop() {
+        #if os(iOS)
+        pip.stop()
+        restoringForeground = false
+        #endif
         generation = UUID()
         loadTask?.cancel(); loadTask = nil
         seekTask?.cancel(); seekTask = nil
@@ -276,9 +333,9 @@ private final class AetherPlaybackCanvas: UIView {
         }
     }
 
-    private static func styledText(_ cue: SubtitleCue) -> NSAttributedString {
+    private static func styledText(_ cue: SubtitleCue, scale: CGFloat = 1) -> NSAttributedString {
         let base: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 42, weight: .semibold), .foregroundColor: UIColor.white,
+            .font: UIFont.systemFont(ofSize: 42 * scale, weight: .semibold), .foregroundColor: UIColor.white,
             .strokeColor: UIColor.black, .strokeWidth: -3
         ]
         guard case .richText(let runs) = cue.body else {
@@ -287,7 +344,7 @@ private final class AetherPlaybackCanvas: UIView {
         let text = NSMutableAttributedString(string: "")
         for run in runs {
             var attributes = base
-            let size = CGFloat(min(max(run.fontSize ?? 42, 20), 84))
+            let size = CGFloat(min(max(run.fontSize ?? 42, 20), 84)) * scale
             let font = run.fontName.flatMap { UIFont(name: $0, size: size) }
                 ?? UIFont.systemFont(ofSize: size, weight: .semibold)
             var traits = font.fontDescriptor.symbolicTraits
@@ -312,6 +369,11 @@ private final class AetherPlaybackCanvas: UIView {
             ? AVMakeRect(aspectRatio: videoSize, insideRect: bounds) : bounds
         var bottom = video.maxY - 42
         for (cue, view) in zip(cues.reversed(), subviews.dropFirst().reversed()) {
+            #if os(iOS)
+            if let label = view as? UILabel {
+                label.attributedText = Self.styledText(cue, scale: max(12.0 / 42.0, bounds.width / 1920))
+            }
+            #endif
             if case .image(let image) = cue.body {
                 let canvas = image.canvasSize.width > 0 ? image.canvasSize : video.size
                 let scale = canvas.width > 0 ? video.width / canvas.width : 1
