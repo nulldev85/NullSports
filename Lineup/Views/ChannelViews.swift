@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import VLCKitSPM
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -2527,7 +2526,7 @@ private func liveAccessibilityLabel(_ game: SportsGame) -> String {
 
 private struct LiveSelectedPreview: View {
     @EnvironmentObject private var library: SportsLibrary
-    @StateObject private var controller = VLCPlaybackController()
+    @StateObject private var controller = TVPlaybackController()
     @State private var choosingGame: SportsGame?
     @State private var pickedChannel: TVPickedChannel?
     @State private var scopingChannel: TVPickedChannel?
@@ -2536,7 +2535,9 @@ private struct LiveSelectedPreview: View {
     let urls: [URL]
 
     var body: some View {
-        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+        TVHostedSurface(controller: controller)
+            .overlay(alignment: .topTrailing) { TVPlaybackEngineBadge(engine: controller.engineKind).padding(10) }
+            .overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
         .onAppear {
             // Back from full screen, where it played on: nothing to open.
             guard !controller.isOpen else { return }
@@ -3138,7 +3139,7 @@ struct GuideView: View {
     /// The preview's one player, kept for as long as the Guide is. Resting
     /// on a channel opens it there and moving on stops it; nothing is built
     /// or torn down as the remote moves (see `GuidePreviewVideo`).
-    @StateObject private var previewPlayer = VLCPlaybackController()
+    @StateObject private var previewPlayer = TVPlaybackController()
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -3671,7 +3672,7 @@ private struct GuidePreviewPanel: View {
     /// and the 216pt preview. The channel grid stays at the same height.
     static let height: CGFloat = 298
 
-    let player: VLCPlaybackController
+    let player: TVPlaybackController
     let controls: GuideControlBar
     let item: GuideFocusItem
     let categoryName: String
@@ -3785,14 +3786,16 @@ private struct GuidePreviewPanel: View {
 /// slow stream held the whole Guide still for a second or two. One player
 /// that changes channel is never thrown away mid-close.
 private struct GuidePreviewVideo: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let channelID: Int
     let urls: [URL]
     /// Silent while the remote only rests on the channel; on once chosen.
     let audible: Bool
 
     var body: some View {
-        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }
+        TVHostedSurface(controller: controller)
+            .overlay(alignment: .topTrailing) { TVPlaybackEngineBadge(engine: controller.engineKind).padding(10) }
+            .overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear { open() }
             .onChange(of: channelID) { _, _ in open() }
@@ -4624,6 +4627,8 @@ struct AccountView: View {
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
     @State private var choosingAccent = false
+    @State private var choosingPlaybackEngine = false
+    @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
     @State private var pendingAccent: String?
     /// The accent, chosen here too: iCloud brings the phone's choice over
     /// once it is switched on, and until then the two are set by hand.
@@ -4642,6 +4647,7 @@ struct AccountView: View {
                     sources.modifier(TVSettingsPanel())
                     libraryAndCatalogs.modifier(TVSettingsPanel())
                     appearance.modifier(TVSettingsPanel())
+                    playbackSettings.modifier(TVSettingsPanel())
                     diagnostics.modifier(TVSettingsPanel())
                     about.modifier(TVSettingsPanel())
                 }
@@ -4658,6 +4664,14 @@ struct AccountView: View {
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
+            .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
+                       message: "Used for the next stream you open, including previews and Multiview.") {
+                TVPlaybackEngine.allCases.map { engine in
+                    TVChoice(engine.title, symbol: "play.rectangle", isSelected: playbackEngine == engine.rawValue) {
+                        playbackEngine = engine.rawValue
+                    }
+                }
+            }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
             }
@@ -4918,6 +4932,28 @@ struct AccountView: View {
 
     // MARK: Appearance
 
+    private var playbackSettings: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("PLAYBACK")
+            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingPlaybackEngine = true }) {
+                HStack(spacing: 20) {
+                    LineupIconTile(symbol: "play.rectangle", size: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Playback Engine").font(.inter(24, .semibold))
+                        Text("Live TV, movies, shows, and Multiview")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    }
+                    Spacer()
+                    Text((TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc).title)
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
     /// Opens the same preset, custom and saved color choices as the phone.
     private var appearance: some View {
         let chosen = LineupAccent.accent(forHex: accentHex)
@@ -4956,6 +4992,8 @@ struct AccountView: View {
                 AccountRow(label: "Version",
                            value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
             }
+            AccountTile(title: "Playback acknowledgements", detail: "AetherEngine and decoder licenses",
+                        symbol: "doc.text") { TVPlaybackLicensesView() }
             .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -4984,6 +5022,7 @@ private struct AccountSectionHeading: View {
         case "LIBRARY": "rectangle.stack"
         case "DIAGNOSTICS": "waveform.path.ecg"
         case "APPEARANCE": "paintpalette"
+        case "PLAYBACK": "play.rectangle"
         default: "info.circle"
         }
     }
@@ -5667,7 +5706,7 @@ private enum MultiviewLayout: String {
 /// the arrangement around it.
 @MainActor
 private final class MultiviewPlayers: ObservableObject {
-    let tiles = [VLCPlaybackController(), VLCPlaybackController()]
+    let tiles = [TVPlaybackController(primaryOutput: true), TVPlaybackController(primaryOutput: false)]
 }
 
 /// A game whose stream failed everywhere, waiting for a channel to be chosen.
@@ -5781,7 +5820,6 @@ private struct MultiviewView: View {
         return MultiviewTile(controller: controller,
                              game: currentGame(index),
                              fallbackTitle: chosenTitles[index] ?? stream(index).name,
-                             renderSize: screen,
                              size: frame.size,
                              audible: audibleTile == index,
                              fullScreen: fullScreenTile == index,
@@ -6069,10 +6107,9 @@ private struct MultiviewView: View {
 /// full screen never resizes what VLC draws into -- the move is a transform,
 /// and the picture plays straight through it.
 private struct MultiviewTile: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let game: SportsGame?
     let fallbackTitle: String
-    let renderSize: CGSize
     let size: CGSize
     let audible: Bool
     let fullScreen: Bool
@@ -6081,7 +6118,7 @@ private struct MultiviewTile: View {
     var body: some View {
         let radius: CGFloat = fullScreen ? 0 : 14
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        ScaledVLCVideoSurface(player: controller.player, renderSize: renderSize)
+        TVHostedSurface(controller: controller, fullScreen: true)
             .frame(width: size.width, height: size.height)
             .overlay { MultiviewStatus(controller: controller) }
             .overlay(alignment: .bottomLeading) { label }
@@ -6095,7 +6132,7 @@ private struct MultiviewTile: View {
             .shadow(color: .black.opacity(audible && !fullScreen ? 0.55 : 0), radius: 26, y: 12)
             .animation(.easeOut(duration: 0.2), value: audible)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title + (audible ? ", playing sound" : ""))
+            .accessibilityLabel(title + ", " + controller.engineTitle + (audible ? ", playing sound" : ""))
     }
 
     private var title: String {
@@ -6121,6 +6158,7 @@ private struct MultiviewTile: View {
                     Text(detail).font(.inter(14, .medium)).opacity(0.7).lineLimit(1)
                 }
             }
+            TVPlaybackEngineBadge(engine: controller.engineKind)
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white)
@@ -6136,7 +6174,7 @@ private struct MultiviewTile: View {
 /// selecting the picture retries a stream that failed, and holding it offers
 /// the rest.
 private struct MultiviewStatus: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
 
     var body: some View {
         if controller.error != nil {
@@ -6290,7 +6328,7 @@ struct PlayerView: View {
     /// Told when the title played to its end, before the player closes, so
     /// the screen beneath can lead on from it.
     var onReachedEnd: (() -> Void)? = nil
-    @StateObject private var controller: VLCPlaybackController
+    @StateObject private var controller: TVPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
     @State private var currentChannel: XtreamStream?
@@ -6315,7 +6353,7 @@ struct PlayerView: View {
     /// preview still playing rather than stopping it.
     @State private var continuesPreview: Bool
     /// What the preview does when its channel fails, put back with it.
-    @State private var previewFailover: VLCPlaybackController.FailoverContext? = nil
+    @State private var previewFailover: TVPlaybackController.FailoverContext? = nil
     @State private var choosingGame: SportsGame? = nil
     @State private var pickedChannel: TVPickedChannel? = nil
     @State private var scopingChannel: TVPickedChannel? = nil
@@ -6362,7 +6400,7 @@ struct PlayerView: View {
         self.onChannelChange = onChannelChange
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
-        _controller = StateObject(wrappedValue: preview?.controller ?? VLCPlaybackController())
+        _controller = StateObject(wrappedValue: preview?.controller ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
         _channelProgram = State(initialValue: program)
@@ -6387,7 +6425,7 @@ struct PlayerView: View {
 
     var body: some View {
         ZStack {
-            VLCHostedSurface(controller: controller, fullScreen: true)
+            TVHostedSurface(controller: controller, fullScreen: true)
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .background(Color.black).ignoresSafeArea()
             // Hiding the chrome removes every focusable view, and the remote
@@ -6793,7 +6831,7 @@ private struct TVPlayerChrome: View {
     let program: CurrentProgram?
     let synopsis: TVPlayerSynopsis?
     let isLive: Bool
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
     /// The channel Last Channel goes back to, when there is one.
     let lastChannelName: String?
@@ -6865,6 +6903,7 @@ private struct TVPlayerChrome: View {
                                     .foregroundStyle(isLive && controller.catchUp == nil
                                                      ? LineupStyle.liveStatus : LineupStyle.mediaText)
                             }
+                            TVPlaybackEngineBadge(engine: controller.engineKind)
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
@@ -7017,7 +7056,7 @@ private struct TVPlayerChrome: View {
 /// the recording, and on through a recording that reaches the present goes
 /// back to live. Up and down hand focus back to the controls.
 private struct TVCatchUpBar: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
@@ -7194,7 +7233,7 @@ private struct TVGameAlertBanner: View {
 /// controls explicitly: onMoveCommand consumes the press, so without that the
 /// bar would keep focus and trap the viewer on it.
 private struct TVSeekBar: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
@@ -7304,7 +7343,7 @@ private struct TVPlayerMenuLabel: View {
 }
 
 /// Where playback has got to, for the views that show it and nothing else.
-@MainActor private final class PlaybackClock: ObservableObject {
+@MainActor final class PlaybackClock: ObservableObject {
     @Published var elapsed: TimeInterval = 0
 }
 
@@ -7315,18 +7354,60 @@ private struct PlaybackClockReader<Content: View>: View {
     var body: some View { content() }
 }
 
-@MainActor private final class VLCPlaybackController: ObservableObject {
-    let player = VLCMediaPlayer()
-    /// The view VLC draws into, for as long as this player lives. It is
+@MainActor final class TVPlaybackController: ObservableObject {
+    @Published private(set) var engineKind: TVPlaybackEngine
+    private var backend: any TVPlaybackBackend
+    private let defaults: UserDefaults
+    private let backendFactory: @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend
+    private let primaryOutput: Bool
+    private let uptime: @MainActor () -> TimeInterval
+    private let connectionCooldown: TimeInterval
+    private var sourceIsRecording = false
+
+    init(defaults: UserDefaults = .standard, primaryOutput: Bool = true,
+         uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         connectionCooldown: TimeInterval = 1,
+         backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
+        self.defaults = defaults
+        self.primaryOutput = primaryOutput
+        self.uptime = uptime
+        self.connectionCooldown = connectionCooldown
+        self.backendFactory = backendFactory
+        let selected = TVPlaybackEngine.selected(in: defaults)
+        let initial = backendFactory(selected)
+        backend = initial
+        engineKind = initial.kind
+        mountBackend()
+    }
+
+    private func mountBackend() {
+        surface.subviews.forEach { $0.removeFromSuperview() }
+        let picture = backend.surface
+        picture.frame = surface.bounds
+        picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        surface.addSubview(picture)
+    }
+
+    private func selectConfiguredBackend() {
+        let selected = TVPlaybackEngine.selected(in: defaults)
+        guard selected != backend.kind else { return }
+        backend.stop()
+        backend = backendFactory(selected)
+        engineKind = backend.kind
+        mountBackend()
+    }
+
+    var engineTitle: String { engineKind.title }
+    /// The view the selected engine draws into, for as long as this player lives. It is
     /// drawn at the television's size and moved, never resized, between the
-    /// places it is shown; see `VLCHostedSurface`.
+    /// places it is shown; see `TVHostedSurface`.
     let surface: UIView = {
         let view = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         view.backgroundColor = .black
         return view
     }()
     /// Every place showing this player, oldest first.
-    private var hosts: [VLCSurfaceHost] = []
+    private var hosts: [TVSurfaceHost] = []
     /// The channel a Guide preview last opened on this player, so the
     /// preview can tell its own stream from one already moved on.
     var previewChannelID: Int?
@@ -7426,7 +7507,7 @@ private struct PlaybackClockReader<Content: View>: View {
     /// reopened file lists them.
     private var chosenAudioTrack: Int?
     private var chosenVideoTrack: Int?
-    private var chosenSubtitleIndex: Int32?
+    private var chosenSubtitle: PlaybackSubtitleTrack?
     /// What the log last said the stream was doing, so it notes changes
     /// rather than ticks.
     private var loggedCondition: String?
@@ -7441,9 +7522,6 @@ private struct PlaybackClockReader<Content: View>: View {
         // A player let go without being stopped gives up its hold too.
         let id = ObjectIdentifier(self)
         Task { @MainActor in TVScreenAwake.release(id) }
-        // Its last release tears VLC down, which is not for the main thread:
-        // a preview is let go in the middle of the viewer changing tabs.
-        VLCPlayerDisposal.release(player)
     }
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser && catchUp == nil }
@@ -7452,17 +7530,14 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Whether a preview is still there to show the picture.
     var isShownOutsideFullScreen: Bool { hosts.contains { !$0.fullScreen } }
 
-    func show(in host: VLCSurfaceHost) {
+    fileprivate func show(in host: TVSurfaceHost) {
         host.owner = self
         hosts.removeAll { $0 === host }
         hosts.append(host)
-        // Set before anything plays, and never changed after: VLC stops
-        // drawing when it is given another view mid-stream.
-        if player.drawable as? UIView !== surface { player.drawable = surface }
         placeSurface()
     }
 
-    func stopShowing(in host: VLCSurfaceHost) {
+    fileprivate func stopShowing(in host: TVSurfaceHost) {
         hosts.removeAll { $0 === host }
         placeSurface()
     }
@@ -7500,24 +7575,26 @@ private struct PlaybackClockReader<Content: View>: View {
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
                channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true,
-               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil) {
+               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil, recording: Bool = false) {
+        let previousDuration = duration
         restarting = true
         stop()
         restarting = false
+        selectConfiguredBackend()
+        sourceIsRecording = recording
         self.urls = Array(urls.reversed())
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
         self.muted = muted || targetVolume == 0
         self.isLive = isLive
-        if !isLive, let expectedDuration, expectedDuration.isFinite, expectedDuration > 0 {
-            duration = expectedDuration
-        }
+        let durationHint = expectedDuration ?? (keepTrackChoices && previousDuration > 0 ? previousDuration : nil)
+        if !isLive, let durationHint, durationHint.isFinite, durationHint > 0 { duration = durationHint }
         finished = false
         if !keepTrackChoices {
             chosenAudioTrack = nil
             chosenVideoTrack = nil
-            chosenSubtitleIndex = nil
+            chosenSubtitle = nil
         }
         currentChannelID = channelID
         if resetFailover {
@@ -7539,9 +7616,10 @@ private struct PlaybackClockReader<Content: View>: View {
         // failed. The new one waits until the old has had a second to go. A
         // player reopening its own stream needs no wait: VLC finishes closing
         // a player's last stream before it opens that player's next.
-        let now = ProcessInfo.processInfo.systemUptime
-        if let closed = Self.lastStreamClosed, closed.by != ObjectIdentifier(self), now - closed.at < 1 {
-            retryAt = closed.at + 1
+        let now = uptime()
+        if connectionCooldown > 0, let closed = Self.lastStreamClosed,
+           closed.by != ObjectIdentifier(self), now - closed.at < connectionCooldown {
+            retryAt = closed.at + connectionCooldown
             health = freshHealth()
         } else {
             openCurrent()
@@ -7556,41 +7634,25 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func openCurrent() {
-        player.stop()
+        backend.stop()
         resetSubtitles()
         sawPicture = false
         loggedCondition = nil
-        let media = VLCMedia(url: urls[urlIndex])
-        // Five seconds of buffer, for a film as for a channel. Two got a film
-        // started a moment sooner, but a remux fetched from a debrid service
-        // or a news server arrives unevenly, and VLC drops whatever sound is
-        // late when its buffer runs dry: the sound cut out while the picture
-        // carried on.
-        media.addOption(":network-caching=5000")
-        if isLive {
-            media.addOption(":live-caching=5000")
-            // A broadcast can carry a second language -- Spanish, most often
-            // -- and VLC otherwise plays whichever track comes first.
-            media.addOption(":audio-language=en")
-        } else if let place = openingPlace {
-            // Opened at its place -- where it was left off, or where it was
-            // when it dropped -- rather than at its beginning and then moved,
-            // which buffered it twice.
-            media.addOption(":start-time=\(place)")
-        }
-        let transport = urls.count > 1 ? " over " + urls[urlIndex].pathExtension.uppercased() : ""
         let place = isLive ? nil : openingPlace
-        log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream" + transport
+        log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream with " + engineTitle
             + (place.map { " at " + PlaybackJournal.clock($0) } ?? ""))
-        media.addOption(":http-reconnect=true")
-        player.media = media
+        let fullscreen: Bool
+        if case .fullScreen? = watched { fullscreen = true } else { fullscreen = false }
+        backend.load(url: urls[urlIndex], startPosition: place, isLive: isLive && !sourceIsRecording,
+                     expectedDuration: !isLive && duration > 0 ? duration : nil,
+                     primary: fullscreen || (watched != nil && primaryOutput), matchContent: fullscreen)
         health = freshHealth()
         retryAt = nil
         setMuted(muted)
-        player.audio?.volume = targetVolume
-        player.play()
+        backend.volume = targetVolume
+        backend.play()
         setMuted(muted)
-        player.audio?.volume = targetVolume
+        backend.volume = targetVolume
     }
 
     /// Where a recorded title's stream is opened: back where it was after a
@@ -7613,21 +7675,22 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Position has to keep updating while paused too, so the bar still reads
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
-        let length = Double(player.media?.length.intValue ?? 0) / 1000
-        if length > 0, length != duration { duration = length }
-        let time = Double(player.time.intValue) / 1000
+        let length = backend.duration
+        if length.isFinite, length > 0, length != duration { duration = length }
+        let time = backend.time
+        guard time.isFinite else { return }
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
             // from nothing, and showing or saving that would lose the
             // viewer's place. The last good position stands in meanwhile.
             // Only the reopened stream is judged: until it is playing, the
             // stopped one is still the player's media.
-            guard retryAt == nil, player.isPlaying, length > 0, time > 0 else { return }
+            guard retryAt == nil, backend.isPlaying, length > 0, time > 0 else { return }
             let target = min(max(reopenPosition, 0), max(duration - 1, 0))
             if opened(at: target, time: time) {
                 elapsed = time
             } else {
-                player.position = Float(target / duration)
+                backend.seek(to: target)
                 elapsed = target
             }
             self.reopenPosition = nil
@@ -7637,12 +7700,12 @@ private struct PlaybackClockReader<Content: View>: View {
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
             // The place it was left off holds the bar until the picture is
             // there, rather than a zero that jumps.
-            guard player.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
+            guard backend.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
             let target = min(max(requestedInitialPosition, 0), duration - 1)
             if opened(at: target, time: time) {
                 elapsed = time
             } else {
-                player.position = Float(target / duration)
+                backend.seek(to: target)
                 elapsed = target
             }
             appliedInitialPosition = true
@@ -7652,21 +7715,19 @@ private struct PlaybackClockReader<Content: View>: View {
         // was playing stands until it plays again, so neither the bar, nor
         // the place saved, nor the place it is reopened at is lost with it:
         // reopening "where it was" from a zero started films over.
-        if time <= 0, !player.isPlaying, elapsed > 0 { return }
+        if time <= 0, !backend.isPlaying, elapsed > 0 { return }
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
 
-    /// Steps by `seconds` and clamps inside the item. Uses `position` rather
-    /// than a time jump because it is the one seek API this VLCKit exposes
-    /// consistently.
+    /// Steps by `seconds` and clamps inside the item through the active engine.
     func seek(by seconds: TimeInterval) {
         guard duration > 0 else { return }
         let target = min(max(elapsed + seconds, 0), max(duration - 1, 0))
-        player.position = Float(target / duration)
+        backend.seek(to: target)
         elapsed = target
     }
 
-    private func checkPlayback() {
+    func checkPlayback() {
         holdAudioLevel()
         updateProgress()
         followRecordingIntoNextProgramme()
@@ -7676,7 +7737,7 @@ private struct PlaybackClockReader<Content: View>: View {
         holdScreenAwake()
         noteCondition()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = uptime()
         guard UIApplication.shared.applicationState == .active else {
             health = freshHealth()
             return
@@ -7690,7 +7751,7 @@ private struct PlaybackClockReader<Content: View>: View {
         // A channel has only stopped or ended once it has played since it was
         // opened, or once it has had long enough to; before that it is judged
         // by whether a picture comes at all.
-        let state = player.state
+        let state = backend.state
         let failed = state == .error
             || ((state == .ended || state == .stopped)
                 && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
@@ -7698,16 +7759,17 @@ private struct PlaybackClockReader<Content: View>: View {
         // stop anywhere earlier is a dropped stream, reopened below.
         if !isLive, reopenPosition == nil,
            LocalMediaTrackingPolicy.reachedEnd(ended: state == .ended, failed: failed,
-               hasPlayed: sawPicture, position: elapsed, duration: duration, fraction: Double(player.position)) {
+               hasPlayed: sawPicture, position: elapsed, duration: duration, fraction: duration > 0 ? elapsed / duration : 0) {
             log("Reached the end at \(PlaybackJournal.clock(elapsed)) of \(PlaybackJournal.clock(duration))")
             finish()
             return
         }
         // What has been read from the server tells a feed VLC is catching up
         // on from one that has stopped coming.
-        let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
-            time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures,
-            bytes: player.media?.numberOfReadBytesOnInput, failed: failed)
+        let recover = health.observe(now: now, playing: backend.isPlaying, video: backend.hasVideoOut,
+            time: backend.time.isFinite ? Int32(clamping: Int64(min(max(backend.time * 1000, 0), Double(Int32.max)))) : 0,
+            frames: backend.frames,
+            bytes: backend.bytes, failed: failed)
         if health.isStable(now: now) {
             retries.reset()
             if let id = pendingWorkingChannelID, id == currentChannelID {
@@ -7715,11 +7777,11 @@ private struct PlaybackClockReader<Content: View>: View {
                 failover?.didPlay(id)
             }
         }
-        if isPlaying != player.isPlaying { isPlaying = player.isPlaying }
-        if player.isPlaying && player.hasVideoOut {
+        if isPlaying != backend.isPlaying { isPlaying = backend.isPlaying }
+        if backend.isPlaying && backend.hasVideoOut {
             if reconnecting { reconnecting = false }
             sawPicture = true
-            let height = Int(player.videoSize.height)
+            let height = Int(backend.videoSize.height)
             if height > 0, height != videoHeight { videoHeight = height }
         }
         guard recover else { return }
@@ -7732,14 +7794,14 @@ private struct PlaybackClockReader<Content: View>: View {
         case .neverPlayed:
             reason = "No picture came within 30 seconds"
         case .failed, nil:
-            reason = "VLC reported the stream " + Self.describe(state)
+            reason = engineTitle + " reported the stream " + Self.describe(state)
         }
         // A channel the server closed while it played is opened again at once
         // on the same address, as other players do. Waiting, then trying the
         // other address, turned a moment's drop into a long "Reconnecting".
         let droppedWhilePlaying = isLive && health.stall == .failed && state != .error && health.hasShownPicture
         let neverPlayed = !health.hasShownPicture
-        player.stop()
+        backend.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
         if !isLive, reopenPosition == nil, elapsed > 0 {
@@ -7791,7 +7853,7 @@ private struct PlaybackClockReader<Content: View>: View {
     func setMuted(_ muted: Bool) {
         self.muted = muted
         isMuted = muted
-        player.audio?.isMuted = muted
+        backend.isMuted = muted
     }
 
     /// Bring this picture's sound in or out over a moment instead of cutting
@@ -7805,12 +7867,12 @@ private struct PlaybackClockReader<Content: View>: View {
         targetVolume = target
         if audible && muted {
             // Up from silence, never from wherever the level was left.
-            player.audio?.volume = 0
+            backend.volume = 0
             setMuted(false)
         }
-        let start = muted ? 0 : max(0, player.audio?.volume ?? target)
+        let start = muted ? 0 : max(0, backend.volume)
         guard duration > 0, start != target else {
-            player.audio?.volume = target
+            backend.volume = target
             if !audible { setMuted(true) }
             return
         }
@@ -7822,7 +7884,7 @@ private struct PlaybackClockReader<Content: View>: View {
                 // Eased at both ends, so the change has no audible corner.
                 let t = Double(step) / Double(steps)
                 let eased = t * t * (3 - 2 * t)
-                self.player.audio?.volume = Int32((Double(start) + Double(target - start) * eased).rounded())
+                self.backend.volume = Int32((Double(start) + Double(target - start) * eased).rounded())
             }
             guard let self, !Task.isCancelled else { return }
             if !audible { self.setMuted(true) }
@@ -7839,12 +7901,11 @@ private struct PlaybackClockReader<Content: View>: View {
     /// the same mute twice a second -- while paused too -- kept restarting
     /// the sound under a playing picture.
     private func holdAudioLevel() {
-        guard let audio = player.audio else { return }
         // Turned down to nothing and not fading: muted, however it got here.
         if fadeTask == nil, targetVolume == 0, !muted { setMuted(true) }
-        if audio.isMuted != muted { audio.isMuted = muted }
-        guard fadeTask == nil, audio.volume != targetVolume else { return }
-        audio.volume = targetVolume
+        if backend.isMuted != muted { backend.isMuted = muted }
+        guard fadeTask == nil, backend.volume != targetVolume else { return }
+        backend.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
     func retry() {
@@ -7852,7 +7913,7 @@ private struct PlaybackClockReader<Content: View>: View {
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
         start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
-              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true)
+              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
     /// from its beginning -- and stays a film. Restart used to reopen it as a
@@ -7877,7 +7938,7 @@ private struct PlaybackClockReader<Content: View>: View {
     func togglePlayback() {
         pausedByUser.toggle()
         if pausedByUser {
-            player.pause()
+            backend.pause()
             // A channel the provider records picks up from here, however
             // long the pause: the broadcast doesn't wait, but its recording
             // does.
@@ -7891,9 +7952,9 @@ private struct PlaybackClockReader<Content: View>: View {
         } else {
             pausedAt = nil
             health = freshHealth()
-            if retryAt == nil { player.play() }
+            if retryAt == nil { backend.play() }
         }
-        isPlaying = player.isPlaying
+        isPlaying = backend.isPlaying
         holdScreenAwake()
     }
 
@@ -7962,8 +8023,8 @@ private struct PlaybackClockReader<Content: View>: View {
         }
         // Within the open stream, when the server lets it be moved through.
         let offset = target.timeIntervalSince(catchUp.streamStart)
-        if skipTarget == nil, player.isSeekable, offset >= 0, offset <= max(elapsed, 0) + 60 {
-            player.time = VLCTime(int: Int32(offset * 1000))
+        if skipTarget == nil, backend.isSeekable, offset >= 0, offset <= max(elapsed, 0) + 60 {
+            backend.seek(to: offset)
             elapsed = offset
             return
         }
@@ -8006,7 +8067,7 @@ private struct PlaybackClockReader<Content: View>: View {
         pausedAt = nil
         // `start` tries the last address first, as it does a channel's two.
         start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
-              resetFailover: false, isLive: true, keepTrackChoices: true)
+              resetFailover: false, isLive: true, keepTrackChoices: true, recording: true)
         catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
                                   title: title, streamStart: begin)
     }
@@ -8051,22 +8112,15 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
-        player.currentVideoSubTitleIndex = Int32(track.engineIndex ?? -1)
+        backend.selectSubtitle(index: track.engineIndex)
         selectedSubtitleID = track.id
-        chosenSubtitleIndex = Int32(track.engineIndex ?? -1)
+        chosenSubtitle = track
     }
 
-    /// VLCKit discovers tracks only after the container starts parsing. The
-    /// playback monitor is already the one place sampled on that cadence, so
-    /// refresh here and publish only when the list or selection actually
-    /// changes. No second timer and no UI churn while a film is playing.
     private func refreshSubtitleTracks() {
-        let names = (player.videoSubTitlesNames as? [String]) ?? []
-        let indexes = ((player.videoSubTitlesIndexes as? [NSNumber]) ?? []).map(\.intValue)
-        let discovered = PlaybackSubtitleTrack.vlcTracks(names: names, indexes: indexes)
+        let discovered = backend.subtitles
         if discovered != subtitleTracks { subtitleTracks = discovered }
-        let current = Int(player.currentVideoSubTitleIndex)
-        let selected = discovered.first(where: { $0.engineIndex == current })?.id
+        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }?.id
             ?? PlaybackSubtitleTrack.off.id
         if selected != selectedSubtitleID { selectedSubtitleID = selected }
     }
@@ -8081,55 +8135,39 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectAudioTrack(_ track: PlaybackStreamTrack) {
-        player.currentAudioTrackIndex = Int32(track.id)
+        backend.selectAudio(index: track.id)
         selectedAudioTrackID = track.id
         chosenAudioTrack = track.id
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
-        player.currentVideoTrackIndex = Int32(track.id)
+        backend.selectVideo(index: track.id)
         selectedVideoTrackID = track.id
         chosenVideoTrack = track.id
     }
 
-    /// The viewer's tracks put back on a reopened file, once it lists them:
-    /// the same file numbers its tracks the same way.
     private func restoreTrackChoices() {
         if let chosen = chosenAudioTrack, audioTracks.contains(where: { $0.id == chosen }),
-           Int(player.currentAudioTrackIndex) != chosen {
-            player.currentAudioTrackIndex = Int32(chosen)
+           backend.selectedAudioIndex != chosen {
+            backend.selectAudio(index: chosen)
             log("Put the chosen audio track back")
         }
         if let chosen = chosenVideoTrack, videoTracks.contains(where: { $0.id == chosen }),
-           Int(player.currentVideoTrackIndex) != chosen {
-            player.currentVideoTrackIndex = Int32(chosen)
-        }
-        if let chosen = chosenSubtitleIndex, player.currentVideoSubTitleIndex != chosen,
-           chosen < 0 || subtitleTracks.contains(where: { $0.engineIndex == Int(chosen) }) {
-            player.currentVideoSubTitleIndex = chosen
+           backend.selectedVideoIndex != chosen { backend.selectVideo(index: chosen) }
+        if let chosen = chosenSubtitle, backend.selectedSubtitleIndex != chosen.engineIndex,
+           chosen.engineIndex == nil || subtitleTracks.contains(where: { $0.engineIndex == chosen.engineIndex }) {
+            backend.selectSubtitle(index: chosen.engineIndex)
         }
     }
 
-    /// The file's audio and video streams, read on the same cadence as its
-    /// subtitles and published only when something changed, so a film that
-    /// is simply playing causes no redraw.
     private func refreshStreamTracks() {
-        let audio = PlaybackStreamTrack.vlcTracks(
-            names: (player.audioTrackNames as? [String]) ?? [],
-            indexes: ((player.audioTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
-            kind: "Audio")
+        let audio = backend.audioTracks
         if audio != audioTracks { audioTracks = audio }
-        let audioIndex = Int(player.currentAudioTrackIndex)
-        let audioID: Int? = audio.contains(where: { $0.id == audioIndex }) ? audioIndex : nil
+        let audioID = backend.selectedAudioIndex.flatMap { index in audio.first { $0.id == index }?.id }
         if audioID != selectedAudioTrackID { selectedAudioTrackID = audioID }
-
-        let video = PlaybackStreamTrack.vlcTracks(
-            names: (player.videoTrackNames as? [String]) ?? [],
-            indexes: ((player.videoTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
-            kind: "Video")
+        let video = backend.videoTracks
         if video != videoTracks { videoTracks = video }
-        let videoIndex = Int(player.currentVideoTrackIndex)
-        let videoID: Int? = video.contains(where: { $0.id == videoIndex }) ? videoIndex : nil
+        let videoID = backend.selectedVideoIndex.flatMap { index in video.first { $0.id == index }?.id }
         if videoID != selectedVideoTrackID { selectedVideoTrackID = videoID }
     }
 
@@ -8151,11 +8189,10 @@ private struct PlaybackClockReader<Content: View>: View {
         duration = 0
         elapsed = 0
         resetSubtitles()
-        if player.media != nil {
-            Self.lastStreamClosed = (ProcessInfo.processInfo.systemUptime, ObjectIdentifier(self))
+        if backend.isOpen {
+            Self.lastStreamClosed = (uptime(), ObjectIdentifier(self))
         }
-        player.stop()
-        player.media = nil
+        backend.stop()
         if !restarting {
             skipTask?.cancel()
             skipTarget = nil
@@ -8173,7 +8210,7 @@ private struct PlaybackClockReader<Content: View>: View {
     /// gone. A film on a slow link can buffer for longer and come back by
     /// itself, and reopening it costs the buffer it was filling.
     private func freshHealth() -> LivePlaybackHealth {
-        LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30)
     }
 
     /// The end of a film or an episode: the monitor stops, and the position
@@ -8205,10 +8242,10 @@ private struct PlaybackClockReader<Content: View>: View {
     private func noteCondition() {
         guard watched != nil else { return }
         let condition: String?
-        switch player.state {
-        case .playing where player.hasVideoOut: condition = "Playing"
+        switch backend.state {
+        case .playing where backend.hasVideoOut: condition = "Playing"
         case .paused: condition = pausedByUser ? "Paused" : nil
-        case .ended, .error, .stopped: condition = retryAt == nil ? "Stream " + Self.describe(player.state) : nil
+        case .ended, .error, .stopped: condition = retryAt == nil ? "Stream " + Self.describe(backend.state) : nil
         default: condition = nil
         }
         guard let condition, condition != loggedCondition else { return }
@@ -8225,7 +8262,7 @@ private struct PlaybackClockReader<Content: View>: View {
         }
     }
 
-    private static func describe(_ state: VLCMediaPlayerState) -> String {
+    private static func describe(_ state: TVPlaybackState) -> String {
         switch state {
         case .ended: "ended"
         case .error: "failed"
@@ -8266,10 +8303,24 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 }
 
-@MainActor private func configureGameFailover(_ controller: VLCPlaybackController,
+private struct TVPlaybackEngineBadge: View {
+    let engine: TVPlaybackEngine
+    var body: some View {
+        Text(engine.title)
+            .font(.inter(13, .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel("Playback engine: \(engine.title)")
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+            .allowsHitTesting(false)
+    }
+}
+
+@MainActor private func configureGameFailover(_ controller: TVPlaybackController,
                                                game: SportsGame, library: SportsLibrary,
                                                chooseChannel: @escaping @MainActor () -> Void) {
-    controller.failover = VLCPlaybackController.FailoverContext(
+    controller.failover = TVPlaybackController.FailoverContext(
         plan: { library.failoverPlan(for: game) },
         urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
         didPlay: { id in
@@ -8281,7 +8332,7 @@ private struct PlaybackClockReader<Content: View>: View {
 }
 
 private struct TVPlaybackStatus: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     var body: some View {
         if let error = controller.error {
             VStack(spacing: 16) {
@@ -8317,27 +8368,27 @@ private struct TVPlaybackStatus: View {
 /// reopened or rebuffered, and the picture carries straight on. Handing VLC
 /// a new view to draw into instead stops the picture while the sound plays
 /// on.
-private struct VLCHostedSurface: UIViewRepresentable {
-    let controller: VLCPlaybackController
+private struct TVHostedSurface: UIViewRepresentable {
+    let controller: TVPlaybackController
     /// Full screen comes in front of the preview it was opened from.
     var fullScreen = false
 
-    func makeUIView(context: Context) -> VLCSurfaceHost {
-        let host = VLCSurfaceHost(fullScreen: fullScreen)
+    func makeUIView(context: Context) -> TVSurfaceHost {
+        let host = TVSurfaceHost(fullScreen: fullScreen)
         controller.show(in: host)
         return host
     }
 
-    func updateUIView(_ host: VLCSurfaceHost, context: Context) {}
+    func updateUIView(_ host: TVSurfaceHost, context: Context) {}
 
-    static func dismantleUIView(_ host: VLCSurfaceHost, coordinator: ()) {
+    static func dismantleUIView(_ host: TVSurfaceHost, coordinator: ()) {
         host.owner?.stopShowing(in: host)
     }
 }
 
-private final class VLCSurfaceHost: UIView {
+private final class TVSurfaceHost: UIView {
     let fullScreen: Bool
-    weak var owner: VLCPlaybackController?
+    weak var owner: TVPlaybackController?
 
     init(fullScreen: Bool) {
         self.fullScreen = fullScreen
@@ -8394,13 +8445,13 @@ private struct TVFullScreenItem: Identifiable {
 /// game picking up a few seconds on. The preview's own player now goes full
 /// screen, and comes back to the preview after, without a break.
 final class TVPreviewHandoff {
-    fileprivate let controller: VLCPlaybackController
-    fileprivate init(_ controller: VLCPlaybackController) { self.controller = controller }
+    fileprivate let controller: TVPlaybackController
+    fileprivate init(_ controller: TVPlaybackController) { self.controller = controller }
 
     private final class Entry {
         let channelID: Int
-        weak var controller: VLCPlaybackController?
-        init(channelID: Int, controller: VLCPlaybackController) {
+        weak var controller: TVPlaybackController?
+        init(channelID: Int, controller: TVPlaybackController) {
             self.channelID = channelID
             self.controller = controller
         }
@@ -8409,14 +8460,14 @@ final class TVPreviewHandoff {
     @MainActor private static var previews: [Entry] = []
 
     /// A preview has opened this channel.
-    @MainActor fileprivate static func previewing(_ channelID: Int, in controller: VLCPlaybackController) {
+    @MainActor fileprivate static func previewing(_ channelID: Int, in controller: TVPlaybackController) {
         previews.removeAll { $0.controller == nil || $0.controller === controller }
         previews.append(Entry(channelID: channelID, controller: controller))
     }
 
     /// Stops every preview but this player. A preview covered by full screen
     /// opens again when it is uncovered.
-    @MainActor fileprivate static func stopPreviews(except kept: VLCPlaybackController) {
+    @MainActor fileprivate static func stopPreviews(except kept: TVPlaybackController) {
         for entry in previews {
             guard let controller = entry.controller, controller !== kept, controller.isOpen else { continue }
             controller.lentToFullScreen = false
@@ -8432,55 +8483,5 @@ final class TVPreviewHandoff {
               controller.isOpen else { return nil }
         controller.lentToFullScreen = true
         return TVPreviewHandoff(controller)
-    }
-}
-
-/// A video surface that VLC draws into at one fixed size, scaled to fit
-/// whatever size it is shown at.
-///
-/// Resizing the view VLC draws into makes it rebuild its output, which is a
-/// hitch in the picture. Here the drawn-into view keeps its size and only its
-/// transform changes, so a picture can grow, shrink and move while it plays.
-private struct ScaledVLCVideoSurface: UIViewRepresentable {
-    let player: VLCMediaPlayer
-    let renderSize: CGSize
-
-    func makeUIView(context: Context) -> ScaledVideoContainer {
-        let view = ScaledVideoContainer()
-        view.renderSize = renderSize
-        player.drawable = view.surface
-        return view
-    }
-
-    func updateUIView(_ view: ScaledVideoContainer, context: Context) {
-        view.renderSize = renderSize
-        if player.drawable == nil { player.drawable = view.surface }
-    }
-}
-
-private final class ScaledVideoContainer: UIView {
-    let surface = UIView()
-    var renderSize: CGSize = .zero {
-        didSet { if renderSize != oldValue { setNeedsLayout() } }
-    }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .black
-        clipsToBounds = true
-        surface.backgroundColor = .black
-        addSubview(surface)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let drawn = renderSize.width > 0 && renderSize.height > 0 ? renderSize : bounds.size
-        guard drawn.width > 0, drawn.height > 0 else { return }
-        let scale = min(bounds.width / drawn.width, bounds.height / drawn.height)
-        if surface.bounds.size != drawn { surface.bounds = CGRect(origin: .zero, size: drawn) }
-        surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        surface.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 }

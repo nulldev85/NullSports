@@ -4,3 +4,5 @@ Lineup/Assets/IconSource/
 package/
 *.xcodeproj/
 xcuserdata/
+Tests/tvOS/Fixtures/playback.mkv
+Tests/tvOS/Fixtures/playback.srt
