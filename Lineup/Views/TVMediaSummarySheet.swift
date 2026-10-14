@@ -51,7 +51,7 @@ struct TVMediaSummarySheet: View {
 
     private var textHeight: CGFloat {
         let bounds = TVSummaryText.attributed(summary).boundingRect(
-            with: CGSize(width: 1040, height: .greatestFiniteMagnitude),
+            with: CGSize(width: 1040, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         return min(max(ceil(bounds.height) + 16, 100), 460)
     }
