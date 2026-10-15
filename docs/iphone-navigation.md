@@ -35,10 +35,12 @@ scrolling, controller preservation, and a real SwiftUI navigation path pop.
 The Guide measures where navigation overlaps its full available region and
 shortens the vertical list's viewport by that amount. The measured region
 keeps its full height, so shrinking the list cannot change the measurement.
-SwiftUI owns the zero bottom scroll margins; UIKit does not overwrite them.
-The end-of-list test uses the production viewport component and checks the
-visible list edge, zero extra inset, and exact last-row alignment through
-custom/glass/custom switches.
+SwiftUI adds no extra bottom content margin. Its native glass bar can still
+extend the UIKit scroller beneath navigation with an adjusted bottom inset;
+the custom panel uses a shorter viewport. The end-of-list test measures the
+usable edge (frame bottom minus adjusted bottom inset) and exact last-row
+alignment through custom/glass/custom switches. It does not require the native
+glass scroller to have a zero inset.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

@@ -547,8 +547,8 @@ struct MobileGuideView: View {
                         .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
-                    // The viewport ends above navigation. SwiftUI owns these
-                    // zero margins; UIKit does not rewrite its content insets.
+                    // Add no extra bottom margin. SwiftUI still owns the
+                    // native glass bar's adjusted scroll inset.
                     .contentMargins(.bottom, 0, for: .scrollContent)
                     .contentMargins(.bottom, 0, for: .scrollIndicators)
                     .frame(height: listHeight)
@@ -774,7 +774,8 @@ private struct FavoritesOrderView: View {
 
 /// Measure the full Guide region, which stays the same height when the inner
 /// list shrinks. This avoids feedback from measuring the list being resized.
-/// The list's frame stops at navigation; scroll insets remain SwiftUI-owned.
+/// The usable list ends at navigation. SwiftUI can extend its UIKit scroller
+/// beneath the native glass bar and reserve that area with its own inset.
 struct MobileGuideViewport<Content: View>: View {
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation

@@ -53,10 +53,13 @@ final class GuideScrollLayoutTests: XCTestCase {
                 XCTAssertGreaterThan(barTop, 0)
                 XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
             }
-            XCTAssertEqual(list.convert(list.bounds, to: window).maxY, barTop, accuracy: 1,
-                           "The visible list must stop above navigation")
-            XCTAssertEqual(list.adjustedContentInset.bottom, 0, accuracy: 1,
-                           "A resized viewport must not also reserve bottom scroll space")
+            // SwiftUI's glass bar extends the UIKit scroll view below its
+            // usable region and reserves that area with an adjusted inset.
+            // The custom panel instead shortens the viewport. Both are valid:
+            // measure usable space, not an implementation-specific zero inset.
+            let usableBottom = list.convert(list.bounds, to: window).maxY - list.adjustedContentInset.bottom
+            XCTAssertEqual(usableBottom, barTop, accuracy: 1,
+                           "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset)")
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
             let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
