@@ -11,6 +11,9 @@ order and restore the default. A local preference drives both the native and
 custom bars. Selection uses stable destination tags; custom return-home logic
 resolves the saved visual order. Tab pages retain stable SwiftUI identities.
 The custom bar's full-width background is removed; its own panel is retained.
+Library artwork remains clear behind the status bar and options button.
+Its home and full-bleed detail screens hide the navigation bar background and,
+on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffecthidden(_:for:)).
 The Guide applies measured bottom navigation coverage once, without an
 additional inherited home-indicator margin. Its existing layout regression
 checks exact last-row alignment across repeated custom/native style switches.
@@ -47,6 +50,9 @@ Device review:
 - Drag Settings, Search and Library to new positions. Switch navigation styles,
   relaunch, and confirm tapping each destination and returning home still work.
 - Check the floating custom bar against Library artwork and other page colors.
+- At the top of Library and title details, check that artwork stays sharp behind
+  the status bar and toolbar buttons in both navigation styles, including after
+  scrolling down and returning to the top.
 - Open Catch Up, Choose Another Channel, Accent Color, its mixer, provider/server
   setup and Library dialogs. Check readable, themed close/Done buttons.
 - Type and clear a long channel search with a large provider, then type quickly

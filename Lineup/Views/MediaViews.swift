@@ -107,7 +107,7 @@ struct MediaServersView: View {
                 MobileDropdownLayer(isPresented: optionsOpen, title: "Library", symbol: "rectangle.stack",
                                     sections: optionsSections) { setOptions(false) }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(ClearLibraryHeader())
             .toolbar {
                 LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
@@ -2259,6 +2259,25 @@ private struct MediaFolderScreen: View {
     }
 }
 
+/// Keep Library artwork clear behind the status bar and its own toolbar
+/// controls. The scroll-edge effect is separate from the bar background.
+private struct ClearLibraryHeader: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        if #available(iOS 26.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            content.toolbarBackground(.hidden, for: .navigationBar)
+        }
+        #endif
+    }
+}
+
 /// On iPhone the hero art runs to the very top of the screen, under a
 /// navigation bar carrying no background of its own.
 ///
@@ -2276,7 +2295,7 @@ private struct FullBleedHeader: ViewModifier {
         content
             .ignoresSafeArea(edges: .top)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(ClearLibraryHeader())
         #endif
     }
 }
