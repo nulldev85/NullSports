@@ -33,7 +33,7 @@ final class GuideScrollLayoutTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
         // Time for the measured Guide viewport to settle.
-        for glass in [false, true, false] {
+        for glass in [false, true, false, true, false] {
             model.glass = glass
             for _ in 0..<10 {
                 try await Task.sleep(for: .milliseconds(100))
@@ -58,8 +58,12 @@ final class GuideScrollLayoutTests: XCTestCase {
             // The custom panel instead shortens the viewport. Both are valid:
             // measure usable space, not an implementation-specific zero inset.
             let usableBottom = list.convert(list.bounds, to: window).maxY - list.adjustedContentInset.bottom
+            let measurement = try XCTUnwrap(window.firstSubview(of: MobileGuideViewportMeasurement.Probe.self))
             XCTAssertEqual(usableBottom, barTop, accuracy: 1,
-                           "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset)")
+                           "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset), "
+                           + "measured clearance \(String(describing: measurement.reported)), "
+                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: measurement)), "
+                           + "measurement safe area \(measurement.safeAreaInsets)")
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
             let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
@@ -73,6 +77,51 @@ final class GuideScrollLayoutTests: XCTestCase {
             attachment.name = "Guide-last-row-\(glass ? "glass" : "custom")"
             attachment.lifetime = .keepAlways
             add(attachment)
+        }
+    }
+
+    /// A native bar can finish appearing after the representable's update,
+    /// without resizing the full Guide region. No SwiftUI state update or
+    /// manual requestMeasurement is sent between these UIKit changes.
+    @MainActor
+    func testNativeBarVisibilityRemeasuresTheGuideAfterItsInitialLayout() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native glass requires iOS 26") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        page.extendedLayoutIncludesOpaqueBars = true
+        page.tabBarItem = UITabBarItem(title: "TV Guide", image: UIImage(systemName: "tv"), tag: 1)
+        let tabs = UITabBarController()
+        tabs.setViewControllers([page], animated: false)
+        tabs.setTabBarHidden(true, animated: false)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        let probe = MobileGuideViewportMeasurement.Probe(frame: page.view.bounds)
+        probe.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        probe.usesLineupNavigation = false
+        var reported: CGFloat?
+        probe.onChange = { reported = $0 }
+        page.view.addSubview(probe)
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(50))
+            window.layoutIfNeeded()
+        }
+        XCTAssertNotNil(reported)
+        for hidden in [false, true, false] {
+            tabs.setTabBarHidden(hidden, animated: false)
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(50))
+                window.layoutIfNeeded()
+            }
+            let expected = MobileGuideScrollConfiguration.bottomOverlap(of: probe, usesLineupNavigation: false)
+            XCTAssertEqual(try XCTUnwrap(reported), expected, accuracy: 1,
+                           "The measurement must follow late native bar visibility changes: hidden \(hidden)")
+            if !hidden {
+                XCTAssertGreaterThan(expected, 0, "The native bar must overlap the full Guide region in this fixture")
+            }
         }
     }
 }

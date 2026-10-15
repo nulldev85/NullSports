@@ -35,12 +35,21 @@ scrolling, controller preservation, and a real SwiftUI navigation path pop.
 The Guide measures where navigation overlaps its full available region and
 shortens the vertical list's viewport by that amount. The measured region
 keeps its full height, so shrinking the list cannot change the measurement.
+The reading follows UIKit safe-area changes and SwiftUI's safe-area geometry,
+as well as ordinary layout. A native tab bar can finish appearing after the
+style update without changing the Guide's bounds; measuring only that earlier
+update left the last channel behind the bar. Native mode also ignores a custom
+panel boundary still present during the outgoing transition. UIKit's
+[safe-area callback](https://developer.apple.com/documentation/uikit/uiview/safeareainsetsdidchange())
+invalidates the measurement when bar visibility changes.
 SwiftUI adds no extra bottom content margin. Its native glass bar can still
 extend the UIKit scroller beneath navigation with an adjusted bottom inset;
 the custom panel uses a shorter viewport. The end-of-list test measures the
 usable edge (frame bottom minus adjusted bottom inset) and exact last-row
-alignment through custom/glass/custom switches. It does not require the native
-glass scroller to have a zero inset.
+alignment through repeated custom/glass switches. A separate UIKit regression
+check shows and hides the native bar after initial layout, without a SwiftUI
+state update or manual measurement request. Neither test assumes a fixed tab
+bar height or requires the native glass scroller to have a zero inset.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

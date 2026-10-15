@@ -547,8 +547,8 @@ struct MobileGuideView: View {
                         .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
-                    // Add no extra bottom margin. SwiftUI still owns the
-                    // native glass bar's adjusted scroll inset.
+                    // The measured viewport reserves navigation space. Keep
+                    // SwiftUI from adding another bottom content margin.
                     .contentMargins(.bottom, 0, for: .scrollContent)
                     .contentMargins(.bottom, 0, for: .scrollIndicators)
                     .frame(height: listHeight)
@@ -774,8 +774,8 @@ private struct FavoritesOrderView: View {
 
 /// Measure the full Guide region, which stays the same height when the inner
 /// list shrinks. This avoids feedback from measuring the list being resized.
-/// The usable list ends at navigation. SwiftUI can extend its UIKit scroller
-/// beneath the native glass bar and reserve that area with its own inset.
+/// The usable list ends at navigation, including when native bar visibility
+/// changes only the safe area rather than this region's frame.
 struct MobileGuideViewport<Content: View>: View {
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -790,17 +790,21 @@ struct MobileGuideViewport<Content: View>: View {
             let listHeight = max(0, viewport.size.height - 40 - bottomClearance)
             content(viewport, listHeight)
                 .frame(width: viewport.size.width, height: viewport.size.height, alignment: .topLeading)
-                .background(MobileGuideViewportMeasurement(usesLineupNavigation: usesLineupNavigation) {
+                .background(MobileGuideViewportMeasurement(usesLineupNavigation: usesLineupNavigation,
+                                                           safeAreaBottom: viewport.safeAreaInsets.bottom) {
                     bottomClearance = $0
                 })
         }
     }
 }
 
-private struct MobileGuideViewportMeasurement: UIViewRepresentable {
+struct MobileGuideViewportMeasurement: UIViewRepresentable {
     // Reading this environment-derived value makes a bar style switch request
     // a new measurement even if the full Guide region's bounds do not change.
     let usesLineupNavigation: Bool
+    // A dependency on SwiftUI's safe area also requests a read when it changes
+    // before UIKit has delivered the corresponding probe callback.
+    let safeAreaBottom: CGFloat
     let onChange: (CGFloat) -> Void
 
     func makeUIView(context: Context) -> Probe {
@@ -810,14 +814,16 @@ private struct MobileGuideViewportMeasurement: UIViewRepresentable {
     }
 
     func updateUIView(_ probe: Probe, context: Context) {
+        probe.usesLineupNavigation = usesLineupNavigation
         probe.onChange = onChange
         probe.requestMeasurement()
     }
 
     final class Probe: UIView {
+        var usesLineupNavigation: Bool?
         var onChange: ((CGFloat) -> Void)?
         private var scheduled = false
-        private var reported: CGFloat?
+        private(set) var reported: CGFloat?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -826,6 +832,14 @@ private struct MobileGuideViewportMeasurement: UIViewRepresentable {
 
         override func layoutSubviews() {
             super.layoutSubviews()
+            requestMeasurement()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            // TabView can finish showing its native bar after SwiftUI's
+            // update, without changing this view's bounds. UIKit still
+            // delivers the new safe area; that must invalidate the reading.
             requestMeasurement()
         }
 
@@ -838,7 +852,8 @@ private struct MobileGuideViewportMeasurement: UIViewRepresentable {
                 self.window?.layoutIfNeeded()
                 self.scheduled = false
                 guard self.window != nil, self.bounds.height > 0 else { return }
-                let clearance = MobileGuideScrollConfiguration.bottomOverlap(of: self)
+                let clearance = MobileGuideScrollConfiguration.bottomOverlap(of: self,
+                    usesLineupNavigation: self.usesLineupNavigation)
                 if let reported = self.reported, abs(reported - clearance) <= 0.5 { return }
                 self.reported = clearance
                 self.onChange?(clearance)
@@ -880,10 +895,10 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
 
     /// The part of a view covered by navigation, independent of content offsets
     /// and insets. Production measures the full viewport, not the shorter list.
-    static func bottomOverlap(of view: UIView) -> CGFloat {
+    static func bottomOverlap(of view: UIView, usesLineupNavigation: Bool? = nil) -> CGFloat {
         guard let window = view.window else { return 0 }
         let viewBottom = view.convert(view.bounds, to: window).maxY
-        let customTop = MobileLineupNavigationBoundary.find(in: window).map {
+        let customTop = usesLineupNavigation == false ? nil : MobileLineupNavigationBoundary.find(in: window).map {
             $0.convert($0.bounds, to: window).minY
         }
         let barTop = customTop ?? tabBar(in: window).flatMap { bar -> CGFloat? in
