@@ -62,6 +62,16 @@ References: [TMDB API](https://developer.themoviedb.org/docs/getting-started),
 
 ## Validation
 
+All twelve metadata tests passed in the iPhone simulator on the first default-source
+revision. That run compiled successfully but stopped in other integration tests:
+the playback origin incorrectly served suffix ranges from the start of the file,
+and the picker test changed the search model without changing the text field.
+The origin now serves suffix/open-ended ranges and 416 responses correctly; the
+picker test drives the real field after keyboard focus. HTTP round trips and a
+fast standalone range check cover the fixture correction. Simulator tests run
+serially to avoid contention over shared UI/audio services. The corrected full
+workflow still needs validation before an IPA is confirmed.
+
 Live credentials have been checked against TMDB movie and episode endpoints and
 TVDB login, movie/show details, and official episode lookup. Shared XCTest
 coverage on iOS and tvOS exercises identity preservation, snapshot/history

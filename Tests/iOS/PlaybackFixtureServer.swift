@@ -69,15 +69,17 @@ final class PlaybackFixtureServer: @unchecked Sendable {
             })
             return
         }
-        let rangeLine = request.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("range: bytes=") }
-        let parts = rangeLine?.components(separatedBy: "=").last?.components(separatedBy: "-") ?? []
-        let start = min(max(parts.first.flatMap(Int.init) ?? 0, 0), max(0, media.count - 1))
-        let end = min(max(parts.count > 1 ? Int(parts[1]) ?? media.count - 1 : media.count - 1, start), media.count - 1)
-        let length = end - start + 1
-        var header = "HTTP/1.1 \(rangeLine == nil ? "200 OK" : "206 Partial Content")\r\nContent-Type: \(contentType)\r\nAccept-Ranges: bytes\r\nContent-Length: \(length)\r\nConnection: close\r\n"
-        if rangeLine != nil { header += "Content-Range: bytes \(start)-\(end)/\(media.count)\r\n" }
+        let rangeLine = request.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("range:") }
+        let rangeValue = rangeLine?.split(separator: ":", maxSplits: 1).last.map(String.init)
+        guard let range = PlaybackFixtureByteRange.resolve(rangeValue, count: media.count) else {
+            let header = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */\(media.count)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
+        var header = "HTTP/1.1 \(rangeLine == nil ? "200 OK" : "206 Partial Content")\r\nContent-Type: \(contentType)\r\nAccept-Ranges: bytes\r\nContent-Length: \(range.count)\r\nConnection: close\r\n"
+        if rangeLine != nil { header += "Content-Range: bytes \(range.lowerBound)-\(range.upperBound - 1)/\(media.count)\r\n" }
         var response = Data((header + "\r\n").utf8)
-        if !request.hasPrefix("HEAD ") { response.append(media[start...end]) }
+        if !request.hasPrefix("HEAD ") { response.append(media[range]) }
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
     }
 

@@ -41,6 +41,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B Tests/TeamDirectoryChecks.py
+          swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
+          /tmp/playback-fixture-range-checks
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
           /tmp/matcher-checks
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/daily-checks
@@ -88,6 +90,7 @@ jobs:
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "iPhone" in v["name"]))')
           xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+            -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Export navigation preview screenshots
         if: always()

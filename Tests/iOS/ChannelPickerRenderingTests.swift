@@ -34,6 +34,8 @@ final class ChannelPickerRenderingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(500))
         window.layoutIfNeeded()
         let table = try XCTUnwrap(findTable(in: window))
+        let field = try XCTUnwrap(findSearchField(in: window))
+        try await settle { field.isFirstResponder }
         let coordinator = try XCTUnwrap(table.dataSource as? MobileChannelResults.Coordinator)
         let counted = CountingChannelDataSource(wrapped: coordinator)
         table.dataSource = counted
@@ -47,7 +49,13 @@ final class ChannelPickerRenderingTests: XCTestCase {
         table.layoutIfNeeded()
         XCTAssertEqual(counted.cellsCreated, openingCells, "Unrelated parent updates must not reload the results")
 
-        for query in ["S", "Sp", "Sport", "Sports 2", "Sports 29999"] { search.search(query) }
+        // Drive the same text-field binding as a user. Mutating the store
+        // directly leaves the visible draft blank, which a delayed keyboard
+        // update can restore over the test's programmatic query.
+        for query in ["S", "Sp", "Sport", "Sports 2", "Sports 29999"] {
+            field.text = query
+            field.sendActions(for: .editingChanged)
+        }
         XCTAssertEqual(counted.cellsCreated, openingCells, "Draft changes must not rebuild the channel rows")
         try await settle { search.page.query == "Sports 29999" && table.numberOfRows(inSection: 0) == 1 }
         table.layoutIfNeeded()
@@ -55,7 +63,8 @@ final class ChannelPickerRenderingTests: XCTestCase {
         XCTAssertLessThan(counted.cellsCreated - openingCells, 200)
 
         let beforeClear = counted.cellsCreated
-        search.search("", immediately: true)
+        field.text = ""
+        field.sendActions(for: .editingChanged)
         try await settle { search.page.query.isEmpty && table.numberOfRows(inSection: 0) == channels.count }
         table.layoutIfNeeded()
         XCTAssertLessThan(counted.cellsCreated - beforeClear, 200, "Clearing search must also remain lazy")
@@ -88,12 +97,19 @@ final class ChannelPickerRenderingTests: XCTestCase {
         return nil
     }
 
-    private func settle(_ condition: () -> Bool) async throws {
+    private func findSearchField(in view: UIView) -> UITextField? {
+        if let field = view as? UITextField, field.accessibilityIdentifier == "ChooseAnotherChannelSearch" { return field }
+        for child in view.subviews { if let field = findSearchField(in: child) { return field } }
+        return nil
+    }
+
+    private func settle(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while !condition(), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(condition())
+        XCTAssertTrue(condition(), "Picker did not reach the expected UI state", file: file, line: line)
+        if !condition() { throw NSError(domain: "ChannelPickerRenderingTests", code: 1) }
     }
 }
 
