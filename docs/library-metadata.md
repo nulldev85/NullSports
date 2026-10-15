@@ -66,11 +66,16 @@ All twelve metadata tests passed in the iPhone simulator on the first default-so
 revision. That run compiled successfully but stopped in other integration tests:
 the playback origin incorrectly served suffix ranges from the start of the file,
 and the picker test changed the search model without changing the text field.
-The origin now serves suffix/open-ended ranges and 416 responses correctly; the
-picker test drives the real field after keyboard focus. HTTP round trips and a
-fast standalone range check cover the fixture correction. Simulator tests run
-serially to avoid contention over shared UI/audio services. The corrected full
-workflow still needs validation before an IPA is confirmed.
+The origin now serves suffix/open-ended ranges and 416 responses correctly.
+Build 93 passed playback and metadata checks; its only failure was the picker
+test looking for a SwiftUI field's private UIKit implementation. The picker now
+holds an isolated draft object observed only by the field. The rendering test
+drives the same query binding as the field without assuming a native backing
+class. It retains the 30,000-row rendering, filtering, clearing, scrolling, and
+selection checks. HTTP round trips and a fast standalone range check cover the
+fixture correction. Simulator tests run serially to avoid contention over shared
+UI/audio services. The corrected full workflow still needs validation before an
+IPA is confirmed.
 
 Live credentials have been checked against TMDB movie and episode endpoints and
 TVDB login, movie/show details, and official episode lookup. Shared XCTest

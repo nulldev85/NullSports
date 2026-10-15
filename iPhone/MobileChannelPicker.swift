@@ -1,4 +1,12 @@
 import SwiftUI
+import Combine
+
+/// The field's draft is separate from completed search results. Only the field
+/// observes it, so typing cannot invalidate the provider-sized result subtree.
+@MainActor
+final class MobileChannelSearchDraft: ObservableObject {
+    @Published var query = ""
+}
 
 /// Channel/favorite publications refresh the catalog; unrelated sports-store
 /// publications and the search field's draft do not invalidate the results.
@@ -38,11 +46,23 @@ struct MobileChannelPicker: View {
     }
 }
 
+@MainActor
 struct MobileChannelPickerContent: View {
     @Environment(\.dismiss) private var dismiss
     let game: SportsGame
     @ObservedObject var search: MobileChannelSearch
+    // Retain the reference without subscribing the whole sheet to keystrokes.
+    // The field below owns the ObservableObject subscription.
+    @State private var draft: MobileChannelSearchDraft
     let onPick: (XtreamStream) -> Void
+
+    init(game: SportsGame, search: MobileChannelSearch, draft: MobileChannelSearchDraft? = nil,
+         onPick: @escaping (XtreamStream) -> Void) {
+        self.game = game
+        self.search = search
+        _draft = State(initialValue: draft ?? MobileChannelSearchDraft())
+        self.onPick = onPick
+    }
 
     var body: some View {
         let page = search.page
@@ -51,7 +71,7 @@ struct MobileChannelPickerContent: View {
                 LineupStyle.background.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
-                    MobileChannelSearchField { query in search.search(query) }
+                    MobileChannelSearchField(draft: draft) { query in search.search(query) }
                     MobileChannelResults(page: page, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
@@ -91,23 +111,23 @@ struct MobileChannelPickerContent: View {
 /// Typing changes only this small subtree. The results publish separately
 /// after background filtering; neither the table nor the sheet owns this draft.
 private struct MobileChannelSearchField: View {
+    @ObservedObject var draft: MobileChannelSearchDraft
     let onQuery: (String) -> Void
-    @State private var query = ""
     @FocusState private var searchFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            TextField("Search channels", text: $query)
+            TextField("Search channels", text: $draft.query)
                 .textFieldStyle(.plain)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .accessibilityIdentifier("ChooseAnotherChannelSearch")
-            if !query.isEmpty {
-                Button { query = "" } label: {
+            if !draft.query.isEmpty {
+                Button { draft.query = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }.buttonStyle(.plain).accessibilityLabel("Clear search")
@@ -117,7 +137,7 @@ private struct MobileChannelSearchField: View {
         .padding(.horizontal, 14).frame(height: 44)
         .background(LineupPanelStyle.fill, in: Capsule())
         .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
-        .onChange(of: query) { _, value in onQuery(value) }
+        .onChange(of: draft.query) { _, value in onQuery(value) }
         .task { searchFocused = true }
     }
 }

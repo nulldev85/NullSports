@@ -14,6 +14,7 @@ final class ChannelPickerRenderingTests: XCTestCase {
                          streamIcon: nil, epgChannelID: nil, categoryID: nil)
         }
         let search = MobileChannelSearch()
+        let draft = MobileChannelSearchDraft()
         defer { search.cancel() }
         search.update(channels: channels, preferred: [], favoriteOrder: [])
         try await settle { !search.loading }
@@ -27,15 +28,13 @@ final class ChannelPickerRenderingTests: XCTestCase {
             broadcast: "ESPN", eventName: nil)
         var picked: Int?
         window.rootViewController = UIHostingController(rootView:
-            MobileChannelPickerContent(game: game, search: search) { picked = $0.id }
+            MobileChannelPickerContent(game: game, search: search, draft: draft) { picked = $0.id }
                 .preferredColorScheme(.dark))
         window.makeKeyAndVisible()
         defer { window.endEditing(true); window.isHidden = true; previous?.makeKey() }
         try await Task.sleep(for: .milliseconds(500))
         window.layoutIfNeeded()
         let table = try XCTUnwrap(findTable(in: window))
-        let field = try XCTUnwrap(findSearchField(in: window))
-        try await settle { field.isFirstResponder }
         let coordinator = try XCTUnwrap(table.dataSource as? MobileChannelResults.Coordinator)
         let counted = CountingChannelDataSource(wrapped: coordinator)
         table.dataSource = counted
@@ -49,12 +48,11 @@ final class ChannelPickerRenderingTests: XCTestCase {
         table.layoutIfNeeded()
         XCTAssertEqual(counted.cellsCreated, openingCells, "Unrelated parent updates must not reload the results")
 
-        // Drive the same text-field binding as a user. Mutating the store
-        // directly leaves the visible draft blank, which a delayed keyboard
-        // update can restore over the test's programmatic query.
+        // Drive the field's public binding, without relying on SwiftUI's
+        // private backing-view class or accessibility-to-UIView propagation.
+        // The visible field and search callback then receive the same draft.
         for query in ["S", "Sp", "Sport", "Sports 2", "Sports 29999"] {
-            field.text = query
-            field.sendActions(for: .editingChanged)
+            draft.query = query
         }
         XCTAssertEqual(counted.cellsCreated, openingCells, "Draft changes must not rebuild the channel rows")
         try await settle { search.page.query == "Sports 29999" && table.numberOfRows(inSection: 0) == 1 }
@@ -63,8 +61,7 @@ final class ChannelPickerRenderingTests: XCTestCase {
         XCTAssertLessThan(counted.cellsCreated - openingCells, 200)
 
         let beforeClear = counted.cellsCreated
-        field.text = ""
-        field.sendActions(for: .editingChanged)
+        draft.query = ""
         try await settle { search.page.query.isEmpty && table.numberOfRows(inSection: 0) == channels.count }
         table.layoutIfNeeded()
         XCTAssertLessThan(counted.cellsCreated - beforeClear, 200, "Clearing search must also remain lazy")
@@ -94,12 +91,6 @@ final class ChannelPickerRenderingTests: XCTestCase {
     private func findTable(in view: UIView) -> UITableView? {
         if let table = view as? UITableView, table.accessibilityIdentifier == "ChooseAnotherChannelResults" { return table }
         for child in view.subviews { if let table = findTable(in: child) { return table } }
-        return nil
-    }
-
-    private func findSearchField(in view: UIView) -> UITextField? {
-        if let field = view as? UITextField, field.accessibilityIdentifier == "ChooseAnotherChannelSearch" { return field }
-        for child in view.subviews { if let field = findSearchField(in: child) { return field } }
         return nil
     }
 
