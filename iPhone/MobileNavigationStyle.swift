@@ -99,9 +99,31 @@ struct MobileLineupNavigationBar: View {
         .padding(.horizontal, 12)
         .padding(.top, 6).padding(.bottom, 4)
         .background(LineupStyle.background.ignoresSafeArea(edges: .bottom))
+        .background(MobileLineupNavigationBoundary().allowsHitTesting(false))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
+    }
+}
+
+/// A measurable UIKit boundary for nested Guide scrollers. SwiftUI preference
+/// values do not reliably cross TabView/NavigationStack hosting boundaries.
+struct MobileLineupNavigationBoundary: UIViewRepresentable {
+    final class Boundary: UIView {}
+    func makeUIView(context: Context) -> Boundary {
+        let view = Boundary()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+    func updateUIView(_ view: Boundary, context: Context) {}
+
+    static func find(in view: UIView) -> Boundary? {
+        guard !view.isHidden, view.alpha > 0.01 else { return nil }
+        if let boundary = view as? Boundary, boundary.bounds.height > 0 { return boundary }
+        for child in view.subviews {
+            if let boundary = find(in: child) { return boundary }
+        }
+        return nil
     }
 }
 

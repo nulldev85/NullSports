@@ -1523,11 +1523,7 @@ final class MediaLibrary: ObservableObject {
         guard let profileID = serverID(of: episode) else { return }
         setLocallyPlayed(played, for: episode)
         guard episode.type == "Episode" else { return }
-        let seriesKey = Self.seriesKey(for: episode)
-        localPlayback.removeAll { record in
-            record.profileID == profileID && record.isUpNext == true
-                && Self.seriesKey(for: record.item) == seriesKey
-        }
+        retireUpNext(for: episode, profileID: profileID)
 
         if played {
             if let following { queueAsUpNext(following, explicitlyUnwatched: false) }
@@ -1611,11 +1607,7 @@ final class MediaLibrary: ObservableObject {
                 || (!record.completed && record.explicitlyUnwatched != true && record.position >= 5))
         }
         guard !alreadyThere else { return }
-        let key = Self.seriesKey(for: target)
-        localPlayback.removeAll { record in
-            record.profileID == profileID && record.isUpNext == true && record.explicitlyUnwatched != true
-                && Self.seriesKey(for: record.item) == key
-        }
+        retireUpNext(for: target, profileID: profileID)
         queueAsUpNext(target, explicitlyUnwatched: false)
         persistLocalPlayback()
     }
@@ -1629,10 +1621,7 @@ final class MediaLibrary: ObservableObject {
                 && record.explicitlyUnwatched != true
         }
         guard !hasRealProgress else { return }
-        localPlayback.removeAll { record in
-            record.profileID == profileID && record.isUpNext == true
-                && Self.seriesKey(for: record.item) == key
-        }
+        retireUpNext(for: episode, profileID: profileID)
         queueAsUpNext(episode, explicitlyUnwatched: false)
         persistLocalPlayback()
     }
@@ -1723,11 +1712,7 @@ final class MediaLibrary: ObservableObject {
             following = await upcomingEpisode(after: tracked, profile: profile)
         }
         guard contains(profile), localPlaybackRecord(for: episode)?.completed == true else { return }
-        let key = Self.seriesKey(for: tracked)
-        localPlayback.removeAll { record in
-            record.profileID == profileID && record.isUpNext == true
-                && Self.seriesKey(for: record.item) == key
-        }
+        retireUpNext(for: tracked, profileID: profileID)
         if let following { queueAsUpNext(following, explicitlyUnwatched: false) }
         persistLocalPlayback()
     }
@@ -1777,8 +1762,27 @@ final class MediaLibrary: ObservableObject {
     }
 
 
+    /// Retiring a queue entry must not delete the user's watched-state override.
+    private func retireUpNext(for episode: MediaItem, profileID: UUID) {
+        let key = Self.seriesKey(for: episode)
+        localPlayback = localPlayback.compactMap { record in
+            guard record.profileID == profileID, record.isUpNext == true,
+                  Self.seriesKey(for: record.item) == key else { return record }
+            guard record.explicitlyUnwatched == true else { return nil }
+            var saved = record
+            saved.isUpNext = nil
+            return saved
+        }
+    }
+
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
         guard let profileID = serverID(of: episode), !isWatched(episode) else { return }
+        if !explicitlyUnwatched, let index = localPlayback.firstIndex(where: {
+            $0.profileID == profileID && $0.item.id == episode.id && $0.explicitlyUnwatched == true
+        }) {
+            localPlayback[index].isUpNext = true
+            return
+        }
         if let index = localPlayback.firstIndex(where: {
             $0.profileID == profileID && $0.item.id == episode.id
         }), localPlayback[index].position >= 5, !localPlayback[index].completed,
@@ -3019,10 +3023,7 @@ final class MediaLibrary: ObservableObject {
               let episodes = try? await providerVOD.episodes(of: show),
               let position = episodes.firstIndex(where: { $0.id == episodeID }) else { return }
         guard localPlaybackRecord(for: episode)?.completed == true else { return }
-        let key = Self.seriesKey(for: episode)
-        localPlayback.removeAll { record in
-            record.profileID == profileID && record.isUpNext == true && Self.seriesKey(for: record.item) == key
-        }
+        retireUpNext(for: episode, profileID: profileID)
         let following = episodes.dropFirst(position + 1)
             .map { ProviderVOD.item(for: $0, of: show, provider: profileID) }
             .first { !isWatched($0) }

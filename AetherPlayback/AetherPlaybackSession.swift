@@ -27,6 +27,8 @@ public final class AetherPlaybackSession {
     private var level: Float = 1
     private var muted = false
     private var initialPosition: Double = 0
+    private var sourceSeekableAtLoad: Bool?
+    private var liveSource = false
     public private(set) var isOpen = false
     private var probedVideoSize: CGSize = .zero
     public var videoSize: CGSize {
@@ -136,7 +138,17 @@ public final class AetherPlaybackSession {
         let time = engine.seekTarget ?? engine.currentTime
         return time.isFinite ? max(0, time) : 0
     }
-    public var canSeek: Bool { engine.canSeek }
+    public var canSeek: Bool {
+        if engine.canSeek { return true }
+        // Aether 7.36's software audio-track rebuild clears isSourceSeekable
+        // without probing the same source again. Retain the measured capability
+        // for this load, while honoring readiness, failures and forward-only/live
+        // sources. The engine's seek implementation accepts the retained source.
+        return isOpen && !liveSource && sourceSeekableAtLoad == true
+            && engine.isSourceSeekable == nil && engine.videoRoute == .software
+            && engine.isSessionReady && duration > 0
+            && (phase == .playing || phase == .paused || phase == .buffering)
+    }
     public var bytesReceived: Int? {
         guard let value = engine.liveTelemetry?.demuxerBytesFetched else { return nil }
         return Int(clamping: value)
@@ -172,6 +184,7 @@ public final class AetherPlaybackSession {
         let token = generation
         isOpen = true
         loading = true
+        liveSource = isLive
         initialPosition = startPosition ?? 0
         wantsToPlay = true
         #if os(iOS)
@@ -183,6 +196,11 @@ public final class AetherPlaybackSession {
         options.isLive = isLive
         options.liveJoinProfile = .fastZap
         options.autoplay = false
+        #if targetEnvironment(simulator)
+        // The simulator lacks the hardware decoder used on an Apple device.
+        // Live H.264 otherwise stays on a native path that cannot show frames.
+        options.preferredDecodePath = .software
+        #endif
         options.preferredAudioLanguages = ["en", "eng"]
         options.declaredDurationSeconds = expectedDuration
         options.suppressDisplayCriteria = !matchContent
@@ -208,6 +226,7 @@ public final class AetherPlaybackSession {
                 self.probedVideoSize = probe.map { CGSize(width: Int($0.videoWidth), height: Int($0.videoHeight)) }
                     ?? self.engine.softwareDisplaySize ?? self.engine.currentAVPlayerItem?.presentationSize ?? .zero
                 self.loading = false
+                self.sourceSeekableAtLoad = self.engine.isSourceSeekable
                 self.applyVolume()
                 if self.wantsToPlay { self.engine.play() } else { self.engine.pause() }
                 #if os(iOS)
@@ -237,12 +256,14 @@ public final class AetherPlaybackSession {
         loading = false
         wantsToPlay = false
         failure = nil
+        sourceSeekableAtLoad = nil
+        liveSource = false
         probedVideoSize = .zero
         engine.stop()
         canvas.display(cues: [], at: 0, videoSize: .zero)
     }
     public func seek(to seconds: Double) {
-        guard seconds.isFinite, engine.canSeek else { return }
+        guard seconds.isFinite, canSeek else { return }
         seekTask?.cancel()
         let token = generation
         seekTask = Task { [weak self] in

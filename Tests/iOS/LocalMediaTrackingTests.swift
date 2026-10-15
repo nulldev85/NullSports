@@ -459,6 +459,37 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertTrue(restored.isWatched(second))
     }
 
+    func testUpNextRefreshPreservesManualUnwatchedHistory() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = trackingEpisode(1)
+        let second = trackingEpisode(2)
+        library.applyLocalEpisodeProgression(false, for: first, following: nil)
+        library.rememberNextUp(second)
+        XCTAssertEqual(library.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
+        XCTAssertNotEqual(library.localPlaybackRecord(for: first)?.isUpNext, true)
+        library.rememberNextUp(first)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
+        XCTAssertEqual(restored.localPlaybackRecord(for: first)?.isUpNext, true)
+        XCTAssertFalse(restored.isWatched(first))
+    }
+
+    func testMarkingAnotherEpisodeWatchedPreservesAnEarlierUnwatchedMark() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = trackingEpisode(1)
+        let second = trackingEpisode(2)
+        let third = trackingEpisode(3)
+        library.applyLocalEpisodeProgression(false, for: first, following: nil)
+        library.applyLocalEpisodeProgression(true, for: second, following: third)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.localPlaybackRecord(for: first)?.explicitlyUnwatched, true)
+        XCTAssertFalse(restored.isWatched(first))
+        XCTAssertTrue(restored.isWatched(second))
+        XCTAssertEqual(restored.continueWatching.map(\.item.id), [third.id])
+    }
+
     func testRemovalIsScopedToTheTitleAndItsServer() throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }

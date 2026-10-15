@@ -57,15 +57,21 @@ The shared bundle check validates all runtime files and their framework dependen
 Before building, its `--project` mode checks the generated copy/link phases for
 real framework references, one copy per runtime, and preserved engine isolation.
 Generated fixtures cover MP4, software-decoded MPEG-2 MKV, and paced live TS over
-a local HTTP server. Tests exercise extensionless server URLs, actual rendering,
-resume, seek, pause, subtitles, surface reuse, preferences, and both PiP source
-types. Existing local tracking and navigation regression suites remain included.
+a local HTTP server. The origin publishes its port only after NWListener is
+ready, and a range-request test verifies the HTTP fixture before decoder tests.
+Tests exercise extensionless server URLs, actual rendering, resume, seek, pause,
+subtitles, surface reuse, and preferences. Simulator sessions request software
+decoding because device hardware decoders are unavailable there. Native and
+software PiP source coverage both remain required on physical iPhones.
+Existing local tracking and navigation regression suites remain included.
 Screenshots are exported with the existing iPhone preview artifact.
 
 The simulator does not prove a floating PiP window or background lifecycle on an
 iPhone. The physical-device PiP test explicitly skips in the simulator and, on
 device, requires AVKit to actually activate then stop each source's PiP window.
-Build and device results are pending at submission.
+iPhone simulator compilation and framework embedding reached the test suite in
+run 38658172404. The corrected playback/tracking/layout tests, release packaging,
+and physical-device results remain pending.
 
 Before merging, test each of Automatic and AetherEngine with your live TV,
 provider VOD, and a Nullfin movie and episode. Start PiP manually, press Home,

@@ -49,9 +49,10 @@ final class GuideScrollLayoutTests: XCTestCase {
             } else {
                 // The custom bar reserves its area above the home indicator;
                 // the Guide viewport must end before that area begins.
-                XCTAssertGreaterThan(model.viewportBottom, 0)
-                XCTAssertLessThan(model.viewportBottom, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
-                barTop = model.viewportBottom
+                let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
+                barTop = boundary.convert(boundary.bounds, to: window).minY
+                XCTAssertGreaterThan(barTop, 0)
+                XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
             }
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
@@ -59,6 +60,13 @@ final class GuideScrollLayoutTests: XCTestCase {
             XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
                            "glass \(glass), list ends at \(list.convert(list.bounds, to: window).maxY), "
                            + "insets \(list.adjustedContentInset), overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+            let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "Guide-last-row-\(glass ? "glass" : "custom")"
+            attachment.lifetime = .keepAlways
+            add(attachment)
         }
     }
 }
@@ -68,12 +76,6 @@ final class GuideScrollLayoutTests: XCTestCase {
 private final class GuideNavigationTestState: ObservableObject {
     @Published var glass = false
     @Published var selection = 1
-    @Published var viewportBottom: CGFloat = 0
-}
-
-private struct GuideViewportBottomKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 private struct GuideEndHarness: View {
@@ -121,13 +123,6 @@ private struct GuideEndHarness: View {
             .safeAreaPadding(.horizontal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background {
-            GeometryReader { geometry in
-                Color.clear.preference(key: GuideViewportBottomKey.self,
-                                       value: geometry.frame(in: .global).maxY)
-            }
-        }
-        .onPreferenceChange(GuideViewportBottomKey.self) { model.viewportBottom = $0 }
     }
 }
 

@@ -81,6 +81,7 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
             XCTAssertGreaterThan(backend.time, 10)
             backend.stop()
             XCTAssertFalse(backend.isOpen)
+            XCTAssertFalse(backend.isSeekable)
         }
     }
 

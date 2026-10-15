@@ -10,12 +10,23 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     private let contentType: String
     private let live: Bool
     private var connections: [NWConnection] = []
+    // NWListener.port can be .any (0) until the ready callback. Reading it
+    // immediately made the playback tests connect to 127.0.0.1:0.
+    private var readyPort: UInt16?
 
     init(file: URL, contentType: String, live: Bool = false) throws {
         media = try Data(contentsOf: file)
         self.contentType = contentType
         self.live = live
         listener = try NWListener(using: .tcp, on: .any)
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            if case .ready = state, let port = self.listener.port?.rawValue, port > 0 {
+                self.readyPort = port
+            } else {
+                self.readyPort = nil
+            }
+        }
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { connection.cancel(); return }
             self.connections.append(connection)
@@ -25,11 +36,12 @@ final class PlaybackFixtureServer: @unchecked Sendable {
         listener.start(queue: queue)
     }
 
-    var port: UInt16? { listener.port?.rawValue }
+    var port: UInt16? { queue.sync { readyPort } }
     func url(path: String) -> URL? { port.flatMap { URL(string: "http://127.0.0.1:\($0)/\(path)") } }
     func stop() {
         listener.cancel()
         queue.sync {
+            readyPort = nil
             connections.forEach { $0.cancel() }
             connections.removeAll()
         }

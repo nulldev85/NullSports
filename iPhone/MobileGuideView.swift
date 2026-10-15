@@ -816,7 +816,10 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     static func bottomOverlap(of scroll: UIScrollView) -> CGFloat {
         guard let window = scroll.window else { return 0 }
         let listBottom = scroll.convert(scroll.bounds, to: window).maxY
-        let barTop = tabBar(in: window).flatMap { bar -> CGFloat? in
+        let customTop = MobileLineupNavigationBoundary.find(in: window).map {
+            $0.convert($0.bounds, to: window).minY
+        }
+        let barTop = customTop ?? tabBar(in: window).flatMap { bar -> CGFloat? in
             guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
             return bar.convert(bar.bounds, to: window).minY
         } ?? (window.bounds.maxY - window.safeAreaInsets.bottom)

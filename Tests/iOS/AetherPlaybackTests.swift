@@ -5,6 +5,20 @@ import LineupAetherPlayback
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testLocalOriginServesRangesOnlyAfterARealPortIsReady() async throws {
+        let file = try fixture("playback-native", "mp4")
+        let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")
+        defer { origin.stop() }
+        try await waitUntil("Local media origin did not become ready") { origin.port != nil }
+        let url = try XCTUnwrap(origin.url(path: "Videos/title/stream"))
+        XCTAssertGreaterThan(try XCTUnwrap(url.port), 0)
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-187", forHTTPHeaderField: "Range")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 206)
+        XCTAssertEqual(data, Data(try Data(contentsOf: file).prefix(188)))
+    }
+
     func testMP4AndSoftwareMKVExposePiPSourcesAndKeepResumeAndSubtitles() async throws {
         for (name, ext, contentType, route) in [
             ("playback-native", "mp4", "video/mp4", "Native"),
@@ -28,7 +42,7 @@ final class AetherPlaybackTests: XCTestCase {
                     && controller.aetherSession?.hasPicture == true
             }
             let session = try XCTUnwrap(controller.aetherSession)
-            XCTAssertEqual(session.pictureInPictureRoute, route)
+            assertPiPSource(session, expectedOnDevice: route)
             XCTAssertEqual(controller.engineTitle, "AetherEngine")
             XCTAssertGreaterThanOrEqual(controller.progress?.position ?? 0, 9)
             XCTAssertEqual(controller.progress?.duration ?? 0, 36, accuracy: 1)
@@ -72,7 +86,7 @@ final class AetherPlaybackTests: XCTestCase {
         try await waitUntil("Live transport stream did not render through Aether", timeout: 35) {
             controller.engine == .aether && controller.aetherSession?.hasPicture == true && !controller.loading
         }
-        XCTAssertEqual(controller.aetherSession?.pictureInPictureRoute, "Native")
+        assertPiPSource(try XCTUnwrap(controller.aetherSession), expectedOnDevice: "Native")
         XCTAssertTrue(MobileEngineSelection.canPictureInPicture([url]))
     }
 
@@ -95,7 +109,7 @@ final class AetherPlaybackTests: XCTestCase {
         defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
         controller.start(urls: [file])
         try await waitUntil("Switching back did not render") { !controller.loading && controller.engine == .aether }
-        XCTAssertEqual(controller.aetherSession?.pictureInPictureRoute, "Native")
+        assertPiPSource(try XCTUnwrap(controller.aetherSession), expectedOnDevice: "Native")
     }
 
     func testFloatingPiPWindowOnSupportedPhysicalDevice() async throws {
@@ -120,12 +134,24 @@ final class AetherPlaybackTests: XCTestCase {
                 session.refreshPictureInPicture()
                 return session.hasPicture && session.pictureInPicturePossible
             }
+            XCTAssertEqual(session.pictureInPictureRoute, ext == "mp4" ? "Native" : "Sample buffer")
             session.togglePictureInPicture()
             try await waitUntil("AVKit did not activate the floating window") { session.pictureInPictureActive }
             session.togglePictureInPicture()
             try await waitUntil("PiP did not return to the app") { !session.pictureInPictureActive }
             XCTAssertTrue(session.hasPicture)
         }
+        #endif
+    }
+
+    private func assertPiPSource(_ session: AetherPlaybackSession, expectedOnDevice route: String,
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        #if targetEnvironment(simulator)
+        // There is no device hardware decoder here. The real software renderer
+        // must still expose its PiP source; hardware/native proof stays on device.
+        XCTAssertEqual(session.pictureInPictureRoute, "Sample buffer", file: file, line: line)
+        #else
+        XCTAssertEqual(session.pictureInPictureRoute, route, file: file, line: line)
         #endif
     }
 

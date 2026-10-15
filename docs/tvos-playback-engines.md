@@ -76,7 +76,12 @@ The result bundle exports decoder-labelled screenshots as the
 `Lineup-tvOS-playback-previews` artifact. A screenshot alone is not proof of a
 decoded frame; the tests also require the backend's picture-ready signal.
 
-Build, simulator, and hardware validation are pending when this change is submitted.
+Release compilation and the packaged-runtime checks passed in run 38658173076.
+The bridge retains measured seekability across Aether 7.36's software audio-track
+rebuild, which clears the engine's source flag without probing it again. Live and
+forward-only sources remain ineligible. Simulator sessions request software
+decoding; physical hardware-decoder coverage is still required.
+Corrected simulator regressions and physical-device validation remain pending.
 Before merge, review both engine choices on a physical Apple TV with live TV,
 Guide/Sports preview → full screen → preview, Multiview audio switching, provider
 Start Over and catch-up, a movie resumed after closing, two consecutive episodes
