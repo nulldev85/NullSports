@@ -2708,7 +2708,7 @@ private struct MediaDetailScreen: View {
     @State private var pageRatings: MediaRatings?
     #endif
 
-    private var subject: MediaItem { detail ?? item }
+    private var subject: MediaItem { media.displayItem(detail ?? item) }
 
     var body: some View {
         Group {
@@ -2738,6 +2738,9 @@ private struct MediaDetailScreen: View {
         #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        .task(id: media.metadataRequestKey(for: detail ?? item)) {
+            await media.resolveMetadata(for: detail ?? item)
+        }
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
         #endif
@@ -2773,6 +2776,7 @@ private struct MediaDetailScreen: View {
                     metaLine
                     actions
                     overview
+                    LibraryMetadataCredit(item: subject)
                 }
                 .padding(.horizontal, horizontalPadding)
                 // Up into the fade. The art running down the screen and the
@@ -2820,6 +2824,7 @@ private struct MediaDetailScreen: View {
                     episodesSection
                     trailersSection
                     relatedSection
+                    LibraryMetadataCredit(item: subject).padding(.horizontal, horizontalPadding)
                 }
                 .padding(.bottom, 60)
             }
@@ -3578,9 +3583,16 @@ private struct MediaEpisodeCard: View {
     #if os(tvOS)
     @State private var artworkFocused = false
     #endif
-    let episode: MediaItem
+    private let originalEpisode: MediaItem
+    private var episode: MediaItem { media.displayItem(originalEpisode) }
     var onPlay: () -> Void = {}
     var onSummary: () -> Void = {}
+
+    init(episode: MediaItem, onPlay: @escaping () -> Void = {}, onSummary: @escaping () -> Void = {}) {
+        originalEpisode = episode
+        self.onPlay = onPlay
+        self.onSummary = onSummary
+    }
 
     var body: some View {
         let playback = playbackPresentation
@@ -3625,6 +3637,9 @@ private struct MediaEpisodeCard: View {
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(LineupStyle.lightPurple)
+        .task(id: media.metadataRequestKey(for: originalEpisode)) {
+            await media.resolveMetadata(for: originalEpisode)
+        }
     }
 
     private func artwork(playback: MediaCardPlayback?) -> some View {
@@ -3954,13 +3969,19 @@ private struct TVMediaCinematicBackdrop: View {
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let item: MediaItem?
+    private let originalItem: MediaItem?
+    private var item: MediaItem? { originalItem.map { media.displayItem($0) } }
     /// Browsing: every title takes the same room, told from the top, so
     /// nothing moves as the remote goes from title to title or as a title's
     /// ratings, details and cast arrive -- each has its place kept for it,
     /// and only what is in it changes. The title page leaves this off and
     /// sits its words on the actions beneath them.
     var steady = false
+
+    init(item: MediaItem?, steady: Bool = false) {
+        originalItem = item
+        self.steady = steady
+    }
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
@@ -3990,8 +4011,10 @@ private struct TVMediaLibraryPreview: View {
             }
         }
         .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
-        .task(id: item?.libraryKey) {
+        .task(id: originalItem.map { media.metadataRequestKey(for: $0) }) {
             guard let item else { return }
+            await media.resolveMetadata(for: item)
+            guard !Task.isCancelled else { return }
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
@@ -4104,7 +4127,7 @@ private struct MediaLibraryHero: View {
     @State private var ratings: [String: MediaRatings] = [:]
 
     private var items: [MediaItem] {
-        MediaHeroCatalogSelection.featuredItems(in: catalog)
+        MediaHeroCatalogSelection.featuredItems(in: catalog).map { media.displayItem($0) }
     }
 
     var body: some View {
@@ -4176,11 +4199,13 @@ private struct MediaLibraryHero: View {
         }
         // The title on screen, then the one after it, so the next slide
         // arrives with its chips already found.
-        .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
+        .task(id: items.indices.contains(index) ? media.metadataRequestKey(for: items[index]) : "") {
             guard !items.isEmpty else { return }
             let current = min(index, items.count - 1)
             for offset in [current, (current + 1) % items.count] {
                 let item = items[offset]
+                await media.resolveMetadata(for: item)
+                guard !Task.isCancelled else { return }
                 guard ratings[item.libraryKey] == nil else { continue }
                 let found = await media.ratings(for: item)
                 guard !Task.isCancelled else { return }
@@ -4774,7 +4799,11 @@ private struct MediaSourcePicker: View {
     @Environment(\.dismiss) private var dismiss
     /// The title the streams are for. An episode's end can move it on to the
     /// next one, so the list follows the viewer from one to the next.
-    @State private var item: MediaItem
+    @State private var originalItem: MediaItem
+    private var item: MediaItem {
+        get { media.displayItem(originalItem) }
+        nonmutating set { originalItem = newValue.withMetadata(nil) }
+    }
     /// Play from the beginning rather than from the saved place.
     @State private var startsOver: Bool
     /// The episode after this one, when there is one to play, for the
@@ -4791,7 +4820,7 @@ private struct MediaSourcePicker: View {
     }
 
     init(item: MediaItem, startsOver: Bool = false) {
-        _item = State(initialValue: item)
+        _originalItem = State(initialValue: item.withMetadata(nil))
         _startsOver = State(initialValue: startsOver)
     }
     /// Set when the picker went straight to the only stream there was, so
@@ -4817,6 +4846,7 @@ private struct MediaSourcePicker: View {
         // screen on this platform.
         board
             .onExitCommand { dismiss() }
+            .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
             .task(id: item.libraryKey) { await loadSources() }
             .task(id: item.libraryKey) {
                 nextEpisode = nil
@@ -4828,6 +4858,7 @@ private struct MediaSourcePicker: View {
         #else
         board
         .presentationBackground(.clear)
+        .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
         .presentationDragIndicator(.hidden)
         .presentationDetents([.large])
         .task(id: item.libraryKey) { await loadSources() }
@@ -5997,8 +6028,14 @@ struct MediaItemCard: View {
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused
     #endif
-    let item: MediaItem
+    private let originalItem: MediaItem
+    private var item: MediaItem { media.displayItem(originalItem) }
     var shape: MediaArtShape = .poster
+
+    init(item: MediaItem, shape: MediaArtShape = .poster) {
+        originalItem = item
+        self.shape = shape
+    }
 
     var body: some View {
         let playback = playbackPresentation
@@ -6087,6 +6124,9 @@ struct MediaItemCard: View {
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
+        .task(id: media.metadataRequestKey(for: originalItem)) {
+            await media.resolveMetadata(for: originalItem)
+        }
     }
 
     private var artworkIsFocused: Bool {

@@ -681,6 +681,11 @@ private struct MobileAccountView: View {
                         SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalog?.title)
                     }
                     NavigationLink {
+                        LibraryMetadataSettingsView().environmentObject(media)
+                    } label: {
+                        SettingsRow("Metadata", symbol: "text.book.closed", value: media.metadataSource.title)
+                    }
+                    NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
                             .environmentObject(library)
                     } label: {

@@ -100,6 +100,13 @@ final class MediaLibrary: ObservableObject {
 
     @Published var errorMessage: String?
 
+    @Published private(set) var metadataSource: LibraryMetadataSource = .provider
+    @Published private(set) var episodeDataSource: LibraryMetadataSource = .provider
+    @Published private var metadataResults: [String: LibraryMetadata] = [:]
+    private let metadataResolver: LibraryMetadataResolver
+    private let metadataCredentials: LibraryMetadataCredentials
+    private var metadataParentLoads: [String: Task<MediaItem?, Never>] = [:]
+
     /// Playback state owned by this device. It deliberately does not travel
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
@@ -230,8 +237,14 @@ final class MediaLibrary: ObservableObject {
     /// can come from.
     let providerVOD: ProviderVOD
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         metadataCredentials: LibraryMetadataCredentials = .bundled,
+         metadataResolver: LibraryMetadataResolver? = nil) {
         self.defaults = defaults
+        self.metadataCredentials = metadataCredentials
+        self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
+        metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .provider
+        episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .provider
         providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
@@ -288,7 +301,9 @@ final class MediaLibrary: ObservableObject {
     /// Every shelf: each server's, servers in the order they were added, then
     /// the MDBList shelves that draw on all of them.
     var catalogs: [MediaCatalog] {
-        profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+        let originals = profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+        guard metadataSource != .provider || episodeDataSource != .provider else { return originals }
+        return originals.map { MediaCatalog(root: $0.root, items: $0.items.map { displayItem($0) }) }
     }
 
     var addonGroups: [AddonCatalogGroup] { profiles.flatMap { servers[$0.id]?.addonGroups ?? [] } }
@@ -716,6 +731,69 @@ final class MediaLibrary: ObservableObject {
     }
 
     // MARK: - Titles
+
+    func setMetadataSource(_ source: LibraryMetadataSource, episodes: Bool = false) {
+        if episodes { episodeDataSource = source }
+        else { metadataSource = source }
+        defaults.set(source.rawValue, forKey: episodes ? LibraryMetadataSource.episodesKey : LibraryMetadataSource.metadataKey)
+    }
+
+    func metadataAvailable(_ source: LibraryMetadataSource) -> Bool { metadataCredentials.contains(source) }
+
+    func metadataRequestKey(for item: MediaItem) -> String {
+        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        if source == .provider { return "provider|" + item.libraryKey }
+        return LibraryMetadataIdentity.requestKey(item, source: source)
+    }
+
+    func displayItem(_ item: MediaItem) -> MediaItem {
+        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        guard source != .provider else { return item.withMetadata(nil) }
+        return item.withMetadata(metadataResults[metadataRequestKey(for: item)])
+    }
+
+    /// Called by visible cards and pages, never from a SwiftUI body. Library
+    /// rendering stays synchronous and fetching cannot block focus or scrolling.
+    func resolveMetadata(for item: MediaItem) async {
+        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        guard source != .provider, metadataAvailable(source),
+              ["Movie", "Series", "Episode"].contains(item.type) else { return }
+        let key = metadataRequestKey(for: item)
+        guard metadataResults[key] == nil else { return }
+        let raw = item.withMetadata(nil)
+        var parent: MediaItem?
+        if raw.type == "Episode" { parent = await metadataParent(for: raw) }
+        guard let value = await metadataResolver.resolve(raw, source: source, parent: parent) else { return }
+        // Results are keyed by source and original identity. A late response
+        // cannot overwrite a new source choice or another server's title.
+        metadataResults[key] = value
+    }
+
+    private func metadataParent(for episode: MediaItem) async -> MediaItem? {
+        if let packed = LibraryMetadataIdentity.packed(episode),
+           let id = AIOStreamsItemID.make(.series, provider: packed.provider, value: packed.value) {
+            return MediaItem(id: id, name: episode.seriesName ?? packed.value, type: "Series", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                providerIDs: [packed.provider: packed.value], serverID: episode.serverID)
+        }
+        guard let parent = series(of: episode) else { return nil }
+        if let cached = detailCache[parent.libraryKey], Date().timeIntervalSince(cached.storedAt) < 600 {
+            return cached.item.withMetadata(nil)
+        }
+        if let task = metadataParentLoads[parent.libraryKey] { return await task.value }
+        let task = Task<MediaItem?, Never> { [weak self] in
+            guard let self else { return nil }
+            if parent.isProviderTitle { return await self.providerDetails(of: parent) }
+            guard let profile = self.profile(for: parent) else { return parent }
+            return (try? await self.client(for: profile).item(userID: profile.userID, itemID: parent.id))?
+                .servedBy(profile.id) ?? parent
+        }
+        metadataParentLoads[parent.libraryKey] = task
+        let result = await task.value
+        metadataParentLoads[parent.libraryKey] = nil
+        if let result { detailCache[parent.libraryKey] = CachedDetail(item: result, storedAt: Date()) }
+        return result
+    }
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
         if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
@@ -2508,6 +2586,7 @@ final class MediaLibrary: ObservableObject {
     // MARK: - Artwork
 
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
+        let item = displayItem(item)
         // A source that names its artwork outright is asked for that address
         // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
@@ -2533,6 +2612,7 @@ final class MediaLibrary: ObservableObject {
     // Asking for art the server did not report leaves a request to 404 behind
     // every hero, so each of these answers nil unless the item claims one.
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
+        let item = displayItem(item)
         if let backdrop = item.backdropURL { return URL(string: backdrop) }
         guard item.hasBackdrop, let profile = profile(for: item) else { return nil }
         return try? client(for: profile).artworkURL(for: item, type: "backdrop", maxWidth: width)

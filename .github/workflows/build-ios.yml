@@ -28,6 +28,11 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
+      - name: Configure Library metadata services
+        env:
+          LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
+          LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
+        run: python3 -B Tools/configure-metadata.py
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -120,6 +125,7 @@ jobs:
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
+          python3 -B Tools/check-metadata-bundle.py "$app"
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then

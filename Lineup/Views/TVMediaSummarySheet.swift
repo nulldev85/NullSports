@@ -38,7 +38,11 @@ struct TVMediaSummaryPreview: View {
 /// UITextView supplies tvOS's native remote scrolling for very long summaries.
 struct TVMediaSummarySheet: View {
     @Environment(\.dismiss) private var dismiss
-    let item: MediaItem
+    @EnvironmentObject private var media: MediaLibrary
+    private let originalItem: MediaItem
+    private var item: MediaItem { media.displayItem(originalItem) }
+
+    init(item: MediaItem) { originalItem = item }
 
     private var metadata: String {
         [item.episodeCode ?? item.productionYear.map(String.init),
@@ -80,6 +84,7 @@ struct TVMediaSummarySheet: View {
                 TVSummaryText(text: summary)
                     .frame(height: textHeight)
                     .padding(.horizontal, 30).padding(.vertical, 22)
+                LibraryMetadataCredit(item: item).padding(.horizontal, 30).padding(.bottom, 12)
                 if textHeight == 460 {
                     Text("Scroll to read more")
                         .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)

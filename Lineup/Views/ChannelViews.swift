@@ -4897,6 +4897,13 @@ struct AccountView: View {
                 catalogs
             }
             .fixedSize(horizontal: false, vertical: true)
+            AccountLinkCard(
+                symbol: "text.book.closed", kind: "LIBRARY", title: "Metadata",
+                detail: "Movie and show metadata: \(media.metadataSource.title) · Episode data: \(media.episodeDataSource.title)",
+                action: "Choose Sources", actionSymbol: "slider.horizontal.3"
+            ) {
+                LibraryMetadataSettingsView().environmentObject(media)
+            }
         }
     }
 

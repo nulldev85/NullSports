@@ -2,6 +2,7 @@
 build/
 Lineup/Assets/IconSource/
 package/
+Lineup/Resources/LineupMetadata.json
 *.xcodeproj/
 xcuserdata/
 Tests/tvOS/Fixtures/playback.mkv
