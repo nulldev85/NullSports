@@ -100,8 +100,8 @@ final class MediaLibrary: ObservableObject {
 
     @Published var errorMessage: String?
 
-    @Published private(set) var metadataSource: LibraryMetadataSource = .provider
-    @Published private(set) var episodeDataSource: LibraryMetadataSource = .provider
+    @Published private(set) var metadataSource: LibraryMetadataSource = .tmdb
+    @Published private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
     @Published private var metadataResults: [String: LibraryMetadata] = [:]
     private let metadataResolver: LibraryMetadataResolver
     private let metadataCredentials: LibraryMetadataCredentials
@@ -243,8 +243,8 @@ final class MediaLibrary: ObservableObject {
         self.defaults = defaults
         self.metadataCredentials = metadataCredentials
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
-        metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .provider
-        episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .provider
+        metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .tmdb
+        episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .tvdb
         providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),

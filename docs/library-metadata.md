@@ -2,8 +2,10 @@
 
 Both platforms offer **Settings → Metadata** (tvOS: the Library panel). The
 independent **Metadata source:** and **Episode data:** dropdowns each contain
-Provider, TMDB, and TVDB. Provider is the default for existing and new installs.
-The first choice covers movies/shows; the second covers individual episodes.
+Provider, TMDB, and TVDB. TMDB is the default for movie/show metadata and TVDB
+is the default for episode data when no choice has been saved. Existing explicit
+choices, including Provider, are preserved. The first choice covers movies/shows;
+the second covers individual episodes.
 
 External metadata supplies display titles, summaries, artwork, genres, and dates.
 It does not replace stream URLs, server/library IDs, season/episode numbers,

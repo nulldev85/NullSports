@@ -217,8 +217,8 @@ final class LibraryMetadataTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         MetadataTestProtocol.install { _ in (200, #"{"id":603,"title":"The Matrix"}"#) }
         let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "test", tvdb: "test"), metadataResolver: resolver())
-        XCTAssertEqual(media.metadataSource, .provider)
-        XCTAssertEqual(media.episodeDataSource, .provider)
+        XCTAssertEqual(media.metadataSource, .tmdb)
+        XCTAssertEqual(media.episodeDataSource, .tvdb)
         media.setMetadataSource(.tmdb)
         media.setMetadataSource(.tvdb, episodes: true)
         let raw = item("tmdb:603")
