@@ -50,9 +50,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!-- Apple's Liquid Glass off: the tab bar, the bars' buttons and the
-	     system's sheets keep the solid look the rest of the app is drawn in. -->
-	<key>UIDesignRequiresCompatibility</key>
-	<true/>
+	<!-- Use the current SDK design so TabView can render Apple's native Liquid
+	     Glass. The navigation switch changes only the tab bar's appearance. -->
 </dict>
 </plist>

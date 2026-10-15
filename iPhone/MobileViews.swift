@@ -1,4 +1,5 @@
 import SwiftUI
+import LineupAetherPlayback
 
 private struct MobileScheduleRefreshContext: Equatable {
     let scenePhase: ScenePhase
@@ -14,6 +15,7 @@ struct MainView: View {
     @State private var playing: XtreamStream?
     @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
+    @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
 
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
@@ -22,27 +24,33 @@ struct MainView: View {
         TabView(selection: $tab) {
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
             MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
                 .id(library.activeProfile?.id)
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
             MediaServersView()
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView { playing = $0 }
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
             MobileAccountView(selectedTab: $tab)
                 .lineupAccentScope(accent)
+                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
                 .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
         }
-        // Tab chrome stays neutral; the selected asset changes from outline
-        // to fill, with white providing the quiet emphasis.
+        // Both navigation styles share this TabView and its selection. The
+        // Lineup panel supplies its own accent marker; native glass stays white.
         .tint(.white)
-        .lineupTabBarBackground(LineupStyle.background)
+        .mobileNavigationChrome(selection: $tab, liquidGlass: navigationGlass,
+                                fullscreen: inlinePlayerFullscreen)
         // Over every tab while channels, the guide and the matches refresh.
         // Never over a picture: the full-screen player covers it, and it
         // stands aside while the inline player fills the screen.
@@ -618,11 +626,14 @@ private struct MobileLibrarySettingsView: View {
 /// page of its own.
 private struct MobileAccountView: View {
     @Binding var selectedTab: Int
+    @State private var homeRevision = 0
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+    @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
+    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
     @State private var choosingAccent = false
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
@@ -680,6 +691,18 @@ private struct MobileAccountView: View {
                 }
                 .lineupSettingsRows()
                 Section {
+                    NavigationLink {
+                        SportsTeamsSettingsView().environmentObject(library)
+                    } label: {
+                        SettingsRow("My Teams", symbol: "star.fill", value: library.followedTeams.count.formatted())
+                    }
+                } header: {
+                    Text("Sports").lineupSettingsHeader()
+                } footer: {
+                    Text("Find and follow your teams at any time. Their games appear in Sports.").lineupSettingsFooter()
+                }
+                .lineupSettingsRows()
+                Section {
                     Button { choosingAccent = true } label: {
                         let accent = LineupAccent.accent(forHex: accentHex)
                         SettingsRow(title: "Accent Color", symbol: "paintpalette") {
@@ -691,10 +714,27 @@ private struct MobileAccountView: View {
                             }
                         }
                     }
+                    Toggle(isOn: Binding(
+                        get: { navigationGlass && MobileNavigationStyle.supportsGlass },
+                        set: { navigationGlass = $0 }
+                    )) {
+                        SettingsRow("Liquid Glass", symbol: "sparkles")
+                    }
+                    .tint(LineupStyle.highlight)
+                    .disabled(!MobileNavigationStyle.supportsGlass)
+                } footer: {
+                    Text(MobileNavigationStyle.supportsGlass
+                         ? "Off uses Lineup’s rectangular navigation bar. On uses Apple’s Liquid Glass."
+                         : "Lineup’s rectangular navigation bar is enabled. Liquid Glass requires iOS 26 or later.")
+                        .lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
+                    NavigationLink { MobilePlaybackSettingsView() } label: {
+                        SettingsRow("Playback Engine", symbol: "play.rectangle",
+                                    value: (MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title)
+                    }
                     NavigationLink {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
                             .environmentObject(library)
@@ -702,6 +742,9 @@ private struct MobileAccountView: View {
                         SettingsRow("Diagnostics", symbol: "waveform.path.ecg")
                     }
                     SettingsRow("Version", symbol: "info.circle", value: version)
+                    NavigationLink { MobilePlaybackAcknowledgementsView() } label: {
+                        SettingsRow("Playback acknowledgements", symbol: "doc.text")
+                    }
                 }
                 .lineupSettingsRows()
             }
@@ -721,6 +764,51 @@ private struct MobileAccountView: View {
                 MobileAccentPicker(hex: accentHex) { pendingAccent = $0 }
             }
         }
+        .id(homeRevision)
+        .mobileTabHome(.settings) { homeRevision &+= 1 }
+    }
+}
+
+private struct MobilePlaybackSettingsView: View {
+    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.automatic.rawValue
+    var body: some View {
+        List {
+            Section {
+                ForEach(MobilePlaybackPreference.allCases) { choice in
+                    Button { preference = choice.rawValue } label: {
+                        HStack {
+                            Text(choice.title).foregroundStyle(LineupStyle.text)
+                            Spacer()
+                            if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
+                                Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
+                }
+            } footer: {
+                Text("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.")
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Playback Engine")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MobilePlaybackAcknowledgementsView: View {
+    var body: some View {
+        ScrollView {
+            Text(AetherPlaybackSession.openSourceNotices())
+                .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20).textSelection(.enabled)
+        }
+        .background(LineupStyle.background)
+        .navigationTitle("Acknowledgements")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

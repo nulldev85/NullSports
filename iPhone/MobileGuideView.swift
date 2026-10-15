@@ -30,6 +30,7 @@ struct MobileGuideView: View {
     @EnvironmentObject private var library: SportsLibrary
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var showsSearch = false
@@ -40,8 +41,6 @@ struct MobileGuideView: View {
     @State private var chosenFilter: MobileGuideFilter?
     @State private var window = MobileGuideWindow(now: .now)
     @State private var horizontalOffset: CGFloat = 0
-    /// How much of the channel list the tab bar covers, measured on screen.
-    @State private var listBottomInset: CGFloat = 0
     @State private var resetPosition = UUID()
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
@@ -127,6 +126,8 @@ struct MobileGuideView: View {
             GeometryReader { viewport in
                 let showsMetadata = viewport.size.height > 400
                 let metadataHeight: CGFloat = showsMetadata ? 106 : 0
+                let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
+                    ? MobilePlayerLayout.inlineTimelineHeight : 0
                 let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight))
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                                                                     safeAreaTop: viewport.safeAreaInsets.top,
@@ -134,7 +135,7 @@ struct MobileGuideView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         if selectedStream != nil {
-                            Color.clear.frame(height: videoHeight + metadataHeight)
+                            Color.clear.frame(height: videoHeight + metadataHeight + timelineHeight)
                         }
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
@@ -188,7 +189,7 @@ struct MobileGuideView: View {
                                 channelBanner: channelBanner,
                                 watchingGameID: watchingGame?.id,
                                 onWatchGame: { watchGame($0) })
-                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight, alignment: .top)
+                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
                         // The player is the one thing that reaches past the
@@ -254,7 +255,7 @@ struct MobileGuideView: View {
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
-            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
@@ -525,14 +526,14 @@ struct MobileGuideView: View {
     }
 
     private func guide(now: Date) -> some View {
-        GeometryReader { viewport in
+        MobileGuideViewport { viewport, listHeight in
             // One horizontal scroller moves every program row and the ruler together.
             // The nested vertical scroller moves logos and programs as a single row.
             // Counter-offset logo tiles keep the channel column frozen horizontally.
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ruler(now: now)
-                    ScrollView(.vertical) {
+                    MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
                                 HStack(spacing: 0) {
@@ -543,17 +544,8 @@ struct MobileGuideView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false) { listBottomInset = $0 })
                     }
-                    .contentMargins(.top, 0, for: .scrollContent)
-                    // Room for the last channel to clear the floating tab bar
-                    // is measured, not assumed: `MobileGuideScrollConfiguration`
-                    // reports exactly the part of the list the bar covers, so
-                    // the end bounces and settles with the last row flush above
-                    // the bar, as the top settles on the first.
-                    .contentMargins(.bottom, listBottomInset, for: .scrollContent)
-                    .contentMargins(.bottom, listBottomInset, for: .scrollIndicators)
-                    .frame(height: max(0, viewport.size.height - 40))
+                    .frame(height: listHeight)
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
                 }
@@ -774,24 +766,68 @@ private struct FavoritesOrderView: View {
     }
 }
 
+/// Keep the ruler and channel list in the Guide's available region.
+struct MobileGuideViewport<Content: View>: View {
+    private let content: (GeometryProxy, CGFloat) -> Content
+
+    init(@ViewBuilder content: @escaping (GeometryProxy, CGFloat) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        GeometryReader { viewport in
+            let listHeight = max(0, viewport.size.height - 40)
+            content(viewport, listHeight)
+                .frame(width: viewport.size.width, height: viewport.size.height, alignment: .topLeading)
+        }
+    }
+}
+
+/// UIKit can extend this nested scroll view past SwiftUI's proposed height
+/// under the native glass bar. Reserve the measured overlap as a content
+/// margin on the actual scroller, not by shortening its outer SwiftUI region.
+struct MobileGuideChannelScroll<Content: View>: View {
+    @State private var bottomClearance: CGFloat = 0
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        ScrollView(.vertical) {
+            content.background(MobileGuideScrollConfiguration(horizontal: false,
+                usesLineupNavigation: usesLineupNavigation, onBottomOverlap: { bottomClearance = $0 }))
+        }
+        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.bottom, bottomClearance, for: .scrollContent)
+        .contentMargins(.bottom, bottomClearance, for: .scrollIndicators)
+    }
+}
+
 /// Navigation already positions this guide within the safe area. Its two nested
 /// scrollers must not add that navigation inset again above the first channel.
-/// The vertical one also reports how much of it the tab bar covers, which the
-/// guide gives back to it as a bottom margin.
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
+    var usesLineupNavigation: Bool? = nil
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
         let probe = Probe(frame: .zero)
+        probe.horizontal = horizontal
         probe.isUserInteractionEnabled = false
         return probe
     }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.horizontal = horizontal
+        probe.usesLineupNavigation = usesLineupNavigation
         probe.onBottomOverlap = onBottomOverlap
-        DispatchQueue.main.async { [weak probe] in probe?.refresh() }
+        probe.requestRefresh()
+    }
+
+    static func dismantleUIView(_ probe: Probe, coordinator: ()) {
+        probe.onBottomOverlap = nil
+        probe.detachObserver()
     }
 
     static func configure(_ scroll: UIScrollView, horizontal: Bool) {
@@ -808,41 +844,45 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         if horizontal && scroll.bounces { scroll.bounces = false }
     }
 
-    /// The height of the list the tab bar covers: the room the last channel
-    /// needs to come to rest right on top of the bar. It depends only on where
-    /// the list and the bar are, never on the list's own insets, so applying it
-    /// cannot change it.
-    static func bottomOverlap(of scroll: UIScrollView) -> CGFloat {
-        guard let window = scroll.window else { return 0 }
-        let listBottom = scroll.convert(scroll.bounds, to: window).maxY
-        let barTop = tabBar(in: window).flatMap { bar -> CGFloat? in
+    /// Physical coverage, independent of scroll offsets and content insets.
+    /// The channel list measures its UIScrollView, not an outer hosting view
+    /// or the much taller scrolling content.
+    static func bottomOverlap(of view: UIView, usesLineupNavigation: Bool? = nil) -> CGFloat {
+        guard let window = view.window else { return 0 }
+        let viewBottom = view.convert(view.bounds, to: window).maxY
+        let customTop = usesLineupNavigation == false ? nil : MobileLineupNavigationBoundary.find(in: window).map {
+            $0.convert($0.bounds, to: window).minY
+        }
+        let barTop = customTop ?? tabBar(in: window).flatMap { bar -> CGFloat? in
             guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
             return bar.convert(bar.bounds, to: window).minY
         } ?? (window.bounds.maxY - window.safeAreaInsets.bottom)
-        return max(0, (listBottom - barTop).rounded())
+        return max(0, (viewBottom - barTop).rounded())
     }
 
-    /// Sits behind the scroller's content and measures as soon as it is on
-    /// screen and whenever the list lays out again. The inset used to be
-    /// written straight onto the scroller after the fact, where SwiftUI's own
-    /// updates could put it back, so the last channel sat under the bar until
-    /// some later update happened to restore it. Now the measurement goes to
-    /// SwiftUI, which applies it with the list's other margins and keeps it.
     final class Probe: UIView {
         var horizontal = false
+        var usesLineupNavigation: Bool?
         var onBottomOverlap: ((CGFloat) -> Void)?
-        private var reported: CGFloat?
+        private(set) var reported: CGFloat?
+        private var scheduled = false
+        private weak var observedScroll: UIScrollView?
+        private var observer: ViewportObserver?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            refresh()
-            // The first pass can come before the tab bar has its place.
-            DispatchQueue.main.async { [weak self] in self?.refresh() }
+            if window == nil { detachObserver() }
+            else { requestRefresh() }
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            refresh()
+            requestRefresh()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            requestRefresh()
         }
 
         var enclosingScrollView: UIScrollView? {
@@ -854,15 +894,61 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             return nil
         }
 
-        func refresh() {
+        func requestRefresh() {
+            guard !scheduled else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                self.refresh()
+            }
+        }
+
+        private func refresh() {
             guard window != nil, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
-            guard !horizontal, let onBottomOverlap else { return }
-            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll)
-            if let reported, abs(reported - overlap) <= 0.5 { return }
+            guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
+            if observedScroll !== scroll {
+                detachObserver()
+                observedScroll = scroll
+                let observer = ViewportObserver(frame: scroll.bounds)
+                observer.owner = self
+                observer.translatesAutoresizingMaskIntoConstraints = false
+                observer.isUserInteractionEnabled = false
+                observer.isOpaque = false
+                observer.accessibilityElementsHidden = true
+                scroll.addSubview(observer)
+                NSLayoutConstraint.activate([
+                    observer.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
+                    observer.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
+                    observer.topAnchor.constraint(equalTo: scroll.frameLayoutGuide.topAnchor),
+                    observer.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor)
+                ])
+                self.observer = observer
+            }
+            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
+                usesLineupNavigation: usesLineupNavigation)
+            guard reported == nil || abs((reported ?? 0) - overlap) > 0.5 else { return }
             reported = overlap
-            // Never during SwiftUI's own update of this view.
-            DispatchQueue.main.async { onBottomOverlap(overlap) }
+            onBottomOverlap?(overlap)
+        }
+
+        func detachObserver() {
+            observer?.owner = nil
+            observer?.removeFromSuperview()
+            observer = nil
+            observedScroll = nil
+            reported = nil
+        }
+
+        /// The content probe may be thousands of points tall and never resize.
+        /// This transparent observer follows the actual scroll viewport, so a
+        /// native bar's late frame/safe-area change invalidates the measurement.
+        private final class ViewportObserver: UIView {
+            weak var owner: Probe?
+            override func layoutSubviews() { super.layoutSubviews(); owner?.requestRefresh() }
+            override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); owner?.requestRefresh() }
+            override func didMoveToWindow() { super.didMoveToWindow(); owner?.requestRefresh() }
         }
     }
 

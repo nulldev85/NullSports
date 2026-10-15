@@ -25,6 +25,9 @@ struct AppSearchView: View {
     @State private var searchingServers = false
     @State private var serverProblem: String?
     @State private var pushed: MediaItem?
+    #if !os(tvOS)
+    @State private var homeRevision = 0
+    #endif
     #if os(tvOS)
     @Environment(\.tvTabBar) private var tabBar
     #endif
@@ -59,6 +62,13 @@ struct AppSearchView: View {
                         prompt: "Movies, shows, channels, games")
             #endif
         }
+        #if !os(tvOS)
+        .id(homeRevision)
+        .mobileTabHome(.search) {
+            pushed = nil
+            homeRevision &+= 1
+        }
+        #endif
         .task(id: query) { await search(query) }
         #if os(tvOS)
         .tvChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",

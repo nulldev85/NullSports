@@ -1004,7 +1004,7 @@ struct TVSelectable<Content: View>: View {
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
-            .onTapGesture(perform: action)
+            .tvSelectAction(action)
             .onChange(of: focused) { _, value in onFocusChange?(value) }
             .onAppear { if requestInitialFocus { focused = true } }
             // The cue lives here rather than in the content, because content

@@ -56,6 +56,11 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .mobileTabHome(.library) {
+                optionsOpen = false
+                searchingLibrary = false
+                frontPage &+= 1
+            }
             #endif
     }
 
@@ -871,10 +876,10 @@ private struct TVMediaHeaderButtonStyle: ButtonStyle {
 #endif
 
 private enum LibraryHeroRotation {
-    static let interval: Duration = .seconds(3)
+    static let interval: Duration = .seconds(4)
 
     static func animation(reduceMotion: Bool) -> Animation {
-        .easeInOut(duration: reduceMotion ? 0.2 : 0.45)
+        .easeInOut(duration: reduceMotion ? 0.2 : 0.75)
     }
 }
 
@@ -929,6 +934,7 @@ private struct MediaCatalogsScreen: View {
     /// so a press in the list can't land on them and close it.
     @State private var menuOpen = false
     @State private var focusedCard: MediaItem?
+    @State private var lastFocusedCard: MediaItem?
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
@@ -1203,6 +1209,7 @@ private struct MediaCatalogsScreen: View {
                                                  onFocusChange: { focused in preview(item, when: focused) }) {
                                         MediaItemCard(item: item, shape: shape)
                                     }
+                                    .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
                                     #else
                                     NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                                         .lineupFlatButton()
@@ -1272,7 +1279,7 @@ private struct MediaCatalogsScreen: View {
         let current = min(heroIndex, candidates.count - 1)
         let nextIndex = (current + 1) % candidates.count
         let next = candidates[nextIndex]
-        // Begin both upcoming downloads during this title's three-second dwell.
+        // Begin both upcoming downloads during this title's four-second dwell.
         for offset in [nextIndex, (nextIndex + 1) % candidates.count] {
             if let art = backdropArt(for: candidates[offset]) {
                 LineupArt.prefetch(art.url, pixels: art.pixels)
@@ -1403,6 +1410,23 @@ private struct MediaCatalogsScreen: View {
         .task(id: TVShelfPrefetchKey(index: index, count: shelves.count)) {
             await prefetchShelves(around: index)
         }
+        .onChange(of: shelves.indices.contains(index) ? shelves[index].items.map(\.libraryKey) : []) { previous, current in
+            // A held menu may temporarily clear focus. Follow the same show's
+            // new episode even if other Continue Watching cards reordered.
+            if shelves.indices.contains(index), shelves[index].id == LibraryShelfOrder.continueWatching,
+               let old = lastFocusedCard, previous.contains(old.libraryKey), !current.contains(old.libraryKey),
+               let server = old.serverID {
+                let scope = LocalContinueWatchingDismissal(item: old, profileID: server)
+                if let slot = shelves[index].items.firstIndex(where: {
+                    scope.matches($0, profileID: $0.serverID ?? server)
+                }) {
+                    tvFocus = .card(slot)
+                    tvFocusChanged(to: .card(slot))
+                    return
+                }
+            }
+            tvFocusChanged(to: tvFocus)
+        }
     }
 
     /// The column the remote is on in a shelf, or was left on.
@@ -1488,11 +1512,12 @@ private struct MediaCatalogsScreen: View {
             .focusable()
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
-            .onTapGesture { playHero() }
+            .tvSelectAction { playHero() }
             .onMoveCommand { moveTV($0, from: .hero) }
             .tvHoldMenu(item?.name ?? "", symbol: "info.circle") {
                 guard let item, item.opensPage else { return [] }
                 return [TVChoice("Details", symbol: "info.circle") { pushed = item }]
+                    + media.tvCardChoices(for: item)
             }
             .accessibilityLabel(item.map { "Play \($0.name)" } ?? "Play")
             if count > 1 {
@@ -1598,7 +1623,7 @@ private struct MediaCatalogsScreen: View {
             .focusable()
             .focused($tvFocus, equals: .card(slot))
             .focusEffectDisabled()
-            .onTapGesture { activate(item, in: shelf) }
+            .tvSelectAction { activate(item, in: shelf) }
             .onMoveCommand { moveTV($0, from: .card(slot)) }
             .scaleEffect(focused ? LineupStyle.cardLift : 1)
             .zIndex(focused ? 10 : 0)
@@ -1631,7 +1656,7 @@ private struct MediaCatalogsScreen: View {
         .focusable()
         .focused($tvFocus, equals: .card(slot))
         .focusEffectDisabled()
-        .onTapGesture { pushed = catalog.root }
+        .tvSelectAction { pushed = catalog.root }
         .onMoveCommand { moveTV($0, from: .card(slot)) }
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
         .zIndex(focused ? 10 : 0)
@@ -1729,6 +1754,7 @@ private struct MediaCatalogsScreen: View {
             // A service is no title: the room behind keeps what it shows.
             guard StreamingService.service(for: item) == nil else { return }
             focusedCard = item
+            lastFocusedCard = item
             preview(item, when: true)
             // The titles either side, so the artwork is made before the
             // remote gets there.
@@ -2085,6 +2111,7 @@ private struct MediaGridScreen: View {
             TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
                 MediaItemCard(item: item, shape: shape)
             }
+            .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
             #else
             NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
                 .lineupFlatButton()
@@ -2632,9 +2659,10 @@ private struct MediaDetailScreen: View {
     @State private var pageReady = false
     #if os(tvOS)
     @State private var preparedHero: UIImage?
+    @State private var summaryItem: MediaItem?
     #endif
     @State private var favorite = false
-    @State private var watched = false
+    private var watched: Bool { media.isWatched(subject) }
     @State private var expandedOverview = false
     @State private var loading = true
     @State private var error: String?
@@ -2700,7 +2728,12 @@ private struct MediaDetailScreen: View {
         .onDisappear { tabBar?.pageDisappeared() }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
+        .fullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
+            MediaSourcePicker(item: episode, startsOver: startingOver)
+        }
+        .fullScreenCover(item: $summaryItem) { item in
+            TVMediaSummarySheet(item: item).presentationBackground(.clear)
+        }
         #else
         .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #endif
@@ -2739,6 +2772,13 @@ private struct MediaDetailScreen: View {
     }
 
     #if os(tvOS)
+    private func refreshAfterPlayback() {
+        media.flushLocalPlayback()
+        if subject.isSeries {
+            Task { nextUp = await media.resumeEpisode(in: subject) }
+        }
+    }
+
     /// Selection keeps the same backdrop and information hierarchy as Library
     /// focus, then adds actions and playable rows without dropping into a
     /// separate card-shaped page.
@@ -2752,6 +2792,12 @@ private struct MediaDetailScreen: View {
                         .frame(height: 460)
                         .allowsHitTesting(false)
                     tvActions.padding(.horizontal, horizontalPadding)
+                    if let overview = subject.overview, !overview.isEmpty {
+                        TVMediaSummaryPreview(text: overview) { summaryItem = subject }
+                            .tvHoldMenu(subject.name, symbol: "film") { media.tvCardChoices(for: subject) }
+                            .padding(.horizontal, horizontalPadding)
+                            .lineupFocusRegion()
+                    }
                     episodesSection
                     trailersSection
                     relatedSection
@@ -2800,9 +2846,8 @@ private struct MediaDetailScreen: View {
             }
 
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                watched.toggle()
-                media.setLocallyPlayed(watched, for: subject)
-                Task { await media.setPlayed(watched, for: subject) }
+                let value = !media.isWatched(subject)
+                Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
             }) {
                 tvSecondaryAction(watched ? "Watched" : "Mark Watched",
                                   symbol: watched ? "eye.fill" : "eye")
@@ -2908,7 +2953,7 @@ private struct MediaDetailScreen: View {
     /// screen, else the season from the top.
     private var playTarget: MediaItem? {
         guard subject.isSeries else { return subject }
-        return nextUp ?? episodes.first { !media.isWatched($0) } ?? episodes.first
+        return media.seriesPlayTarget(in: subject, fallbackEpisodes: episodes, serverNext: nextUp)
     }
 
     private var actions: some View {
@@ -2927,9 +2972,8 @@ private struct MediaDetailScreen: View {
                     Task { await media.setFavorite(favorite, for: subject) }
                 }
                 iconButton("eye", on: watched) {
-                    watched.toggle()
-                    media.setLocallyPlayed(watched, for: subject)
-                    Task { await media.setPlayed(watched, for: subject) }
+                    let value = !media.isWatched(subject)
+                    Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
                 }
             }
             // Nothing to shuffle through on a film.
@@ -3058,11 +3102,10 @@ private struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 22) {
                         ForEach(episodes) { episode in
-                            TVSelectable(drawsFocusChrome: false, action: { chosen = episode }) {
-                                MediaEpisodeCard(episode: episode)
-                            }
+                            MediaEpisodeCard(episode: episode,
+                                             onPlay: { startingOver = false; chosen = episode },
+                                             onSummary: { summaryItem = episode })
                             .frame(width: 420, alignment: .topLeading)
-                            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
                         }
                     }
                     .padding(.vertical, 8)
@@ -3201,6 +3244,7 @@ private struct MediaDetailScreen: View {
                                 TVSelectable(drawsFocusChrome: false, action: { pushed = title }) {
                                     MediaItemCard(item: title, shape: .poster)
                                 }
+                                .tvHoldMenu(title.name, symbol: "film") { media.tvCardChoices(for: title) }
                                 #else
                                 NavigationLink(destination: MediaBrowseDestination(item: title)) {
                                     MediaItemCard(item: title, shape: .poster)
@@ -3298,7 +3342,6 @@ private struct MediaDetailScreen: View {
         let loaded = try? await media.details(of: item)
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
-        watched = media.isWatched(loaded ?? item)
         let detailedItem = subject
         // While the viewer reads the page, so its VOD copies are waiting when
         // they choose to play.
@@ -3514,16 +3557,60 @@ private struct TVMediaActionSurface: ViewModifier {
 private struct MediaEpisodeCard: View {
     @EnvironmentObject private var media: MediaLibrary
     #if os(tvOS)
-    @Environment(\.lineupTVSelectableFocused) private var artworkFocused
+    @State private var artworkFocused = false
     #endif
     let episode: MediaItem
+    var onPlay: () -> Void = {}
+    var onSummary: () -> Void = {}
 
     var body: some View {
         let playback = playbackPresentation
         return VStack(alignment: .leading, spacing: 7) {
-            Color.clear
-                .frame(maxWidth: .infinity)
+            #if os(tvOS)
+            TVSelectable(drawsFocusChrome: false, action: onPlay,
+                         onFocusChange: { artworkFocused = $0 }) {
+                artwork(playback: playback)
+                    .frame(height: 236.25)
+            }
+            .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
+            .accessibilityLabel("Play \(episode.name)")
+            #else
+            artwork(playback: playback)
                 .aspectRatio(16 / 9, contentMode: .fit)
+            #endif
+            if let label = episode.episodeCode ?? episode.episodeLabel {
+                Text(label).font(.inter(.caption, .semibold))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+            }
+            #if os(tvOS)
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
+            #else
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
+            #endif
+            if let overview = episode.overview, !overview.isEmpty {
+                #if os(tvOS)
+                TVMediaSummaryPreview(text: overview, compact: true, action: onSummary)
+                    .tvHoldMenu(episode.name, symbol: "tv") { media.tvEpisodeChoices(for: episode) }
+                #else
+                Text(overview).font(.inter(.caption))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                #endif
+            }
+            if !footer.isEmpty {
+                Text(footer).font(.inter(.caption2))
+                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(LineupStyle.lightPurple)
+    }
+
+    private func artwork(playback: MediaCardPlayback?) -> some View {
+        Color.clear
+                .frame(maxWidth: .infinity)
                 .overlay {
                     ZStack {
                         LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
@@ -3552,26 +3639,6 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
-            if let label = episode.episodeCode ?? episode.episodeLabel {
-                Text(label).font(.inter(.caption, .semibold))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            }
-            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
-            if let overview = episode.overview, !overview.isEmpty {
-                Text(overview).font(.inter(.caption))
-                    .lineLimit(episodeArtworkIsFocused ? nil : 3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                    .animation(.easeInOut(duration: 0.2), value: episodeArtworkIsFocused)
-            }
-            if !footer.isEmpty {
-                Text(footer).font(.inter(.caption2))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
-            }
-        }
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(LineupStyle.lightPurple)
     }
 
     private var episodeArtworkIsFocused: Bool {
@@ -3675,16 +3742,16 @@ extension MediaLibrary {
                 self.removeFromContinueWatching(item)
             })
         }
-        if item.type == "Episode" { choices += tvEpisodeChoices(for: item) }
+        if item.isPlayable { choices += tvEpisodeChoices(for: item) }
         return choices
     }
 
-    /// An episode's own: watched, and the Favorites library.
+    /// Movies and episodes both offer watched status and Favorites.
     func tvEpisodeChoices(for episode: MediaItem) -> [TVChoice] {
         let watched = isWatched(episode)
         let favorite = isLocalFavorite(episode)
         return [
-            TVChoice(watched ? "Remove from Watched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
+            TVChoice(watched ? "Mark Unwatched" : "Mark Watched", symbol: watched ? "eye.slash" : "eye") {
                 Task { await self.setEpisodePlayedAndAdvance(!watched, for: episode) }
             },
             TVChoice(favorite ? "Remove from Favorites" : "Add to Favorites",
@@ -4002,7 +4069,7 @@ private struct TVMediaLibraryPreview: View {
 
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
 /// It advances gently when left alone. Changing the page by touch restarts the
-/// three-second interval, so it never fights a swipe or immediately skips the
+/// four-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
     @EnvironmentObject private var media: MediaLibrary
@@ -4599,7 +4666,7 @@ private enum StreamLookup {
 }
 
 /// How one server's search for a title's streams went.
-private struct StreamServerStatus: Identifiable {
+struct StreamServerStatus: Identifiable {
     enum Phase {
         case looking
         /// Waiting on what the looking needs first, and saying so: the IPTV
@@ -4667,7 +4734,7 @@ private struct StreamServerStatus: Identifiable {
     }
 
     /// What its tab says after its name.
-    var mark: MediaStreamTab.Mark {
+    fileprivate var mark: MediaStreamTab.Mark {
         switch phase {
         case .looking, .preparing: .looking
         case .found(let count): .count(count)
@@ -4716,6 +4783,7 @@ private struct MediaSourcePicker: View {
     @State private var loading = true
     @State private var error: String?
     @State private var selectedSource: MediaPlaybackSource?
+    @State private var trackingSessionID = UUID()
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
     @State private var pendingServers = 0
@@ -4739,13 +4807,10 @@ private struct MediaSourcePicker: View {
                 playback(for: source)
             }
         #else
-        NavigationStack {
-            board
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle()) }
-                }
-        }
+        board
+        .presentationBackground(.clear)
+        .presentationDragIndicator(.hidden)
+        .presentationDetents([.large])
         .task(id: item.libraryKey) { await loadSources() }
         .task(id: item.libraryKey) {
             nextEpisode = nil
@@ -4760,6 +4825,8 @@ private struct MediaSourcePicker: View {
     /// the next one's streams to choose from, or, with none after it, back to
     /// the Library's front page. Backing out of the player is where it was.
     private func playerClosed() {
+        media.endPlaybackSession(trackingSessionID)
+        trackingSessionID = UUID()
         let step = advance
         advance = nil
         switch step {
@@ -4804,9 +4871,15 @@ private struct MediaSourcePicker: View {
     }
 
     private var board: some View {
+        #if os(tvOS)
         MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
                          loading: loading, error: error, filter: $providerFilter,
                          choose: { selectedSource = $0 })
+        #else
+        MobileStreamPickerBoard(heading: heading, statuses: serverStatus, sources: sources,
+                                loading: loading, error: error, filter: $providerFilter,
+                                choose: { selectedSource = $0 }, cancel: dismiss.callAsFunction)
+        #endif
     }
 
     /// What the list is for: an episode as its show, number and name, a film
@@ -4974,11 +5047,18 @@ private struct MediaSourcePicker: View {
     @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
+            // Capture this presentation's identity. A late callback from the
+            // previous episode must not write progress for the next one.
+            let trackedItem = item
+            let sessionID = trackingSessionID
+            let fromBeginning = startsOver
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
                        initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                       expectedDuration: item.runTimeTicks.map { Double($0) / 10_000_000 },
                        onProgress: { position, duration in
-                           media.trackPlayback(of: item, position: position, duration: duration)
+                           media.trackPlayback(of: trackedItem, position: position, duration: duration,
+                                               sessionID: sessionID)
                        },
                        synopsis: tvPlayerSynopsis,
                        nextEpisode: nextEpisode.map { next in
@@ -4986,9 +5066,13 @@ private struct MediaSourcePicker: View {
                                advance = .playNext(next)
                            }
                        },
-                       onReachedEnd: { if advance == nil { advance = .reachedEnd } })
+                       onReachedEnd: {
+                           media.completePlayback(of: trackedItem, sessionID: sessionID)
+                           if advance == nil { advance = .reachedEnd }
+                       })
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
-            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
+            .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
             MobilePlayerView(name: item.name, urls: [url], isLive: false,
                              sourceBitrate: source.formattedBitrate,
@@ -4997,15 +5081,20 @@ private struct MediaSourcePicker: View {
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in
-                                 media.trackPlayback(of: item, position: position, duration: duration)
+                                 media.trackPlayback(of: trackedItem, position: position, duration: duration,
+                                                     sessionID: sessionID)
                              },
                              nextEpisode: nextEpisode.map { next in
                                  MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
                                      advance = .playNext(next)
                                  }
                              },
-                             onReachedEnd: { if advance == nil { advance = .reachedEnd } })
-            .onDisappear { DispatchQueue.main.async { media.flushLocalPlayback() } }
+                             onReachedEnd: {
+                                 media.completePlayback(of: trackedItem, sessionID: sessionID)
+                                 if advance == nil { advance = .reachedEnd }
+                             })
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {
             LineupUnavailableView("Playback Unavailable", systemImage: "play.slash")
@@ -5113,7 +5202,7 @@ private struct MediaChromeLabel<Content: View>: View {
 // MARK: - The stream list
 
 /// What a stream list is for, drawn at its top.
-private struct MediaStreamHeading {
+struct MediaStreamHeading {
     let title: String
     let subtitle: String?
     let backdrop: URL?
@@ -5121,7 +5210,7 @@ private struct MediaStreamHeading {
 
 /// One part of the stream list: the IPTV provider's copies, or one server's
 /// streams, ranked by that server's score, highest first.
-private struct MediaStreamSection: Identifiable {
+struct MediaStreamSection: Identifiable {
     let title: String
     let sources: [MediaPlaybackSource]
     var id: String { title }

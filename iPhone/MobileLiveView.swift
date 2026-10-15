@@ -6,6 +6,7 @@ struct MobileLiveView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @State private var league: SportsLeague?
     @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
@@ -137,6 +138,8 @@ struct MobileLiveView: View {
                 // header, and moves to the top of the screen as it expands.
                 let videoHeight = (viewport.size.width - Self.inset * 2) * 9 / 16
                 let metadataHeight: CGFloat = watching == nil ? 106 : 0
+                let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
+                    ? MobilePlayerLayout.inlineTimelineHeight : 0
                 let previewTop = Self.headerHeight + 4
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(
                     containerHeight: viewport.size.height,
@@ -147,7 +150,7 @@ struct MobileLiveView: View {
                         masthead(slate)
                         leagueBar
                         if previewStream != nil {
-                            Color.clear.frame(height: 4 + videoHeight + metadataHeight)
+                            Color.clear.frame(height: 4 + videoHeight + metadataHeight + timelineHeight)
                             if let watching {
                                 MobileLiveScoreboard(watching: watching, live: liveEverywhere()) { open($0) }
                                     .padding(.horizontal, Self.inset).padding(.top, 10)
@@ -188,7 +191,7 @@ struct MobileLiveView: View {
                                 watchingGameID: previewGame?.id,
                                 onWatchGame: { watchGame($0) }
                             )
-                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
+                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight,
                                    alignment: .top)
                             .background(LineupStyle.background)
                             // Squared off like the Guide's own cells until it
@@ -240,7 +243,7 @@ struct MobileLiveView: View {
             }
             .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             // Turning the phone needs no animation of its own: the rotation

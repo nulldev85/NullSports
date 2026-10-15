@@ -27,6 +27,12 @@ struct TVChoice: Identifiable {
 }
 
 extension View {
+    /// A short Select and a held Select are exclusive. The card must not
+    /// launch playback when the viewer releases Select after opening its menu.
+    func tvSelectAction(_ action: @escaping () -> Void) -> some View {
+        modifier(TVSelectActionModifier(action: action))
+    }
+
     /// The app's own sheet of choices on the television, in place of the
     /// system's alert and action sheet, which draw in tvOS's own chrome and
     /// type: a panel over the dimmed screen with a coloured tile, the
@@ -79,7 +85,26 @@ private struct TVChoicesModifier: ViewModifier {
                 isPresented = false
             }
             .presentationBackground(.clear)
+            .environment(\.tvHoldAction, nil)
         }
+    }
+}
+
+/// One immutable value opens a held-item menu. A separate Boolean can present
+/// a sheet before SwiftUI has delivered the newly captured action array.
+struct TVHoldMenuPresentation: Identifiable {
+    let id = UUID()
+    let title: String
+    let symbol: String
+    let message: String?
+    let items: [TVChoice]
+
+    init?(title: String, symbol: String, message: String?, items: [TVChoice]) {
+        guard !items.isEmpty else { return nil }
+        self.title = title
+        self.symbol = symbol
+        self.message = message
+        self.items = items
     }
 }
 
@@ -89,19 +114,73 @@ private struct TVHoldMenuModifier: ViewModifier {
     let message: String?
     let items: () -> [TVChoice]
 
-    @State private var presented = false
-    /// Taken when the hold lands, so the sheet says what was true then.
-    @State private var snapshot: [TVChoice] = []
+    @State private var presentation: TVHoldMenuPresentation?
+    @State private var chosen: TVChoice?
 
     func body(content: Content) -> some View {
         content
-            .onLongPressGesture(minimumDuration: 0.5) {
-                let list = items()
-                guard !list.isEmpty else { return }
-                snapshot = list
-                presented = true
+            .environment(\.tvHoldAction, TVHoldAction {
+                guard presentation == nil else { return }
+                chosen = nil
+                presentation = TVHoldMenuPresentation(title: title, symbol: symbol, message: message, items: items())
+            })
+            .fullScreenCover(item: $presentation, onDismiss: {
+                let action = chosen
+                chosen = nil
+                action?.action()
+            }) { snapshot in
+                TVChoiceSheet(title: snapshot.title, symbol: snapshot.symbol, message: snapshot.message,
+                              cancelTitle: "Cancel", items: snapshot.items) { choice in
+                    chosen = choice
+                    presentation = nil
+                } cancel: {
+                    presentation = nil
+                }
+                .id(snapshot.id)
+                .presentationBackground(.clear)
+                .environment(\.tvHoldAction, nil)
             }
-            .tvChoices(title, symbol: symbol, isPresented: $presented, message: message) { snapshot }
+    }
+}
+
+private struct TVHoldAction {
+    let perform: () -> Void
+}
+
+private struct TVHoldActionKey: EnvironmentKey {
+    static let defaultValue: TVHoldAction? = nil
+}
+
+private extension EnvironmentValues {
+    var tvHoldAction: TVHoldAction? {
+        get { self[TVHoldActionKey.self] }
+        set { self[TVHoldActionKey.self] = newValue }
+    }
+}
+
+private struct TVSelectActionModifier: ViewModifier {
+    @Environment(\.tvHoldAction) private var hold
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let hold {
+            content.highPriorityGesture(
+                // tvOS has a duration-only initializer for remote presses;
+                // the touch-distance overload is unavailable on this platform.
+                LongPressGesture(minimumDuration: 0.5)
+                    .exclusively(before: TapGesture())
+                    .onEnded { press in
+                        switch press {
+                        case .first(true): hold.perform()
+                        case .second: action()
+                        default: break
+                        }
+                    }
+            )
+        } else {
+            content.onTapGesture(perform: action)
+        }
     }
 }
 

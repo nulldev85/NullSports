@@ -1,5 +1,36 @@
 import SwiftUI
 
+/// Actions keep their own row; badges wrap as whole items rather than
+/// squeezing the engine name or splitting a quality such as "1080p".
+struct MobilePlayerHeader<Actions: View, Details: View>: View {
+    @ViewBuilder var actions: () -> Actions
+    @ViewBuilder var details: () -> Details
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            actions()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { details() }
+                VStack(alignment: .leading, spacing: 6) { details() }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct MobilePlaybackEngineBadge: View {
+    let engine: MobileStreamEngine
+    var body: some View {
+        Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.white).allowsHitTesting(false)
+            .accessibilityLabel("Playback engine: " + engine.title)
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+    }
+}
+
 /// The channel just tuned to, and what the guide says is on it, as the
 /// banner over the picture names them. Worked out once, when the channel
 /// changes, by the screen that changed it: the player itself does not read

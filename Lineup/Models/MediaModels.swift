@@ -493,6 +493,51 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// Hiding a movie or an entire show is independent of its playback records.
+/// Store only identity here so a refresh cannot replace the viewer's choice.
+struct LocalContinueWatchingDismissal: Codable, Hashable, Sendable {
+    let id: UUID
+    let profileID: UUID
+    let itemID: String
+    let isShow: Bool
+    let seriesID: String?
+    let seriesName: String?
+
+    init(item: MediaItem, profileID: UUID) {
+        id = UUID()
+        self.profileID = profileID
+        itemID = item.id
+        isShow = item.isSeries || item.type == "Episode"
+        seriesID = Self.nonempty(item.isSeries ? item.id : item.seriesID)
+        seriesName = Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    func matches(_ item: MediaItem, profileID: UUID) -> Bool {
+        guard self.profileID == profileID else { return false }
+        let otherIsShow = item.isSeries || item.type == "Episode"
+        guard isShow == otherIsShow else { return false }
+        if itemID == item.id { return true }
+        guard isShow else { return false }
+        if let seriesID, let otherID = Self.nonempty(item.isSeries ? item.id : item.seriesID) {
+            return seriesID == otherID
+        }
+        // Some providers initially supply only a show name, then enrich the
+        // same episodes with an ID. Known, different IDs always stay separate.
+        guard let seriesName else { return false }
+        return seriesName == Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        nonempty(value)?.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                                locale: Locale(identifier: "en_US_POSIX"))
+    }
+}
+
 /// What a card shows of where the viewer is in a title.
 struct MediaCardPlayback: Equatable {
     /// The bar beside the play mark: a film's progress, or how far through
@@ -540,8 +585,8 @@ enum LocalEpisodeProgressionPolicy {
 /// What this device saw comes first, because it is the only record of an
 /// episode played from another server or the IPTV provider: the server the
 /// show belongs to never hears of those, and its own "next up" stays where
-/// it was. The server's answer still counts when it is further along --
-/// the show watched on another device -- but it never moves a viewer back.
+/// it was. Server Next Up is a fallback when this device has no viewing
+/// history; it cannot skip ahead of an established local position.
 enum SeriesResumePolicy {
     /// The show's episodes in watching order: its seasons, then its
     /// specials, which a viewer reaches on purpose rather than in sequence.
@@ -570,32 +615,36 @@ enum SeriesResumePolicy {
         }
         let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
 
-        // An episode stopped part-way through is where the viewer is.
-        if let started = latest(records.filter {
+        let started = latest(records.filter {
             !$0.completed && $0.isUpNext != true && $0.explicitlyUnwatched != true && $0.position >= 5
-        }), let found = index(of: started.item) {
-            return order[found]
-        }
+        })
         let finished = latest(records.filter(\.completed))
         // An episode the viewer marked unwatched, after anything they finished:
         // they chose to go back to it.
         if let markedBack = latest(records.filter { $0.isUpNext == true && $0.explicitlyUnwatched == true }),
            markedBack.updatedAt >= (finished?.updatedAt ?? .distantPast),
+           markedBack.updatedAt >= (started?.updatedAt ?? .distantPast),
            let found = index(of: markedBack.item) {
             return order[found]
         }
-        // The episode after the last one finished here, and the server's
-        // next-up; whichever is further on.
+        if let started, let found = index(of: started.item),
+           (started.updatedAt >= (finished?.updatedAt ?? .distantPast)
+            || found > (finished.flatMap { index(of: $0.item) } ?? -1)) { return order[found] }
+        // Local completion determines the next episode. A remote Next Up
+        // can be stale in either direction and must never win by being later.
         let local = finished.flatMap { index(of: $0.item) }.flatMap { next(after: $0) }
+        if let local { return order[local] }
         let server = serverNext.flatMap { index(of: $0) }.flatMap { found in
             isWatched(order[found]) ? next(after: found) : found
         }
-        if let further = [local, server].compactMap({ $0 }).max() { return order[further] }
         // A show finished here starts again from the top.
         if finished != nil, local == nil, let last = finished.flatMap({ index(of: $0.item) }),
            next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
             return order[0]
         }
+        if finished == nil, let server { return order[server] }
+        if finished == nil, let queued = latest(records.filter { $0.isUpNext == true }),
+           let found = index(of: queued.item), !isWatched(order[found]) { return order[found] }
         return order.first { !isWatched($0) } ?? order[0]
     }
 
@@ -617,7 +666,9 @@ enum SeriesResumePolicy {
             .max(by: { $0.updatedAt < $1.updatedAt }) else { return true }
         if isWatched(upNext.item) { return true }
         let place = { (item: MediaItem) in (item.parentIndexNumber ?? 0, item.indexNumber ?? 0) }
-        return !(place(upNext.item) > place(finished.item))
+        let previous = place(finished.item), queued = place(upNext.item)
+        return !(queued == (previous.0, previous.1 + 1)
+                 || queued == (previous.0 + 1, 1))
     }
 }
 
@@ -630,6 +681,16 @@ struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
 }
 
 enum LocalMediaTrackingPolicy {
+    /// VLC can reach a real EOF without ever learning the container's length.
+    /// A stopped or failed stream elsewhere is a retry, not a watched title.
+    static func reachedEnd(ended: Bool, failed: Bool, hasPlayed: Bool,
+                           position: TimeInterval, duration: TimeInterval, fraction: Double) -> Bool {
+        guard hasPlayed, position.isFinite, position >= 5 else { return false }
+        if ended { return true }
+        guard failed, duration.isFinite, duration > 0 else { return false }
+        return position >= duration - 15 || (fraction.isFinite && fraction >= 0.99)
+    }
+
     static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
         guard duration > 0, position >= 0 else { return false }
         let safePosition = min(position, duration)

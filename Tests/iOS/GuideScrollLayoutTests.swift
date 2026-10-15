@@ -22,40 +22,123 @@ final class GuideScrollLayoutTests: XCTestCase {
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a
     /// navigation stack, inside the tab bar.
     @MainActor
-    func testTheListsEndRestsOnTheTabBar() async throws {
+    func testTheListsEndStaysReachableInBothNavigationStyles() async throws {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw XCTSkip("No screen to lay the guide out on")
         }
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let model = GuideNavigationTestState()
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: GuideEndHarness())
+        window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        // Time for SwiftUI to lay out, the list to measure, and the margin
-        // it reports to be applied.
-        for _ in 0..<10 {
-            try await Task.sleep(for: .milliseconds(100))
+        defer { window.isHidden = true; previousWindow?.makeKey() }
+        // Time for the measured Guide viewport to settle.
+        for glass in [false, true, false, true, false] {
+            model.glass = glass
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(100))
+                window.layoutIfNeeded()
+            }
+            let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
+            let list = try XCTUnwrap(probe.enclosingScrollView)
+            let barTop: CGFloat
+            if glass && MobileNavigationStyle.supportsGlass {
+                let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
+                barTop = bar.convert(bar.bounds, to: window).minY
+            } else {
+                // The custom bar reserves its area above the home indicator;
+                // the Guide viewport must end before that area begins.
+                let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
+                barTop = boundary.convert(boundary.bounds, to: window).minY
+                XCTAssertGreaterThan(barTop, 0)
+                XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
+            }
+            // Native glass can extend UIKit's actual scroller below the
+            // proposed SwiftUI frame. The shared channel scroller reserves
+            // its measured navigation coverage as a bottom content margin.
+            let usableBottom = list.convert(list.bounds, to: window).maxY - list.adjustedContentInset.bottom
+            XCTAssertEqual(usableBottom, barTop, accuracy: 1,
+                           "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset), "
+                           + "measured clearance \(String(describing: probe.reported)), "
+                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+            let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
+            list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
+            let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
+            XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
+                           "glass \(glass), list ends at \(list.convert(list.bounds, to: window).maxY), "
+                           + "insets \(list.adjustedContentInset), overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+            let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "Guide-last-row-\(glass ? "glass" : "custom")"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    /// A native bar can finish appearing after the content probe's update.
+    /// The tall content need not resize; its separate viewport observer must
+    /// follow bar visibility, including while content is scrolled to the end.
+    @MainActor
+    func testNativeBarVisibilityRemeasuresTheGuideAfterItsInitialLayout() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native glass requires iOS 26") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        page.extendedLayoutIncludesOpaqueBars = true
+        page.tabBarItem = UITabBarItem(title: "TV Guide", image: UIImage(systemName: "tv"), tag: 1)
+        let tabs = UITabBarController()
+        tabs.setViewControllers([page], animated: false)
+        tabs.setTabBarHidden(true, animated: false)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        let scroll = UIScrollView(frame: page.view.bounds)
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.contentSize = CGSize(width: page.view.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.usesLineupNavigation = false
+        var reported: CGFloat?
+        probe.onBottomOverlap = { reported = $0 }
+        scroll.addSubview(probe)
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(50))
             window.layoutIfNeeded()
         }
-
-        let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
-        let list = try XCTUnwrap(probe.enclosingScrollView)
-        let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
-        let barTop = bar.convert(bar.bounds, to: window).minY
-        let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
-        list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
-        let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
-        XCTAssertEqual(lastRowBottom, barTop, accuracy: 1,
-                       "list ends at \(list.convert(list.bounds, to: window).maxY), insets \(list.adjustedContentInset), "
-                       + "overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+        XCTAssertNotNil(reported)
+        scroll.setContentOffset(CGPoint(x: 0, y: 2_400 - scroll.bounds.height), animated: false)
+        for hidden in [false, true, false] {
+            tabs.setTabBarHidden(hidden, animated: false)
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(50))
+                window.layoutIfNeeded()
+            }
+            let expected = MobileGuideScrollConfiguration.bottomOverlap(of: scroll, usesLineupNavigation: false)
+            XCTAssertEqual(try XCTUnwrap(reported), expected, accuracy: 1,
+                           "The measurement must follow late native bar visibility changes: hidden \(hidden)")
+            if !hidden {
+                XCTAssertGreaterThan(expected, 0, "The native bar must overlap the full Guide region in this fixture")
+            }
+        }
     }
 }
 
 /// The TV Guide tab's scrollers, with plain rows.
+@MainActor
+private final class GuideNavigationTestState: ObservableObject {
+    @Published var glass = false
+    @Published var selection = 1
+}
+
 private struct GuideEndHarness: View {
-    @State private var bottomInset: CGFloat = 0
+    @ObservedObject var model: GuideNavigationTestState
 
     var body: some View {
-        TabView {
+        TabView(selection: $model.selection) {
             NavigationStack {
                 GeometryReader { _ in
                     ZStack(alignment: .top) {
@@ -64,26 +147,26 @@ private struct GuideEndHarness: View {
                 }
                 .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
             }
-            .tabItem { Label("TV Guide", systemImage: "tv") }
-            Color.clear.tabItem { Label("Settings", systemImage: "gear") }
+            .mobileNativeTabBar(liquidGlass: model.glass)
+            .tabItem { Label("TV Guide", systemImage: "tv") }.tag(1)
+            Color.clear.mobileNativeTabBar(liquidGlass: model.glass)
+                .tabItem { Label("Settings", systemImage: "gear") }.tag(3)
         }
+        .mobileNavigationChrome(selection: $model.selection, liquidGlass: model.glass)
     }
 
     private var guide: some View {
-        GeometryReader { viewport in
+        MobileGuideViewport { viewport, listHeight in
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     Color.gray.frame(height: 40)
-                    ScrollView(.vertical) {
+                    MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false) { bottomInset = $0 })
                     }
-                    .contentMargins(.top, 0, for: .scrollContent)
-                    .contentMargins(.bottom, bottomInset, for: .scrollContent)
-                    .frame(height: max(0, viewport.size.height - 40))
+                    .frame(height: listHeight)
                 }
                 .frame(width: viewport.size.width * 3, height: viewport.size.height, alignment: .topLeading)
                 .background(MobileGuideScrollConfiguration(horizontal: true))

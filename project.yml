@@ -2,7 +2,7 @@ name: Lineup
 options:
   bundleIdPrefix: com.nulldev85
   deploymentTarget:
-    tvOS: "17.0"
+    tvOS: "18.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -16,7 +16,43 @@ packages:
   VLCKitSPM:
     url: https://github.com/tylerjonesio/vlckit-spm
     exactVersion: 3.6.0
+  AetherEngine:
+    url: https://github.com/superuser404notfound/AetherEngine
+    exactVersion: 7.36.0
+  # Pin binary dependencies too: the license notices and link checks refer to
+  # these exact builds, not a future patch selected on a fresh CI runner.
+  FFmpegBuild:
+    url: https://github.com/superuser404notfound/FFmpegBuild
+    exactVersion: 3.7.1
+  LibDovi:
+    url: https://github.com/superuser404notfound/LibDovi
+    exactVersion: 2.1.0
+  LibTrueHD:
+    url: https://github.com/superuser404notfound/LibTrueHD
+    exactVersion: 2.3.0
+  LibDTSX:
+    url: https://github.com/superuser404notfound/LibDTSX
+    exactVersion: 1.0.1
 targets:
+  # Keep Aether's static engine in a separate dylib, where its FFmpeg symbol
+  # references bind to AetherLib* rather than TVVLCKit's embedded FFmpeg.
+  LineupAetherPlayback:
+    type: framework
+    platform: tvOS
+    sources:
+      - AetherPlayback
+      - path: BuildAssets/AetherLicenses
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: AetherEngine
+        product: AetherEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.Lineup.AetherPlayback
+        GENERATE_INFOPLIST_FILE: YES
+        MACH_O_TYPE: mh_dylib
+        SKIP_INSTALL: YES
   # The bundle identifiers below keep the old name on purpose. iOS identifies an
   # app by that string: change it and the build becomes a separate app with an
   # empty container, so every provider, media server, favourite and saved
@@ -30,6 +66,48 @@ targets:
       - Lineup
     dependencies:
       - package: VLCKitSPM
+      - target: LineupAetherPlayback
+        embed: true
+      # The bridge builds these XCFramework slices into BUILT_PRODUCTS_DIR.
+      # Copy the actual frameworks, not SwiftPM's non-file -product nodes.
+      # Keep app linkage off so Aether's engine stays isolated from VLC.
+      # Xcode copies the SwiftPM resource bundle automatically.
+      - framework: AetherLibavcodec.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavformat.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavutil.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswresample.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswscale.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavfilter.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibdav1d.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzimg.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzvbi.framework
+        implicit: true
+        link: false
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports
@@ -45,11 +123,53 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"
     scheme:
-      testTargets: []
+      testTargets:
+        - LineupTests
+  LineupTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources:
+      - path: Tests/tvOS
+        excludes: [Fixtures]
+      - path: Tests/tvOS/Fixtures
+        type: folder
+        buildPhase: resources
+      - Tests/iOS/LocalMediaTrackingTests.swift
+      - Tests/iOS/SeriesResumeTests.swift
+      - Tests/iOS/SeriesTrackingConsistencyTests.swift
+      - Tests/iOS/SportsTeamDirectoryTests.swift
+      - Tests/iOS/PlaybackSeekingTests.swift
+    dependencies:
+      - target: Lineup
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Lineup.app/Lineup"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  LineupAetherPlaybackiOS:
+    type: framework
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - AetherPlayback
+      - path: BuildAssets/AetherLicenses
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: AetherEngine
+        product: AetherEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.Lineup.AetherPlayback.iOS
+        PRODUCT_NAME: LineupAetherPlayback
+        PRODUCT_MODULE_NAME: LineupAetherPlayback
+        GENERATE_INFOPLIST_FILE: YES
+        MACH_O_TYPE: mh_dylib
+        SKIP_INSTALL: YES
   LineupiOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - Lineup/Models
       - Lineup/Services
@@ -62,9 +182,50 @@ targets:
       - Lineup/Views/SearchViews.swift
       - Lineup/Views/StreamingServiceViews.swift
       - Lineup/Views/LibraryShelfOrderViews.swift
+      - Lineup/Views/SportsTeamsSettingsView.swift
       - iPhone
     dependencies:
       - package: VLCKitSPM
+      - target: LineupAetherPlaybackiOS
+        embed: true
+      # Match tvOS: copy the bridge's processed framework files without linking
+      # them into the app. SwiftPM product nodes are not embeddable files.
+      - framework: AetherLibavcodec.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavformat.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavutil.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswresample.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswscale.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavfilter.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibdav1d.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzimg.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzvbi.framework
+        implicit: true
+        link: false
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.iOS
@@ -95,9 +256,12 @@ targets:
   LineupiOSTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - Tests/iOS
+      - path: Tests/tvOS/Fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: LineupiOS
     settings:
