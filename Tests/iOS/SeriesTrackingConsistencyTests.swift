@@ -12,7 +12,7 @@ final class SeriesTrackingConsistencyTests: XCTestCase {
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
     }
     private var episodes: [MediaItem] {
-        (1...12).map { number in
+        (1...12).map { (number: Int) in
             MediaItem(id: "s2e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
                 productionYear: nil, primaryImageAspectRatio: 16.0 / 9, childCount: nil,
                 indexNumber: number, parentIndexNumber: 2, seriesName: "Show", seriesID: "show",
@@ -224,13 +224,22 @@ final class SeriesTrackingConsistencyTests: XCTestCase {
         let legacy = MediaItem(id: "s2e1", name: "Episode 1", type: "Episode", overview: nil,
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
             indexNumber: 1, parentIndexNumber: 2, seriesName: " SHÓW ")
+        let episodes = self.episodes
+        XCTAssertEqual(legacy.id, episodes[0].id, "The legacy record must describe the same episode")
         library.setLocallyPlayed(false, for: legacy)
+        XCTAssertEqual(library.localPlaybackRecord(for: episodes[0])?.explicitlyUnwatched, true)
         library.learnEpisodeOrder(episodes)
+        XCTAssertEqual(library.localPlaybackRecord(for: episodes[0])?.explicitlyUnwatched, true)
         library.setLocallyPlayed(true, for: episodes[1])
         assertPosition(library, episode: episodes[2])
         XCTAssertFalse(library.isWatched(episodes[0]))
         XCTAssertEqual(library.localPlaybackRecord(for: episodes[0])?.explicitlyUnwatched, true)
         XCTAssertNotEqual(library.localPlaybackRecord(for: episodes[0])?.isUpNext, true)
+        let restored = MediaLibrary(defaults: defaults)
+        restored.learnEpisodeOrder(episodes)
+        assertPosition(restored, episode: episodes[2])
+        XCTAssertEqual(restored.localPlaybackRecord(for: episodes[0])?.explicitlyUnwatched, true)
+        XCTAssertFalse(restored.isWatched(episodes[0]))
     }
 
     func testProviderEpisodeMenusAdvanceFromTheLoadedOrder() async throws {
@@ -238,7 +247,7 @@ final class SeriesTrackingConsistencyTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let providerShow = MediaItem(id: "iptv:series:42", name: "Provider Show", type: "Series", overview: nil,
             productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
-        let values = (1...3).map { number in
+        let values = (1...3).map { (number: Int) in
             MediaItem(id: "iptv:episode:42:\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
                 indexNumber: number, parentIndexNumber: 1, seriesName: "Provider Show", seriesID: providerShow.id)

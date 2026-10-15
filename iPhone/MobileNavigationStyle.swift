@@ -42,7 +42,15 @@ private struct MobileUsesLineupNavigationKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct MobileTabNavigationKey: EnvironmentKey {
+    static let defaultValue: MobileTabNavigation? = nil
+}
+
 extension EnvironmentValues {
+    fileprivate var mobileTabNavigation: MobileTabNavigation? {
+        get { self[MobileTabNavigationKey.self] }
+        set { self[MobileTabNavigationKey.self] = newValue }
+    }
     var mobileUsesLineupNavigation: Bool {
         get { self[MobileUsesLineupNavigationKey.self] }
         set { self[MobileUsesLineupNavigationKey.self] = newValue }
@@ -125,24 +133,57 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 @MainActor
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
+    private struct Home {
+        weak var probe: MobileTabHomeRegistration.Probe?
+    }
+    private var homes: [Int: Home] = [:]
+    private var pendingHomes: Set<Int> = []
+
+    fileprivate func register(_ probe: MobileTabHomeRegistration.Probe, for tab: MobileNavigationTab) {
+        homes[tab.rawValue] = Home(probe: probe)
+        guard pendingHomes.contains(tab.rawValue) else { return }
+        // A lazily loaded tab can register after selection. Reset after its
+        // SwiftUI update finishes, without retaining the view's state here.
+        DispatchQueue.main.async { [weak self, weak probe] in
+            guard let self, let probe, self.homes[tab.rawValue]?.probe === probe,
+                  self.pendingHomes.remove(tab.rawValue) != nil else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { probe.reset?() }
+        }
+    }
 
     func activate(_ tab: MobileNavigationTab, selection: () -> Void) {
         let index = MobileNavigationTab.allCases.firstIndex(of: tab)!
         let reselection = tabs?.selectedIndex == index
+        let home = homes[tab.rawValue]?.probe
+        if home == nil { pendingHomes.insert(tab.rawValue) }
+        else { pendingHomes.remove(tab.rawValue) }
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { selection() }
+        withTransaction(transaction) {
+            selection()
+            home?.reset?()
+        }
         guard let tabs, let controllers = tabs.viewControllers, controllers.indices.contains(index) else { return }
         // Commit immediately; SwiftUI's binding update reconciles the same
         // selection on its next render, without animating the entire page.
         if tabs.selectedIndex != index { tabs.selectedIndex = index }
-        Self.returnHome(in: controllers[index], animated: reselection && tabs.viewIfLoaded?.window != nil
-                        && !UIAccessibility.isReduceMotionEnabled)
+        if home == nil {
+            Self.returnHome(in: controllers[index], animated: reselection && tabs.viewIfLoaded?.window != nil
+                            && !UIAccessibility.isReduceMotionEnabled)
+        } else {
+            // SwiftUI owns its path. A direct UIKit pop does not clear it.
+            DispatchQueue.main.async { [weak self] in
+                guard self?.tabs?.selectedIndex == index else { return }
+                Self.returnHome(in: controllers[index], animated: false, pop: false)
+            }
+        }
     }
 
-    private static func returnHome(in controller: UIViewController, animated: Bool) {
+    private static func returnHome(in controller: UIViewController, animated: Bool, pop: Bool = true) {
         if let navigation = controller as? UINavigationController {
-            if navigation.viewControllers.count > 1 {
+            if pop && navigation.viewControllers.count > 1 {
                 navigation.popToRootViewController(animated: animated && navigation.transitionCoordinator == nil)
             }
             if let root = navigation.viewControllers.first?.viewIfLoaded { scrollHome(in: root, animated: animated) }
@@ -151,7 +192,7 @@ final class MobileTabNavigation: ObservableObject {
         if controller.children.isEmpty {
             if let view = controller.viewIfLoaded { scrollHome(in: view, animated: animated) }
         } else {
-            for child in controller.children { returnHome(in: child, animated: animated) }
+            for child in controller.children { returnHome(in: child, animated: animated, pop: pop) }
         }
     }
 
@@ -168,6 +209,27 @@ final class MobileTabNavigation: ObservableObject {
             if scrollHome(in: child, animated: animated) { return true }
         }
         return false
+    }
+}
+
+/// Root-owned SwiftUI resets also handle destination-based NavigationLinks,
+/// which are not represented in a bound NavigationPath.
+private struct MobileTabHomeRegistration: UIViewRepresentable {
+    let tab: MobileNavigationTab
+    let reset: () -> Void
+    @Environment(\.mobileTabNavigation) private var navigation
+
+    final class Probe: UIView {
+        var reset: (() -> Void)?
+    }
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
+    func updateUIView(_ probe: Probe, context: Context) {
+        probe.reset = reset
+        navigation?.register(probe, for: tab)
     }
 }
 
@@ -202,6 +264,7 @@ private struct MobileNavigationChrome: ViewModifier {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
         content
             .environment(\.mobileUsesLineupNavigation, !glass)
+            .environment(\.mobileTabNavigation, navigation)
             .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
             .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
@@ -218,6 +281,10 @@ private struct MobileNavigationChrome: ViewModifier {
 }
 
 extension View {
+    func mobileTabHome(_ tab: MobileNavigationTab, reset: @escaping () -> Void) -> some View {
+        background(MobileTabHomeRegistration(tab: tab, reset: reset)
+            .frame(width: 0, height: 0).allowsHitTesting(false))
+    }
     /// State the visibility on each destination too: its NavigationStack owns
     /// the toolbar preference, including after a push or return from a player.
     func mobileNativeTabBar(liquidGlass: Bool, fullscreen: Bool = false) -> some View {

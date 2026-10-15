@@ -56,6 +56,11 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .mobileTabHome(.library) {
+                optionsOpen = false
+                searchingLibrary = false
+                frontPage &+= 1
+            }
             #endif
     }
 

@@ -55,16 +55,22 @@ final class NavigationStyleTests: XCTestCase {
         defer { window.isHidden = true; previous?.makeKey() }
         try await Task.sleep(for: .milliseconds(300))
         let tabs = try XCTUnwrap(Self.tabController(in: window.rootViewController))
-        model.path = [1, 2]
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(model.path, [1, 2])
-        let navigation = MobileTabNavigation()
-        navigation.tabs = tabs
+        let navigation = try XCTUnwrap(Self.navigation(in: window))
         let selected = tabs.selectedViewController
-        navigation.activate(.library) { model.selection = 2 }
-        try await Task.sleep(for: .milliseconds(600))
-        XCTAssertTrue(model.path.isEmpty, "Returning home must update SwiftUI's path too")
-        XCTAssertTrue(tabs.selectedViewController === selected)
+        for (iteration, path) in [[1, 2], [3], [4, 5, 6]].enumerated() {
+            model.path = path
+            try await Task.sleep(for: .milliseconds(500))
+            XCTAssertEqual(model.path, path, "A new push must work after returning home")
+            if iteration == 1 {
+                navigation.activate(.search) { model.selection = 4 }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            navigation.activate(.library) { model.selection = 2 }
+            navigation.activate(.library) { model.selection = 2 }
+            try await Task.sleep(for: .milliseconds(600))
+            XCTAssertTrue(model.path.isEmpty, "Returning home must update SwiftUI's path too")
+            XCTAssertTrue(tabs.selectedViewController === selected)
+        }
     }
 
     @MainActor
@@ -179,6 +185,15 @@ final class NavigationStyleTests: XCTestCase {
         }
         return nil
     }
+
+    @MainActor
+    private static func navigation(in view: UIView) -> MobileTabNavigation? {
+        if let probe = view as? MobileTabBarAppearance.Probe, let navigation = probe.navigation { return navigation }
+        for child in view.subviews {
+            if let navigation = navigation(in: child) { return navigation }
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -198,6 +213,7 @@ private struct NavigationRootPreview: View {
                             Text("Library home")
                                 .navigationDestination(for: Int.self) { Text("Detail \($0)") }
                         }
+                        .mobileTabHome(.library) { model.path = [] }
                     } else {
                         NavigationStack { Text(tab.title) }
                     }

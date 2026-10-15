@@ -18,21 +18,18 @@ final class GuideScrollLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testNativeInsetsAndCustomMarginsReserveTheNavigationSpaceOnce() {
-        // The failed simulator run: glass already reserved 83pt, and adding
-        // another 83pt left the last channel 83pt above the navigation bar.
-        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
-            overlap: 83, currentInset: 83, appliedMargin: 0), 0)
-        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
-            overlap: 83, currentInset: 166, appliedMargin: 83), 0)
-        // The custom panel has no native inset; retain its own required margin.
-        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
-            overlap: 118, currentInset: 118, appliedMargin: 118), 118)
-        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
-            overlap: 118, currentInset: 0, appliedMargin: 0), 118)
-        // A partial native reservation only needs the remaining clearance.
-        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
-            overlap: 83, currentInset: 34, appliedMargin: 0), 49)
+    func testNavigationClearanceDoesNotAccumulateAcrossInsetRewrites() {
+        let scroll = UIScrollView()
+        MobileGuideScrollConfiguration.configure(scroll, horizontal: false)
+        let cases: [(CGFloat, CGFloat)] = [(0, 118), (166, 83), (152, 118), (34, 83), (118, 0)]
+        for (previous, overlap) in cases {
+            scroll.contentInset = UIEdgeInsets(top: 7, left: 11, bottom: previous, right: 13)
+            MobileGuideScrollConfiguration.setBottomClearance(scroll, overlap: overlap)
+            MobileGuideScrollConfiguration.setBottomClearance(scroll, overlap: overlap)
+            XCTAssertEqual(scroll.contentInset, UIEdgeInsets(top: 7, left: 11, bottom: overlap, right: 13))
+            XCTAssertEqual(scroll.adjustedContentInset.bottom, overlap)
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, overlap)
+        }
     }
 
     /// Scrolled to the end, the last channel rests right on top of the tab
@@ -50,8 +47,7 @@ final class GuideScrollLayoutTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
-        // Time for SwiftUI to lay out, the list to measure, and the margin
-        // it reports to be applied.
+        // Time for SwiftUI and the measured UIKit clearance to settle.
         for glass in [false, true, false] {
             model.glass = glass
             for _ in 0..<10 {
@@ -98,7 +94,6 @@ private final class GuideNavigationTestState: ObservableObject {
 
 private struct GuideEndHarness: View {
     @ObservedObject var model: GuideNavigationTestState
-    @State private var bottomInset: CGFloat = 0
 
     var body: some View {
         TabView(selection: $model.selection) {
@@ -128,11 +123,11 @@ private struct GuideEndHarness: View {
                             ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false,
-                            appliedBottomMargin: bottomInset) { bottomInset = $0 })
+                        .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
-                    .contentMargins(.bottom, bottomInset, for: .scrollContent)
+                    .contentMargins(.bottom, 0, for: .scrollContent)
+                    .contentMargins(.bottom, 0, for: .scrollIndicators)
                     .frame(height: max(0, viewport.size.height - 40))
                 }
                 .frame(width: viewport.size.width * 3, height: viewport.size.height, alignment: .topLeading)

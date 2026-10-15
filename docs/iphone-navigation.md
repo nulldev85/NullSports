@@ -16,11 +16,14 @@ and Library can scroll to their last rows. Inline full-screen playback hides
 both bars. Full-screen presentations cover navigation as usual. Page headers,
 menus, and player controls retain their existing surfaces.
 
-Tapping a custom tab returns that destination's existing navigation stack to
-its home and scrolls its root content to the top. This also works when tapping
-the current tab. It preserves the native controllers and view models; changing
-tabs does not animate the whole page. Press feedback and scrolling respect
-Reduce Motion. The Guide's horizontal time position stays in place.
+Tapping a custom tab returns that destination to its home and scrolls its root
+content to the top. Library, Search and Settings register a root-owned SwiftUI
+reset, so destination links reset along with their navigation state. A UIKit
+pop alone leaves SwiftUI's path out of sync. Tab controllers, root view models
+and player owners stay in place; only the pushed stack resets. This also works
+when tapping the current tab, with no whole-page animation. Press feedback and
+scrolling respect Reduce Motion. The Guide's horizontal time position stays
+in place.
 
 `NavigationStyleTests` switches styles, checks native appearance restoration,
 visits all five tabs in their visual order, checks controller identity, and
@@ -29,9 +32,11 @@ workflow's `Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests
 checks that the last Guide row remains reachable in both styles.
 Additional navigation checks exercise every custom destination's return home,
 scrolling, controller preservation, and a real SwiftUI navigation path pop.
-The Guide measures the custom panel directly and adds only clearance that the
-native scroll inset has not already reserved. It observes native inset changes
-so switching to Liquid Glass does not double the bottom space.
+The Guide measures the visible navigation bar and sets its vertical scroller's
+bottom clearance to that exact overlap. SwiftUI adds no extra bottom margin.
+The probe reconciles inset rewrites after layout and style changes, avoiding
+feedback from subtracting a previous asynchronous margin. The end-of-list test
+keeps its exact alignment assertion through custom/glass/custom switches.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

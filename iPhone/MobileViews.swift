@@ -626,6 +626,7 @@ private struct MobileLibrarySettingsView: View {
 /// page of its own.
 private struct MobileAccountView: View {
     @Binding var selectedTab: Int
+    @State private var homeRevision = 0
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
@@ -751,6 +752,8 @@ private struct MobileAccountView: View {
                 MobileAccentPicker(hex: accentHex) { pendingAccent = $0 }
             }
         }
+        .id(homeRevision)
+        .mobileTabHome(.settings) { homeRevision &+= 1 }
     }
 }
 
