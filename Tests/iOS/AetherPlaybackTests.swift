@@ -54,8 +54,7 @@ final class AetherPlaybackTests: XCTestCase {
             try await waitUntil("Embedded subtitles were not discovered") { controller.subtitleTracks.count > 1 }
             controller.selectSubtitle(try XCTUnwrap(controller.subtitleTracks.last))
             controller.toggle()
-            try await waitUntil("Pause did not reach Aether") { !controller.isPlaying }
-            let paused = session.position
+            let paused = try await pausedClock(controller, session: session)
             try await Task.sleep(for: .milliseconds(300))
             XCTAssertEqual(session.position, paused, accuracy: 0.4)
             controller.seek(to: 16)
@@ -205,5 +204,28 @@ final class AetherPlaybackTests: XCTestCase {
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertTrue(condition(), message)
         if !condition() { throw NSError(domain: "AetherPlaybackTests", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+    }
+
+    /// isPlaying reflects pause intent immediately, while Aether's published
+    /// clock can still contain its last playing sample. Wait for an actual
+    /// paused phase and a stationary clock before measuring post-pause drift.
+    /// A decoder that keeps advancing never satisfies this bounded check.
+    private func pausedClock(_ controller: MobilePlaybackController,
+                             session: AetherPlaybackSession) async throws -> Double {
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        var lastPosition = session.position
+        var stationarySince = ProcessInfo.processInfo.systemUptime
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+            let now = ProcessInfo.processInfo.systemUptime
+            let position = session.position
+            if controller.isPlaying || session.phase != .paused || abs(position - lastPosition) > 0.01 {
+                stationarySince = now
+            }
+            lastPosition = position
+            if now - stationarySince >= 0.5 { return position }
+        }
+        XCTFail("Pause did not stop Aether's published clock within five seconds")
+        throw NSError(domain: "AetherPlaybackTests", code: 2)
     }
 }

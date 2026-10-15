@@ -32,24 +32,28 @@ workflow's `Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests
 checks that the last Guide row remains reachable in both styles.
 Additional navigation checks exercise every custom destination's return home,
 scrolling, controller preservation, and a real SwiftUI navigation path pop.
-The Guide measures where navigation overlaps its full available region and
-shortens the vertical list's viewport by that amount. The measured region
-keeps its full height, so shrinking the list cannot change the measurement.
-The reading follows UIKit safe-area changes and SwiftUI's safe-area geometry,
-as well as ordinary layout. A native tab bar can finish appearing after the
-style update without changing the Guide's bounds; measuring only that earlier
-update left the last channel behind the bar. Native mode also ignores a custom
-panel boundary still present during the outgoing transition. UIKit's
-[safe-area callback](https://developer.apple.com/documentation/uikit/uiview/safeareainsetsdidchange())
-invalidates the measurement when bar visibility changes.
-SwiftUI adds no extra bottom content margin. Its native glass bar can still
-extend the UIKit scroller beneath navigation with an adjusted bottom inset;
-the custom panel uses a shorter viewport. The end-of-list test measures the
-usable edge (frame bottom minus adjusted bottom inset) and exact last-row
-alignment through repeated custom/glass switches. A separate UIKit regression
-check shows and hides the native bar after initial layout, without a SwiftUI
-state update or manual measurement request. Neither test assumes a fixed tab
-bar height or requires the native glass scroller to have a zero inset.
+The Guide's shared channel scroller measures the actual UIKit scroll viewport
+against the active navigation boundary and applies that coverage once, through
+SwiftUI bottom content and indicator margins. The native glass layout can
+extend this inner UIScrollView below the outer SwiftUI region: the outer region
+may report zero overlap while the inner viewport has 83 points behind the bar.
+Measuring or shrinking only that outer region therefore misses the covered rows.
+No tab-bar height is hard-coded, and scroll offsets do not affect the reading.
+
+A transparent, noninteractive observer follows the actual scroll view's
+[frame layout guide](https://developer.apple.com/documentation/uikit/uiscrollview/framelayoutguide).
+Its layout and safe-area callbacks catch late native-bar changes even when the
+much taller scrolling content does not resize, including while scrolled to the
+end. Updates are event-driven and publish only when clearance changes. Removing
+the content probe detaches the observer. Native mode ignores an outgoing custom
+panel boundary. The existing configuration prevents a second automatic top
+navigation inset; SwiftUI owns the measured bottom margin.
+
+The end-of-list test uses the same channel scroller as the app and preserves
+exact usable-edge and final-row alignment through repeated custom/glass
+switches. A UIKit regression shows and hides the native bar after initial
+layout with a tall, scrolled content probe and no manual refresh. Neither test
+assumes a fixed tab-bar height or a zero bottom inset.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

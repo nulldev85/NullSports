@@ -48,6 +48,10 @@ Validation includes shared seek policy/coalescing/landing tests, held-menu
 payload and remote press-session tests, both tvOS engine controllers with late
 position/EOF samples and stop/retune cancellation, and actual iPhone Aether
 MP4/software-MKV scrubbing with pause/resume, surface and subtitle preservation.
+The iPhone pause check waits for a paused phase and a stationary published clock
+before sampling post-pause drift. Aether's last playing clock tick can precede
+the actual stopped decoder time; the check retains its 0.4-second drift limit
+and fails if the clock does not settle within five seconds.
 
 Device review before merge:
 

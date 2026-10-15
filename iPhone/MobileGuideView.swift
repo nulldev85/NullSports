@@ -533,7 +533,7 @@ struct MobileGuideView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ruler(now: now)
-                    ScrollView(.vertical) {
+                    MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
                                 HStack(spacing: 0) {
@@ -544,13 +544,7 @@ struct MobileGuideView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
-                    .contentMargins(.top, 0, for: .scrollContent)
-                    // The measured viewport reserves navigation space. Keep
-                    // SwiftUI from adding another bottom content margin.
-                    .contentMargins(.bottom, 0, for: .scrollContent)
-                    .contentMargins(.bottom, 0, for: .scrollIndicators)
                     .frame(height: listHeight)
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
@@ -772,13 +766,8 @@ private struct FavoritesOrderView: View {
     }
 }
 
-/// Measure the full Guide region, which stays the same height when the inner
-/// list shrinks. This avoids feedback from measuring the list being resized.
-/// The usable list ends at navigation, including when native bar visibility
-/// changes only the safe area rather than this region's frame.
+/// Keep the ruler and channel list in the Guide's available region.
 struct MobileGuideViewport<Content: View>: View {
-    @State private var bottomClearance: CGFloat = 0
-    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     private let content: (GeometryProxy, CGFloat) -> Content
 
     init(@ViewBuilder content: @escaping (GeometryProxy, CGFloat) -> Content) {
@@ -787,78 +776,31 @@ struct MobileGuideViewport<Content: View>: View {
 
     var body: some View {
         GeometryReader { viewport in
-            let listHeight = max(0, viewport.size.height - 40 - bottomClearance)
+            let listHeight = max(0, viewport.size.height - 40)
             content(viewport, listHeight)
                 .frame(width: viewport.size.width, height: viewport.size.height, alignment: .topLeading)
-                .background(MobileGuideViewportMeasurement(usesLineupNavigation: usesLineupNavigation,
-                                                           safeAreaBottom: viewport.safeAreaInsets.bottom) {
-                    bottomClearance = $0
-                })
         }
     }
 }
 
-struct MobileGuideViewportMeasurement: UIViewRepresentable {
-    // Reading this environment-derived value makes a bar style switch request
-    // a new measurement even if the full Guide region's bounds do not change.
-    let usesLineupNavigation: Bool
-    // A dependency on SwiftUI's safe area also requests a read when it changes
-    // before UIKit has delivered the corresponding probe callback.
-    let safeAreaBottom: CGFloat
-    let onChange: (CGFloat) -> Void
+/// UIKit can extend this nested scroll view past SwiftUI's proposed height
+/// under the native glass bar. Reserve the measured overlap as a content
+/// margin on the actual scroller, not by shortening its outer SwiftUI region.
+struct MobileGuideChannelScroll<Content: View>: View {
+    @State private var bottomClearance: CGFloat = 0
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    private let content: Content
 
-    func makeUIView(context: Context) -> Probe {
-        let probe = Probe()
-        probe.isUserInteractionEnabled = false
-        return probe
-    }
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
 
-    func updateUIView(_ probe: Probe, context: Context) {
-        probe.usesLineupNavigation = usesLineupNavigation
-        probe.onChange = onChange
-        probe.requestMeasurement()
-    }
-
-    final class Probe: UIView {
-        var usesLineupNavigation: Bool?
-        var onChange: ((CGFloat) -> Void)?
-        private var scheduled = false
-        private(set) var reported: CGFloat?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            requestMeasurement()
+    var body: some View {
+        ScrollView(.vertical) {
+            content.background(MobileGuideScrollConfiguration(horizontal: false,
+                usesLineupNavigation: usesLineupNavigation, onBottomOverlap: { bottomClearance = $0 }))
         }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            requestMeasurement()
-        }
-
-        override func safeAreaInsetsDidChange() {
-            super.safeAreaInsetsDidChange()
-            // TabView can finish showing its native bar after SwiftUI's
-            // update, without changing this view's bounds. UIKit still
-            // delivers the new safe area; that must invalidate the reading.
-            requestMeasurement()
-        }
-
-        func requestMeasurement() {
-            guard !scheduled else { return }
-            scheduled = true
-            // Read final geometry and publish outside SwiftUI's layout pass.
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.window?.layoutIfNeeded()
-                self.scheduled = false
-                guard self.window != nil, self.bounds.height > 0 else { return }
-                let clearance = MobileGuideScrollConfiguration.bottomOverlap(of: self,
-                    usesLineupNavigation: self.usesLineupNavigation)
-                if let reported = self.reported, abs(reported - clearance) <= 0.5 { return }
-                self.reported = clearance
-                self.onChange?(clearance)
-            }
-        }
+        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.bottom, bottomClearance, for: .scrollContent)
+        .contentMargins(.bottom, bottomClearance, for: .scrollIndicators)
     }
 }
 
@@ -866,6 +808,8 @@ struct MobileGuideViewportMeasurement: UIViewRepresentable {
 /// scrollers must not add that navigation inset again above the first channel.
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
+    var usesLineupNavigation: Bool? = nil
+    var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
         let probe = Probe(frame: .zero)
@@ -876,7 +820,14 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.horizontal = horizontal
-        DispatchQueue.main.async { [weak probe] in probe?.refresh() }
+        probe.usesLineupNavigation = usesLineupNavigation
+        probe.onBottomOverlap = onBottomOverlap
+        probe.requestRefresh()
+    }
+
+    static func dismantleUIView(_ probe: Probe, coordinator: ()) {
+        probe.onBottomOverlap = nil
+        probe.detachObserver()
     }
 
     static func configure(_ scroll: UIScrollView, horizontal: Bool) {
@@ -893,8 +844,9 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         if horizontal && scroll.bounces { scroll.bounces = false }
     }
 
-    /// The part of a view covered by navigation, independent of content offsets
-    /// and insets. Production measures the full viewport, not the shorter list.
+    /// Physical coverage, independent of scroll offsets and content insets.
+    /// The channel list measures its UIScrollView, not an outer hosting view
+    /// or the much taller scrolling content.
     static func bottomOverlap(of view: UIView, usesLineupNavigation: Bool? = nil) -> CGFloat {
         guard let window = view.window else { return 0 }
         let viewBottom = view.convert(view.bounds, to: window).maxY
@@ -910,16 +862,27 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
 
     final class Probe: UIView {
         var horizontal = false
+        var usesLineupNavigation: Bool?
+        var onBottomOverlap: ((CGFloat) -> Void)?
+        private(set) var reported: CGFloat?
+        private var scheduled = false
+        private weak var observedScroll: UIScrollView?
+        private var observer: ViewportObserver?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            refresh()
-            DispatchQueue.main.async { [weak self] in self?.refresh() }
+            if window == nil { detachObserver() }
+            else { requestRefresh() }
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            refresh()
+            requestRefresh()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            requestRefresh()
         }
 
         var enclosingScrollView: UIScrollView? {
@@ -931,9 +894,61 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             return nil
         }
 
-        func refresh() {
+        func requestRefresh() {
+            guard !scheduled else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                self.refresh()
+            }
+        }
+
+        private func refresh() {
             guard window != nil, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
+            guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
+            if observedScroll !== scroll {
+                detachObserver()
+                observedScroll = scroll
+                let observer = ViewportObserver(frame: scroll.bounds)
+                observer.owner = self
+                observer.translatesAutoresizingMaskIntoConstraints = false
+                observer.isUserInteractionEnabled = false
+                observer.isOpaque = false
+                observer.accessibilityElementsHidden = true
+                scroll.addSubview(observer)
+                NSLayoutConstraint.activate([
+                    observer.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
+                    observer.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
+                    observer.topAnchor.constraint(equalTo: scroll.frameLayoutGuide.topAnchor),
+                    observer.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor)
+                ])
+                self.observer = observer
+            }
+            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
+                usesLineupNavigation: usesLineupNavigation)
+            guard reported == nil || abs((reported ?? 0) - overlap) > 0.5 else { return }
+            reported = overlap
+            onBottomOverlap?(overlap)
+        }
+
+        func detachObserver() {
+            observer?.owner = nil
+            observer?.removeFromSuperview()
+            observer = nil
+            observedScroll = nil
+            reported = nil
+        }
+
+        /// The content probe may be thousands of points tall and never resize.
+        /// This transparent observer follows the actual scroll viewport, so a
+        /// native bar's late frame/safe-area change invalidates the measurement.
+        private final class ViewportObserver: UIView {
+            weak var owner: Probe?
+            override func layoutSubviews() { super.layoutSubviews(); owner?.requestRefresh() }
+            override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); owner?.requestRefresh() }
+            override func didMoveToWindow() { super.didMoveToWindow(); owner?.requestRefresh() }
         }
     }
 

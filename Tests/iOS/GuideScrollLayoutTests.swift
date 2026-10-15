@@ -53,17 +53,14 @@ final class GuideScrollLayoutTests: XCTestCase {
                 XCTAssertGreaterThan(barTop, 0)
                 XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
             }
-            // SwiftUI's glass bar extends the UIKit scroll view below its
-            // usable region and reserves that area with an adjusted inset.
-            // The custom panel instead shortens the viewport. Both are valid:
-            // measure usable space, not an implementation-specific zero inset.
+            // Native glass can extend UIKit's actual scroller below the
+            // proposed SwiftUI frame. The shared channel scroller reserves
+            // its measured navigation coverage as a bottom content margin.
             let usableBottom = list.convert(list.bounds, to: window).maxY - list.adjustedContentInset.bottom
-            let measurement = try XCTUnwrap(window.firstSubview(of: MobileGuideViewportMeasurement.Probe.self))
             XCTAssertEqual(usableBottom, barTop, accuracy: 1,
                            "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset), "
-                           + "measured clearance \(String(describing: measurement.reported)), "
-                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: measurement)), "
-                           + "measurement safe area \(measurement.safeAreaInsets)")
+                           + "measured clearance \(String(describing: probe.reported)), "
+                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
             let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
@@ -80,9 +77,9 @@ final class GuideScrollLayoutTests: XCTestCase {
         }
     }
 
-    /// A native bar can finish appearing after the representable's update,
-    /// without resizing the full Guide region. No SwiftUI state update or
-    /// manual requestMeasurement is sent between these UIKit changes.
+    /// A native bar can finish appearing after the content probe's update.
+    /// The tall content need not resize; its separate viewport observer must
+    /// follow bar visibility, including while content is scrolled to the end.
     @MainActor
     func testNativeBarVisibilityRemeasuresTheGuideAfterItsInitialLayout() async throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native glass requires iOS 26") }
@@ -99,24 +96,28 @@ final class GuideScrollLayoutTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
         window.layoutIfNeeded()
-        let probe = MobileGuideViewportMeasurement.Probe(frame: page.view.bounds)
-        probe.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let scroll = UIScrollView(frame: page.view.bounds)
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.contentSize = CGSize(width: page.view.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
         probe.usesLineupNavigation = false
         var reported: CGFloat?
-        probe.onChange = { reported = $0 }
-        page.view.addSubview(probe)
+        probe.onBottomOverlap = { reported = $0 }
+        scroll.addSubview(probe)
         for _ in 0..<5 {
             try await Task.sleep(for: .milliseconds(50))
             window.layoutIfNeeded()
         }
         XCTAssertNotNil(reported)
+        scroll.setContentOffset(CGPoint(x: 0, y: 2_400 - scroll.bounds.height), animated: false)
         for hidden in [false, true, false] {
             tabs.setTabBarHidden(hidden, animated: false)
             for _ in 0..<10 {
                 try await Task.sleep(for: .milliseconds(50))
                 window.layoutIfNeeded()
             }
-            let expected = MobileGuideScrollConfiguration.bottomOverlap(of: probe, usesLineupNavigation: false)
+            let expected = MobileGuideScrollConfiguration.bottomOverlap(of: scroll, usesLineupNavigation: false)
             XCTAssertEqual(try XCTUnwrap(reported), expected, accuracy: 1,
                            "The measurement must follow late native bar visibility changes: hidden \(hidden)")
             if !hidden {
@@ -159,16 +160,12 @@ private struct GuideEndHarness: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     Color.gray.frame(height: 40)
-                    ScrollView(.vertical) {
+                    MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false))
                     }
-                    .contentMargins(.top, 0, for: .scrollContent)
-                    .contentMargins(.bottom, 0, for: .scrollContent)
-                    .contentMargins(.bottom, 0, for: .scrollIndicators)
                     .frame(height: listHeight)
                 }
                 .frame(width: viewport.size.width * 3, height: viewport.size.height, alignment: .topLeading)
