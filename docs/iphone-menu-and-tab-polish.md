@@ -17,6 +17,11 @@ on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/do
 The Guide applies measured bottom navigation coverage once, without an
 additional inherited home-indicator margin. Its existing layout regression
 checks exact last-row alignment across repeated custom/native style switches.
+The other four tabs reserve the custom panel's measured coverage in their native
+navigation container, including pushed Library/Search/Settings pages. The panel
+is an overlay without a second outer SwiftUI inset or full-width background.
+Window/home-indicator protection is counted once, and the custom reservation is
+restored when switching to Liquid Glass or entering full-screen playback.
 
 App-owned toolbar controls use LineupToolbarItem. On iOS 26 and later it hides
 the native shared glass background and preserves the app control's intrinsic
@@ -67,6 +72,9 @@ Device review:
 - Drag Settings, Search and Library to new positions. Switch navigation styles,
   relaunch, and confirm tapping each destination and returning home still work.
 - Check the floating custom bar against Library artwork and other page colors.
+- Scroll Sports, Library, Search and Settings to their final entries. Check that
+  they rest above navigation in both styles, including pushed pages. Rotate and
+  expand/collapse an inline player; no extra bottom gap should remain afterward.
 - At the top of Library and title details, check that artwork stays sharp behind
   the status bar and toolbar buttons in both navigation styles, including after
   scrolling down and returning to the top.

@@ -61,6 +61,7 @@ extension EnvironmentValues {
 /// and selection binding as Apple's bar. Buttons select immediately.
 struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
+    var navigation: MobileTabNavigation? = nil
     let activate: (MobileNavigationTab) -> Void
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
@@ -111,7 +112,7 @@ struct MobileLineupNavigationBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 6).padding(.bottom, 4)
-        .background(MobileLineupNavigationBoundary().allowsHitTesting(false))
+        .background(MobileLineupNavigationBoundary(navigation: navigation).allowsHitTesting(false))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
@@ -134,11 +135,36 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
     var order = MobileNavigationTab.allCases
+    fileprivate weak var bottomBoundary: UIView?
+    fileprivate var showsCustomNavigation = false
+    fileprivate var currentSelection = 0
+    private let contentInsets = MobileNavigationContentInsets()
+    private var insetsUpdateScheduled = false
     private struct Home {
         weak var probe: MobileTabHomeRegistration.Probe?
     }
     private var homes: [Int: Home] = [:]
     private var pendingHomes: Set<Int> = []
+
+    fileprivate func requestContentInsetsUpdate() {
+        guard !insetsUpdateScheduled else { return }
+        insetsUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.insetsUpdateScheduled = false
+            guard self.showsCustomNavigation else { self.contentInsets.restore(); return }
+            // The Guide already owns its measured scroller margins.
+            guard self.currentSelection != MobileNavigationTab.guide.rawValue,
+                  let tabs = self.tabs,
+                  let index = self.order.firstIndex(where: { $0.rawValue == self.currentSelection }),
+                  tabs.selectedIndex == index,
+                  let controller = tabs.selectedViewController,
+                  let boundary = self.bottomBoundary, boundary.window != nil else { return }
+            self.contentInsets.apply(to: controller, above: boundary) { [weak self] in
+                self?.requestContentInsetsUpdate()
+            }
+        }
+    }
 
     fileprivate func register(_ probe: MobileTabHomeRegistration.Probe, for tab: MobileNavigationTab) {
         homes[tab.rawValue] = Home(probe: probe)
@@ -170,6 +196,8 @@ final class MobileTabNavigation: ObservableObject {
         // Commit immediately; SwiftUI's binding update reconciles the same
         // selection on its next render, without animating the entire page.
         if tabs.selectedIndex != index { tabs.selectedIndex = index }
+        currentSelection = tab.rawValue
+        requestContentInsetsUpdate()
         if home == nil {
             Self.returnHome(in: controllers[index], animated: reselection && tabs.viewIfLoaded?.window != nil
                             && !UIAccessibility.isReduceMotionEnabled)
@@ -237,13 +265,33 @@ private struct MobileTabHomeRegistration: UIViewRepresentable {
 /// A measurable UIKit boundary for nested Guide scrollers. SwiftUI preference
 /// values do not reliably cross TabView/NavigationStack hosting boundaries.
 struct MobileLineupNavigationBoundary: UIViewRepresentable {
-    final class Boundary: UIView {}
+    var navigation: MobileTabNavigation? = nil
+    final class Boundary: UIView {
+        weak var navigation: MobileTabNavigation?
+        private func report() {
+            if window != nil { navigation?.bottomBoundary = self }
+            navigation?.requestContentInsetsUpdate()
+        }
+        override func didMoveToWindow() { super.didMoveToWindow(); report() }
+        override func layoutSubviews() { super.layoutSubviews(); report() }
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); report() }
+    }
     func makeUIView(context: Context) -> Boundary {
         let view = Boundary()
         view.isUserInteractionEnabled = false
         return view
     }
-    func updateUIView(_ view: Boundary, context: Context) {}
+    func updateUIView(_ view: Boundary, context: Context) {
+        view.navigation = navigation
+        if view.window != nil { navigation?.bottomBoundary = view }
+        navigation?.requestContentInsetsUpdate()
+    }
+
+    static func dismantleUIView(_ view: Boundary, coordinator: ()) {
+        if view.navigation?.bottomBoundary === view { view.navigation?.bottomBoundary = nil }
+        view.navigation?.requestContentInsetsUpdate()
+        view.navigation = nil
+    }
 
     static func find(in view: UIView) -> Boundary? {
         guard !view.isHidden, view.alpha > 0.01 else { return nil }
@@ -269,13 +317,15 @@ private struct MobileNavigationChrome: ViewModifier {
             .environment(\.mobileTabNavigation, navigation)
             .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
             .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
-                                              order: MobileNavigationOrder.tabs(in: savedOrder))
+                                              order: MobileNavigationOrder.tabs(in: savedOrder),
+                                              selection: selection, fullscreen: fullscreen)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
-            // Reserve room for the panel, so bottom rows and buttons remain
-            // reachable. Both bars stand aside for full-screen playback.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // UIKit's navigation container owns the measured reservation.
+            // A second outer SwiftUI inset would count the same panel twice.
+            // Keep the panel above the home indicator, with no full-width fill.
+            .overlay(alignment: .bottom) {
                 if !glass && !fullscreen {
-                    MobileLineupNavigationBar(selection: $selection) { tab in
+                    MobileLineupNavigationBar(selection: $selection, navigation: navigation) { tab in
                         navigation.activate(tab) { selection = tab.rawValue }
                     }
                 }
@@ -307,6 +357,8 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     let liquidGlass: Bool
     var navigation: MobileTabNavigation? = nil
     var order = MobileNavigationTab.allCases
+    var selection = 0
+    var fullscreen = false
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
@@ -314,6 +366,8 @@ struct MobileTabBarAppearance: UIViewRepresentable {
         probe.liquidGlass = liquidGlass
         probe.navigation = navigation
         navigation?.order = order
+        navigation?.currentSelection = selection
+        navigation?.showsCustomNavigation = !liquidGlass && !fullscreen
         probe.refresh()
     }
 
@@ -336,6 +390,12 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // Only discover the controller once. Layout and tab switches do
             // not walk the view hierarchy or recreate the glass material.
             if bar == nil { refresh() }
+            navigation?.requestContentInsetsUpdate()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            navigation?.requestContentInsetsUpdate()
         }
 
         func refresh() {
@@ -347,6 +407,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             }
             guard let bar else { return }
             style.apply(to: bar, liquidGlass: liquidGlass)
+            navigation?.requestContentInsetsUpdate()
         }
 
         private static func findTabController(in controller: UIViewController?) -> UITabBarController? {
