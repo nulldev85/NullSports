@@ -32,11 +32,13 @@ workflow's `Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests
 checks that the last Guide row remains reachable in both styles.
 Additional navigation checks exercise every custom destination's return home,
 scrolling, controller preservation, and a real SwiftUI navigation path pop.
-The Guide measures the visible navigation bar and sets its vertical scroller's
-bottom clearance to that exact overlap. SwiftUI adds no extra bottom margin.
-The probe reconciles inset rewrites after layout and style changes, avoiding
-feedback from subtracting a previous asynchronous margin. The end-of-list test
-keeps its exact alignment assertion through custom/glass/custom switches.
+The Guide measures where navigation overlaps its full available region and
+shortens the vertical list's viewport by that amount. The measured region
+keeps its full height, so shrinking the list cannot change the measurement.
+SwiftUI owns the zero bottom scroll margins; UIKit does not overwrite them.
+The end-of-list test uses the production viewport component and checks the
+visible list edge, zero extra inset, and exact last-row alignment through
+custom/glass/custom switches.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

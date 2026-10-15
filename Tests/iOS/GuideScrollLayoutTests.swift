@@ -17,21 +17,6 @@ final class GuideScrollLayoutTests: XCTestCase {
         XCTAssertFalse(horizontal.bounces)
     }
 
-    @MainActor
-    func testNavigationClearanceDoesNotAccumulateAcrossInsetRewrites() {
-        let scroll = UIScrollView()
-        MobileGuideScrollConfiguration.configure(scroll, horizontal: false)
-        let cases: [(CGFloat, CGFloat)] = [(0, 118), (166, 83), (152, 118), (34, 83), (118, 0)]
-        for (previous, overlap) in cases {
-            scroll.contentInset = UIEdgeInsets(top: 7, left: 11, bottom: previous, right: 13)
-            MobileGuideScrollConfiguration.setBottomClearance(scroll, overlap: overlap)
-            MobileGuideScrollConfiguration.setBottomClearance(scroll, overlap: overlap)
-            XCTAssertEqual(scroll.contentInset, UIEdgeInsets(top: 7, left: 11, bottom: overlap, right: 13))
-            XCTAssertEqual(scroll.adjustedContentInset.bottom, overlap)
-            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, overlap)
-        }
-    }
-
     /// Scrolled to the end, the last channel rests right on top of the tab
     /// bar: not under it, and not with a gap above it. Built the way the TV
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a
@@ -47,7 +32,7 @@ final class GuideScrollLayoutTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
-        // Time for SwiftUI and the measured UIKit clearance to settle.
+        // Time for the measured Guide viewport to settle.
         for glass in [false, true, false] {
             model.glass = glass
             for _ in 0..<10 {
@@ -68,6 +53,10 @@ final class GuideScrollLayoutTests: XCTestCase {
                 XCTAssertGreaterThan(barTop, 0)
                 XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
             }
+            XCTAssertEqual(list.convert(list.bounds, to: window).maxY, barTop, accuracy: 1,
+                           "The visible list must stop above navigation")
+            XCTAssertEqual(list.adjustedContentInset.bottom, 0, accuracy: 1,
+                           "A resized viewport must not also reserve bottom scroll space")
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
             let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
@@ -114,7 +103,7 @@ private struct GuideEndHarness: View {
     }
 
     private var guide: some View {
-        GeometryReader { viewport in
+        MobileGuideViewport { viewport, listHeight in
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     Color.gray.frame(height: 40)
@@ -128,7 +117,7 @@ private struct GuideEndHarness: View {
                     .contentMargins(.top, 0, for: .scrollContent)
                     .contentMargins(.bottom, 0, for: .scrollContent)
                     .contentMargins(.bottom, 0, for: .scrollIndicators)
-                    .frame(height: max(0, viewport.size.height - 40))
+                    .frame(height: listHeight)
                 }
                 .frame(width: viewport.size.width * 3, height: viewport.size.height, alignment: .topLeading)
                 .background(MobileGuideScrollConfiguration(horizontal: true))
