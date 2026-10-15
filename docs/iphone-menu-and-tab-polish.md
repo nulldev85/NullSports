@@ -29,18 +29,35 @@ control's own outline is removed. Native Liquid Glass remains the bottom
 navigation option. Apple's [toolbar background API](https://developer.apple.com/documentation/swiftui/toolbarcontent/sharedbackgroundvisibility(_:))
 provides the per-item customization.
 
-Choose Another Channel resolves game suggestions once on opening or when the
-provider catalog/favorites change. It builds a sorted, case/diacritic-folded
-channel index off the UI actor and filters it in a cancellable background task
-after a 120ms typing debounce. Stale queries or catalogs cannot publish over
-newer work. Clearing search restores the full provider order, with suggestions
-separate; radio entries are excluded. Text changes do not rerun game matching,
-provider sorting, or per-row favorite-array searches. Dismissal cancels work.
+Choose Another Channel isolates the search draft in its field's small subtree.
+Only completed answers publish to the results view, after cancellable background
+filtering with a 120ms debounce. The picker listens specifically to catalog and
+favorite changes, without observing every sports-store publication. Catalog
+sorting, folded search names, favorite lookup and suggestion deduplication are
+built in background work; the opening path does not scan the full Guide for
+favorites. Stale queries/catalogs cannot publish over newer work, and dismissal
+cancels queued work. Clearing search restores provider order with suggestions
+separate; radio entries and duplicate channel IDs are excluded.
+
+Results use a reusable UIKit table with the existing SwiftUI channel-logo rows,
+Lineup headers, panel colors and dividers. Only visible rows are configured.
+A page identity skips table work when an unrelated parent redraws, without a
+comparison or SwiftUI identification pass over the provider's entire array.
+All channels remain reachable; there is no result cap or extra paging control.
+Apple describes List's eager identifier collection in
+[Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+and supports these hosted rows through
+[UIHostingConfiguration](https://developer.apple.com/documentation/swiftui/uihostingconfiguration).
 
 Xcode checks include saved-order repair/persistence, reordered custom tab
 activation/return home, actual native/custom order changes with stable
 selection, stream-panel geometry and long-list scrolling, toolbar label widths
 and screenshot capture, and search coalescing/provider replacement/cancellation.
+A 30,000-channel model case checks that drafts do not publish catalog-sized UI
+updates. A real picker/window regression counts UIKit cell requests through an
+external data-source wrapper: opening, clearing back to all channels, and jumping
+to the last row must create fewer than 200 cells per operation. It checks reused
+row selection and exports a screenshot and row-work counts with test attachments.
 Full simulator validation and release packaging run in the review builds.
 
 Device review:

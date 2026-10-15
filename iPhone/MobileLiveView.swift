@@ -285,12 +285,11 @@ struct MobileLiveView: View {
                     applySelection(stream, for: game)
                 }
             }) { game in
-                MobileChannelPicker(game: game) { stream in
+                MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game
                     choosingChannel = nil
                 }
-                .environmentObject(library)
             }
             // Both teams have a saved channel and they disagree — the one case
             // where a preference cannot answer on its own.

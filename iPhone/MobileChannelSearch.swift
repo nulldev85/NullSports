@@ -6,78 +6,124 @@ private struct MobileChannelIndexEntry: Sendable {
     let name: String
 }
 
-/// Build the provider's sorted, folded-name index once, then filter away from
-/// the UI actor. New keystrokes cancel old work and only the latest can publish.
+private struct MobileChannelIndex: Sendable {
+    let id = UUID()
+    let entries: [MobileChannelIndexEntry]
+    let suggested: [XtreamStream]
+    let favoriteIDs: Set<Int>
+}
+
+/// One completed answer. Its identity lets the reusable table accept it in
+/// constant time instead of comparing every channel on a SwiftUI update.
+final class MobileChannelSearchPage: Sendable {
+    let id = UUID()
+    let catalogID: UUID?
+    let query: String
+    let results: [XtreamStream]
+    let suggested: [XtreamStream]
+    let favoriteIDs: Set<Int>
+    let loading: Bool
+
+    init(catalogID: UUID? = nil, query: String = "", results: [XtreamStream] = [],
+         suggested: [XtreamStream] = [], favoriteIDs: Set<Int> = [], loading: Bool = true) {
+        self.catalogID = catalogID
+        self.query = query
+        self.results = results
+        self.suggested = suggested
+        self.favoriteIDs = favoriteIDs
+        self.loading = loading
+    }
+}
+
+/// Indexing, favorite resolution and filtering stay off the UI actor. Only a
+/// completed page publishes: a keystroke does not invalidate the results view.
 @MainActor
 final class MobileChannelSearch: ObservableObject {
-    @Published private(set) var results: [XtreamStream] = []
-    @Published private(set) var loading = true
-    private var entries: [MobileChannelIndexEntry] = []
-    private var excluded: Set<Int> = []
+    @Published private(set) var page = MobileChannelSearchPage()
+    var results: [XtreamStream] { page.results }
+    var loading: Bool { page.loading }
+    private var index: MobileChannelIndex?
     private var query = ""
     private var request = UUID()
     private var catalogTask: Task<Void, Never>?
     private var queryTask: Task<Void, Never>?
 
-    func update(channels: [XtreamStream], excluding suggested: Set<Int>) {
+    func update(channels: [XtreamStream], preferred: [XtreamStream], favoriteOrder: [Int]) {
         catalogTask?.cancel()
         queryTask?.cancel()
         request = UUID()
-        excluded = suggested
-        loading = true
+        index = nil
+        page = MobileChannelSearchPage()
         catalogTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            let work = Task.detached(priority: .userInitiated) {
-                guard !Task.isCancelled else { return [MobileChannelIndexEntry]() }
-                let ordered = channels.filter { !["radio", "radio_streams"].contains($0.streamType?.lowercased() ?? "") }
-                    .sorted {
-                        if ($0.num ?? Int.max) != ($1.num ?? Int.max) { return ($0.num ?? Int.max) < ($1.num ?? Int.max) }
-                        return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                    }
-                var index: [MobileChannelIndexEntry] = []
-                index.reserveCapacity(ordered.count)
-                for stream in ordered {
-                    guard !Task.isCancelled else { return [MobileChannelIndexEntry]() }
-                    index.append(.init(stream: stream,
+            let work = Task.detached(priority: .userInitiated) { () -> MobileChannelIndex? in
+                var entries: [MobileChannelIndexEntry] = []
+                entries.reserveCapacity(channels.count)
+                var byID: [Int: XtreamStream] = [:]
+                byID.reserveCapacity(channels.count)
+                for stream in channels {
+                    guard !Task.isCancelled else { return nil }
+                    guard !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? ""),
+                          byID[stream.id] == nil else { continue }
+                    byID[stream.id] = stream
+                    entries.append(.init(stream: stream,
                         name: stream.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)))
                 }
-                return index
+                entries.sort {
+                    if ($0.stream.num ?? Int.max) != ($1.stream.num ?? Int.max) {
+                        return ($0.stream.num ?? Int.max) < ($1.stream.num ?? Int.max)
+                    }
+                    return $0.stream.name.localizedCaseInsensitiveCompare($1.stream.name) == .orderedAscending
+                }
+                guard !Task.isCancelled else { return nil }
+                var seen: Set<Int> = []
+                var suggested: [XtreamStream] = []
+                for id in preferred.map(\.id) + favoriteOrder {
+                    guard !Task.isCancelled else { return nil }
+                    if let stream = byID[id], seen.insert(id).inserted { suggested.append(stream) }
+                    if suggested.count == 6 { break }
+                }
+                return MobileChannelIndex(entries: entries, suggested: suggested, favoriteIDs: Set(favoriteOrder))
             }
             let index = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
-            guard let self, !Task.isCancelled else { return }
-            self.entries = index
-            self.loading = false
+            guard let self, let index, !Task.isCancelled else { return }
+            self.index = index
             self.search(self.query, immediately: true)
         }
     }
 
     func search(_ query: String, immediately: Bool = false) {
+        guard immediately || query != self.query else { return }
         self.query = query
         queryTask?.cancel()
         let token = UUID()
         request = token
-        let index = entries
-        let excluded = excluded
+        guard let index else { return } // The catalog completion uses the newest draft.
         queryTask = Task { [weak self] in
             if !immediately {
                 do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
             }
             guard !Task.isCancelled else { return }
-            let work = Task.detached(priority: .userInitiated) {
-                let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let work = Task.detached(priority: .userInitiated) { () -> MobileChannelSearchPage? in
+                let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                let term = trimmed
                     .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                let suggested = term.isEmpty ? index.suggested : []
+                let excluded = Set(suggested.map(\.id))
                 var matches: [XtreamStream] = []
-                for entry in index {
-                    guard !Task.isCancelled else { return [XtreamStream]() }
+                matches.reserveCapacity(index.entries.count)
+                for entry in index.entries {
+                    guard !Task.isCancelled else { return nil }
                     if term.isEmpty ? !excluded.contains(entry.stream.id) : entry.name.contains(term) {
                         matches.append(entry.stream)
                     }
                 }
-                return matches
+                return MobileChannelSearchPage(catalogID: index.id, query: trimmed,
+                    results: matches, suggested: suggested, favoriteIDs: index.favoriteIDs, loading: false)
             }
-            let matches = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
-            guard let self, !Task.isCancelled, self.request == token else { return }
-            self.results = matches
+            let page = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+            guard let self, let page, !Task.isCancelled, self.request == token else { return }
+            self.page = page
         }
     }
 
