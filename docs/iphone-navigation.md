@@ -20,6 +20,9 @@ visits all five tabs in their visual order, checks controller identity, and
 checks full-screen visibility. Its screenshots are exported in the iPhone
 workflow's `Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests`
 checks that the last Guide row remains reachable in both styles.
+The Guide measures the custom panel directly and adds only clearance that the
+native scroll inset has not already reserved. It observes native inset changes
+so switching to Liquid Glass does not double the bottom space.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Change the accent color, switch tabs repeatedly,

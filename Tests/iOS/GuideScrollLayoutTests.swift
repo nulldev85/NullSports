@@ -17,6 +17,24 @@ final class GuideScrollLayoutTests: XCTestCase {
         XCTAssertFalse(horizontal.bounces)
     }
 
+    @MainActor
+    func testNativeInsetsAndCustomMarginsReserveTheNavigationSpaceOnce() {
+        // The failed simulator run: glass already reserved 83pt, and adding
+        // another 83pt left the last channel 83pt above the navigation bar.
+        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
+            overlap: 83, currentInset: 83, appliedMargin: 0), 0)
+        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
+            overlap: 83, currentInset: 166, appliedMargin: 83), 0)
+        // The custom panel has no native inset; retain its own required margin.
+        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
+            overlap: 118, currentInset: 118, appliedMargin: 118), 118)
+        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
+            overlap: 118, currentInset: 0, appliedMargin: 0), 118)
+        // A partial native reservation only needs the remaining clearance.
+        XCTAssertEqual(MobileGuideScrollConfiguration.additionalBottomMargin(
+            overlap: 83, currentInset: 34, appliedMargin: 0), 49)
+    }
+
     /// Scrolled to the end, the last channel rests right on top of the tab
     /// bar: not under it, and not with a gap above it. Built the way the TV
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a
@@ -110,7 +128,8 @@ private struct GuideEndHarness: View {
                             ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false) { bottomInset = $0 })
+                        .background(MobileGuideScrollConfiguration(horizontal: false,
+                            appliedBottomMargin: bottomInset) { bottomInset = $0 })
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
                     .contentMargins(.bottom, bottomInset, for: .scrollContent)

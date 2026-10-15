@@ -544,12 +544,13 @@ struct MobileGuideView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .background(MobileGuideScrollConfiguration(horizontal: false) { listBottomInset = $0 })
+                        .background(MobileGuideScrollConfiguration(horizontal: false,
+                            appliedBottomMargin: listBottomInset) { listBottomInset = $0 })
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
                     // Room for the last channel to clear the floating tab bar
                     // is measured, not assumed: `MobileGuideScrollConfiguration`
-                    // reports exactly the part of the list the bar covers, so
+                    // reports the space not already reserved by SwiftUI, so
                     // the end bounces and settles with the last row flush above
                     // the bar, as the top settles on the first.
                     .contentMargins(.bottom, listBottomInset, for: .scrollContent)
@@ -777,10 +778,11 @@ private struct FavoritesOrderView: View {
 
 /// Navigation already positions this guide within the safe area. Its two nested
 /// scrollers must not add that navigation inset again above the first channel.
-/// The vertical one also reports how much of it the tab bar covers, which the
-/// guide gives back to it as a bottom margin.
+/// The vertical one reports the additional space needed above the tab bar,
+/// after accounting for the native inset SwiftUI already supplies.
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
+    var appliedBottomMargin: CGFloat = 0
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
@@ -791,6 +793,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.horizontal = horizontal
+        probe.appliedBottomMargin = appliedBottomMargin
         probe.onBottomOverlap = onBottomOverlap
         DispatchQueue.main.async { [weak probe] in probe?.refresh() }
     }
@@ -826,6 +829,17 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         return max(0, (listBottom - barTop).rounded())
     }
 
+    /// SwiftUI's native glass tab bar already contributes an inset, even when
+    /// UIKit's automatic inset adjustment is disabled. Subtract that existing
+    /// contribution before asking SwiftUI for an additional content margin.
+    /// Removing our previous margin isolates the native contribution and keeps
+    /// the calculation stable when switching navigation styles or rotating.
+    static func additionalBottomMargin(overlap: CGFloat, currentInset: CGFloat,
+                                       appliedMargin: CGFloat) -> CGFloat {
+        let reservedBySystem = max(0, currentInset - appliedMargin)
+        return max(0, overlap - reservedBySystem).rounded()
+    }
+
     /// Sits behind the scroller's content and measures as soon as it is on
     /// screen and whenever the list lays out again. The inset used to be
     /// written straight onto the scroller after the fact, where SwiftUI's own
@@ -834,11 +848,19 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     /// SwiftUI, which applies it with the list's other margins and keeps it.
     final class Probe: UIView {
         var horizontal = false
+        var appliedBottomMargin: CGFloat = 0
         var onBottomOverlap: ((CGFloat) -> Void)?
         private var reported: CGFloat?
+        private weak var observedScroll: UIScrollView?
+        private var insetObservation: NSKeyValueObservation?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if window == nil {
+                insetObservation = nil
+                observedScroll = nil
+                return
+            }
             refresh()
             // The first pass can come before the tab bar has its place.
             DispatchQueue.main.async { [weak self] in self?.refresh() }
@@ -862,11 +884,22 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             guard window != nil, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
             guard !horizontal, let onBottomOverlap else { return }
+            if observedScroll !== scroll {
+                observedScroll = scroll
+                // Native insets can settle after SwiftUI updates the margin.
+                // Recalculate on that change even if our content size is fixed.
+                insetObservation = scroll.observe(\.adjustedContentInset, options: [.new]) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.refresh() }
+                }
+            }
             let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll)
-            if let reported, abs(reported - overlap) <= 0.5 { return }
-            reported = overlap
+            let margin = MobileGuideScrollConfiguration.additionalBottomMargin(
+                overlap: overlap, currentInset: scroll.adjustedContentInset.bottom,
+                appliedMargin: appliedBottomMargin)
+            if let reported, abs(reported - margin) <= 0.5 { return }
+            reported = margin
             // Never during SwiftUI's own update of this view.
-            DispatchQueue.main.async { onBottomOverlap(overlap) }
+            DispatchQueue.main.async { onBottomOverlap(margin) }
         }
     }
 

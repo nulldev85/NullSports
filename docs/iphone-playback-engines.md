@@ -69,9 +69,10 @@ Screenshots are exported with the existing iPhone preview artifact.
 The simulator does not prove a floating PiP window or background lifecycle on an
 iPhone. The physical-device PiP test explicitly skips in the simulator and, on
 device, requires AVKit to actually activate then stop each source's PiP window.
-iPhone simulator compilation and framework embedding reached the test suite in
-run 38658172404. The corrected playback/tracking/layout tests, release packaging,
-and physical-device results remain pending.
+iPhone simulator compilation, framework embedding, Aether playback tests,
+playback policy, and local tracking passed in run 38661435840. The only failure
+was the Guide's duplicated bottom inset with Liquid Glass enabled. The corrected
+Guide check, release packaging, and physical-device results remain pending.
 
 Before merging, test each of Automatic and AetherEngine with your live TV,
 provider VOD, and a Nullfin movie and episode. Start PiP manually, press Home,
