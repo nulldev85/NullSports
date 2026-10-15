@@ -3794,7 +3794,6 @@ private struct GuidePreviewVideo: View {
 
     var body: some View {
         TVHostedSurface(controller: controller)
-            .overlay(alignment: .topTrailing) { TVPlaybackEngineBadge(engine: controller.engineKind).padding(10) }
             .overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear { open() }

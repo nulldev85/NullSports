@@ -4646,7 +4646,7 @@ private enum StreamLookup {
 }
 
 /// How one server's search for a title's streams went.
-private struct StreamServerStatus: Identifiable {
+struct StreamServerStatus: Identifiable {
     enum Phase {
         case looking
         /// Waiting on what the looking needs first, and saying so: the IPTV
@@ -4714,7 +4714,7 @@ private struct StreamServerStatus: Identifiable {
     }
 
     /// What its tab says after its name.
-    var mark: MediaStreamTab.Mark {
+    fileprivate var mark: MediaStreamTab.Mark {
         switch phase {
         case .looking, .preparing: .looking
         case .found(let count): .count(count)
@@ -4787,13 +4787,10 @@ private struct MediaSourcePicker: View {
                 playback(for: source)
             }
         #else
-        NavigationStack {
-            board
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle()) }
-                }
-        }
+        board
+        .presentationBackground(.clear)
+        .presentationDragIndicator(.hidden)
+        .presentationDetents([.large])
         .task(id: item.libraryKey) { await loadSources() }
         .task(id: item.libraryKey) {
             nextEpisode = nil
@@ -4854,9 +4851,15 @@ private struct MediaSourcePicker: View {
     }
 
     private var board: some View {
+        #if os(tvOS)
         MediaStreamBoard(heading: heading, statuses: serverStatus, sources: sources,
                          loading: loading, error: error, filter: $providerFilter,
                          choose: { selectedSource = $0 })
+        #else
+        MobileStreamPickerBoard(heading: heading, statuses: serverStatus, sources: sources,
+                                loading: loading, error: error, filter: $providerFilter,
+                                choose: { selectedSource = $0 }, cancel: dismiss.callAsFunction)
+        #endif
     }
 
     /// What the list is for: an episode as its show, number and name, a film
@@ -5179,7 +5182,7 @@ private struct MediaChromeLabel<Content: View>: View {
 // MARK: - The stream list
 
 /// What a stream list is for, drawn at its top.
-private struct MediaStreamHeading {
+struct MediaStreamHeading {
     let title: String
     let subtitle: String?
     let backdrop: URL?
@@ -5187,7 +5190,7 @@ private struct MediaStreamHeading {
 
 /// One part of the stream list: the IPTV provider's copies, or one server's
 /// streams, ranked by that server's score, highest first.
-private struct MediaStreamSection: Identifiable {
+struct MediaStreamSection: Identifiable {
     let title: String
     let sources: [MediaPlaybackSource]
     var id: String { title }

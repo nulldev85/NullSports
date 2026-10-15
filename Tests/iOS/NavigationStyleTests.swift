@@ -5,6 +5,69 @@ import SwiftUI
 
 final class NavigationStyleTests: XCTestCase {
     @MainActor
+    func testCustomTabTapsReturnHomeAndPreserveNativeControllers() {
+        let roots = MobileNavigationTab.allCases.map { _ in UIViewController() }
+        let stacks = roots.map { UINavigationController(rootViewController: $0) }
+        let tabs = UITabBarController()
+        tabs.setViewControllers(stacks, animated: false)
+        tabs.selectedIndex = 2
+        let navigation = MobileTabNavigation()
+        navigation.tabs = tabs
+        var selection = 2
+        for tab in [.library, .search, .settings, .sports, .guide, .library] as [MobileNavigationTab] {
+            let index = MobileNavigationTab.allCases.firstIndex(of: tab)!
+            stacks[index].pushViewController(UIViewController(), animated: false)
+            navigation.activate(tab) { selection = tab.rawValue }
+            XCTAssertEqual(selection, tab.rawValue)
+            XCTAssertEqual(tabs.selectedIndex, index)
+            XCTAssertEqual(stacks[index].viewControllers.count, 1)
+            XCTAssertTrue(stacks[index].viewControllers.first === roots[index])
+            XCTAssertTrue(tabs.viewControllers?[index] === stacks[index])
+        }
+    }
+
+    @MainActor
+    func testRetappingATabScrollsHomeWithoutMovingTheHorizontalPosition() {
+        let root = UIViewController()
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentInset.top = 20
+        scroll.contentSize = CGSize(width: 1200, height: 2400)
+        scroll.contentOffset = CGPoint(x: 160, y: 700)
+        root.view = scroll
+        let tabs = UITabBarController()
+        tabs.setViewControllers([UINavigationController(rootViewController: root)], animated: false)
+        let navigation = MobileTabNavigation()
+        navigation.tabs = tabs
+        navigation.activate(.sports) {}
+        XCTAssertEqual(scroll.contentOffset.x, 160)
+        XCTAssertEqual(scroll.contentOffset.y, -20)
+    }
+
+    @MainActor
+    func testCustomRetapPopsARealSwiftUINavigationStackAndItsPath() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let model = NavigationRootPreviewState()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationRootPreview(model: model))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        try await Task.sleep(for: .milliseconds(300))
+        let tabs = try XCTUnwrap(Self.tabController(in: window.rootViewController))
+        model.path = [1, 2]
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(model.path, [1, 2])
+        let navigation = MobileTabNavigation()
+        navigation.tabs = tabs
+        let selected = tabs.selectedViewController
+        navigation.activate(.library) { model.selection = 2 }
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertTrue(model.path.isEmpty, "Returning home must update SwiftUI's path too")
+        XCTAssertTrue(tabs.selectedViewController === selected)
+    }
+
+    @MainActor
     func testSwitchingAppearancePreservesNativeNavigationAndFullscreenVisibility() {
         let bar = UITabBar(frame: CGRect(x: 0, y: 0, width: 390, height: 83))
         let items = ["Sports", "TV Guide", "Library", "Search", "Settings"].enumerated().map {
@@ -115,6 +178,35 @@ final class NavigationStyleTests: XCTestCase {
             if let tabs = tabController(in: child) { return tabs }
         }
         return nil
+    }
+}
+
+@MainActor
+private final class NavigationRootPreviewState: ObservableObject {
+    @Published var selection = 2
+    @Published var path: [Int] = []
+}
+
+private struct NavigationRootPreview: View {
+    @ObservedObject var model: NavigationRootPreviewState
+    var body: some View {
+        TabView(selection: $model.selection) {
+            ForEach(MobileNavigationTab.allCases) { tab in
+                Group {
+                    if tab == .library {
+                        NavigationStack(path: $model.path) {
+                            Text("Library home")
+                                .navigationDestination(for: Int.self) { Text("Detail \($0)") }
+                        }
+                    } else {
+                        NavigationStack { Text(tab.title) }
+                    }
+                }
+                .mobileNativeTabBar(liquidGlass: false)
+                .tabItem { Label(tab.title, systemImage: "square") }.tag(tab.rawValue)
+            }
+        }
+        .mobileNavigationChrome(selection: $model.selection, liquidGlass: false)
     }
 }
 

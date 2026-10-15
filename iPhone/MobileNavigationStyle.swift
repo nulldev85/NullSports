@@ -53,6 +53,7 @@ extension EnvironmentValues {
 /// and selection binding as Apple's bar. Buttons select immediately.
 struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
+    let activate: (MobileNavigationTab) -> Void
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 10
 
@@ -60,7 +61,10 @@ struct MobileLineupNavigationBar: View {
         HStack(spacing: 4) {
             ForEach(MobileNavigationTab.allCases) { tab in
                 let selected = selection == tab.rawValue
-                Button { selection = tab.rawValue } label: {
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    activate(tab)
+                } label: {
                     VStack(spacing: 5) {
                         tab.icon(selected: selected)
                             .resizable().scaledToFit()
@@ -83,7 +87,7 @@ struct MobileLineupNavigationBar: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(MobileNavigationButtonStyle())
                 .accessibilityLabel(tab.title)
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
                 .accessibilityIdentifier("lineup.navigation.tab.\(tab.rawValue)")
@@ -103,6 +107,67 @@ struct MobileLineupNavigationBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
+    }
+}
+
+private struct MobileNavigationButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Use the existing native containers so a tab tap returns home without
+/// replacing the tab's controllers, view models, or active playback session.
+@MainActor
+final class MobileTabNavigation: ObservableObject {
+    weak var tabs: UITabBarController?
+
+    func activate(_ tab: MobileNavigationTab, selection: () -> Void) {
+        let index = MobileNavigationTab.allCases.firstIndex(of: tab)!
+        let reselection = tabs?.selectedIndex == index
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { selection() }
+        guard let tabs, let controllers = tabs.viewControllers, controllers.indices.contains(index) else { return }
+        // Commit immediately; SwiftUI's binding update reconciles the same
+        // selection on its next render, without animating the entire page.
+        if tabs.selectedIndex != index { tabs.selectedIndex = index }
+        Self.returnHome(in: controllers[index], animated: reselection && tabs.viewIfLoaded?.window != nil
+                        && !UIAccessibility.isReduceMotionEnabled)
+    }
+
+    private static func returnHome(in controller: UIViewController, animated: Bool) {
+        if let navigation = controller as? UINavigationController {
+            if navigation.viewControllers.count > 1 {
+                navigation.popToRootViewController(animated: animated && navigation.transitionCoordinator == nil)
+            }
+            if let root = navigation.viewControllers.first?.viewIfLoaded { scrollHome(in: root, animated: animated) }
+            return
+        }
+        if controller.children.isEmpty {
+            if let view = controller.viewIfLoaded { scrollHome(in: view, animated: animated) }
+        } else {
+            for child in controller.children { returnHome(in: child, animated: animated) }
+        }
+    }
+
+    @discardableResult
+    private static func scrollHome(in view: UIView, animated: Bool) -> Bool {
+        guard !view.isHidden, view.alpha > 0.01 else { return false }
+        if let scroll = view as? UIScrollView, scroll.scrollsToTop,
+           scroll.bounds.height > 0, scroll.contentSize.height > scroll.bounds.height + 1 {
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: -scroll.adjustedContentInset.top),
+                                    animated: animated)
+            return true
+        }
+        for child in view.subviews {
+            if scrollHome(in: child, animated: animated) { return true }
+        }
+        return false
     }
 }
 
@@ -131,18 +196,23 @@ private struct MobileNavigationChrome: ViewModifier {
     @Binding var selection: Int
     let liquidGlass: Bool
     let fullscreen: Bool
+    @StateObject private var navigation = MobileTabNavigation()
 
     func body(content: Content) -> some View {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
         content
             .environment(\.mobileUsesLineupNavigation, !glass)
             .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
-            .background(MobileTabBarAppearance(liquidGlass: glass)
+            .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // Reserve room for the panel, so bottom rows and buttons remain
             // reachable. Both bars stand aside for full-screen playback.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !glass && !fullscreen { MobileLineupNavigationBar(selection: $selection) }
+                if !glass && !fullscreen {
+                    MobileLineupNavigationBar(selection: $selection) { tab in
+                        navigation.activate(tab) { selection = tab.rawValue }
+                    }
+                }
             }
     }
 }
@@ -165,16 +235,19 @@ extension View {
 /// adding gestures, or changing its selection, controllers or hit targets.
 struct MobileTabBarAppearance: UIViewRepresentable {
     let liquidGlass: Bool
+    var navigation: MobileTabNavigation? = nil
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
+        probe.navigation = navigation
         probe.refresh()
     }
 
     final class Probe: UIView {
         var liquidGlass = false
+        weak var navigation: MobileTabNavigation?
         private weak var bar: UITabBar?
         private let style = MobileTabBarStyle()
 
@@ -195,16 +268,20 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 
         func refresh() {
             guard let window else { return }
-            if bar == nil { bar = Self.findTabBar(in: window.rootViewController) }
+            if bar == nil || navigation?.tabs == nil {
+                let tabs = Self.findTabController(in: window.rootViewController)
+                navigation?.tabs = tabs
+                bar = tabs?.tabBar
+            }
             guard let bar else { return }
             style.apply(to: bar, liquidGlass: liquidGlass)
         }
 
-        private static func findTabBar(in controller: UIViewController?) -> UITabBar? {
+        private static func findTabController(in controller: UIViewController?) -> UITabBarController? {
             guard let controller else { return nil }
-            if let tabs = controller as? UITabBarController { return tabs.tabBar }
+            if let tabs = controller as? UITabBarController { return tabs }
             for child in controller.children {
-                if let bar = findTabBar(in: child) { return bar }
+                if let tabs = findTabController(in: child) { return tabs }
             }
             return nil
         }
