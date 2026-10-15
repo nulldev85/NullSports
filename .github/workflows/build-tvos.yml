@@ -75,6 +75,7 @@ jobs:
           test ! -e 'Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
           grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"' project.yml
           xcodegen generate
+          python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
 
       - name: Build unsigned app
         run: |

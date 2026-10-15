@@ -68,12 +68,44 @@ targets:
       - package: VLCKitSPM
       - target: LineupAetherPlayback
         embed: true
-      # Aether is linked only inside our bridge. Embed its dynamic runtime
-      # explicitly: an app does not inherit these copies from that framework.
-      # Xcode copies Aether's SwiftPM resource bundle automatically; adding a
-      # separate bundle dependency creates duplicate copy tasks.
-      - package: FFmpegBuild
-        products: [AetherLibavcodec, AetherLibavformat, AetherLibavutil, AetherLibswresample, AetherLibswscale, AetherLibavfilter, AetherLibdav1d, AetherLibzimg, AetherLibzvbi]
+      # The bridge builds these XCFramework slices into BUILT_PRODUCTS_DIR.
+      # Copy the actual frameworks, not SwiftPM's non-file -product nodes.
+      # Keep app linkage off so Aether's engine stays isolated from VLC.
+      # Xcode copies the SwiftPM resource bundle automatically.
+      - framework: AetherLibavcodec.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavformat.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavutil.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswresample.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswscale.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavfilter.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibdav1d.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzimg.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzvbi.framework
+        implicit: true
         link: false
         embed: true
     settings:
@@ -151,10 +183,42 @@ targets:
       - package: VLCKitSPM
       - target: LineupAetherPlaybackiOS
         embed: true
-      # Embed the runtime frameworks only. Xcode already copies the SwiftPM
-      # resource bundle into this app through the package dependency graph.
-      - package: FFmpegBuild
-        products: [AetherLibavcodec, AetherLibavformat, AetherLibavutil, AetherLibswresample, AetherLibswscale, AetherLibavfilter, AetherLibdav1d, AetherLibzimg, AetherLibzvbi]
+      # Match tvOS: copy the bridge's processed framework files without linking
+      # them into the app. SwiftPM product nodes are not embeddable files.
+      - framework: AetherLibavcodec.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavformat.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavutil.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswresample.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibswscale.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibavfilter.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibdav1d.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzimg.framework
+        implicit: true
+        link: false
+        embed: true
+      - framework: AetherLibzvbi.framework
+        implicit: true
         link: false
         embed: true
     settings:

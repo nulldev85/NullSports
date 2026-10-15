@@ -49,10 +49,13 @@ finite recording rather than enabling a separate DVR buffer.
 
 The iPhone workflow uses Xcode 27 and checks the iOS 18 deployment floor, dynamic
 FFmpeg symbol binding, bundled resources/notices, and background audio mode.
-The app explicitly embeds Aether's nine dynamic runtime frameworks without
-linking the engine into the executable. Xcode copies its SwiftPM resource bundle
+The app embeds Aether's nine processed dynamic `.framework` files from
+`BUILT_PRODUCTS_DIR`, without linking the engine into the executable. SwiftPM's
+`-product` nodes are not files to embed. Xcode copies its SwiftPM resource bundle
 automatically; an additional bundle dependency would duplicate that copy task.
 The shared bundle check validates all runtime files and their framework dependencies.
+Before building, its `--project` mode checks the generated copy/link phases for
+real framework references, one copy per runtime, and preserved engine isolation.
 Generated fixtures cover MP4, software-decoded MPEG-2 MKV, and paced live TS over
 a local HTTP server. Tests exercise extensionless server URLs, actual rendering,
 resume, seek, pause, subtitles, surface reuse, preferences, and both PiP source

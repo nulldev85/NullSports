@@ -75,6 +75,7 @@ jobs:
           grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon' project.yml
           brew install xcodegen
           xcodegen generate
+          python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
       - name: Check playback lifecycle in iPhone simulator
         run: |
           set -euo pipefail
