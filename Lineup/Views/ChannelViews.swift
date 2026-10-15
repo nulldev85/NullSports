@@ -6572,6 +6572,7 @@ struct PlayerView: View {
                 PlaybackJournal.shared.note("Closed by the app, not by Back or the end of the title"
                     + (isLive ? "" : " (at \(PlaybackJournal.clock(controller.elapsed)))"))
             }
+            controller.finishScrubbing(resume: false)
             reportProgress(force: true)
             hideControlsTask?.cancel()
             bannerTask?.cancel()
@@ -6770,6 +6771,7 @@ struct PlayerView: View {
 
     private func close(because reason: String) {
         closing = true
+        controller.finishScrubbing(resume: false)
         PlaybackJournal.shared.note("Closed: " + reason
             + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
         reportProgress(force: true)
@@ -6820,7 +6822,7 @@ struct PlayerView: View {
     }
 
     private func reportProgress(force: Bool = false, at position: TimeInterval? = nil) {
-        guard !isLive, controller.duration > 0 else { return }
+        guard !isLive, !controller.isScrubbing, controller.duration > 0 else { return }
         let position = position ?? controller.elapsed
         guard force || abs(position - lastReportedPosition) >= 5 else { return }
         lastReportedPosition = position
@@ -6829,11 +6831,11 @@ struct PlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying, !chooserOpen else { return }
+        guard controller.isPlaying, !chooserOpen, !controller.isScrubbing else { return }
         // Counted from the last press, not from when the controls appeared.
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !controller.isScrubbing else { return }
             controlsVisible = false
             // Hand focus to the video surface as the chrome leaves, so the next
             // press on the remote has somewhere to arrive.
@@ -7253,19 +7255,21 @@ private struct TVGameAlertBanner: View {
 
 /// A minimal transport bar for recorded media.
 ///
-/// Left and right step ten seconds, and because tvOS repeats a held
-/// direction the same press scrubs continuously. Down hands focus back to the
-/// controls explicitly: onMoveCommand consumes the press, so without that the
-/// bar would keep focus and trap the viewer on it.
+/// A press steps ten seconds; a held left/right press moves a local destination
+/// at display cadence and accelerates. Decoder previews are coalesced separately.
 private struct TVSeekBar: View {
     @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
+    @State private var target: Double?
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var shown: Double { target ?? controller.elapsed }
 
     private var progress: Double {
         guard controller.duration > 0 else { return 0 }
-        return min(max(controller.elapsed / controller.duration, 0), 1)
+        return min(max(shown / controller.duration, 0), 1)
     }
 
     var body: some View {
@@ -7275,9 +7279,9 @@ private struct TVSeekBar: View {
             LineupProgressBar(value: progress,
                               height: selected ? 16 : LineupProgressBar.standardHeight)
             HStack {
-                Text(Self.clock(controller.elapsed))
+                Text(Self.clock(shown))
                 Spacer(minLength: 0)
-                Text("-" + Self.clock(max(0, controller.duration - controller.elapsed)))
+                Text("-" + Self.clock(max(0, controller.duration - shown)))
             }
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
@@ -7289,18 +7293,49 @@ private struct TVSeekBar: View {
         .focusable()
         .focused(focus, equals: .scrubber)
         .focusEffectDisabled()
+        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onBegin: { direction in
+            controller.beginScrubbing()
+            guard controller.isScrubbing else { return }
+            target = PlaybackSeekPolicy.clamped(controller.elapsed + direction * 10, duration: controller.duration)
+            controller.previewScrubbing(at: target ?? controller.elapsed)
+            onInteraction()
+        }, onFrame: { direction, heldFor, delta in
+            guard let target else { return }
+            let next = PlaybackSeekPolicy.clamped(target + direction * PlaybackSeekPolicy.rate(heldFor: heldFor) * delta,
+                                                   duration: controller.duration)
+            guard abs(next - target) > 0.001 else { return }
+            self.target = next
+            controller.previewScrubbing(at: next)
+        }, onEnd: { finishScrubbing() }).frame(width: 0, height: 0))
         .onMoveCommand { direction in
             switch direction {
-            case .left: controller.seek(by: -10)
-            case .right: controller.seek(by: 10)
-            case .down, .up: focus.wrappedValue = .playPause
+            // Swipes/keyboard focus moves remain usable too. Physical held
+            // presses are owned by the native press session above.
+            case .left where target == nil: controller.seek(by: -10)
+            case .right where target == nil: controller.seek(by: 10)
+            case .down, .up:
+                finishScrubbing()
+                focus.wrappedValue = .playPause
             default: break
             }
             onInteraction()
         }
-        .animation(.easeOut(duration: 0.18), value: selected)
+        .onChange(of: selected) { _, active in if !active { finishScrubbing() } }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { finishScrubbing() } }
+        .onDisappear {
+            controller.finishScrubbing(resume: false)
+            target = nil
+        }
+        .transaction { if target != nil { $0.animation = nil } }
         .accessibilityLabel("Playback position")
-        .accessibilityValue(Self.clock(controller.elapsed) + " of " + Self.clock(controller.duration))
+        .accessibilityValue(Self.clock(shown) + " of " + Self.clock(controller.duration))
+    }
+
+    private func finishScrubbing() {
+        guard let target else { return }
+        controller.endScrubbing(at: target)
+        self.target = nil
+        onInteraction()
     }
 
     private static func clock(_ seconds: TimeInterval) -> String {
@@ -7488,6 +7523,11 @@ private struct PlaybackClockReader<Content: View>: View {
     private var urlIndex = 0
     private var muted = false
     private var pausedByUser = false
+    private(set) var isScrubbing = false
+    private var resumeAfterScrubbing = false
+    private var scrubDestination: Double?
+    private let scrubSeeks = PlaybackSeekCoalescer()
+    private var seekLanding = PlaybackSeekLanding()
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel, or a film or an episode. A channel that stops is
@@ -7700,6 +7740,7 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Position has to keep updating while paused too, so the bar still reads
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
+        guard !isScrubbing else { return }
         let length = backend.duration
         if length.isFinite, length > 0, length != duration { duration = length }
         let time = backend.time
@@ -7741,20 +7782,62 @@ private struct PlaybackClockReader<Content: View>: View {
         // the place saved, nor the place it is reopened at is lost with it:
         // reopening "where it was" from a zero started films over.
         if time <= 0, !backend.isPlaying, elapsed > 0 { return }
+        guard seekLanding.accepts(time, now: uptime()) else { return }
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
+    }
+
+    func beginScrubbing() {
+        guard !isLive, duration.isFinite, duration > 0, !isScrubbing else { return }
+        isScrubbing = true
+        scrubDestination = elapsed
+        scrubSeeks.cancel()
+        resumeAfterScrubbing = !pausedByUser
+        if resumeAfterScrubbing { togglePlayback() }
+    }
+
+    func previewScrubbing(at seconds: Double) {
+        guard isScrubbing, seconds.isFinite else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        scrubDestination = target
+        scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
+    }
+
+    func endScrubbing(at seconds: Double) {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        scrubDestination = nil
+        seek(to: seconds)
+        if resumeAfterScrubbing { togglePlayback() }
+        resumeAfterScrubbing = false
+    }
+
+    func finishScrubbing(resume: Bool = true) {
+        guard isScrubbing else { return }
+        if !resume { resumeAfterScrubbing = false }
+        endScrubbing(at: scrubDestination ?? elapsed)
+    }
+
+    private func seek(to seconds: Double) {
+        guard duration > 0, seconds.isFinite else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        appliedInitialPosition = true
+        reopenPosition = nil
+        seekLanding.expect(target, now: uptime())
+        scrubSeeks.commit(target) { [weak self] in self?.backend.seek(to: $0) }
+        elapsed = target
     }
 
     /// Steps by `seconds` and clamps inside the item through the active engine.
     func seek(by seconds: TimeInterval) {
         guard duration > 0 else { return }
-        let target = min(max(elapsed + seconds, 0), max(duration - 1, 0))
-        backend.seek(to: target)
-        elapsed = target
+        seek(to: elapsed + seconds)
     }
 
     func checkPlayback() {
+        guard !isScrubbing else { return }
         holdAudioLevel()
         updateProgress()
+        if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
         followRecordingIntoNextProgramme()
         refreshSubtitleTracks()
         refreshStreamTracks()
@@ -8197,6 +8280,11 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func stop() {
+        isScrubbing = false
+        resumeAfterScrubbing = false
+        scrubDestination = nil
+        scrubSeeks.cancel()
+        seekLanding.reset()
         monitor?.cancel()
         monitor = nil
         fadeTask?.cancel()

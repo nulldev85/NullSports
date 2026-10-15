@@ -52,6 +52,8 @@ final class PlaybackEngineTests: XCTestCase {
             XCTAssertEqual(controller.elapsed, 902)
             controller.seek(by: 10)
             XCTAssertEqual(backend.seeks.last, 912)
+            // Deliver the seek's clock sample before jumping to the movie's end.
+            controller.checkPlayback()
             controller.togglePlayback()
             XCTAssertEqual(backend.state, .paused)
             controller.togglePlayback()
@@ -66,6 +68,62 @@ final class PlaybackEngineTests: XCTestCase {
             XCTAssertTrue(controller.finished)
             XCTAssertEqual(controller.elapsed, 3_600)
         }
+    }
+
+    func testInteractiveSeekingKeepsPreviewsOutOfTrackingAndRestoresPlayPause() throws {
+        for kind in TVPlaybackEngine.allCases {
+            let fixture = try Fixture(kind)
+            defer { fixture.clean() }
+            let controller = fixture.controller()
+            defer { controller.stop() }
+            controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+            let backend = fixture.backend(kind)
+            backend.time = 300
+            controller.checkPlayback()
+            controller.beginScrubbing()
+            XCTAssertTrue(controller.isScrubbing)
+            XCTAssertEqual(backend.state, .paused)
+            controller.previewScrubbing(at: 3_500)
+            controller.checkPlayback()
+            XCTAssertEqual(controller.elapsed, 300, "A preview near the end must not be saved as watched progress")
+            XCTAssertFalse(controller.finished)
+            controller.previewScrubbing(at: 2_000)
+            controller.endScrubbing(at: 450)
+            XCTAssertEqual(backend.seeks.last, 450)
+            XCTAssertEqual(controller.elapsed, 450)
+            XCTAssertEqual(backend.state, .playing)
+            backend.time = 3_500
+            backend.state = .ended
+            controller.checkPlayback()
+            XCTAssertEqual(controller.elapsed, 450, "A late preview sample cannot pull the committed bar forward")
+            XCTAssertFalse(controller.finished, "An old preview's EOF must not mark the actual episode watched")
+            backend.state = .playing
+            backend.time = 450
+            controller.checkPlayback()
+            controller.togglePlayback()
+            controller.beginScrubbing()
+            controller.previewScrubbing(at: 700)
+            controller.endScrubbing(at: 800)
+            XCTAssertEqual(backend.state, .paused, "Seeking while paused must remain paused")
+            XCTAssertEqual(controller.elapsed, 800)
+        }
+    }
+
+    func testStoppingDuringAHoldCannotSeekTheNextSource() async throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        controller.beginScrubbing()
+        controller.previewScrubbing(at: 100)
+        controller.previewScrubbing(at: 2_000)
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        let count = fixture.aether.seeks.count
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(fixture.aether.seeks.count, count)
+        XCTAssertFalse(controller.isScrubbing)
+        XCTAssertNotEqual(fixture.aether.seeks.last, 2_000)
     }
 
     func testPreviewHandoffDoesNotLoadOrChangeEnginesAgain() throws {

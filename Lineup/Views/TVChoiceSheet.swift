@@ -90,25 +90,56 @@ private struct TVChoicesModifier: ViewModifier {
     }
 }
 
+/// One immutable value opens a held-item menu. A separate Boolean can present
+/// a sheet before SwiftUI has delivered the newly captured action array.
+struct TVHoldMenuPresentation: Identifiable {
+    let id = UUID()
+    let title: String
+    let symbol: String
+    let message: String?
+    let items: [TVChoice]
+
+    init?(title: String, symbol: String, message: String?, items: [TVChoice]) {
+        guard !items.isEmpty else { return nil }
+        self.title = title
+        self.symbol = symbol
+        self.message = message
+        self.items = items
+    }
+}
+
 private struct TVHoldMenuModifier: ViewModifier {
     let title: String
     let symbol: String
     let message: String?
     let items: () -> [TVChoice]
 
-    @State private var presented = false
-    /// Taken when the hold lands, so the sheet says what was true then.
-    @State private var snapshot: [TVChoice] = []
+    @State private var presentation: TVHoldMenuPresentation?
+    @State private var chosen: TVChoice?
 
     func body(content: Content) -> some View {
         content
             .environment(\.tvHoldAction, TVHoldAction {
-                let list = items()
-                guard !list.isEmpty else { return }
-                snapshot = list
-                presented = true
+                guard presentation == nil else { return }
+                chosen = nil
+                presentation = TVHoldMenuPresentation(title: title, symbol: symbol, message: message, items: items())
             })
-            .tvChoices(title, symbol: symbol, isPresented: $presented, message: message) { snapshot }
+            .fullScreenCover(item: $presentation, onDismiss: {
+                let action = chosen
+                chosen = nil
+                action?.action()
+            }) { snapshot in
+                TVChoiceSheet(title: snapshot.title, symbol: snapshot.symbol, message: snapshot.message,
+                              cancelTitle: "Cancel", items: snapshot.items) { choice in
+                    chosen = choice
+                    presentation = nil
+                } cancel: {
+                    presentation = nil
+                }
+                .id(snapshot.id)
+                .presentationBackground(.clear)
+                .environment(\.tvHoldAction, nil)
+            }
     }
 }
 

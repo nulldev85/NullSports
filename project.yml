@@ -138,6 +138,7 @@ targets:
       - Tests/iOS/SeriesResumeTests.swift
       - Tests/iOS/SeriesTrackingConsistencyTests.swift
       - Tests/iOS/SportsTeamDirectoryTests.swift
+      - Tests/iOS/PlaybackSeekingTests.swift
     dependencies:
       - target: Lineup
     settings:

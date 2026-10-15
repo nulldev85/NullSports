@@ -62,6 +62,29 @@ final class AetherPlaybackTests: XCTestCase {
             controller.toggle()
             try await waitUntil("Seek/resume did not preserve the position") { session.position >= 16 && controller.isPlaying }
             XCTAssertNotNil(session.selectedSubtitleIndex)
+            let committed = try XCTUnwrap(controller.progress).position
+            controller.beginScrubbing()
+            XCTAssertTrue(controller.isScrubbing)
+            controller.previewScrubbing(at: 30)
+            controller.previewScrubbing(at: 8)
+            XCTAssertEqual(controller.progress?.position, committed, "Draft positions must not become watched progress")
+            controller.endScrubbing(at: 12)
+            try await waitUntil("Releasing a drag did not land at the newest destination") {
+                abs(session.position - 12) < 2 && controller.isPlaying
+            }
+            XCTAssertTrue(session.surface === surface)
+            controller.toggle()
+            try await waitUntil("Pause before a second drag did not settle") { !controller.isPlaying }
+            controller.beginScrubbing()
+            controller.previewScrubbing(at: 20)
+            controller.endScrubbing(at: 6)
+            try await waitUntil("A drag while paused did not preserve the paused state and destination") {
+                abs(session.position - 6) < 2 && !controller.isPlaying
+            }
+            try await Task.sleep(for: .milliseconds(350))
+            XCTAssertEqual(session.position, 6, accuracy: 2, "Older previews must not run after the final destination")
+            XCTAssertFalse(controller.finished)
+            controller.toggle()
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
             }

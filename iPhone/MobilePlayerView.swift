@@ -33,7 +33,7 @@ struct MobilePlayerView: View {
     var onReachedEnd: (() -> Void)? = nil
     /// Sent away for this episode: it does not come back.
     @State private var nextEpisodeDeclined = false
-    @State private var scrubTarget: Double?
+    @State private var isScrubbing = false
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
 
@@ -166,7 +166,10 @@ struct MobilePlayerView: View {
                             if let synopsis, !synopsis.isEmpty {
                                 synopsisPanel(synopsis, within: frame.size.width)
                             }
-                            scrubber(progress)
+                            MobileLibrarySeekBar(controller: controller, progress: progress) { editing in
+                                isScrubbing = editing
+                                if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .bottomLeading)
@@ -196,7 +199,7 @@ struct MobilePlayerView: View {
         // screenshot does not capture, so it only showed up on the device.
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(LineupStyle.mediaText)
-        .modifier(MobileDismissGesture(enabled: true,
+        .modifier(MobileDismissGesture(enabled: !isScrubbing,
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -214,6 +217,7 @@ struct MobilePlayerView: View {
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
         .onDisappear {
+            controller.finishScrubbing(resume: false)
             reportProgress(force: true)
             controller.shutdown()
             hideControlsTask?.cancel()
@@ -267,7 +271,7 @@ struct MobilePlayerView: View {
     }
 
     private func reportProgress(force: Bool = false) {
-        guard !isLive, let progress = controller.progress, progress.duration > 0 else { return }
+        guard !isLive, !controller.isScrubbing, let progress = controller.progress, progress.duration > 0 else { return }
         guard force || abs(progress.position - lastReportedPosition) >= 5 else { return }
         lastReportedPosition = progress.position
         onProgress?(progress.position, progress.duration)
@@ -275,7 +279,7 @@ struct MobilePlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying else { return }
+        guard controller.isPlaying, !isScrubbing else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -354,55 +358,6 @@ struct MobilePlayerView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// A track drawn to match the app's other floating controls rather than
-    /// the system slider, whose stock thumb and grey rail sat on the video
-    /// looking like nothing else on the screen.
-    private func scrubber(_ progress: MobilePlaybackProgress) -> some View {
-        let shown = scrubTarget ?? progress.position
-        let fraction = progress.duration > 0 ? min(max(shown / progress.duration, 0), 1) : 0
-        return VStack(spacing: 8) {
-            GeometryReader { track in
-                let width = track.size.width
-                // The app's own bar, in the accent: no knob, and a little
-                // thicker under a finger to say it has been taken hold of.
-                LineupProgressBar(value: fraction,
-                                  height: scrubTarget == nil ? LineupProgressBar.standardHeight : 12)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if scrubTarget == nil {
-                                hideControlsTask?.cancel()
-                                controller.beginScrubbing()
-                            }
-                            let ratio = min(max(value.location.x / max(width, 1), 0), 1)
-                            scrubTarget = ratio * progress.duration
-                        }
-                        .onEnded { _ in
-                            controller.endScrubbing(at: scrubTarget ?? shown)
-                            scrubTarget = nil
-                            scheduleAutoHide()
-                        }
-                )
-            }
-            .frame(height: 22)
-            HStack {
-                Text(MobilePlaybackProgress.timecode(shown))
-                Spacer()
-                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
-            }
-            .font(.inter(.caption2, .semibold).monospacedDigit())
-            .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .animation(.easeOut(duration: 0.12), value: scrubTarget == nil)
-        .accessibilityElement()
-        .accessibilityLabel("Playback position")
-        .accessibilityValue(MobilePlaybackProgress.timecode(shown))
-    }
-
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -412,6 +367,7 @@ struct MobilePlayerView: View {
     /// The close button leaves the same way a swipe does: the picture is
     /// stilled first, so it travels with the frame instead of trailing it.
     private func exit() {
+        controller.finishScrubbing(resume: false)
         controller.freezePictureForExit()
         dismiss()
     }

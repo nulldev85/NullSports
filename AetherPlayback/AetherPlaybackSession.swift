@@ -20,6 +20,7 @@ public final class AetherPlaybackSession {
     private var subscriptions = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     private var seekTask: Task<Void, Never>?
+    private var pendingSeek: Double?
     private var generation = UUID()
     private var loading = false
     private var wantsToPlay = false
@@ -252,6 +253,7 @@ public final class AetherPlaybackSession {
         generation = UUID()
         loadTask?.cancel(); loadTask = nil
         seekTask?.cancel(); seekTask = nil
+        pendingSeek = nil
         isOpen = false
         loading = false
         wantsToPlay = false
@@ -263,12 +265,23 @@ public final class AetherPlaybackSession {
         canvas.display(cues: [], at: 0, videoSize: .zero)
     }
     public func seek(to seconds: Double) {
-        guard seconds.isFinite, canSeek else { return }
-        seekTask?.cancel()
+        guard seconds.isFinite, canSeek || (isOpen && seekTask != nil) else { return }
+        pendingSeek = seconds
+        guard seekTask == nil else { return }
         let token = generation
         seekTask = Task { [weak self] in
             guard let self, self.generation == token, !Task.isCancelled else { return }
-            await self.engine.seek(to: seconds)
+            // Keep one seek in flight and replace queued previews with the
+            // newest target. Cancelling a Task does not guarantee that an
+            // already-running decoder seek stops before the next one starts.
+            while let target = self.pendingSeek {
+                self.pendingSeek = nil
+                await self.engine.seek(to: target)
+                guard self.generation == token, !Task.isCancelled else { return }
+                if !self.wantsToPlay { self.engine.pause() }
+                else if self.pendingSeek == nil { self.engine.play() }
+            }
+            self.seekTask = nil
         }
     }
     public func selectSubtitle(index: Int?) {

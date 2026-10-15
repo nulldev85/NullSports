@@ -110,7 +110,11 @@ final class MobilePlaybackController: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
-    private var isScrubbing = false
+    private(set) var isScrubbing = false
+    private var resumeAfterScrubbing = false
+    private var scrubDestination: Double?
+    private let scrubSeeks = PlaybackSeekCoalescer()
+    private var seekLanding = PlaybackSeekLanding()
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel runs at the live edge and is buffered for a link that may
@@ -374,6 +378,7 @@ final class MobilePlaybackController: ObservableObject {
             seek(to: reopenPosition)
             return
         }
+        if let sampled, !seekLanding.accepts(sampled.position, now: ProcessInfo.processInfo.systemUptime) { return }
         progress = sampled
         if !appliedInitialPosition, let requestedInitialPosition, let progress,
            requestedInitialPosition >= 10, requestedInitialPosition < progress.duration - 30 {
@@ -409,16 +414,51 @@ final class MobilePlaybackController: ObservableObject {
 
     /// Hold the sampled position still while a finger is on the scrubber, so
     /// the thumb does not fight the engine's own reports on the way past.
-    func beginScrubbing() { isScrubbing = true }
+    func beginScrubbing() {
+        guard !isLive, !isScrubbing, let progress, progress.duration.isFinite, progress.duration > 0 else { return }
+        isScrubbing = true
+        scrubDestination = progress.position
+        scrubSeeks.cancel()
+        resumeAfterScrubbing = !pausedByUser
+        if resumeAfterScrubbing { toggle() }
+    }
+
+    func previewScrubbing(at seconds: Double) {
+        guard isScrubbing, seconds.isFinite, let progress else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: progress.duration)
+        scrubDestination = target
+        scrubSeeks.preview(target) { [weak self] in self?.performSeek(to: $0) }
+    }
 
     func endScrubbing(at seconds: Double) {
+        guard isScrubbing else { return }
         isScrubbing = false
+        scrubDestination = nil
         seek(to: seconds)
+        if resumeAfterScrubbing { toggle() }
+        resumeAfterScrubbing = false
+    }
+
+    func finishScrubbing(resume: Bool = true) {
+        guard isScrubbing else { return }
+        if !resume { resumeAfterScrubbing = false }
+        endScrubbing(at: scrubDestination ?? progress?.position ?? 0)
     }
 
     func seek(to seconds: Double) {
         guard let current = progress, current.duration > 0 else { return }
-        let target = min(max(0, seconds), current.duration)
+        guard seconds.isFinite else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: current.duration)
+        appliedInitialPosition = true
+        reopenPosition = nil
+        seekLanding.expect(target, now: ProcessInfo.processInfo.systemUptime)
+        scrubSeeks.commit(target) { [weak self] in self?.performSeek(to: $0) }
+        progress = MobilePlaybackProgress(position: target, duration: current.duration)
+        diag.record("seek to \(Int(target))s of \(Int(current.duration))s via \(engine.rawValue)")
+    }
+
+    private func performSeek(to target: Double) {
+        guard let current = progress, current.duration > 0 else { return }
         switch engine {
         case .aether:
             aetherSession?.seek(to: target)
@@ -434,8 +474,6 @@ final class MobilePlaybackController: ObservableObject {
             // pinned VLCKit has always exposed the same way.
             player.position = Float(target / current.duration)
         }
-        progress = MobilePlaybackProgress(position: target, duration: current.duration)
-        diag.record("seek to \(Int(target))s of \(Int(current.duration))s via \(engine.rawValue)")
     }
 
     /// Back or on by `seconds`. A title steps through itself. A channel the
@@ -766,10 +804,12 @@ final class MobilePlaybackController: ObservableObject {
                 // and only built while the diagnostics are on: the snapshot
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
+                if self.isScrubbing { continue }
                 self.sampleProgress()
                 // A recording's place is kept while it is paused too, so the
                 // timeline still reads right after a skip made without resuming.
                 self.sampleRecording()
+                if self.seekLanding.isWaiting(now: ProcessInfo.processInfo.systemUptime) { continue }
                 self.followRecordingIntoNextProgramme()
                 if self.engine == .system, self.startGateOpen,
                    self.systemPlayer.timeControlStatus == .playing,
@@ -1401,6 +1441,7 @@ final class MobilePlaybackController: ObservableObject {
     /// Backgrounding no longer means stopping. `MobileBackgroundPolicy` owns the
     /// decision; this method only carries it out.
     func handleScenePhase(active: Bool) {
+        if !active { finishScrubbing() }
         let action = MobileBackgroundPolicy.action(enteringBackground: !active,
                                                    pictureInPictureActive: pictureInPictureActive,
                                                    pausedByUser: pausedByUser,
@@ -1496,7 +1537,8 @@ final class MobilePlaybackController: ObservableObject {
     /// The end of a title: the position reads as the end, so it is saved as
     /// watched, and the player is told to close.
     private func finish() {
-        guard !isLive, !finished else { return }
+        guard !isLive, !finished, !isScrubbing,
+              !seekLanding.isWaiting(now: ProcessInfo.processInfo.systemUptime) else { return }
         monitor?.cancel()
         monitor = nil
         retryAt = nil
@@ -1733,6 +1775,11 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        isScrubbing = false
+        resumeAfterScrubbing = false
+        scrubDestination = nil
+        scrubSeeks.cancel()
+        seekLanding.reset()
         monitor?.cancel()
         monitor = nil
         resetStartGate()
