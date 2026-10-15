@@ -1821,8 +1821,7 @@ private struct LiveMyTeamsEmpty: View {
             Text(teams.isEmpty ? "Follow your teams" : "Your teams are off")
                 .font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
             Text(teams.isEmpty
-                 ? (hasGames ? "Hold Select on any game below and add a team. Its games will wait for you here."
-                             : "Follow a team from any matchup once games load.")
+                 ? "Choose your teams in Settings > My Teams, or hold Select on a game to add one."
                  : "None of your teams play in this range.")
                 .font(.inter(18)).foregroundStyle(LivePalette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -4625,6 +4624,7 @@ struct AccountView: View {
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
+    @State private var managingTeams = false
     @State private var choosingAccent = false
     @State private var choosingPlaybackEngine = false
     @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
@@ -4644,6 +4644,7 @@ struct AccountView: View {
                     // Each section a panel, as on the phone: the header
                     // and its hairline inside, the cards a step lighter.
                     sources.modifier(TVSettingsPanel())
+                    teamsSettings.modifier(TVSettingsPanel())
                     libraryAndCatalogs.modifier(TVSettingsPanel())
                     appearance.modifier(TVSettingsPanel())
                     playbackSettings.modifier(TVSettingsPanel())
@@ -4682,6 +4683,9 @@ struct AccountView: View {
             }
             .sheet(isPresented: $managingTeamChannels) {
                 TVPreferredChannelsView().environmentObject(library)
+            }
+            .fullScreenCover(isPresented: $managingTeams) {
+                SportsTeamsSettingsView().environmentObject(library)
             }
             .fullScreenCover(isPresented: $choosingAccent, onDismiss: {
                 if let hex = pendingAccent {
@@ -4846,6 +4850,28 @@ struct AccountView: View {
                 AccountButton(title: "Add Media Server", symbol: "plus", prominent: true) {
                     addingMediaServer = true
                 }
+            }
+        }
+    }
+
+    private var teamsSettings: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("MY TEAMS")
+            TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeams = true }) {
+                HStack(spacing: 20) {
+                    LineupIconTile(symbol: "star.fill", size: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Follow Your Teams").font(.inter(24, .semibold))
+                        Text("NFL, NBA, NHL, MLB, and college football")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    }
+                    Spacer()
+                    Text("\(library.followedTeams.count) following")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }

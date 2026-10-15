@@ -35,6 +35,7 @@ jobs:
       - name: Check shared sports logic
         run: |
           set -euo pipefail
+          python3 -B Tests/TeamDirectoryChecks.py
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
           /tmp/matcher-checks
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/daily-checks

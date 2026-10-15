@@ -1868,6 +1868,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     func toggleFollow(_ team: FollowedTeam) {
+        guard activeProfile != nil else { return }
         var teams = followedTeams
         teams.toggle(team)
         followedTeams = teams

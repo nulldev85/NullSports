@@ -25,6 +25,7 @@ jobs:
       - name: Check college channel matching policy
         run: |
           set -euo pipefail
+          python3 -B Tests/TeamDirectoryChecks.py
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/lineup-matcher-checks
           /tmp/lineup-matcher-checks
 

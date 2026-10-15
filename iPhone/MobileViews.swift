@@ -691,6 +691,18 @@ private struct MobileAccountView: View {
                 }
                 .lineupSettingsRows()
                 Section {
+                    NavigationLink {
+                        SportsTeamsSettingsView().environmentObject(library)
+                    } label: {
+                        SettingsRow("My Teams", symbol: "star.fill", value: library.followedTeams.count.formatted())
+                    }
+                } header: {
+                    Text("Sports").lineupSettingsHeader()
+                } footer: {
+                    Text("Find and follow your teams at any time. Their games appear in Sports.").lineupSettingsFooter()
+                }
+                .lineupSettingsRows()
+                Section {
                     Button { choosingAccent = true } label: {
                         let accent = LineupAccent.accent(forHex: accentHex)
                         SettingsRow(title: "Accent Color", symbol: "paintpalette") {

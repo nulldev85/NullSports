@@ -30,6 +30,7 @@ TARGET_FILES = [
     "Lineup/Views/MediaViews.swift",
     "Lineup/Views/TVMediaSummarySheet.swift",
     "Lineup/Views/TVAccentPicker.swift",
+    "Lineup/Views/SportsTeamsSettingsView.swift",
     "Lineup/Views/TVPlaybackLicensesView.swift",
     "Lineup/Views/TVChoiceSheet.swift",
     "Lineup/Views/StreamingServiceViews.swift",
