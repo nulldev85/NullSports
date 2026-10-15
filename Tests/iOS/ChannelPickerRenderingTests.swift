@@ -15,6 +15,7 @@ final class ChannelPickerRenderingTests: XCTestCase {
         }
         let search = MobileChannelSearch()
         let draft = MobileChannelSearchDraft()
+        let input = draft.binding { search.search($0) }
         defer { search.cancel() }
         search.update(channels: channels, preferred: [], favoriteOrder: [])
         try await settle { !search.loading }
@@ -52,16 +53,18 @@ final class ChannelPickerRenderingTests: XCTestCase {
         // private backing-view class or accessibility-to-UIView propagation.
         // The visible field and search callback then receive the same draft.
         for query in ["S", "Sp", "Sport", "Sports 2", "Sports 29999"] {
-            draft.query = query
+            input.wrappedValue = query
         }
         XCTAssertEqual(counted.cellsCreated, openingCells, "Draft changes must not rebuild the channel rows")
-        try await settle { search.page.query == "Sports 29999" && table.numberOfRows(inSection: 0) == 1 }
+        try await settle(message: { "draft=\(draft.query), result=\(search.page.query), rows=\(table.numberOfRows(inSection: 0))" }) {
+            search.page.query == "Sports 29999" && table.numberOfRows(inSection: 0) == 1
+        }
         table.layoutIfNeeded()
         XCTAssertEqual(search.results.first?.id, 29_999)
         XCTAssertLessThan(counted.cellsCreated - openingCells, 200)
 
         let beforeClear = counted.cellsCreated
-        draft.query = ""
+        input.wrappedValue = ""
         try await settle { search.page.query.isEmpty && table.numberOfRows(inSection: 0) == channels.count }
         table.layoutIfNeeded()
         XCTAssertLessThan(counted.cellsCreated - beforeClear, 200, "Clearing search must also remain lazy")
@@ -88,18 +91,50 @@ final class ChannelPickerRenderingTests: XCTestCase {
         add(evidence)
     }
 
+    func testCompletedPagesUpdateTheirBoundTableAndDisconnectStopsDelivery() async throws {
+        let search = MobileChannelSearch()
+        defer { search.cancel() }
+        let table = UITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 500))
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "channel")
+        let coordinator = MobileChannelResults.Coordinator(matchup: "Fixture", onPick: { _ in })
+        table.dataSource = coordinator
+        table.delegate = coordinator
+        coordinator.bind(search, to: table)
+        let channels = (0..<12).map { id in
+            XtreamStream(num: id, name: "Sports \(id)", streamType: "live", streamID: id,
+                         streamIcon: nil, epgChannelID: nil, categoryID: nil)
+        }
+        search.update(channels: channels, preferred: [], favoriteOrder: [])
+        try await settle { !search.loading && table.numberOfRows(inSection: 0) == 12 }
+        let draft = MobileChannelSearchDraft()
+        let input = draft.binding { search.search($0) }
+        input.wrappedValue = "Sports 9"
+        try await settle { search.page.query == "Sports 9" && table.numberOfRows(inSection: 0) == 1 }
+        XCTAssertEqual(coordinator.tableView(table, cellForRowAt: IndexPath(row: 0, section: 0)).accessibilityIdentifier,
+                       "ChooseChannel-9")
+        coordinator.disconnect()
+        input.wrappedValue = ""
+        try await settle { search.page.query.isEmpty }
+        XCTAssertEqual(table.numberOfRows(inSection: 0), 1, "A dismantled table must not receive future pages")
+        coordinator.bind(search, to: table)
+        XCTAssertEqual(table.numberOfRows(inSection: 0), 12, "Rebinding immediately receives the newest completed page")
+        coordinator.disconnect()
+    }
+
     private func findTable(in view: UIView) -> UITableView? {
         if let table = view as? UITableView, table.accessibilityIdentifier == "ChooseAnotherChannelResults" { return table }
         for child in view.subviews { if let table = findTable(in: child) { return table } }
         return nil
     }
 
-    private func settle(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+    private func settle(file: StaticString = #filePath, line: UInt = #line,
+                        message: () -> String = { "Picker did not reach the expected UI state" },
+                        _ condition: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while !condition(), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(condition(), "Picker did not reach the expected UI state", file: file, line: line)
+        XCTAssertTrue(condition(), message(), file: file, line: line)
         if !condition() { throw NSError(domain: "ChannelPickerRenderingTests", code: 1) }
     }
 }

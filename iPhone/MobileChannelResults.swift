@@ -1,11 +1,12 @@
 import SwiftUI
 import UIKit
+import Combine
 
 /// The provider can contain tens of thousands of channels. Reuse visible cells
 /// instead of handing the entire result array to List/ForEach identification
 /// on each answer. A repeated parent update does no table work at all.
 struct MobileChannelResults: UIViewRepresentable {
-    let page: MobileChannelSearchPage
+    let search: MobileChannelSearch
     let matchup: String
     let onPick: (XtreamStream) -> Void
 
@@ -28,15 +29,17 @@ struct MobileChannelResults: UIViewRepresentable {
         table.register(UITableViewHeaderFooterView.self, forHeaderFooterViewReuseIdentifier: "heading")
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
+        context.coordinator.bind(search, to: table)
         return table
     }
 
     func updateUIView(_ table: UITableView, context: Context) {
         context.coordinator.onPick = onPick
-        context.coordinator.apply(page, to: table)
+        context.coordinator.bind(search, to: table)
     }
 
     static func dismantleUIView(_ table: UITableView, coordinator: Coordinator) {
+        coordinator.disconnect()
         table.dataSource = nil
         table.delegate = nil
     }
@@ -46,10 +49,35 @@ struct MobileChannelResults: UIViewRepresentable {
         private var page = MobileChannelSearchPage()
         private let matchup: String
         var onPick: (XtreamStream) -> Void
+        private var subscription: AnyCancellable?
+        private weak var observedSearch: MobileChannelSearch?
+        private weak var observedTable: UITableView?
 
         init(matchup: String, onPick: @escaping (XtreamStream) -> Void) {
             self.matchup = matchup
             self.onPick = onPick
+        }
+
+        /// Completed pages drive UIKit directly. A deferred SwiftUI body update
+        /// cannot leave the visible table on an older answer or replay that answer.
+        func bind(_ search: MobileChannelSearch, to table: UITableView) {
+            guard observedSearch !== search || observedTable !== table else { return }
+            disconnect()
+            observedSearch = search
+            observedTable = table
+            subscription = search.$page.sink { [weak self, weak table] page in
+                guard let self, let table else { return }
+                // MobileChannelSearch is main-actor isolated, including every
+                // page publication. Use the emitted page, not its willSet value.
+                self.apply(page, to: table)
+            }
+        }
+
+        func disconnect() {
+            subscription?.cancel()
+            subscription = nil
+            observedSearch = nil
+            observedTable = nil
         }
 
         func apply(_ next: MobileChannelSearchPage, to table: UITableView) {

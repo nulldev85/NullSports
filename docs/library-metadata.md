@@ -67,15 +67,19 @@ revision. That run compiled successfully but stopped in other integration tests:
 the playback origin incorrectly served suffix ranges from the start of the file,
 and the picker test changed the search model without changing the text field.
 The origin now serves suffix/open-ended ranges and 416 responses correctly.
-Build 93 passed playback and metadata checks; its only failure was the picker
-test looking for a SwiftUI field's private UIKit implementation. The picker now
-holds an isolated draft object observed only by the field. The rendering test
-drives the same query binding as the field without assuming a native backing
-class. It retains the 30,000-row rendering, filtering, clearing, scrolling, and
-selection checks. HTTP round trips and a fast standalone range check cover the
-fixture correction. Simulator tests run serially to avoid contention over shared
-UI/audio services. The corrected full workflow still needs validation before an
-IPA is confirmed.
+Subsequent builds passed playback and metadata checks but exposed the picker
+test's dependency on SwiftUI render callbacks. The field now forwards edits
+directly from its Binding setter; its draft is observed only by the field.
+The native results coordinator subscribes to completed pages and applies them
+without waiting for a representable body update. Repeated binds do no work,
+source/table changes replace the subscription, and dismantling cancels delivery.
+The test drives the exact input binding, retains all 30,000-row rendering,
+filtering, clearing, scrolling, and selection checks, and reports input/result/row
+state on failure. Separate table checks cover subscription delivery, disconnect,
+and rebinding without a SwiftUI render pass. HTTP round trips and a fast standalone
+range check cover the fixture correction. Simulator tests run serially to avoid
+contention over shared UI/audio services. The corrected full workflow still
+needs validation before an IPA is confirmed.
 
 Live credentials have been checked against TMDB movie and episode endpoints and
 TVDB login, movie/show details, and official episode lookup. Shared XCTest

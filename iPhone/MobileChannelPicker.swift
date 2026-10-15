@@ -5,7 +5,17 @@ import Combine
 /// observes it, so typing cannot invalidate the provider-sized result subtree.
 @MainActor
 final class MobileChannelSearchDraft: ObservableObject {
-    @Published var query = ""
+    @Published private(set) var query = ""
+
+    /// Forward edits at the input boundary, without waiting for a SwiftUI
+    /// render/onChange pass. The search store still debounces and filters off-main.
+    func binding(onQuery: @escaping (String) -> Void) -> Binding<String> {
+        Binding(get: { self.query }, set: { value in
+            guard self.query != value else { return }
+            self.query = value
+            onQuery(value)
+        })
+    }
 }
 
 /// Channel/favorite publications refresh the catalog; unrelated sports-store
@@ -72,7 +82,7 @@ struct MobileChannelPickerContent: View {
                 VStack(spacing: 0) {
                     header
                     MobileChannelSearchField(draft: draft) { query in search.search(query) }
-                    MobileChannelResults(page: page, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
+                    MobileChannelResults(search: search, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
                             if page.loading {
@@ -115,11 +125,13 @@ private struct MobileChannelSearchField: View {
     let onQuery: (String) -> Void
     @FocusState private var searchFocused: Bool
 
+    private var text: Binding<String> { draft.binding(onQuery: onQuery) }
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            TextField("Search channels", text: $draft.query)
+            TextField("Search channels", text: text)
                 .textFieldStyle(.plain)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -127,7 +139,7 @@ private struct MobileChannelSearchField: View {
                 .submitLabel(.search)
                 .accessibilityIdentifier("ChooseAnotherChannelSearch")
             if !draft.query.isEmpty {
-                Button { draft.query = "" } label: {
+                Button { text.wrappedValue = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
                 }.buttonStyle(.plain).accessibilityLabel("Clear search")
@@ -137,7 +149,6 @@ private struct MobileChannelSearchField: View {
         .padding(.horizontal, 14).frame(height: 44)
         .background(LineupPanelStyle.fill, in: Capsule())
         .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
-        .onChange(of: draft.query) { _, value in onQuery(value) }
         .task { searchFocused = true }
     }
 }
