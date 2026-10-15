@@ -929,6 +929,7 @@ private struct MediaCatalogsScreen: View {
     /// so a press in the list can't land on them and close it.
     @State private var menuOpen = false
     @State private var focusedCard: MediaItem?
+    @State private var lastFocusedCard: MediaItem?
     #endif
 
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
@@ -1404,6 +1405,23 @@ private struct MediaCatalogsScreen: View {
         .task(id: TVShelfPrefetchKey(index: index, count: shelves.count)) {
             await prefetchShelves(around: index)
         }
+        .onChange(of: shelves.indices.contains(index) ? shelves[index].items.map(\.libraryKey) : []) { previous, current in
+            // A held menu may temporarily clear focus. Follow the same show's
+            // new episode even if other Continue Watching cards reordered.
+            if shelves.indices.contains(index), shelves[index].id == LibraryShelfOrder.continueWatching,
+               let old = lastFocusedCard, previous.contains(old.libraryKey), !current.contains(old.libraryKey),
+               let server = old.serverID {
+                let scope = LocalContinueWatchingDismissal(item: old, profileID: server)
+                if let slot = shelves[index].items.firstIndex(where: {
+                    scope.matches($0, profileID: $0.serverID ?? server)
+                }) {
+                    tvFocus = .card(slot)
+                    tvFocusChanged(to: .card(slot))
+                    return
+                }
+            }
+            tvFocusChanged(to: tvFocus)
+        }
     }
 
     /// The column the remote is on in a shelf, or was left on.
@@ -1731,6 +1749,7 @@ private struct MediaCatalogsScreen: View {
             // A service is no title: the room behind keeps what it shows.
             guard StreamingService.service(for: item) == nil else { return }
             focusedCard = item
+            lastFocusedCard = item
             preview(item, when: true)
             // The titles either side, so the artwork is made before the
             // remote gets there.
@@ -2638,7 +2657,7 @@ private struct MediaDetailScreen: View {
     @State private var summaryItem: MediaItem?
     #endif
     @State private var favorite = false
-    @State private var watched = false
+    private var watched: Bool { media.isWatched(subject) }
     @State private var expandedOverview = false
     @State private var loading = true
     @State private var error: String?
@@ -2750,7 +2769,6 @@ private struct MediaDetailScreen: View {
     #if os(tvOS)
     private func refreshAfterPlayback() {
         media.flushLocalPlayback()
-        watched = media.isWatched(subject)
         if subject.isSeries {
             Task { nextUp = await media.resumeEpisode(in: subject) }
         }
@@ -2823,9 +2841,8 @@ private struct MediaDetailScreen: View {
             }
 
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                watched.toggle()
-                media.setLocallyPlayed(watched, for: subject)
-                Task { await media.setPlayed(watched, for: subject) }
+                let value = !media.isWatched(subject)
+                Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
             }) {
                 tvSecondaryAction(watched ? "Watched" : "Mark Watched",
                                   symbol: watched ? "eye.fill" : "eye")
@@ -2931,7 +2948,7 @@ private struct MediaDetailScreen: View {
     /// screen, else the season from the top.
     private var playTarget: MediaItem? {
         guard subject.isSeries else { return subject }
-        return nextUp ?? episodes.first { !media.isWatched($0) } ?? episodes.first
+        return media.seriesPlayTarget(in: subject, fallbackEpisodes: episodes, serverNext: nextUp)
     }
 
     private var actions: some View {
@@ -2950,9 +2967,8 @@ private struct MediaDetailScreen: View {
                     Task { await media.setFavorite(favorite, for: subject) }
                 }
                 iconButton("eye", on: watched) {
-                    watched.toggle()
-                    media.setLocallyPlayed(watched, for: subject)
-                    Task { await media.setPlayed(watched, for: subject) }
+                    let value = !media.isWatched(subject)
+                    Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
                 }
             }
             // Nothing to shuffle through on a film.
@@ -3321,7 +3337,6 @@ private struct MediaDetailScreen: View {
         let loaded = try? await media.details(of: item)
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
-        watched = media.isWatched(loaded ?? item)
         let detailedItem = subject
         // While the viewer reads the page, so its VOD copies are waiting when
         // they choose to play.

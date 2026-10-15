@@ -1,9 +1,28 @@
 import SwiftUI
 
+/// Actions keep their own row; badges wrap as whole items rather than
+/// squeezing the engine name or splitting a quality such as "1080p".
+struct MobilePlayerHeader<Actions: View, Details: View>: View {
+    @ViewBuilder var actions: () -> Actions
+    @ViewBuilder var details: () -> Details
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            actions()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { details() }
+                VStack(alignment: .leading, spacing: 6) { details() }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 struct MobilePlaybackEngineBadge: View {
     let engine: MobileStreamEngine
     var body: some View {
         Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8).padding(.vertical, 5)
             .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
             .foregroundStyle(.white).allowsHitTesting(false)

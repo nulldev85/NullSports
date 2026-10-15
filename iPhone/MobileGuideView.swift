@@ -128,6 +128,8 @@ struct MobileGuideView: View {
             GeometryReader { viewport in
                 let showsMetadata = viewport.size.height > 400
                 let metadataHeight: CGFloat = showsMetadata ? 106 : 0
+                let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
+                    ? MobilePlayerLayout.inlineTimelineHeight : 0
                 let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight))
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                                                                     safeAreaTop: viewport.safeAreaInsets.top,
@@ -135,7 +137,7 @@ struct MobileGuideView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         if selectedStream != nil {
-                            Color.clear.frame(height: videoHeight + metadataHeight)
+                            Color.clear.frame(height: videoHeight + metadataHeight + timelineHeight)
                         }
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
@@ -189,7 +191,7 @@ struct MobileGuideView: View {
                                 channelBanner: channelBanner,
                                 watchingGameID: watchingGame?.id,
                                 onWatchGame: { watchGame($0) })
-                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight, alignment: .top)
+                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
                         // The player is the one thing that reaches past the

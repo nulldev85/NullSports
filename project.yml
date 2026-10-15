@@ -135,6 +135,8 @@ targets:
         type: folder
         buildPhase: resources
       - Tests/iOS/LocalMediaTrackingTests.swift
+      - Tests/iOS/SeriesResumeTests.swift
+      - Tests/iOS/SeriesTrackingConsistencyTests.swift
     dependencies:
       - target: Lineup
     settings:

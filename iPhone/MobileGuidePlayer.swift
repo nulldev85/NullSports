@@ -85,7 +85,7 @@ struct MobileGuidePlayer: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.62))
-                            .padding(.bottom, 12)
+                            .padding(.bottom, !expanded && controlsVisible ? 48 : 12)
                     }
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -106,11 +106,16 @@ struct MobileGuidePlayer: View {
                 }
                 if controlsVisible {
                     topBar
+                    if !expanded {
+                        HStack(spacing: 8) { playbackDetails; Spacer(minLength: 0) }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .padding(10)
+                    }
                     transport
                     if expanded && (onStepChannel != nil || (lastChannelName != nil && onLastChannel != nil)) {
                         channelButtons
                     }
-                    if controller.catchUpSource != nil && controller.error == nil {
+                    if expanded && controller.catchUpSource != nil && controller.error == nil {
                         catchUpControls
                     }
                 }
@@ -128,6 +133,14 @@ struct MobileGuidePlayer: View {
             // keeps clear of: each drag is one or the other or neither. Off
             // inline, where the picture is a preview over the guide.
             .simultaneousGesture(channelSwipe, including: canSwipe ? .all : .subviews)
+            if !expanded && controller.catchUpSource != nil && controller.error == nil {
+                MobileCatchUpBar(controller: controller, compact: true) {
+                    showControls()
+                    controller.startOver()
+                }
+                .frame(height: MobilePlayerLayout.inlineTimelineHeight - 20)
+                .padding(10).background(LineupStyle.background)
+            }
             if !expanded && showsMetadata {
                 let replay = controller.catchUp
                 HStack(alignment: .top, spacing: 12) {
@@ -190,18 +203,10 @@ struct MobileGuidePlayer: View {
     private var topBar: some View {
         VStack {
             LineupGlassGroup {
-            HStack(spacing: 10) {
+            MobilePlayerHeader {
+            HStack(spacing: 8) {
                 control("xmark", label: "Close player", action: onClose)
-                if controller.error == nil && !controller.loading {
-                    MobilePlaybackEngineBadge(engine: controller.engine)
-                    statusBadge
-                    // A recording is the channel's own picture, so its
-                    // quality is no news, and the badge needs the room.
-                    if controller.catchUp == nil, let quality = controller.streamQualityLabel {
-                        qualityBadge(quality)
-                    }
-                }
-                Spacer()
+                Spacer(minLength: 8)
                 if let onChooseChannel {
                     control("list.bullet", label: "Choose another channel") {
                         showControls()
@@ -222,6 +227,9 @@ struct MobileGuidePlayer: View {
                     }
                 }
             }
+            } details: {
+                if expanded { playbackDetails }
+            }
             }
             Spacer()
         }
@@ -231,6 +239,17 @@ struct MobileGuidePlayer: View {
         .padding(.trailing, expanded ? screenInsets.trailing : 0)
         .padding(.top, expanded ? screenInsets.top : 0)
         .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var playbackDetails: some View {
+        if controller.error == nil && !controller.loading {
+            MobilePlaybackEngineBadge(engine: controller.engine)
+            statusBadge.fixedSize()
+            if controller.catchUp == nil, let quality = controller.streamQualityLabel {
+                qualityBadge(quality).fixedSize()
+            }
+        }
     }
 
     /// A ZStack-centered sibling of the top bar, not nested in it, so it lands
@@ -343,7 +362,7 @@ struct MobileGuidePlayer: View {
         .padding(.leading, screenInsets.leading)
         .padding(.trailing, screenInsets.trailing)
         // Below the top bar: its own padding, then a control's height.
-        .padding(.top, screenInsets.top + 20 + 36 + 10)
+        .padding(.top, screenInsets.top + 20 + 36 + 8 + 32 + 10)
     }
 
     // MARK: Gestures
@@ -455,7 +474,7 @@ struct MobileGuidePlayer: View {
     }
 
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.inter(.caption2, .semibold))
+        Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 9).padding(.vertical, 7)
             .lineupLiquidGlass(Capsule())
     }

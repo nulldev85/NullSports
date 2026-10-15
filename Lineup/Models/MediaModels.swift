@@ -585,8 +585,8 @@ enum LocalEpisodeProgressionPolicy {
 /// What this device saw comes first, because it is the only record of an
 /// episode played from another server or the IPTV provider: the server the
 /// show belongs to never hears of those, and its own "next up" stays where
-/// it was. The server's answer still counts when it is further along --
-/// the show watched on another device -- but it never moves a viewer back.
+/// it was. Server Next Up is a fallback when this device has no viewing
+/// history; it cannot skip ahead of an established local position.
 enum SeriesResumePolicy {
     /// The show's episodes in watching order: its seasons, then its
     /// specials, which a viewer reaches on purpose rather than in sequence.
@@ -615,32 +615,36 @@ enum SeriesResumePolicy {
         }
         let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
 
-        // An episode stopped part-way through is where the viewer is.
-        if let started = latest(records.filter {
+        let started = latest(records.filter {
             !$0.completed && $0.isUpNext != true && $0.explicitlyUnwatched != true && $0.position >= 5
-        }), let found = index(of: started.item) {
-            return order[found]
-        }
+        })
         let finished = latest(records.filter(\.completed))
         // An episode the viewer marked unwatched, after anything they finished:
         // they chose to go back to it.
         if let markedBack = latest(records.filter { $0.isUpNext == true && $0.explicitlyUnwatched == true }),
            markedBack.updatedAt >= (finished?.updatedAt ?? .distantPast),
+           markedBack.updatedAt >= (started?.updatedAt ?? .distantPast),
            let found = index(of: markedBack.item) {
             return order[found]
         }
-        // The episode after the last one finished here, and the server's
-        // next-up; whichever is further on.
+        if let started, let found = index(of: started.item),
+           (started.updatedAt >= (finished?.updatedAt ?? .distantPast)
+            || found > (finished.flatMap { index(of: $0.item) } ?? -1)) { return order[found] }
+        // Local completion determines the next episode. A remote Next Up
+        // can be stale in either direction and must never win by being later.
         let local = finished.flatMap { index(of: $0.item) }.flatMap { next(after: $0) }
+        if let local { return order[local] }
         let server = serverNext.flatMap { index(of: $0) }.flatMap { found in
             isWatched(order[found]) ? next(after: found) : found
         }
-        if let further = [local, server].compactMap({ $0 }).max() { return order[further] }
         // A show finished here starts again from the top.
         if finished != nil, local == nil, let last = finished.flatMap({ index(of: $0.item) }),
            next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
             return order[0]
         }
+        if finished == nil, let server { return order[server] }
+        if finished == nil, let queued = latest(records.filter { $0.isUpNext == true }),
+           let found = index(of: queued.item), !isWatched(order[found]) { return order[found] }
         return order.first { !isWatched($0) } ?? order[0]
     }
 
@@ -662,7 +666,9 @@ enum SeriesResumePolicy {
             .max(by: { $0.updatedAt < $1.updatedAt }) else { return true }
         if isWatched(upNext.item) { return true }
         let place = { (item: MediaItem) in (item.parentIndexNumber ?? 0, item.indexNumber ?? 0) }
-        return !(place(upNext.item) > place(finished.item))
+        let previous = place(finished.item), queued = place(upNext.item)
+        return !(queued == (previous.0, previous.1 + 1)
+                 || queued == (previous.0 + 1, 1))
     }
 }
 

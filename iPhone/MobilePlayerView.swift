@@ -94,6 +94,7 @@ struct MobilePlayerView: View {
             if controlsVisible {
                 VStack(spacing: 0) {
                     LineupGlassGroup {
+                    MobilePlayerHeader {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { exit() }
                         if showsTitleInHeader {
@@ -114,10 +115,12 @@ struct MobilePlayerView: View {
                                 showingSubtitles = true
                             }
                         }
+                    }
+                    } details: {
                         if controller.error == nil && !controller.loading {
                             MobilePlaybackEngineBadge(engine: controller.engine)
-                            if isLive { statusBadge }
-                            if let detail = badgeDetail { qualityBadge(detail) }
+                            if isLive { statusBadge.fixedSize() }
+                            if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
                         }
                     }
                     }
@@ -401,7 +404,7 @@ struct MobilePlayerView: View {
     }
 
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.inter(.caption2, .semibold))
+        Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 10).padding(.vertical, 6)
             .lineupLiquidGlass(Capsule())
     }
