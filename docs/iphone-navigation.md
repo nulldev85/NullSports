@@ -16,6 +16,13 @@ and Library can scroll to their last rows. Inline full-screen playback hides
 both bars. Full-screen presentations cover navigation as usual. Page headers,
 menus, and player controls retain their existing surfaces.
 
+Settings > Tab Order has permanent drag handles and Restore Default Order.
+Order is saved locally and drives both the native TabView and custom panel.
+Stable destination tags keep selection and return-home targeting independent
+of position. Missing, repeated or unknown saved entries are repaired without
+hiding a destination. The custom panel draws only its own rounded charcoal
+surface; it has no full-width background behind or below it.
+
 Tapping a custom tab returns that destination to its home and scrolls its root
 content to the top. Library, Search and Settings register a root-owned SwiftUI
 reset, so destination links reset along with their navigation state. A UIKit

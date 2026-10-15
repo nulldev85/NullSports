@@ -63,11 +63,12 @@ struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
     let activate: (MobileNavigationTab) -> Void
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+    @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
     @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 10
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(MobileNavigationTab.allCases) { tab in
+            ForEach(MobileNavigationOrder.tabs(in: savedOrder)) { tab in
                 let selected = selection == tab.rawValue
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
@@ -110,7 +111,6 @@ struct MobileLineupNavigationBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 6).padding(.bottom, 4)
-        .background(LineupStyle.background.ignoresSafeArea(edges: .bottom))
         .background(MobileLineupNavigationBoundary().allowsHitTesting(false))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
@@ -133,6 +133,7 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 @MainActor
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
+    var order = MobileNavigationTab.allCases
     private struct Home {
         weak var probe: MobileTabHomeRegistration.Probe?
     }
@@ -154,7 +155,7 @@ final class MobileTabNavigation: ObservableObject {
     }
 
     func activate(_ tab: MobileNavigationTab, selection: () -> Void) {
-        let index = MobileNavigationTab.allCases.firstIndex(of: tab)!
+        guard let index = order.firstIndex(of: tab) else { return }
         let reselection = tabs?.selectedIndex == index
         let home = homes[tab.rawValue]?.probe
         if home == nil { pendingHomes.insert(tab.rawValue) }
@@ -259,6 +260,7 @@ private struct MobileNavigationChrome: ViewModifier {
     let liquidGlass: Bool
     let fullscreen: Bool
     @StateObject private var navigation = MobileTabNavigation()
+    @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
 
     func body(content: Content) -> some View {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
@@ -266,7 +268,8 @@ private struct MobileNavigationChrome: ViewModifier {
             .environment(\.mobileUsesLineupNavigation, !glass)
             .environment(\.mobileTabNavigation, navigation)
             .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
-            .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation)
+            .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
+                                              order: MobileNavigationOrder.tabs(in: savedOrder))
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // Reserve room for the panel, so bottom rows and buttons remain
             // reachable. Both bars stand aside for full-screen playback.
@@ -303,12 +306,14 @@ extension View {
 struct MobileTabBarAppearance: UIViewRepresentable {
     let liquidGlass: Bool
     var navigation: MobileTabNavigation? = nil
+    var order = MobileNavigationTab.allCases
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
         probe.navigation = navigation
+        navigation?.order = order
         probe.refresh()
     }
 

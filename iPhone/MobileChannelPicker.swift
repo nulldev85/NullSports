@@ -12,13 +12,21 @@ struct MobileChannelPicker: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
     @State private var query = ""
+    @StateObject private var search = MobileChannelSearch()
+    @State private var suggestedChannels: [XtreamStream] = []
+    @State private var favoriteIDs: Set<Int> = []
+    @State private var reloadTask: Task<Void, Never>?
     let game: SportsGame
     let onPick: (XtreamStream) -> Void
 
     /// The app's own match, and the channels the broadcast names, first. A
     /// viewer who recognises one of these never has to type at all.
     private var suggested: [XtreamStream] {
-        guard query.isEmpty else { return [] }
+        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? suggestedChannels : []
+    }
+
+    private func reloadChannels() {
+        favoriteIDs = Set(library.favoriteStreamOrder)
         var seen: Set<Int> = []
         var out: [XtreamStream] = []
         if let matched = library.verifiedStream(for: game), seen.insert(matched.id).inserted {
@@ -31,14 +39,23 @@ struct MobileChannelPicker: View {
         where seen.insert(favorite.id).inserted {
             out.append(favorite)
         }
-        return Array(out.prefix(6))
+        suggestedChannels = Array(out.prefix(6))
+        search.update(channels: library.streams, excluding: Set(suggestedChannels.map(\.id)))
     }
 
     private var results: [XtreamStream] {
-        let all = library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)
-        guard query.isEmpty else { return all }
-        let shown = Set(suggested.map(\.id))
-        return all.filter { !shown.contains($0.id) }
+        search.results
+    }
+
+    private func scheduleReload() {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor in
+            // Published emits before its new catalog/favorites are stored.
+            // Read matching state after that publication has finished.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            reloadChannels()
+        }
     }
 
     var body: some View {
@@ -48,7 +65,9 @@ struct MobileChannelPicker: View {
                 VStack(spacing: 0) {
                     header
                     searchField
-                    if results.isEmpty && suggested.isEmpty {
+                    if search.loading && results.isEmpty && suggested.isEmpty {
+                        ProgressView("Loading channels…").frame(maxHeight: .infinity)
+                    } else if results.isEmpty && suggested.isEmpty {
                         LineupUnavailableView("No channels", systemImage: "magnifyingglass",
                             description: Text(query.isEmpty
                                 ? "Refresh your guide to load this provider's channels."
@@ -81,12 +100,16 @@ struct MobileChannelPicker: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
+                LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
             }
         }
         .presentationDetents([.large])
         .presentationBackground(LineupStyle.background)
-        .task { searchFocused = true }
+        .task { reloadChannels(); searchFocused = true }
+        .onChange(of: query) { _, value in search.search(value) }
+        .onReceive(library.$streams.dropFirst()) { _ in scheduleReload() }
+        .onReceive(library.$favoriteStreamOrder.dropFirst()) { _ in scheduleReload() }
+        .onDisappear { reloadTask?.cancel(); search.cancel() }
     }
 
     private var header: some View {
@@ -141,7 +164,7 @@ struct MobileChannelPicker: View {
                 Text(stream.name).font(.inter(.body, .semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
-                if library.isFavorite(stream) {
+                if favoriteIDs.contains(stream.id) {
                     Image(systemName: "star.fill").font(.inter(.caption2))
                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 }

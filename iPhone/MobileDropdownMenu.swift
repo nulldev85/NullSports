@@ -250,7 +250,6 @@ struct MobileDropdownButton: View {
                 .foregroundStyle(LineupStyle.text)
                 .frame(width: 36, height: 36)
                 .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Circle())
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

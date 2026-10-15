@@ -67,14 +67,14 @@ struct PlaybackDiagnosticsReportView: View {
         .navigationTitle("Playback Report")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            LineupToolbarItem(placement: .primaryAction) {
                 Button(copied ? "Copied" : "Copy") {
                     UIPasteboard.general.string = diagnostics.report
                     copied = true
                 }
                 .buttonStyle(LineupBarButtonStyle())
             }
-            ToolbarItem(placement: .bottomBar) {
+            LineupToolbarItem(placement: .bottomBar) {
                 Button("Clear", role: .destructive) {
                     diagnostics.clear()
                     copied = false
@@ -109,7 +109,7 @@ struct StartupTraceReportView: View {
         .navigationTitle("Launch Timing")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            LineupToolbarItem(placement: .primaryAction) {
                 Button(copied ? "Copied" : "Copy") {
                     UIPasteboard.general.string = trace.report
                     copied = true

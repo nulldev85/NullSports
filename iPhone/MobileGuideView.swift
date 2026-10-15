@@ -246,9 +246,9 @@ struct MobileGuideView: View {
             }
             .toolbar {
                 if game != nil {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
+                    LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
                 }
-                ToolbarItem(placement: .primaryAction) {
+                LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
                         setOptions(!optionsOpen)
                     }
@@ -760,7 +760,7 @@ private struct FavoritesOrderView: View {
             .background(LineupStyle.background)
             .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true)) }
+                LineupToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true)) }
             }
         }
     }

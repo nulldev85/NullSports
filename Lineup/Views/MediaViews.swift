@@ -109,7 +109,7 @@ struct MediaServersView: View {
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
                         setOptions(!optionsOpen)
                     }
@@ -1953,7 +1953,7 @@ private struct MediaCatalogsScreen: View {
             .navigationTitle("Search Library")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                LineupToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { searchPresented = false }
                         .buttonStyle(LineupBarButtonStyle())
                 }
@@ -2370,7 +2370,7 @@ private struct MediaShelfPicker: View {
                 .navigationTitle("Add Shelf")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
+                    LineupToolbarItem(placement: .cancellationAction) {
                         Button("Done", action: dismiss.callAsFunction)
                             .buttonStyle(LineupBarButtonStyle(prominent: true))
                     }
@@ -6333,7 +6333,7 @@ struct MediaServerSetupView: View {
             .background(LineupStyle.background)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
+            .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             .disabled(media.isAddingServer)
             .onChange(of: page) { _, brand in
                 guard let brand, brand != software else { return }
@@ -6936,7 +6936,7 @@ struct MDBListIntegrationView: View {
             }
             .navigationTitle("MDBList")
             #if !os(tvOS)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
+            .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             #endif
             #if os(tvOS)
             .tvChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,

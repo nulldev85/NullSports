@@ -64,10 +64,10 @@ struct MobileAccentPicker: View {
             .navigationTitle("Accent Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                LineupToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                LineupToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         if typingHex { applyHex() }
                         onChoose(draft)
@@ -394,10 +394,10 @@ private struct AccentColorChart: View {
             .navigationTitle("Custom Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                LineupToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                LineupToolbarItem(placement: .confirmationAction) {
                     Button("Use") {
                         if typing { applyTyped() }
                         onUse(hex)
