@@ -801,6 +801,11 @@ struct MobileGuideChannelScroll<Content: View>: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollIndicators)
+        // The measured overlap already includes the home indicator. SwiftUI
+        // content margins are added to its safe area, even with UIKit's
+        // automatic adjustment disabled. Own only the container's bottom
+        // here, preserving top/side protection and keyboard avoidance.
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 }
 

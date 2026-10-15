@@ -54,7 +54,12 @@ much taller scrolling content does not resize, including while scrolled to the
 end. Updates are event-driven and publish only when clearance changes. Removing
 the content probe detaches the observer. Native mode ignores an outgoing custom
 panel boundary. The existing configuration prevents a second automatic top
-navigation inset; SwiftUI owns the measured bottom margin.
+navigation inset; SwiftUI owns the measured bottom margin. The channel scroller
+ignores only the container's bottom safe area before applying that measured
+coverage. SwiftUI [content margins](https://developer.apple.com/documentation/swiftui/view/contentmargins(_:_:for:)-1lt8b)
+are added to the safe area even when UIKit's automatic adjustment is disabled;
+retaining both counted the home indicator twice and left a gap above the custom
+bar after a style switch. Top/side protection and keyboard avoidance remain.
 
 The end-of-list test uses the same channel scroller as the app and preserves
 exact usable-edge and final-row alignment through repeated custom/glass

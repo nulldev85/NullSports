@@ -11,6 +11,9 @@ order and restore the default. A local preference drives both the native and
 custom bars. Selection uses stable destination tags; custom return-home logic
 resolves the saved visual order. Tab pages retain stable SwiftUI identities.
 The custom bar's full-width background is removed; its own panel is retained.
+The Guide applies measured bottom navigation coverage once, without an
+additional inherited home-indicator margin. Its existing layout regression
+checks exact last-row alignment across repeated custom/native style switches.
 
 App-owned toolbar controls use LineupToolbarItem. On iOS 26 and later it hides
 the native shared glass background and preserves the app control's intrinsic
