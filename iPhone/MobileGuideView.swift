@@ -872,6 +872,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         private(set) var reported: CGFloat?
         private var scheduled = false
         private weak var observedScroll: UIScrollView?
+        private weak var boundaryWindow: UIWindow?
         private var observer: ViewportObserver?
 
         override func didMoveToWindow() {
@@ -910,7 +911,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         }
 
         private func refresh() {
-            guard window != nil, let scroll = enclosingScrollView else { return }
+            guard let window, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
             guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
             if observedScroll !== scroll {
@@ -931,6 +932,13 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                 ])
                 self.observer = observer
             }
+            if boundaryWindow !== window {
+                NotificationCenter.default.removeObserver(self, name: MobileLineupNavigationBoundary.geometryDidChange,
+                                                          object: boundaryWindow)
+                boundaryWindow = window
+                NotificationCenter.default.addObserver(self, selector: #selector(boundaryGeometryDidChange(_:)),
+                    name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
+            }
             let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
                 usesLineupNavigation: usesLineupNavigation)
             guard reported == nil || abs((reported ?? 0) - overlap) > 0.5 else { return }
@@ -938,7 +946,14 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             onBottomOverlap?(overlap)
         }
 
+        @objc private func boundaryGeometryDidChange(_ notification: Notification) {
+            requestRefresh()
+        }
+
         func detachObserver() {
+            NotificationCenter.default.removeObserver(self, name: MobileLineupNavigationBoundary.geometryDidChange,
+                                                      object: boundaryWindow)
+            boundaryWindow = nil
             observer?.owner = nil
             observer?.removeFromSuperview()
             observer = nil

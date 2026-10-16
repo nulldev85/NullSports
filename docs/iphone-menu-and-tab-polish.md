@@ -20,6 +20,12 @@ on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/do
 The Guide applies measured bottom navigation coverage once, without an
 additional inherited home-indicator margin. Its existing layout regression
 checks exact last-row alignment across repeated custom/native style switches.
+The custom bar also reports physical position changes and removal within its
+own window. The Guide observes those events as well as its viewport layout:
+an origin-only bar movement must update clearance even when the list never
+resizes. Reports are coalesced and unchanged geometry does no work; detached
+Guides remove their subscriptions. A regression exercises the 83-to-118-point
+coverage change without manually refreshing the list, plus later removal.
 The other four tabs reserve the custom panel's measured coverage in their native
 navigation container, including pushed Library/Search/Settings pages. The panel
 is an overlay without a second outer SwiftUI inset or full-width background.

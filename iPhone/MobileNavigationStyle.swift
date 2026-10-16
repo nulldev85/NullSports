@@ -265,14 +265,63 @@ private struct MobileTabHomeRegistration: UIViewRepresentable {
 /// A measurable UIKit boundary for nested Guide scrollers. SwiftUI preference
 /// values do not reliably cross TabView/NavigationStack hosting boundaries.
 struct MobileLineupNavigationBoundary: UIViewRepresentable {
+    /// Sent by the boundary's window when its physical coverage changes.
+    /// A nested scroll viewport can stay the same size while this bar moves.
+    static let geometryDidChange = Notification.Name("Lineup.navigationBoundaryGeometryDidChange")
     var navigation: MobileTabNavigation? = nil
     final class Boundary: UIView {
         weak var navigation: MobileTabNavigation?
+        private weak var reportedWindow: UIWindow?
+        private var reportedFrame: CGRect?
+        private var geometryReportScheduled = false
+
+        func requestGeometryReport() {
+            guard !geometryReportScheduled else { return }
+            geometryReportScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.geometryReportScheduled = false
+                self.reportGeometry()
+            }
+        }
+
+        private func reportWindowChange() {
+            if reportedWindow !== window {
+                let previous = reportedWindow
+                reportedWindow = window
+                reportedFrame = nil
+                if let previous {
+                    NotificationCenter.default.post(name: MobileLineupNavigationBoundary.geometryDidChange, object: previous)
+                }
+            }
+        }
+
+        private func reportGeometry() {
+            reportWindowChange()
+            guard let window, bounds.height > 0 else { return }
+            let frame = convert(bounds, to: window)
+            guard reportedFrame != frame else { return }
+            reportedFrame = frame
+            NotificationCenter.default.post(name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
+        }
+
         private func report() {
             if window != nil { navigation?.bottomBoundary = self }
             navigation?.requestContentInsetsUpdate()
+            requestGeometryReport()
         }
-        override func didMoveToWindow() { super.didMoveToWindow(); report() }
+        // Origin-only placement changes do not require layoutSubviews. This
+        // includes the home-indicator adjustment after native glass is hidden.
+        override var frame: CGRect { didSet { if frame != oldValue { requestGeometryReport() } } }
+        override var bounds: CGRect { didSet { if bounds != oldValue { requestGeometryReport() } } }
+        override var center: CGPoint { didSet { if center != oldValue { requestGeometryReport() } } }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Notify removal while this view is still alive. A queued weak
+            // callback alone can disappear when SwiftUI dismantles the bar.
+            reportWindowChange()
+            report()
+        }
         override func layoutSubviews() { super.layoutSubviews(); report() }
         override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); report() }
     }
@@ -285,6 +334,7 @@ struct MobileLineupNavigationBoundary: UIViewRepresentable {
         view.navigation = navigation
         if view.window != nil { navigation?.bottomBoundary = view }
         navigation?.requestContentInsetsUpdate()
+        view.requestGeometryReport()
     }
 
     static func dismantleUIView(_ view: Boundary, coordinator: ()) {

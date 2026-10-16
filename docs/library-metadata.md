@@ -70,8 +70,12 @@ The current revision adds shared regression coverage for independently switching
 show and episode sources through TMDB, TVDB and Provider, including previously
 displayed items and a delayed response from the old source. The checks compare
 returned titles, summaries, artwork and attribution, not just the saved settings.
-These new checks await the iPhone 97 and tvOS 74 workflows. The full simulator
-suites remain enabled; no Apple SDK is installed in the Windows workspace.
+These checks passed in iPhone 97, along with the episode-progression regressions;
+tvOS 74 passed its workflow. iPhone 97 compiled and ran 429 tests with one skipped,
+but stopped on two Guide layout assertions in one test. The Guide now observes
+custom-bar movement even with an unchanged scroll viewport; iPhone 98 awaits full
+validation and IPA packaging. The full simulator suites remain enabled; no Apple
+SDK is installed in the Windows workspace.
 
 The credentials packaged in the passed build 96 IPA were independently checked
 against the affected show. TMDB returned Marshals (290856); TVDB returned Marshals

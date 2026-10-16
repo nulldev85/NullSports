@@ -77,6 +77,75 @@ final class GuideScrollLayoutTests: XCTestCase {
         }
     }
 
+    /// Build 97 observed an 83pt measurement after the bar moved to cover
+    /// 118pt. Moving the custom bar alone must invalidate the Guide, even
+    /// when neither the tall content nor its viewport needs layout.
+    @MainActor
+    func testCustomBarMovementRemeasuresAnUnchangedGuideViewport() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = page
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKey()
+        }
+        window.layoutIfNeeded()
+        let scroll = UIScrollView(frame: page.view.bounds)
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let boundary = MobileLineupNavigationBoundary.Boundary(frame:
+            CGRect(x: 0, y: window.bounds.maxY - 83, width: window.bounds.width, height: 83))
+        window.addSubview(boundary)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.usesLineupNavigation = true
+        var reported: CGFloat?
+        var deliveries = 0
+        probe.onBottomOverlap = { overlap in
+            reported = overlap
+            deliveries += 1
+            scroll.contentInset.bottom = overlap
+        }
+        scroll.addSubview(probe)
+        try await settle { reported == 83 }
+        let originalViewport = scroll.frame
+        let originalContent = probe.frame
+        for overlap in [CGFloat(118), 83, 135, 118] {
+            boundary.frame.origin.y = window.bounds.maxY - overlap
+            // Do not ask the scroll/probe to refresh or lay out. Its only
+            // new input is the real boundary's position-change event.
+            try await settle { reported == overlap }
+            XCTAssertEqual(scroll.frame, originalViewport)
+            XCTAssertEqual(probe.frame, originalContent)
+            let usableBottom = scroll.convert(scroll.bounds, to: window).maxY - scroll.adjustedContentInset.bottom
+            XCTAssertEqual(usableBottom, boundary.frame.minY, accuracy: 1)
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            XCTAssertEqual(scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: window).y,
+                           boundary.frame.minY, accuracy: 1)
+        }
+        boundary.removeFromSuperview()
+        try await settle { reported == window.safeAreaInsets.bottom.rounded() }
+        probe.removeFromSuperview()
+        let detachedDeliveries = deliveries
+        window.addSubview(boundary)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(deliveries, detachedDeliveries, "A detached Guide must stop observing navigation changes")
+    }
+
+    @MainActor
+    private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while !condition(), ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(condition(), "The Guide did not receive the changed navigation coverage", file: file, line: line)
+        if !condition() { throw NSError(domain: "GuideScrollLayoutTests", code: 1) }
+    }
+
     /// A native bar can finish appearing after the content probe's update.
     /// The tall content need not resize; its separate viewport observer must
     /// follow bar visibility, including while content is scrolled to the end.
