@@ -41,6 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B Tests/TeamDirectoryChecks.py
+          python3 -B Tests/SimulatorSelectionChecks.py
           swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
           /tmp/playback-fixture-range-checks
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
@@ -87,7 +88,17 @@ jobs:
       - name: Check playback lifecycle in iPhone simulator
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "iPhone" in v["name"]))')
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py)
+          IFS=$'\t' read -r device_type runtime <<< "$configuration"
+          device=$(xcrun simctl create "Lineup-iPhone-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
+          cleanup_simulator() {
+            xcrun simctl shutdown "$device" >/dev/null 2>&1 || true
+            xcrun simctl delete "$device" >/dev/null 2>&1 || true
+          }
+          trap cleanup_simulator EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          echo "Testing on a fresh simulator: $device_type / $runtime"
           xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -parallel-testing-enabled NO \

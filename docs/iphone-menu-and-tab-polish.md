@@ -87,6 +87,10 @@ isolates table/filter behavior from keyboard-service startup and teardown;
 production still focuses the field automatically. Its 30,000-row filtering,
 editor retention, Clear, lazy row construction and last-row selection checks
 remain enabled, with the same five-second completed-result deadline.
+Completed filter/Clear pages are awaited through their actual publications;
+the table's row count and the editor's identity/text are checked afterward.
+See [iPhone CI readiness](iphone-ci-readiness.md) for simulator isolation and
+the corresponding real-player readiness checks.
 
 Results use a reusable UIKit table with the existing SwiftUI channel-logo rows,
 Lineup headers, panel colors and dividers. Only visible rows are configured.
