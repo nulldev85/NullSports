@@ -2919,7 +2919,11 @@ private struct MediaDetailScreen: View {
                     #endif
                 }
             }
+            #if os(tvOS)
             .clipped()
+            #else
+            .mobileLibraryArtworkZoom()
+            #endif
             // The art has to end somewhere, and a hard edge across the screen
             // reads as a seam. It fades into the page instead -- over a long
             // way, and through a middle stop, because a two-stop fade over a
@@ -4179,12 +4183,12 @@ private struct MediaLibraryHero: View {
         .frame(maxWidth: .infinity)
         #if os(tvOS)
         .frame(height: heroHeight)
+        .clipped()
         #else
         // Match the detail page's portrait artwork instead of cropping a
         // landscape backdrop into the phone's hero.
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         #endif
-        .clipped()
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
         #if os(tvOS)
@@ -4228,19 +4232,22 @@ private struct MediaLibraryHero: View {
             let readableWidth = min(copyWidth, contentWidth)
 
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                LineupArtView(url: artworkURL(for: item),
-                              // Decode for the actual viewport, not the
-                              // server request's pixel ceiling. On a 3x phone
-                              // the old value produced a 3300-pixel image for
-                              // a roughly 390-point hero and churned the image
-                              // cache every time the carousel advanced.
-                              width: slide.size.width) { image in
-                    if let image { image.resizable().scaledToFill() }
-                    else { Color.clear }
+                ZStack {
+                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LineupArtView(url: artworkURL(for: item),
+                                  // Decode for the resting viewport. Pulling
+                                  // transforms the cached picture, without
+                                  // changing the loader's pixel/cache key.
+                                  width: slide.size.width) { image in
+                        if let image { image.resizable().scaledToFill() }
+                        else { Color.clear }
+                    }
                 }
                 .frame(width: slide.size.width, height: slide.size.height)
+                #if !os(tvOS)
+                .mobileLibraryArtworkZoom()
+                #endif
                 #if os(tvOS)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.9), location: 0),
@@ -4318,7 +4325,9 @@ private struct MediaLibraryHero: View {
                 .padding(.bottom, heroBottomPadding)
             }
             .frame(width: slide.size.width, height: slide.size.height)
+            #if os(tvOS)
             .clipped()
+            #endif
         }
         .contentShape(Rectangle())
         #if !os(tvOS)

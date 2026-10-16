@@ -15,6 +15,15 @@ Library artwork remains clear behind the status bar and options button.
 The iPhone Library hero uses the detail page's primary/poster artwork in a
 portrait frame, with a long vertical fade behind the copy into the Library
 background. Its four-second rotation and crossfade remain in place.
+Pulling down past the top of Library home or a title's detail page progressively
+zooms its header artwork, anchored at the bottom to fill the exposed top area.
+The same effect covers movie, show and other playable-item detail headers.
+Titles, ratings, page indicators, fades and controls keep their normal size.
+Only the artwork receives the scroll-relative visual transform; the resting
+layout, decoded image size and cache key remain stable. The scroll view's own
+bounce restores the picture on release, with no extra gesture, timer or spring.
+Reduce Motion leaves the normal scroll behavior without the zoom. This uses
+SwiftUI's [geometry-based visual effects](https://developer.apple.com/documentation/swiftui/view/visualeffect(_:)).
 Its home and full-bleed detail screens hide the navigation bar background and,
 on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffecthidden(_:for:)).
 The Guide applies measured bottom navigation coverage once, without an
@@ -91,6 +100,11 @@ Device review:
 - At the top of Library and title details, check that artwork stays sharp behind
   the status bar and toolbar buttons in both navigation styles, including after
   scrolling down and returning to the top.
+- Pull progressively farther down at the top of Library home, a movie, a show
+  and an episode detail page. The artwork should zoom smoothly and cover the
+  top edge, while labels stay the same size. Release, scroll normally, swipe
+  the carousel, rotate, and repeat with both navigation styles. With Reduce
+  Motion enabled, check normal scrolling without the zoom.
 - Open Catch Up, Choose Another Channel, Accent Color, its mixer, provider/server
   setup and Library dialogs. Check readable, themed close/Done buttons.
 - Type and clear a long channel search with a large provider, then type quickly
