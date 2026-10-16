@@ -32,6 +32,11 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
                 backend.isPlaying && backend.hasVideoOut && backend.time > 0.2
             }
             XCTAssertEqual(backend.kind.title, kind.title)
+            try await waitUntil("\(kind.title) did not expose the actual video/audio formats") {
+                backend.mediaInfo.badges.contains("H.264") && backend.mediaInfo.badges.contains("AAC")
+            }
+            XCTAssertNil(backend.mediaInfo.dynamicRange)
+            XCTAssertFalse(backend.mediaInfo.isDolbyAtmos)
             XCTAssertEqual(backend.duration, 12, accuracy: 0.75)
             try await waitUntil("\(kind.title) did not expose both audio tracks") { backend.audioTracks.count == 2 }
             let audio = try XCTUnwrap(backend.audioTracks.last)

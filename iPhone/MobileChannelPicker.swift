@@ -43,6 +43,7 @@ struct MobileChannelPickerContent: View {
     @Environment(\.dismiss) private var dismiss
     let game: SportsGame
     @ObservedObject var search: MobileChannelSearch
+    var automaticallyFocusSearch = true
     let onPick: (XtreamStream) -> Void
 
     var body: some View {
@@ -52,7 +53,7 @@ struct MobileChannelPickerContent: View {
                 LineupStyle.background.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
-                    MobileChannelSearchField(search: search)
+                    MobileChannelSearchField(search: search, automaticallyFocus: automaticallyFocusSearch)
                     MobileChannelResults(search: search, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
@@ -93,12 +94,13 @@ struct MobileChannelPickerContent: View {
 /// results, so keystrokes do not invalidate the sheet or reset the editor.
 private struct MobileChannelSearchField: View {
     let search: MobileChannelSearch
+    let automaticallyFocus: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            MobileChannelSearchInput(search: search)
+            MobileChannelSearchInput(search: search, automaticallyFocus: automaticallyFocus)
         }
         .font(.inter(.body))
         .padding(.horizontal, 14).frame(height: 44)

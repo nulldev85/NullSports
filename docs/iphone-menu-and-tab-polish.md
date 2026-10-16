@@ -15,6 +15,23 @@ Library artwork remains clear behind the status bar and options button.
 The iPhone Library hero uses the detail page's primary/poster artwork in a
 portrait frame, with a long vertical fade behind the copy into the Library
 background. Its four-second rotation and crossfade remain in place.
+Pulling down past the top of Library home or a title's detail page progressively
+zooms its header artwork, anchored at the bottom to fill the exposed top area.
+The same effect covers movie, show and other playable-item detail headers.
+Titles, ratings, page indicators, fades and controls keep their normal size.
+Only the artwork receives the scroll-relative visual transform; the resting
+layout, decoded image size and cache key remain stable. The scroll view's own
+bounce restores the picture on release, with no extra gesture, timer or spring.
+Reduce Motion leaves the normal scroll behavior without the zoom. This uses
+SwiftUI's [geometry-based visual effects](https://developer.apple.com/documentation/swiftui/view/visualeffect(_:)).
+The home carousel uses a native horizontal pan recognizer whose delegate rejects
+vertical and mainly vertical movement before recognition. Checking direction only
+after a SwiftUI drag ended could already have intercepted the Library's pull.
+The parent scroll view explicitly allows vertical bounce even with a short
+Library. Scroll-phase changes pause the four-second rotation during a pull or
+scroll, and horizontal swipes pause it until release/cancellation. This uses
+[UIKit gesture integration](https://developer.apple.com/documentation/swiftui/uigesturerecognizerrepresentable)
+and [early recognition decisions](https://developer.apple.com/documentation/uikit/uigesturerecognizerdelegate/gesturerecognizershouldbegin(_:)).
 Its home and full-bleed detail screens hide the navigation bar background and,
 on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffecthidden(_:for:)).
 The Guide applies measured bottom navigation coverage once, without an
@@ -31,6 +48,15 @@ navigation container, including pushed Library/Search/Settings pages. The panel
 is an overlay without a second outer SwiftUI inset or full-width background.
 Window/home-indicator protection is counted once, and the custom reservation is
 restored when switching to Liquid Glass or entering full-screen playback.
+
+Inset ownership is keyed to the stable tab root. If NavigationStack installs
+its UIKit navigation container after the first layout, the early host releases
+its reservation before the navigation container takes over. This prevents a
+second copy of the compact bar's clearance. Layout observers are installed only
+inside UIKit navigation views; a SwiftUI hosting view retains its own hierarchy.
+`NavigationContentInsetTests` reproduces that delayed-container handoff and checks
+exact clearance, repeated application and restoration, alongside the existing
+real tab/style-switch layouts.
 
 App-owned toolbar controls use LineupToolbarItem. On iOS 26 and later it hides
 the native shared glass background and preserves the app control's intrinsic
@@ -54,6 +80,13 @@ built in background work; the opening path does not scan the full Guide for
 favorites. Stale queries/catalogs cannot publish over newer work, and dismissal
 cancels queued work. Clearing search restores provider order with suggestions
 separate; radio entries and duplicate channel IDs are excluded.
+
+The channel-picker rendering regression drives the native text field's editing
+events without automatically opening the simulator software keyboard. This
+isolates table/filter behavior from keyboard-service startup and teardown;
+production still focuses the field automatically. Its 30,000-row filtering,
+editor retention, Clear, lazy row construction and last-row selection checks
+remain enabled, with the same five-second completed-result deadline.
 
 Results use a reusable UIKit table with the existing SwiftUI channel-logo rows,
 Lineup headers, panel colors and dividers. Only visible rows are configured.
@@ -91,6 +124,16 @@ Device review:
 - At the top of Library and title details, check that artwork stays sharp behind
   the status bar and toolbar buttons in both navigation styles, including after
   scrolling down and returning to the top.
+- Pull progressively farther down at the top of Library home, a movie, a show
+  and an episode detail page. The artwork should zoom smoothly and cover the
+  top edge, while labels stay the same size. Release, scroll normally, swipe
+  the carousel, rotate, and repeat with both navigation styles. With Reduce
+  Motion enabled, check normal scrolling without the zoom.
+- Start a slow vertical pull directly on the home hero's picture, title and
+  ratings, then repeat with a diagonal but mainly vertical pull. Both should
+  scroll/zoom just as on a movie/show page. Also check a short Library, normal
+  scrolling, a deliberate left/right swipe and a tap to open details. The title
+  should not auto-advance while interacting; rotation resumes after release.
 - Open Catch Up, Choose Another Channel, Accent Color, its mixer, provider/server
   setup and Library dialogs. Check readable, themed close/Done buttons.
 - Type and clear a long channel search with a large provider, then type quickly

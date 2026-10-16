@@ -41,11 +41,22 @@ final class PlaybackSeekingTests: XCTestCase {
     @MainActor
     func testFastPreviewsKeepOnlyTheLatestQueuedDestination() async throws {
         let coalescer = PlaybackSeekCoalescer(interval: 0.04)
+        defer { coalescer.cancel() }
         var requests: [Double] = []
+        let queuedPreview = expectation(description: "The latest queued decoder preview is delivered")
+        queuedPreview.assertForOverFulfill = true
         coalescer.preview(10) { requests.append($0) }
-        for target in 11...200 { coalescer.preview(Double(target)) { requests.append($0) } }
+        for target in 11...200 {
+            coalescer.preview(Double(target)) {
+                requests.append($0)
+                queuedPreview.fulfill()
+            }
+        }
         XCTAssertEqual(requests, [10])
-        try await Task.sleep(for: .milliseconds(100))
+        // Task.sleep guarantees a minimum delay, not when a busy simulator's
+        // main actor will run the preview task. Observe the callback itself;
+        // keep exact request/order checks and fail if it never arrives.
+        await fulfillment(of: [queuedPreview], timeout: 2)
         XCTAssertEqual(requests, [10, 200])
         coalescer.commit(200) { requests.append($0) }
         XCTAssertEqual(requests, [10, 200], "Release must not restart a seek already sent to the decoder")

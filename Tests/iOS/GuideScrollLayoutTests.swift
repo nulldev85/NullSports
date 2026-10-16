@@ -46,12 +46,13 @@ final class GuideScrollLayoutTests: XCTestCase {
                 let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
                 barTop = bar.convert(bar.bounds, to: window).minY
             } else {
-                // The custom bar reserves its area above the home indicator;
-                // the Guide viewport must end before that area begins.
+                // The compact custom bar floats into the bottom container
+                // area; the Guide must stop at its actual top edge.
                 let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
                 barTop = boundary.convert(boundary.bounds, to: window).minY
                 XCTAssertGreaterThan(barTop, 0)
-                XCTAssertLessThan(barTop, window.bounds.maxY - window.safeAreaInsets.bottom - 44)
+                let bottomGap: CGFloat = window.safeAreaInsets.bottom > 0 ? 20 : 8
+                XCTAssertLessThan(barTop, window.bounds.maxY - bottomGap - 44)
             }
             // Native glass can extend UIKit's actual scroller below the
             // proposed SwiftUI frame. The shared channel scroller reserves

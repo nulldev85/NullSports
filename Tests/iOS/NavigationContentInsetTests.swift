@@ -5,6 +5,47 @@ import UIKit
 
 @MainActor
 final class NavigationContentInsetTests: XCTestCase {
+    func testLateNavigationContainerTakesOverWithoutInheritingAnEarlyReservation() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        let boundary = UIView(frame: CGRect(x: 0, y: window.bounds.maxY - 82,
+                                           width: window.bounds.width, height: 62))
+        window.addSubview(boundary)
+        let insets = MobileNavigationContentInsets()
+        defer { insets.restore() }
+
+        // Reproduce the initial pass before SwiftUI installs NavigationStack.
+        insets.apply(to: parent, above: boundary, onLayout: {})
+        window.layoutIfNeeded()
+        XCTAssertGreaterThan(parent.additionalSafeAreaInsets.bottom, 0)
+        XCTAssertTrue(parent.view.subviews.isEmpty, "The fallback host must keep ownership of its view hierarchy")
+
+        let root = UIViewController()
+        let navigation = UINavigationController(rootViewController: root)
+        parent.addChild(navigation)
+        navigation.view.frame = parent.view.bounds
+        navigation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        parent.view.addSubview(navigation.view)
+        navigation.didMove(toParent: parent)
+        window.layoutIfNeeded()
+        for _ in 0..<3 {
+            insets.apply(to: parent, above: boundary, onLayout: {})
+            window.layoutIfNeeded()
+            XCTAssertEqual(parent.additionalSafeAreaInsets.bottom, 0, "The old recipient must release its reservation")
+            XCTAssertEqual(root.view.convert(root.view.safeAreaLayoutGuide.layoutFrame, to: window).maxY,
+                           boundary.frame.minY, accuracy: 1, "The late navigation container must reserve the bar exactly once")
+        }
+        insets.restore()
+        XCTAssertEqual(parent.additionalSafeAreaInsets.bottom, 0)
+        XCTAssertEqual(navigation.additionalSafeAreaInsets.bottom, 0)
+    }
+
     func testMeasuredClearancePropagatesToPushedPagesAndRestoresExistingInsets() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
@@ -75,8 +116,8 @@ final class NavigationContentInsetTests: XCTestCase {
                     let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
                     barTop = boundary.convert(boundary.bounds, to: window).minY
                     XCTAssertEqual(boundary.convert(boundary.bounds, to: window).maxY,
-                                   window.bounds.maxY - window.safeAreaInsets.bottom, accuracy: 1,
-                                   "The floating panel must remain above the home indicator")
+                                   window.bounds.maxY - (window.safeAreaInsets.bottom > 0 ? 20 : 8), accuracy: 1,
+                                   "The compact panel must use the reference's lower floating position")
                 }
                 let usableBottom = scroll.convert(scroll.bounds, to: window).maxY - scroll.adjustedContentInset.bottom
                 XCTAssertLessThanOrEqual(usableBottom, barTop + 1,

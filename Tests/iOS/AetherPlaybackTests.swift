@@ -60,6 +60,11 @@ final class AetherPlaybackTests: XCTestCase {
                     && controller.aetherSession?.hasPicture == true
             }
             let session = try XCTUnwrap(controller.aetherSession)
+            try await waitUntil("Selected-source audio metadata was not reported") {
+                controller.mediaInfo.badges.contains("AAC")
+            }
+            XCTAssertNil(controller.mediaInfo.dynamicRange, "The SDR fixture must not be labeled HDR")
+            XCTAssertFalse(controller.mediaInfo.isDolbyAtmos, "AAC is not Dolby Atmos")
             assertPiPSource(session, expectedOnDevice: route)
             XCTAssertEqual(controller.engineTitle, "AetherEngine")
             XCTAssertGreaterThanOrEqual(controller.progress?.position ?? 0, 9)

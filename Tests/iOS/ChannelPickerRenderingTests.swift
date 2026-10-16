@@ -26,8 +26,13 @@ final class ChannelPickerRenderingTests: XCTestCase {
             awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: "in",
             broadcast: "ESPN", eventName: nil)
         var picked: Int?
+        // This regression drives native editing events directly. Launching
+        // the simulator's software keyboard at the same time adds an unrelated
+        // keyboard-service startup/teardown race to the rendering assertions.
+        // Production retains automatic focus; this uses the same field,
+        // editing target, debounce, completed pages and reusable result rows.
         window.rootViewController = UIHostingController(rootView:
-            MobileChannelPickerContent(game: game, search: search) { picked = $0.id }
+            MobileChannelPickerContent(game: game, search: search, automaticallyFocusSearch: false) { picked = $0.id }
                 .preferredColorScheme(.dark))
         window.makeKeyAndVisible()
         defer {

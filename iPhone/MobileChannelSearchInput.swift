@@ -5,11 +5,13 @@ import UIKit
 /// debounced search store; completed-result renders never write into the field.
 struct MobileChannelSearchInput: UIViewRepresentable {
     let search: MobileChannelSearch
+    var automaticallyFocus = true
 
     func makeCoordinator() -> Coordinator { Coordinator(search: search) }
 
     func makeUIView(context: Context) -> UITextField {
         let field = ChannelSearchTextField()
+        field.automaticallyFocus = automaticallyFocus
         field.text = search.query
         field.borderStyle = .none
         field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: roundedUIFont(17, .regular))
@@ -66,11 +68,12 @@ struct MobileChannelSearchInput: UIViewRepresentable {
 }
 
 private final class ChannelSearchTextField: UITextField {
+    var automaticallyFocus = true
     private var requestedFocus = false
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil, !requestedFocus else { return }
+        guard automaticallyFocus, window != nil, !requestedFocus else { return }
         requestedFocus = true
         DispatchQueue.main.async { [weak self] in
             guard let self, self.window != nil else { return }

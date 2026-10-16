@@ -17,13 +17,24 @@ final class MobileNavigationContentInsets {
         // A NavigationStack can be hosted inside the tab's own controller.
         // Reserve space on its navigation container so pushed pages inherit
         // the same clearance without finding or modifying individual lists.
-        let controller = navigationContainer(in: controller) ?? controller
-        guard let view = controller.viewIfLoaded, let window = view.window,
-              boundary.window === window, view.bounds.height > 0 else { return }
+        // Scope ownership to the stable tab root. SwiftUI can install its
+        // navigation child after the first reservation. A new recipient
+        // replaces that reservation; it must never inherit a second copy.
         let key = ObjectIdentifier(controller)
-        let current = controller.additionalSafeAreaInsets.bottom
-        var entry = entries[key] ?? Entry(controller: controller, originalBottom: current, appliedBottom: current)
-        if entry.observer == nil, let onLayout {
+        let recipient = navigationContainer(in: controller) ?? controller
+        guard let view = recipient.viewIfLoaded, let window = view.window,
+              boundary.window === window, view.bounds.height > 0 else { return }
+        if let previous = entries[key], previous.controller !== recipient {
+            entries.removeValue(forKey: key)
+            restore(previous)
+            controller.viewIfLoaded?.layoutIfNeeded()
+        }
+        let current = recipient.additionalSafeAreaInsets.bottom
+        var entry = entries[key] ?? Entry(controller: recipient, originalBottom: current, appliedBottom: current)
+        // A UIHostingController owns its complete view hierarchy. The
+        // existing SwiftUI UIViewRepresentable reports its layout until a
+        // UIKit navigation container is available for this observer.
+        if entry.observer == nil, recipient is UINavigationController, let onLayout {
             let observer = LayoutObserver(frame: view.bounds)
             observer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             observer.isUserInteractionEnabled = false
@@ -47,9 +58,9 @@ final class MobileNavigationContentInsets {
         entry.appliedBottom = bottom
         entries[key] = entry
         guard abs(current - bottom) > 0.5 else { return }
-        var insets = controller.additionalSafeAreaInsets
+        var insets = recipient.additionalSafeAreaInsets
         insets.bottom = bottom
-        controller.additionalSafeAreaInsets = insets
+        recipient.additionalSafeAreaInsets = insets
     }
 
     private func navigationContainer(in controller: UIViewController) -> UINavigationController? {
@@ -61,16 +72,18 @@ final class MobileNavigationContentInsets {
     }
 
     func restore() {
-        for entry in entries.values {
-            entry.observer?.onLayout = nil
-            entry.observer?.removeFromSuperview()
-            guard let controller = entry.controller,
-                  abs(controller.additionalSafeAreaInsets.bottom - entry.appliedBottom) <= 0.5 else { continue }
-            var insets = controller.additionalSafeAreaInsets
-            insets.bottom = entry.originalBottom
-            controller.additionalSafeAreaInsets = insets
-        }
+        for entry in entries.values { restore(entry) }
         entries.removeAll()
+    }
+
+    private func restore(_ entry: Entry) {
+        entry.observer?.onLayout = nil
+        entry.observer?.removeFromSuperview()
+        guard let controller = entry.controller,
+              abs(controller.additionalSafeAreaInsets.bottom - entry.appliedBottom) <= 0.5 else { return }
+        var insets = controller.additionalSafeAreaInsets
+        insets.bottom = entry.originalBottom
+        controller.additionalSafeAreaInsets = insets
     }
 
     /// Observe the actual navigation viewport so a late native safe-area

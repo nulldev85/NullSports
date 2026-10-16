@@ -916,6 +916,9 @@ private struct MediaCatalogsScreen: View {
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
     @State private var isVisible = false
+    #if !os(tvOS)
+    @State private var phoneScrolling = false
+    #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
     @Environment(\.playMedia) private var playMedia
@@ -1017,12 +1020,16 @@ private struct MediaCatalogsScreen: View {
                             if let heroCatalog = media.heroCatalog {
                                 // The first panel starts a gap below the
                                 // hero, as each starts a gap below the last.
-                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
+                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
+                                                 scrollIsActive: phoneScrolling)
                             }
                             libraryShelves
                         }
                         .padding(.bottom, 44)
                     }
+                    .scrollBounceBehavior(.always, axes: .vertical)
+                    .onScrollPhaseChange { _, phase in phoneScrolling = phase != .idle }
+                    .onDisappear { phoneScrolling = false }
                     .ignoresSafeArea(edges: .top)
                     .task(id: catalogs.map(\.id)) { await prefetchShelfFronts() }
                     #endif
@@ -2919,7 +2926,11 @@ private struct MediaDetailScreen: View {
                     #endif
                 }
             }
+            #if os(tvOS)
             .clipped()
+            #else
+            .mobileLibraryArtworkZoom()
+            #endif
             // The art has to end somewhere, and a hard edge across the screen
             // reads as a seam. It fades into the page instead -- over a long
             // way, and through a middle stop, because a two-stop fade over a
@@ -4121,8 +4132,9 @@ private struct MediaLibraryHero: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
+    var scrollIsActive = false
     @State private var index = 0
-    @GestureState private var isDragging = false
+    @State private var isDragging = false
     @State private var isVisible = false
     /// Each title's ratings once found, so a slide shown again has its chips.
     @State private var ratings: [String: MediaRatings] = [:]
@@ -4144,7 +4156,8 @@ private struct MediaLibraryHero: View {
             if !items.isEmpty {
                 GeometryReader { viewport in
                     let current = min(index, items.count - 1)
-                    let rotates = isVisible && scenePhase == .active && !voiceOver && !isDragging
+                    let rotates = isVisible && scenePhase == .active && !voiceOver
+                        && !isDragging && !scrollIsActive
                     let pixels = LineupArt.pixels(for: viewport.size.width)
                     // Two overlapping slides fade together, including last to
                     // first. A page controller otherwise jumps across the list.
@@ -4159,14 +4172,8 @@ private struct MediaLibraryHero: View {
                     .overlay(alignment: .bottom) { pageIndicator }
                     .accessibilityAction(named: Text("Next title")) { move(1) }
                     .accessibilityAction(named: Text("Previous title")) { move(-1) }
-                    .simultaneousGesture(DragGesture(minimumDistance: 12)
-                        .updating($isDragging) { _, dragging, _ in dragging = true }
-                        .onEnded { value in
-                            let translation = value.translation
-                            guard abs(translation.width) > 40,
-                                  abs(translation.width) > abs(translation.height) * 1.25 else { return }
-                            move(translation.width < 0 ? 1 : -1)
-                        })
+                    .gesture(MobileLibraryHeroSwipe(onInteractionChanged: { isDragging = $0 },
+                                                    onSwipe: move))
                     .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
                                                     enabled: rotates, pixels: pixels)) {
                         guard rotates else { return }
@@ -4179,14 +4186,14 @@ private struct MediaLibraryHero: View {
         .frame(maxWidth: .infinity)
         #if os(tvOS)
         .frame(height: heroHeight)
+        .clipped()
         #else
         // Match the detail page's portrait artwork instead of cropping a
         // landscape backdrop into the phone's hero.
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         #endif
-        .clipped()
         .onAppear { isVisible = true }
-        .onDisappear { isVisible = false }
+        .onDisappear { isVisible = false; isDragging = false }
         #if os(tvOS)
         // Any focused control inside the hero participates in the same
         // carousel. A left/right press therefore changes the feature directly
@@ -4228,19 +4235,22 @@ private struct MediaLibraryHero: View {
             let readableWidth = min(copyWidth, contentWidth)
 
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                LineupArtView(url: artworkURL(for: item),
-                              // Decode for the actual viewport, not the
-                              // server request's pixel ceiling. On a 3x phone
-                              // the old value produced a 3300-pixel image for
-                              // a roughly 390-point hero and churned the image
-                              // cache every time the carousel advanced.
-                              width: slide.size.width) { image in
-                    if let image { image.resizable().scaledToFill() }
-                    else { Color.clear }
+                ZStack {
+                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LineupArtView(url: artworkURL(for: item),
+                                  // Decode for the resting viewport. Pulling
+                                  // transforms the cached picture, without
+                                  // changing the loader's pixel/cache key.
+                                  width: slide.size.width) { image in
+                        if let image { image.resizable().scaledToFill() }
+                        else { Color.clear }
+                    }
                 }
                 .frame(width: slide.size.width, height: slide.size.height)
+                #if !os(tvOS)
+                .mobileLibraryArtworkZoom()
+                #endif
                 #if os(tvOS)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.9), location: 0),
@@ -4318,7 +4328,9 @@ private struct MediaLibraryHero: View {
                 .padding(.bottom, heroBottomPadding)
             }
             .frame(width: slide.size.width, height: slide.size.height)
+            #if os(tvOS)
             .clipped()
+            #endif
         }
         .contentShape(Rectangle())
         #if !os(tvOS)

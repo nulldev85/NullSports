@@ -37,6 +37,14 @@ near the end does not mark an episode watched; only the committed playback
 position enters local tracking. This applies to Library movies, episodes and
 provider VOD; live-channel recording timelines retain their existing behavior.
 
+The queued-preview regression waits for the actual seek callback with an XCTest
+expectation, then checks the exact destinations and release deduplication. A
+fixed 100ms sleep could resume the test before the simulator's main actor ran
+the delayed preview; iPhone 99 caught that timing assumption. The regression
+still fails for missing, intermediate or duplicate requests, and cancellation
+coverage remains enabled. Playback scheduling and the 180ms preview limit are
+unchanged.
+
 The native remote implementation follows Apple's [button press handling](https://developer.apple.com/library/archive/documentation/General/Conceptual/AppleTV_PG/DetectingButtonPressesandGestures.html)
 and [allowed press types](https://developer.apple.com/documentation/uikit/uigesturerecognizer/allowedpresstypes).
 AVPlayer's [seek completion behavior](https://developer.apple.com/documentation/avfoundation/avplayeritem/seek(to:completionhandler:))

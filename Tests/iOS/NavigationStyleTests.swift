@@ -180,12 +180,24 @@ final class NavigationStyleTests: XCTestCase {
             XCTAssertEqual(model.selection, 2)
             XCTAssertEqual(tabs.tabBar.items?.count, 5)
             XCTAssertEqual(tabs.tabBar.isHidden, !(glass && MobileNavigationStyle.supportsGlass))
+            if !glass || !MobileNavigationStyle.supportsGlass {
+                let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
+                let panel = boundary.convert(boundary.bounds, to: window)
+                // These dimensions come from the supplied compact native-bar
+                // reference. Check physical placement, not a layout constant
+                // echoed back by the implementation.
+                XCTAssertEqual(panel.minX, window.bounds.minX + 20, accuracy: 1)
+                XCTAssertEqual(panel.maxX, window.bounds.maxX - 20, accuracy: 1)
+                XCTAssertEqual(panel.maxY, window.bounds.maxY - (window.safeAreaInsets.bottom > 0 ? 20 : 8), accuracy: 1)
+                XCTAssertEqual(panel.height, 62, accuracy: 1,
+                               "The solid surface must wrap the icons and labels without the old excess padding")
+            }
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
             }
             let attachment = XCTAttachment(image: image)
             attachment.name = glass && MobileNavigationStyle.supportsGlass
-                ? "Native-Apple-Liquid-Glass-On" : "Lineup-Rectangular-Navigation-Off"
+                ? "Native-Apple-Liquid-Glass-On" : "Lineup-Compact-Solid-Navigation-Off"
             attachment.lifetime = .keepAlways
             add(attachment)
         }
@@ -302,6 +314,7 @@ private struct NavigationStylePreview: View {
             }
         }
         .tint(.white).preferredColorScheme(.dark)
+        .dynamicTypeSize(.large)
         .mobileNavigationChrome(selection: $model.selection, liquidGlass: model.glass, fullscreen: model.fullscreen)
     }
 }

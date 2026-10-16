@@ -1,9 +1,35 @@
 import XCTest
 import UIKit
+import LineupAetherPlayback
 @testable import Lineup
 
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
+    func testFormatLabelsFollowTheCurrentStreamAndClearOnRetuneOrStop() throws {
+        for kind in TVPlaybackEngine.allCases {
+            let fixture = try Fixture(kind)
+            defer { fixture.clean() }
+            let controller = fixture.controller()
+            defer { controller.stop() }
+            controller.start(urls: [Fixture.url])
+            let backend = fixture.backend(kind)
+            backend.mediaInfo = PlaybackMediaInfo(dynamicRange: "HDR10", audioCodec: "eac3", isDolbyAtmos: true)
+            controller.checkPlayback()
+            XCTAssertEqual(controller.mediaInfo.badges, ["HDR10", "Dolby Atmos"])
+            controller.togglePlayback()
+            backend.mediaInfo = PlaybackMediaInfo(audioCodec: "aac", audioChannels: 2)
+            controller.checkPlayback()
+            XCTAssertEqual(controller.mediaInfo.badges, ["AAC", "Stereo"], "Audio changes replace old attributes while paused")
+            controller.togglePlayback()
+            controller.start(urls: [URL(string: "https://example.invalid/another-channel.m3u8")!])
+            XCTAssertTrue(controller.mediaInfo.badges.isEmpty)
+            backend.mediaInfo = PlaybackMediaInfo(dynamicRange: "HLG")
+            controller.checkPlayback()
+            XCTAssertEqual(controller.mediaInfo.badges, ["HLG"])
+            controller.stop()
+            XCTAssertTrue(controller.mediaInfo.badges.isEmpty)
+        }
+    }
     func testSelectionPersistsAndUnknownValuesFallBackToVLC() throws {
         let fixture = try Fixture()
         defer { fixture.clean() }
@@ -267,6 +293,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     var isPlaying: Bool { state == .playing }
     var hasVideoOut: Bool { isOpen }
     var videoSize: CGSize { CGSize(width: 1920, height: 1080) }
+    var mediaInfo = PlaybackMediaInfo()
     var duration: TimeInterval = 3_600
     var time: TimeInterval = 0
     var frames: Int? { nil }
@@ -285,6 +312,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     var seeks: [TimeInterval] = []
     init(_ kind: TVPlaybackEngine) { self.kind = kind }
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
+        mediaInfo = PlaybackMediaInfo()
         loads.append(.init(startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
                            primary: primary, matchContent: matchContent))
         isOpen = true

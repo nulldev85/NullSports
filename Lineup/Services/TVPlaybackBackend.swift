@@ -18,6 +18,7 @@ protocol TVPlaybackBackend: AnyObject {
     var isPlaying: Bool { get }
     var hasVideoOut: Bool { get }
     var videoSize: CGSize { get }
+    var mediaInfo: PlaybackMediaInfo { get }
     var duration: TimeInterval { get }
     var time: TimeInterval { get }
     var frames: Int? { get }
@@ -79,6 +80,7 @@ final class TVVLCBackend: TVPlaybackBackend {
     var isPlaying: Bool { player.isPlaying }
     var hasVideoOut: Bool { player.hasVideoOut }
     var videoSize: CGSize { player.videoSize }
+    var mediaInfo: PlaybackMediaInfo { VLCPlaybackMediaInfo.read(player) }
     var duration: TimeInterval { Double(player.media?.length.intValue ?? 0) / 1000 }
     var time: TimeInterval { Double(player.time.intValue) / 1000 }
     var frames: Int? { player.media?.numberOfDisplayedPictures }
@@ -171,6 +173,7 @@ final class TVAetherBackend: TVPlaybackBackend {
     var isPlaying: Bool { session?.isPlaying == true }
     var hasVideoOut: Bool { session?.hasPicture == true }
     var videoSize: CGSize { session?.videoSize ?? .zero }
+    var mediaInfo: PlaybackMediaInfo { session?.mediaInfo ?? PlaybackMediaInfo() }
     var duration: TimeInterval { session?.duration ?? 0 }
     var time: TimeInterval { session?.position ?? 0 }
     var frames: Int? { nil }
