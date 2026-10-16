@@ -107,9 +107,9 @@ struct MediaServersView: View {
                 MobileDropdownLayer(isPresented: optionsOpen, title: "Library", symbol: "rectangle.stack",
                                     sections: optionsSections) { setOptions(false) }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(ClearLibraryHeader())
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
                         setOptions(!optionsOpen)
                     }
@@ -1953,7 +1953,7 @@ private struct MediaCatalogsScreen: View {
             .navigationTitle("Search Library")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                LineupToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { searchPresented = false }
                         .buttonStyle(LineupBarButtonStyle())
                 }
@@ -2259,6 +2259,25 @@ private struct MediaFolderScreen: View {
     }
 }
 
+/// Keep Library artwork clear behind the status bar and its own toolbar
+/// controls. The scroll-edge effect is separate from the bar background.
+private struct ClearLibraryHeader: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        if #available(iOS 26.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            content.toolbarBackground(.hidden, for: .navigationBar)
+        }
+        #endif
+    }
+}
+
 /// On iPhone the hero art runs to the very top of the screen, under a
 /// navigation bar carrying no background of its own.
 ///
@@ -2276,7 +2295,7 @@ private struct FullBleedHeader: ViewModifier {
         content
             .ignoresSafeArea(edges: .top)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(ClearLibraryHeader())
         #endif
     }
 }
@@ -2370,7 +2389,7 @@ private struct MediaShelfPicker: View {
                 .navigationTitle("Add Shelf")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
+                    LineupToolbarItem(placement: .cancellationAction) {
                         Button("Done", action: dismiss.callAsFunction)
                             .buttonStyle(LineupBarButtonStyle(prominent: true))
                     }
@@ -2689,7 +2708,7 @@ private struct MediaDetailScreen: View {
     @State private var pageRatings: MediaRatings?
     #endif
 
-    private var subject: MediaItem { detail ?? item }
+    private var subject: MediaItem { media.displayItem(detail ?? item) }
 
     var body: some View {
         Group {
@@ -2719,6 +2738,9 @@ private struct MediaDetailScreen: View {
         #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        .task(id: media.metadataRequestKey(for: detail ?? item)) {
+            await media.resolveMetadata(for: detail ?? item)
+        }
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
         #endif
@@ -2754,6 +2776,7 @@ private struct MediaDetailScreen: View {
                     metaLine
                     actions
                     overview
+                    LibraryMetadataCredit(item: subject)
                 }
                 .padding(.horizontal, horizontalPadding)
                 // Up into the fade. The art running down the screen and the
@@ -2801,6 +2824,7 @@ private struct MediaDetailScreen: View {
                     episodesSection
                     trailersSection
                     relatedSection
+                    LibraryMetadataCredit(item: subject).padding(.horizontal, horizontalPadding)
                 }
                 .padding(.bottom, 60)
             }
@@ -3559,9 +3583,16 @@ private struct MediaEpisodeCard: View {
     #if os(tvOS)
     @State private var artworkFocused = false
     #endif
-    let episode: MediaItem
+    private let originalEpisode: MediaItem
+    private var episode: MediaItem { media.displayItem(originalEpisode) }
     var onPlay: () -> Void = {}
     var onSummary: () -> Void = {}
+
+    init(episode: MediaItem, onPlay: @escaping () -> Void = {}, onSummary: @escaping () -> Void = {}) {
+        originalEpisode = episode
+        self.onPlay = onPlay
+        self.onSummary = onSummary
+    }
 
     var body: some View {
         let playback = playbackPresentation
@@ -3602,10 +3633,14 @@ private struct MediaEpisodeCard: View {
                 Text(footer).font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             }
+            LibraryMetadataCredit(item: episode, interactive: false)
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(LineupStyle.lightPurple)
+        .task(id: media.metadataRequestKey(for: originalEpisode)) {
+            await media.resolveMetadata(for: originalEpisode)
+        }
     }
 
     private func artwork(playback: MediaCardPlayback?) -> some View {
@@ -3935,13 +3970,19 @@ private struct TVMediaCinematicBackdrop: View {
 private struct TVMediaLibraryPreview: View {
     @EnvironmentObject private var media: MediaLibrary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let item: MediaItem?
+    private let originalItem: MediaItem?
+    private var item: MediaItem? { originalItem.map { media.displayItem($0) } }
     /// Browsing: every title takes the same room, told from the top, so
     /// nothing moves as the remote goes from title to title or as a title's
     /// ratings, details and cast arrive -- each has its place kept for it,
     /// and only what is in it changes. The title page leaves this off and
     /// sits its words on the actions beneath them.
     var steady = false
+
+    init(item: MediaItem?, steady: Bool = false) {
+        originalItem = item
+        self.steady = steady
+    }
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
@@ -3971,8 +4012,10 @@ private struct TVMediaLibraryPreview: View {
             }
         }
         .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
-        .task(id: item?.libraryKey) {
+        .task(id: originalItem.map { media.metadataRequestKey(for: $0) }) {
             guard let item else { return }
+            await media.resolveMetadata(for: item)
+            guard !Task.isCancelled else { return }
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
@@ -4085,7 +4128,7 @@ private struct MediaLibraryHero: View {
     @State private var ratings: [String: MediaRatings] = [:]
 
     private var items: [MediaItem] {
-        MediaHeroCatalogSelection.featuredItems(in: catalog)
+        MediaHeroCatalogSelection.featuredItems(in: catalog).map { media.displayItem($0) }
     }
 
     var body: some View {
@@ -4134,7 +4177,13 @@ private struct MediaLibraryHero: View {
             #endif
         }
         .frame(maxWidth: .infinity)
+        #if os(tvOS)
         .frame(height: heroHeight)
+        #else
+        // Match the detail page's portrait artwork instead of cropping a
+        // landscape backdrop into the phone's hero.
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        #endif
         .clipped()
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
@@ -4157,11 +4206,13 @@ private struct MediaLibraryHero: View {
         }
         // The title on screen, then the one after it, so the next slide
         // arrives with its chips already found.
-        .task(id: items.indices.contains(index) ? items[index].libraryKey : "") {
+        .task(id: items.indices.contains(index) ? media.metadataRequestKey(for: items[index]) : "") {
             guard !items.isEmpty else { return }
             let current = min(index, items.count - 1)
             for offset in [current, (current + 1) % items.count] {
                 let item = items[offset]
+                await media.resolveMetadata(for: item)
+                guard !Task.isCancelled else { return }
                 guard ratings[item.libraryKey] == nil else { continue }
                 let found = await media.ratings(for: item)
                 guard !Task.isCancelled else { return }
@@ -4190,6 +4241,7 @@ private struct MediaLibraryHero: View {
                     else { Color.clear }
                 }
                 .frame(width: slide.size.width, height: slide.size.height)
+                #if os(tvOS)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.9), location: 0),
                     .init(color: .black.opacity(0.5), location: 0.5),
@@ -4205,6 +4257,17 @@ private struct MediaLibraryHero: View {
                     .init(color: LineupStyle.background.opacity(0.25), location: 0.98),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
+                #else
+                // A long portrait fade keeps the upper artwork clear, then
+                // blends behind the copy into the first shelf's background.
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.38),
+                    .init(color: LineupStyle.background.opacity(0.08), location: 0.52),
+                    .init(color: LineupStyle.background.opacity(0.45), location: 0.67),
+                    .init(color: LineupStyle.background.opacity(0.88), location: 0.84),
+                    .init(color: LineupStyle.background, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                #endif
 
                 VStack(alignment: .leading, spacing: heroSpacing) {
                     Spacer(minLength: 0)
@@ -4276,7 +4339,11 @@ private struct MediaLibraryHero: View {
     }
 
     private func artworkURL(for item: MediaItem) -> URL? {
+        #if os(tvOS)
         media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
+        #else
+        media.imageURL(for: item, width: artWidth) ?? media.backdropURL(for: item, width: artWidth)
+        #endif
     }
 
     private func rotate(pixels: Int) async {
@@ -4319,7 +4386,6 @@ private struct MediaLibraryHero: View {
     private var buttonMaxWidth: CGFloat { 190 }
     #else
     private var artWidth: Int { 1100 }
-    private var heroHeight: CGFloat { 500 }
     private var heroHorizontalPadding: CGFloat { 22 }
     // Artwork runs behind the status/navigation area; copy begins below it.
     private var heroTopPadding: CGFloat { 86 }
@@ -4755,7 +4821,11 @@ private struct MediaSourcePicker: View {
     @Environment(\.dismiss) private var dismiss
     /// The title the streams are for. An episode's end can move it on to the
     /// next one, so the list follows the viewer from one to the next.
-    @State private var item: MediaItem
+    @State private var originalItem: MediaItem
+    private var item: MediaItem {
+        get { media.displayItem(originalItem) }
+        nonmutating set { originalItem = newValue.withMetadata(nil) }
+    }
     /// Play from the beginning rather than from the saved place.
     @State private var startsOver: Bool
     /// The episode after this one, when there is one to play, for the
@@ -4772,7 +4842,7 @@ private struct MediaSourcePicker: View {
     }
 
     init(item: MediaItem, startsOver: Bool = false) {
-        _item = State(initialValue: item)
+        _originalItem = State(initialValue: item.withMetadata(nil))
         _startsOver = State(initialValue: startsOver)
     }
     /// Set when the picker went straight to the only stream there was, so
@@ -4798,6 +4868,7 @@ private struct MediaSourcePicker: View {
         // screen on this platform.
         board
             .onExitCommand { dismiss() }
+            .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
             .task(id: item.libraryKey) { await loadSources() }
             .task(id: item.libraryKey) {
                 nextEpisode = nil
@@ -4809,6 +4880,7 @@ private struct MediaSourcePicker: View {
         #else
         board
         .presentationBackground(.clear)
+        .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
         .presentationDragIndicator(.hidden)
         .presentationDetents([.large])
         .task(id: item.libraryKey) { await loadSources() }
@@ -5978,8 +6050,14 @@ struct MediaItemCard: View {
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused
     #endif
-    let item: MediaItem
+    private let originalItem: MediaItem
+    private var item: MediaItem { media.displayItem(originalItem) }
     var shape: MediaArtShape = .poster
+
+    init(item: MediaItem, shape: MediaArtShape = .poster) {
+        originalItem = item
+        self.shape = shape
+    }
 
     var body: some View {
         let playback = playbackPresentation
@@ -6068,6 +6146,9 @@ struct MediaItemCard: View {
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
+        .task(id: media.metadataRequestKey(for: originalItem)) {
+            await media.resolveMetadata(for: originalItem)
+        }
     }
 
     private var artworkIsFocused: Bool {
@@ -6333,7 +6414,7 @@ struct MediaServerSetupView: View {
             .background(LineupStyle.background)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
+            .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             .disabled(media.isAddingServer)
             .onChange(of: page) { _, brand in
                 guard let brand, brand != software else { return }
@@ -6936,7 +7017,7 @@ struct MDBListIntegrationView: View {
             }
             .navigationTitle("MDBList")
             #if !os(tvOS)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
+            .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
             #endif
             #if os(tvOS)
             .tvChoices("Disconnect MDBList?", symbol: "list.star", isPresented: $disconnecting,

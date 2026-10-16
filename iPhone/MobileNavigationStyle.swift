@@ -61,13 +61,15 @@ extension EnvironmentValues {
 /// and selection binding as Apple's bar. Buttons select immediately.
 struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
+    var navigation: MobileTabNavigation? = nil
     let activate: (MobileNavigationTab) -> Void
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+    @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
     @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 10
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(MobileNavigationTab.allCases) { tab in
+            ForEach(MobileNavigationOrder.tabs(in: savedOrder)) { tab in
                 let selected = selection == tab.rawValue
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
@@ -110,8 +112,7 @@ struct MobileLineupNavigationBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 6).padding(.bottom, 4)
-        .background(LineupStyle.background.ignoresSafeArea(edges: .bottom))
-        .background(MobileLineupNavigationBoundary().allowsHitTesting(false))
+        .background(MobileLineupNavigationBoundary(navigation: navigation).allowsHitTesting(false))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
@@ -133,11 +134,37 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 @MainActor
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
+    var order = MobileNavigationTab.allCases
+    fileprivate weak var bottomBoundary: UIView?
+    fileprivate var showsCustomNavigation = false
+    fileprivate var currentSelection = 0
+    private let contentInsets = MobileNavigationContentInsets()
+    private var insetsUpdateScheduled = false
     private struct Home {
         weak var probe: MobileTabHomeRegistration.Probe?
     }
     private var homes: [Int: Home] = [:]
     private var pendingHomes: Set<Int> = []
+
+    fileprivate func requestContentInsetsUpdate() {
+        guard !insetsUpdateScheduled else { return }
+        insetsUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.insetsUpdateScheduled = false
+            guard self.showsCustomNavigation else { self.contentInsets.restore(); return }
+            // The Guide already owns its measured scroller margins.
+            guard self.currentSelection != MobileNavigationTab.guide.rawValue,
+                  let tabs = self.tabs,
+                  let index = self.order.firstIndex(where: { $0.rawValue == self.currentSelection }),
+                  tabs.selectedIndex == index,
+                  let controller = tabs.selectedViewController,
+                  let boundary = self.bottomBoundary, boundary.window != nil else { return }
+            self.contentInsets.apply(to: controller, above: boundary) { [weak self] in
+                self?.requestContentInsetsUpdate()
+            }
+        }
+    }
 
     fileprivate func register(_ probe: MobileTabHomeRegistration.Probe, for tab: MobileNavigationTab) {
         homes[tab.rawValue] = Home(probe: probe)
@@ -154,7 +181,7 @@ final class MobileTabNavigation: ObservableObject {
     }
 
     func activate(_ tab: MobileNavigationTab, selection: () -> Void) {
-        let index = MobileNavigationTab.allCases.firstIndex(of: tab)!
+        guard let index = order.firstIndex(of: tab) else { return }
         let reselection = tabs?.selectedIndex == index
         let home = homes[tab.rawValue]?.probe
         if home == nil { pendingHomes.insert(tab.rawValue) }
@@ -169,6 +196,8 @@ final class MobileTabNavigation: ObservableObject {
         // Commit immediately; SwiftUI's binding update reconciles the same
         // selection on its next render, without animating the entire page.
         if tabs.selectedIndex != index { tabs.selectedIndex = index }
+        currentSelection = tab.rawValue
+        requestContentInsetsUpdate()
         if home == nil {
             Self.returnHome(in: controllers[index], animated: reselection && tabs.viewIfLoaded?.window != nil
                             && !UIAccessibility.isReduceMotionEnabled)
@@ -236,13 +265,83 @@ private struct MobileTabHomeRegistration: UIViewRepresentable {
 /// A measurable UIKit boundary for nested Guide scrollers. SwiftUI preference
 /// values do not reliably cross TabView/NavigationStack hosting boundaries.
 struct MobileLineupNavigationBoundary: UIViewRepresentable {
-    final class Boundary: UIView {}
+    /// Sent by the boundary's window when its physical coverage changes.
+    /// A nested scroll viewport can stay the same size while this bar moves.
+    static let geometryDidChange = Notification.Name("Lineup.navigationBoundaryGeometryDidChange")
+    var navigation: MobileTabNavigation? = nil
+    final class Boundary: UIView {
+        weak var navigation: MobileTabNavigation?
+        private weak var reportedWindow: UIWindow?
+        private var reportedFrame: CGRect?
+        private var geometryReportScheduled = false
+
+        func requestGeometryReport() {
+            guard !geometryReportScheduled else { return }
+            geometryReportScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.geometryReportScheduled = false
+                self.reportGeometry()
+            }
+        }
+
+        private func reportWindowChange() {
+            if reportedWindow !== window {
+                let previous = reportedWindow
+                reportedWindow = window
+                reportedFrame = nil
+                if let previous {
+                    NotificationCenter.default.post(name: MobileLineupNavigationBoundary.geometryDidChange, object: previous)
+                }
+            }
+        }
+
+        private func reportGeometry() {
+            reportWindowChange()
+            guard let window, bounds.height > 0 else { return }
+            let frame = convert(bounds, to: window)
+            guard reportedFrame != frame else { return }
+            reportedFrame = frame
+            NotificationCenter.default.post(name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
+        }
+
+        private func report() {
+            if window != nil { navigation?.bottomBoundary = self }
+            navigation?.requestContentInsetsUpdate()
+            requestGeometryReport()
+        }
+        // Origin-only placement changes do not require layoutSubviews. This
+        // includes the home-indicator adjustment after native glass is hidden.
+        override var frame: CGRect { didSet { if frame != oldValue { requestGeometryReport() } } }
+        override var bounds: CGRect { didSet { if bounds != oldValue { requestGeometryReport() } } }
+        override var center: CGPoint { didSet { if center != oldValue { requestGeometryReport() } } }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Notify removal while this view is still alive. A queued weak
+            // callback alone can disappear when SwiftUI dismantles the bar.
+            reportWindowChange()
+            report()
+        }
+        override func layoutSubviews() { super.layoutSubviews(); report() }
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); report() }
+    }
     func makeUIView(context: Context) -> Boundary {
         let view = Boundary()
         view.isUserInteractionEnabled = false
         return view
     }
-    func updateUIView(_ view: Boundary, context: Context) {}
+    func updateUIView(_ view: Boundary, context: Context) {
+        view.navigation = navigation
+        if view.window != nil { navigation?.bottomBoundary = view }
+        navigation?.requestContentInsetsUpdate()
+        view.requestGeometryReport()
+    }
+
+    static func dismantleUIView(_ view: Boundary, coordinator: ()) {
+        if view.navigation?.bottomBoundary === view { view.navigation?.bottomBoundary = nil }
+        view.navigation?.requestContentInsetsUpdate()
+        view.navigation = nil
+    }
 
     static func find(in view: UIView) -> Boundary? {
         guard !view.isHidden, view.alpha > 0.01 else { return nil }
@@ -259,6 +358,7 @@ private struct MobileNavigationChrome: ViewModifier {
     let liquidGlass: Bool
     let fullscreen: Bool
     @StateObject private var navigation = MobileTabNavigation()
+    @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
 
     func body(content: Content) -> some View {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
@@ -266,13 +366,16 @@ private struct MobileNavigationChrome: ViewModifier {
             .environment(\.mobileUsesLineupNavigation, !glass)
             .environment(\.mobileTabNavigation, navigation)
             .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
-            .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation)
+            .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
+                                              order: MobileNavigationOrder.tabs(in: savedOrder),
+                                              selection: selection, fullscreen: fullscreen)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
-            // Reserve room for the panel, so bottom rows and buttons remain
-            // reachable. Both bars stand aside for full-screen playback.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // UIKit's navigation container owns the measured reservation.
+            // A second outer SwiftUI inset would count the same panel twice.
+            // Keep the panel above the home indicator, with no full-width fill.
+            .overlay(alignment: .bottom) {
                 if !glass && !fullscreen {
-                    MobileLineupNavigationBar(selection: $selection) { tab in
+                    MobileLineupNavigationBar(selection: $selection, navigation: navigation) { tab in
                         navigation.activate(tab) { selection = tab.rawValue }
                     }
                 }
@@ -303,12 +406,18 @@ extension View {
 struct MobileTabBarAppearance: UIViewRepresentable {
     let liquidGlass: Bool
     var navigation: MobileTabNavigation? = nil
+    var order = MobileNavigationTab.allCases
+    var selection = 0
+    var fullscreen = false
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
         probe.navigation = navigation
+        navigation?.order = order
+        navigation?.currentSelection = selection
+        navigation?.showsCustomNavigation = !liquidGlass && !fullscreen
         probe.refresh()
     }
 
@@ -331,6 +440,12 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // Only discover the controller once. Layout and tab switches do
             // not walk the view hierarchy or recreate the glass material.
             if bar == nil { refresh() }
+            navigation?.requestContentInsetsUpdate()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            navigation?.requestContentInsetsUpdate()
         }
 
         func refresh() {
@@ -342,6 +457,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             }
             guard let bar else { return }
             style.apply(to: bar, liquidGlass: liquidGlass)
+            navigation?.requestContentInsetsUpdate()
         }
 
         private static func findTabController(in controller: UIViewController?) -> UITabBarController? {

@@ -5,6 +5,47 @@ import SwiftUI
 
 final class NavigationStyleTests: XCTestCase {
     @MainActor
+    func testReorderingBothBarsKeepsSelectionAndCustomTabActivationAligned() async throws {
+        let defaults = UserDefaults.standard
+        let previousOrder = defaults.object(forKey: MobileNavigationOrder.storageKey)
+        defaults.set(MobileNavigationOrder.defaultValue, forKey: MobileNavigationOrder.storageKey)
+        defer {
+            if let previousOrder { defaults.set(previousOrder, forKey: MobileNavigationOrder.storageKey) }
+            else { defaults.removeObject(forKey: MobileNavigationOrder.storageKey) }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first { $0.isKeyWindow }
+        let model = NavigationPreviewState()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStylePreview(model: model))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKey() }
+        try await Task.sleep(for: .milliseconds(400))
+        let tabs = try XCTUnwrap(Self.tabController(in: window.rootViewController))
+        for (glass, order) in [(false, "0,1,2,4,3"), (false, "3,4,2,1,0"),
+                               (true, "1,0,3,4,2"), (true, "3,4,2,1,0"), (false, "0,1,2,4,3")] {
+            let selectionBeforeReordering = model.selection
+            defaults.set(order, forKey: MobileNavigationOrder.storageKey)
+            model.glass = glass
+            try await Task.sleep(for: .milliseconds(400))
+            window.layoutIfNeeded()
+            XCTAssertTrue(Self.tabController(in: window.rootViewController) === tabs)
+            let arranged = MobileNavigationOrder.tabs(in: order)
+            XCTAssertEqual(model.selection, selectionBeforeReordering)
+            XCTAssertEqual(tabs.selectedIndex, arranged.firstIndex { $0.rawValue == selectionBeforeReordering })
+            XCTAssertEqual(tabs.tabBar.items?.map { $0.title ?? "" }, arranged.map(\.title))
+            let navigation = try XCTUnwrap(Self.navigation(in: window))
+            for (index, destination) in arranged.enumerated() {
+                navigation.activate(destination) { model.selection = destination.rawValue }
+                try await Task.sleep(for: .milliseconds(100))
+                XCTAssertEqual(model.selection, destination.rawValue)
+                XCTAssertEqual(tabs.selectedIndex, index)
+                XCTAssertNotNil(tabs.selectedViewController)
+            }
+        }
+    }
+
+    @MainActor
     func testCustomTabTapsReturnHomeAndPreserveNativeControllers() {
         let roots = MobileNavigationTab.allCases.map { _ in UIViewController() }
         let stacks = roots.map { UINavigationController(rootViewController: $0) }
@@ -235,10 +276,11 @@ private final class NavigationPreviewState: ObservableObject {
 
 private struct NavigationStylePreview: View {
     @ObservedObject var model: NavigationPreviewState
+    @AppStorage(MobileNavigationOrder.storageKey) private var order = MobileNavigationOrder.defaultValue
 
     var body: some View {
         TabView(selection: $model.selection) {
-            ForEach(MobileNavigationTab.allCases) { tab in
+            ForEach(MobileNavigationOrder.tabs(in: order)) { tab in
                 NavigationStack {
                     ScrollView {
                         VStack(spacing: 20) {

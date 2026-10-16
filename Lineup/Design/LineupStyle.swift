@@ -742,6 +742,8 @@ struct LineupBarButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.inter(15, .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(prominent ? (ink ?? LineupStyle.onHighlight)
                                  : (configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text))
                 .padding(.horizontal, 14)
@@ -751,6 +753,31 @@ struct LineupBarButtonStyle: ButtonStyle {
                 .contentShape(Capsule())
                 .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
         }
+    }
+}
+
+/// App-owned toolbar controls keep their intrinsic label width and their own
+/// charcoal/accent surface. Native iOS glass would otherwise wrap them again.
+struct LineupToolbarItem<Content: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    let content: () -> Content
+
+    init(placement: ToolbarItemPlacement, @ViewBuilder content: @escaping () -> Content) {
+        self.placement = placement
+        self.content = content
+    }
+
+    @ToolbarContentBuilder var body: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: placement) { content().fixedSize(horizontal: true, vertical: false) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: placement) { content().fixedSize(horizontal: true, vertical: false) }
+        }
+        #else
+        ToolbarItem(placement: placement) { content() }
+        #endif
     }
 }
 

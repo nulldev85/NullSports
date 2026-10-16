@@ -17,6 +17,24 @@ final class AetherPlaybackTests: XCTestCase {
         let (data, response) = try await URLSession.shared.data(for: request)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 206)
         XCTAssertEqual(data, Data(try Data(contentsOf: file).prefix(188)))
+        let media = try Data(contentsOf: file)
+        for (range, expected) in [
+            ("bytes=-65536", (media.count - 65_536)..<media.count),
+            ("bytes=188-", 188..<media.count)
+        ] {
+            request.setValue(range, forHTTPHeaderField: "Range")
+            let (body, reply) = try await URLSession.shared.data(for: request)
+            let http = try XCTUnwrap(reply as? HTTPURLResponse)
+            XCTAssertEqual(http.statusCode, 206)
+            XCTAssertEqual(http.value(forHTTPHeaderField: "Content-Range"),
+                           "bytes \(expected.lowerBound)-\(expected.upperBound - 1)/\(media.count)")
+            XCTAssertEqual(body, media.subdata(in: expected))
+        }
+        request.setValue("bytes=\(media.count)-", forHTTPHeaderField: "Range")
+        let (empty, invalid) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((invalid as? HTTPURLResponse)?.statusCode, 416)
+        XCTAssertEqual((invalid as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"), "bytes */\(media.count)")
+        XCTAssertTrue(empty.isEmpty)
     }
 
     func testMP4AndSoftwareMKVExposePiPSourcesAndKeepResumeAndSubtitles() async throws {

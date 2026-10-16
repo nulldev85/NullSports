@@ -78,10 +78,10 @@ struct LibraryShelfOrderSheet: View {
             .navigationTitle("Edit Shelves")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                LineupToolbarItem(placement: .cancellationAction) {
                     Button("Reset", action: reset).buttonStyle(LineupBarButtonStyle()).disabled(media.shelfOrder.isEmpty)
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                LineupToolbarItem(placement: .confirmationAction) {
                     Button("Done", action: dismiss.callAsFunction).buttonStyle(LineupBarButtonStyle(prominent: true))
                 }
             }

@@ -11,10 +11,35 @@ Settings > Liquid Glass chooses between two bottom navigation bars:
 
 Both styles control the same `TabView` and selection binding. Changing the
 style does not replace the tab controller, reset the selected tab, or rebuild
-navigation stacks. The custom panel reserves its bottom safe area so the Guide
-and Library can scroll to their last rows. Inline full-screen playback hides
+navigation stacks. The custom panel overlays the tab container, and its measured
+coverage is reserved inside each tab's UIKit navigation container so bottom
+rows remain reachable. Inline full-screen playback hides
 both bars. Full-screen presentations cover navigation as usual. Page headers,
 menus, and player controls retain their existing surfaces.
+
+Settings > Tab Order has permanent drag handles and Restore Default Order.
+Order is saved locally and drives both the native TabView and custom panel.
+Stable destination tags keep selection and return-home targeting independent
+of position. Missing, repeated or unknown saved entries are repaired without
+hiding a destination. The custom panel draws only its own rounded charcoal
+surface; it has no full-width background behind or below it.
+
+Sports, Library, Search and Settings share a measured bottom reservation through
+UIKit's [additional safe-area insets](https://developer.apple.com/documentation/uikit/uiviewcontroller/additionalsafeareainsets).
+It is applied to the selected tab's navigation container, including pushed pages.
+The panel's position and the window's home-indicator area are measured separately;
+there is no fixed navigation height or second outer SwiftUI inset. Other safe-area
+edges and existing additional insets are preserved. The Guide retains its own
+scroller measurement below. Native Liquid Glass and full-screen playback restore
+the custom reservation. A transparent observer follows native layout/safe-area
+events, so rotations and late UIKit changes remeasure without a timer or polling.
+
+`NavigationContentInsetTests` checks four representative tab layouts with the real
+navigation chrome: Sports' nested viewport, Library's full-bleed top, Search's
+searchable stack and Settings' grouped list. It checks the usable bottom and last
+row through custom/native/custom changes, the panel's home-indicator clearance and
+release of the reservation for full-screen playback. A UIKit containment test
+checks pushed-page inheritance and restoration of pre-existing insets.
 
 Tapping a custom tab returns that destination to its home and scrolls its root
 content to the top. Library, Search and Settings register a root-owned SwiftUI
@@ -47,7 +72,12 @@ much taller scrolling content does not resize, including while scrolled to the
 end. Updates are event-driven and publish only when clearance changes. Removing
 the content probe detaches the observer. Native mode ignores an outgoing custom
 panel boundary. The existing configuration prevents a second automatic top
-navigation inset; SwiftUI owns the measured bottom margin.
+navigation inset; SwiftUI owns the measured bottom margin. The channel scroller
+ignores only the container's bottom safe area before applying that measured
+coverage. SwiftUI [content margins](https://developer.apple.com/documentation/swiftui/view/contentmargins(_:_:for:)-1lt8b)
+are added to the safe area even when UIKit's automatic adjustment is disabled;
+retaining both counted the home indicator twice and left a gap above the custom
+bar after a style switch. Top/side protection and keyboard avoidance remain.
 
 The end-of-list test uses the same channel scroller as the app and preserves
 exact usable-edge and final-row alignment through repeated custom/glass

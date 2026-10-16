@@ -11,7 +11,6 @@ struct MobileStreamPickerBoard: View {
     @Binding var filter: String?
     let choose: (MediaPlaybackSource) -> Void
     let cancel: () -> Void
-    @State private var contentHeight: CGFloat = 0
 
     private var sections: [MediaStreamSection] {
         MediaStreamSection.sections(of: sources.filter { filter == nil || $0.group == filter })
@@ -30,19 +29,10 @@ struct MobileStreamPickerBoard: View {
                             .padding(.horizontal, LineupPanelStyle.inset)
                         rows
                     }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(key: MobileStreamContentHeight.self, value: proxy.size.height)
-                        }
-                    }
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(.hidden)
-                // Reserve the Cancel row, spacing and outer padding. The
-                // entire panel scrolls on short screens or with long titles.
-                .frame(height: min(contentHeight > 0 ? contentHeight : 240,
-                                   max(0, geometry.size.height - 88)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
                 .overlay(LineupPanelStyle.shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
                 .clipShape(LineupPanelStyle.shape)
@@ -58,11 +48,10 @@ struct MobileStreamPickerBoard: View {
                 .buttonStyle(MobileStreamRowStyle())
                 .accessibilityIdentifier("lineup.streams.cancel")
             }
-            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, 12).padding(.vertical, 12)
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottom)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
-        .onPreferenceChange(MobileStreamContentHeight.self) { contentHeight = $0 }
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
     }
@@ -117,7 +106,7 @@ struct MobileStreamPickerBoard: View {
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(sections) { section in
                 if sections.count > 1 {
                     Text(section.title.uppercased()).font(.inter(12, .heavy))
@@ -202,9 +191,4 @@ private struct MobileStreamRowStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
-}
-
-private struct MobileStreamContentHeight: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

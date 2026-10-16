@@ -16,35 +16,20 @@ struct MainView: View {
     @State private var inlinePlayerFullscreen = false
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
+    @AppStorage(MobileNavigationOrder.storageKey) private var savedTabOrder = MobileNavigationOrder.defaultValue
 
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
         // bar and the selected tab survive the change. The guide keeps its
         // own identity on the active profile, which this sits outside of.
         TabView(selection: $tab) {
-            MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
-                .lineupAccentScope(accent)
-                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
-                .tabItem { Label("Sports", image: tab == 0 ? "Tab-Live-Selected" : "Tab-Live") }.tag(0)
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
-                .id(library.activeProfile?.id)
-                .lineupAccentScope(accent)
-                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
-                .tabItem { Label("TV Guide", image: tab == 1 ? "Tab-Guide-Selected" : "Tab-Guide") }.tag(1)
-            MediaServersView()
-                .lineupAccentScope(accent)
-                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
-                .tabItem { Label("Library", systemImage: tab == 2 ? "play.square.stack.fill" : "play.square.stack") }.tag(2)
-            // Everything at once -- the Library, live TV, the guide and VOD --
-            // each result saying which of the other tabs it lives in.
-            AppSearchView { playing = $0 }
-                .lineupAccentScope(accent)
-                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(4)
-            MobileAccountView(selectedTab: $tab)
-                .lineupAccentScope(accent)
-                .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
-                .tabItem { Label("Settings", image: tab == 3 ? "Tab-Account-Selected" : "Tab-Account") }.tag(3)
+            ForEach(MobileNavigationOrder.tabs(in: savedTabOrder)) { destination in
+                tabContent(destination)
+                    .lineupAccentScope(accent)
+                    .mobileNativeTabBar(liquidGlass: navigationGlass, fullscreen: inlinePlayerFullscreen)
+                    .tabItem { Label { Text(destination.title) } icon: { destination.icon(selected: tab == destination.rawValue) } }
+                    .tag(destination.rawValue)
+            }
         }
         // Both navigation styles share this TabView and its selection. The
         // Lineup panel supplies its own accent marker; native glass stays white.
@@ -83,6 +68,19 @@ struct MainView: View {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 library.refreshSchedule(showsLoading: false, includeTomorrow: false)
             }
+        }
+    }
+
+    @ViewBuilder private func tabContent(_ destination: MobileNavigationTab) -> some View {
+        switch destination {
+        case .sports:
+            MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
+        case .guide:
+            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
+                .id(library.activeProfile?.id)
+        case .library: MediaServersView()
+        case .search: AppSearchView { playing = $0 }
+        case .settings: MobileAccountView(selectedTab: $tab)
         }
     }
 
@@ -157,7 +155,7 @@ struct ProfileSetupView: View {
             .navigationTitle(addingProvider ? "Add provider" : "")
             .toolbar {
                 if addingProvider {
-                    ToolbarItem(placement: .cancellationAction) {
+                    LineupToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()).disabled(connecting)
                     }
                 }
@@ -683,6 +681,11 @@ private struct MobileAccountView: View {
                         SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalog?.title)
                     }
                     NavigationLink {
+                        LibraryMetadataSettingsView().environmentObject(media)
+                    } label: {
+                        SettingsRow("Metadata", symbol: "text.book.closed", value: media.metadataSource.title)
+                    }
+                    NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
                             .environmentObject(library)
                     } label: {
@@ -722,6 +725,9 @@ private struct MobileAccountView: View {
                     }
                     .tint(LineupStyle.highlight)
                     .disabled(!MobileNavigationStyle.supportsGlass)
+                    NavigationLink { MobileNavigationOrderView() } label: {
+                        SettingsRow("Tab Order", symbol: "arrow.up.arrow.down")
+                    }
                 } footer: {
                     Text(MobileNavigationStyle.supportsGlass
                          ? "Off uses Lineup’s rectangular navigation bar. On uses Apple’s Liquid Glass."

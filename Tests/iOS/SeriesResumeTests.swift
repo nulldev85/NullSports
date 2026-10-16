@@ -87,6 +87,29 @@ final class SeriesResumeTests: XCTestCase {
         XCTAssertEqual(target(records: [], serverNext: episode(1, 4), watched: []), "s1e4")
     }
 
+    func testRemoteSuggestionAndGeneratedQueueCannotSkipAnUnwatchedGapWithoutLocalCompletions() {
+        let watched: Set = ["s2e1", "s2e2"]
+        XCTAssertEqual(target(records: [], serverNext: episode(2, 6), watched: watched), "s2e3")
+        XCTAssertEqual(target(records: [record(episode(2, 6), upNext: true, at: 1)], watched: watched), "s2e3")
+    }
+
+    func testGenuineLocalPlaybackAheadOfARemoteGapIsKept() {
+        XCTAssertEqual(target(records: [record(episode(2, 6), position: 300, at: 1)],
+            serverNext: episode(2, 6), watched: ["s2e1", "s2e2"]), "s2e6")
+    }
+
+    func testRemoteResumeProgressIsKeptDespiteEarlierUnwatchedEpisodes() {
+        let resume = MediaItem(id: "s2e6", name: "Resume", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 6, parentIndexNumber: 2, seriesName: "Show", seriesID: "show",
+            userData: MediaUserData(played: false, isFavorite: false, playedPercentage: 30), serverID: server)
+        XCTAssertEqual(target(records: [], serverNext: resume, watched: ["s2e1", "s2e2"]), "s2e6")
+    }
+
+    func testRemoteWatchedStateFromAnotherSeasonDoesNotResetTheSelectedSeason() {
+        XCTAssertEqual(target(records: [], serverNext: episode(2, 4), watched: ["s1e1", "s1e2"]), "s2e4")
+    }
+
     func testAFinishedShowStartsAgain() {
         let everything = Set(show.map(\.id))
         let records = [record(episode(2, 6), completed: true, at: 1)]

@@ -163,20 +163,25 @@ struct MDBListCatalogItem: Hashable, Sendable {
 
 struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let id: String
-    let name: String
+    private let providerName: String
+    var name: String { metadata?.title ?? providerName }
     let type: String
-    let overview: String?
-    let productionYear: Int?
+    private let providerOverview: String?
+    var overview: String? { metadata?.overview ?? providerOverview }
+    private let providerYear: Int?
+    var productionYear: Int? { metadata?.year ?? providerYear }
     let primaryImageAspectRatio: Double?
     let childCount: Int?
     // Everything below is optional so an older server, or an addon that returns
     // only the basics, still decodes: a missing field simply goes unshown.
-    let genres: [String]?
+    private let providerGenres: [String]?
+    var genres: [String]? { metadata?.genres ?? providerGenres }
     let officialRating: String?
     let communityRating: Double?
     let criticRating: Double?
     let runTimeTicks: Int64?
-    let premiereDate: String?
+    private let providerPremiereDate: String?
+    var premiereDate: String? { metadata?.premiereDate ?? providerPremiereDate }
     let indexNumber: Int?
     let parentIndexNumber: Int?
     let seriesName: String?
@@ -191,13 +196,33 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let productionLocations: [String]?
     let people: [MediaPerson]?
     let remoteTrailers: [MediaTrailer]?
-    let providerIDs: [String: String]?
+    private let originalProviderIDs: [String: String]?
+    var providerIDs: [String: String]? {
+        guard let metadata else { return originalProviderIDs }
+        var ids = originalProviderIDs ?? [:]
+        for (provider, value) in metadata.externalIDs where !ids.keys.contains(where: { $0.lowercased() == provider }) {
+            ids[provider] = value
+        }
+        return ids
+    }
 
     // Artwork a source names outright rather than hosting behind an image
     // route, which is how a catalog imported from elsewhere arrives.
-    let posterURL: String?
-    let backdropURL: String?
+    private let providerPosterURL: String?
+    var posterURL: String? { metadata?.poster ?? providerPosterURL }
+    private let providerBackdropURL: String?
+    var backdropURL: String? { metadata?.backdrop ?? providerBackdropURL }
     let logoArtworkURL: String?
+
+    // Not in CodingKeys: provider snapshots and local viewing history retain
+    // the original data, and switching back to Provider restores it exactly.
+    var metadata: LibraryMetadata? = nil
+
+    func withMetadata(_ value: LibraryMetadata?) -> MediaItem {
+        var copy = self
+        copy.metadata = value
+        return copy
+    }
 
     /// The connected server this came from. Lineup's own, like the artwork
     /// above: every item a server hands back is marked with it on arrival,
@@ -222,18 +247,18 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          posterURL: String? = nil, backdropURL: String? = nil,
          logoArtworkURL: String? = nil, serverID: UUID? = nil) {
         self.id = id
-        self.name = name
+        self.providerName = name
         self.type = type
-        self.overview = overview
-        self.productionYear = productionYear
+        self.providerOverview = overview
+        self.providerYear = productionYear
         self.primaryImageAspectRatio = primaryImageAspectRatio
         self.childCount = childCount
-        self.genres = genres
+        self.providerGenres = genres
         self.officialRating = officialRating
         self.communityRating = communityRating
         self.criticRating = criticRating
         self.runTimeTicks = runTimeTicks
-        self.premiereDate = premiereDate
+        self.providerPremiereDate = premiereDate
         self.indexNumber = indexNumber
         self.parentIndexNumber = parentIndexNumber
         self.seriesName = seriesName
@@ -248,9 +273,9 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.productionLocations = productionLocations
         self.people = people
         self.remoteTrailers = remoteTrailers
-        self.providerIDs = providerIDs
-        self.posterURL = posterURL
-        self.backdropURL = backdropURL
+        self.originalProviderIDs = providerIDs
+        self.providerPosterURL = posterURL
+        self.providerBackdropURL = backdropURL
         self.logoArtworkURL = logoArtworkURL
         self.serverID = serverID
     }
@@ -376,18 +401,18 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
-        case name = "Name"
+        case providerName = "Name"
         case type = "Type"
-        case overview = "Overview"
-        case productionYear = "ProductionYear"
+        case providerOverview = "Overview"
+        case providerYear = "ProductionYear"
         case primaryImageAspectRatio = "PrimaryImageAspectRatio"
         case childCount = "ChildCount"
-        case genres = "Genres"
+        case providerGenres = "Genres"
         case officialRating = "OfficialRating"
         case communityRating = "CommunityRating"
         case criticRating = "CriticRating"
         case runTimeTicks = "RunTimeTicks"
-        case premiereDate = "PremiereDate"
+        case providerPremiereDate = "PremiereDate"
         case indexNumber = "IndexNumber"
         case parentIndexNumber = "ParentIndexNumber"
         case seriesName = "SeriesName"
@@ -402,11 +427,11 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case productionLocations = "ProductionLocations"
         case people = "People"
         case remoteTrailers = "RemoteTrailers"
-        case providerIDs = "ProviderIds"
+        case originalProviderIDs = "ProviderIds"
         // Lineup's own, never sent by a server: an absent key decodes to nil,
         // so a server's answer is unaffected by their existence.
-        case posterURL = "LineupPoster"
-        case backdropURL = "LineupBackdrop"
+        case providerPosterURL = "LineupPoster"
+        case providerBackdropURL = "LineupBackdrop"
         case logoArtworkURL = "LineupLogo"
         case serverID = "LineupServer"
     }
@@ -613,6 +638,22 @@ enum SeriesResumePolicy {
         func next(after position: Int) -> Int? {
             order.indices.first { $0 > position && !isWatched(order[$0]) }
         }
+        // A server suggestion or generated queue entry is not evidence that
+        // intervening episodes were watched. Some servers return E10 after
+        // E2 (string ordering), even while their episode list marks E3 unwatched.
+        // Repair that gap within the suggested season. Real local playback
+        // and manual choices are handled before these fallback hints.
+        func fallback(at position: Int, hint: MediaItem? = nil) -> MediaItem {
+            let candidate = order[position]
+            let progress = hint?.userData?.playedPercentage ?? candidate.userData?.playedPercentage ?? 0
+            if progress > 0 && progress < 92 { return candidate }
+            var hasWatched = false
+            for episode in order[..<position] where episode.parentIndexNumber == candidate.parentIndexNumber {
+                if isWatched(episode) { hasWatched = true }
+                else if hasWatched { return episode }
+            }
+            return candidate
+        }
         let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
 
         let started = latest(records.filter {
@@ -642,9 +683,9 @@ enum SeriesResumePolicy {
            next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
             return order[0]
         }
-        if finished == nil, let server { return order[server] }
+        if finished == nil, let server { return fallback(at: server, hint: serverNext) }
         if finished == nil, let queued = latest(records.filter { $0.isUpNext == true }),
-           let found = index(of: queued.item), !isWatched(order[found]) { return order[found] }
+           let found = index(of: queued.item), !isWatched(order[found]) { return fallback(at: found) }
         return order.first { !isWatched($0) } ?? order[0]
     }
 
