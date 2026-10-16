@@ -8,11 +8,13 @@ struct MobileLiveView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @State private var league: SportsLeague?
+    @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
+    @State private var racingDetails: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var expanded = false
@@ -58,7 +60,10 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league).filter { !onlyFollowed || library.isFollowing($0) }
+        let all = library.games(for: league).filter {
+            (!onlyFollowed || library.isFollowing($0))
+                && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }
         let calendar = Calendar.current
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
@@ -129,7 +134,7 @@ struct MobileLiveView: View {
             slate.all.first { $0.id == game.id }
                 // Narrowed to a league or to followed teams, the list may not
                 // hold the game being watched; the schedule still does.
-                ?? library.games(for: nil).first { $0.id == game.id }
+                ?? library.gamesByLeague[game.league]?.first { $0.id == game.id }
                 ?? game
         }
         return NavigationStack {
@@ -257,6 +262,7 @@ struct MobileLiveView: View {
                 // comes back upright as the preview, not as full screen.
                 if value { expanded = false }
             }
+            .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
             .lineupChoices("Game has not started yet", symbol: "clock",
                            isPresented: Binding(get: { upcomingGame != nil },
                                                 set: { if !$0 { upcomingGame = nil } }),
@@ -382,7 +388,7 @@ struct MobileLiveView: View {
                         MobileLiveDot()
                     }
                     let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
-                    Text(liveCount == 0 ? "\(slate.all.count) MATCHUPS" : "\(liveCount) LIVE NOW")
+                    Text(liveCount == 0 ? "\(slate.all.count) \(league?.isRacing == true ? "EVENTS" : "MATCHUPS")" : "\(liveCount) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
                 .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
@@ -400,6 +406,7 @@ struct MobileLiveView: View {
             MobileLeagueMenuButton(league: league, isOpen: leagueMenuOpen) {
                 setLeagueMenu(!leagueMenuOpen)
             }
+            if league == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
             Spacer(minLength: 0)
             if !library.followedTeams.isEmpty { followedChip }
         }
@@ -440,7 +447,7 @@ struct MobileLiveView: View {
             HStack(spacing: 6) {
                 Image(systemName: onlyFollowed ? "star.fill" : "star")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
-                Text("My Teams")
+                if league != .soccer { Text("My Teams") }
             }
             .lineupChip(onlyFollowed)
             .frame(height: 36)
@@ -542,6 +549,9 @@ struct MobileLiveView: View {
     /// of the viewer.
     private func gameMenuItems(_ game: SportsGame) -> [MobileMenuItem] {
         var items: [MobileMenuItem] = []
+        if game.league.isRacing {
+            items.append(MobileMenuItem("Race Details", symbol: "flag.checkered") { racingDetails = game })
+        }
         if game.isLive {
             let watching = previewGame?.id == game.id && previewStream != nil
             items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
@@ -762,19 +772,27 @@ private struct MobileMatchupRow: View {
                                 .font(.inter(.body, .semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
+                        if let session = game.race?.title {
+                            Text(session).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.highlight)
+                        }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
+                    if let competition = game.competition {
+                        Text(competition.name.uppercased()).font(.inter(10, .bold))
+                            .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
                          record: game.awayRecord, score: game.awayScore, isAway: true)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
                          record: game.homeRecord, score: game.homeScore, isAway: false)
                     if let whereItIs { place(whereItIs) }
+                    if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
-                MobileLeagueLogo(league: game.league, size: 23)
+                SportsMark(league: game.league, competition: game.competition, size: 26)
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -876,9 +894,7 @@ struct MobileLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {
-        Image("League-\(league.rawValue)")
-            .resizable().scaledToFit()
-            .frame(width: size, height: size)
+        SportsMark(league: league, size: size)
             .accessibilityLabel(league.shortName)
     }
 }

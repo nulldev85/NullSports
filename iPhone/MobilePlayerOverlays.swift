@@ -92,7 +92,7 @@ struct MobileGameAlertBanner: View {
 
     /// "BOS @ NYY", or an event's name.
     static func matchup(_ game: SportsGame) -> String {
-        if game.isEvent { return game.eventName ?? game.league.shortName }
+        if game.isEvent { return game.matchupLine }
         return "\(abbreviation(game.awayAbbreviation, team: game.awayTeam)) \(game.sidesSymbol) \(abbreviation(game.homeAbbreviation, team: game.homeTeam))"
     }
 

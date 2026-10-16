@@ -71,5 +71,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     directory = build(args.season, args.cached_dir)
     target = ROOT / "Lineup/Resources/SportsTeams.json"
+    if target.exists():
+        previous = json.loads(target.read_text(encoding="utf-8"))
+        # Soccer is refreshed by update-global-sports.py; don't erase its
+        # cross-competition IDs when updating the original five leagues.
+        directory['teams'] += [team for team in previous['teams'] if team['league'] == 'soccer']
+        directory['sources'] += [source for source in previous['sources'] if '/soccer/' in source]
     target.write_text(json.dumps(directory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Saved {len(directory['teams'])} teams to {target.relative_to(ROOT)}")

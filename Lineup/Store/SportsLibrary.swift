@@ -1202,6 +1202,7 @@ final class SportsLibrary: ObservableObject {
         [game.league.rawValue, game.awayTeam, game.homeTeam,
          game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
          game.eventName ?? "",
+         game.competition?.id ?? "", game.race?.kind ?? "",
          String(game.start.timeIntervalSince1970)]
     }
 
@@ -1293,7 +1294,8 @@ final class SportsLibrary: ObservableObject {
     }
 
     nonisolated private static func prepared(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
-        ProfessionalChannelMatcher.prepare(
+        if game.league == .soccer { return ExpandedSportsChannelMatcher.soccer(game) }
+        return ProfessionalChannelMatcher.prepare(
             .init(away: game.awayTeam, home: game.homeTeam,
                   awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
                   start: game.start, isLive: game.isLive))
@@ -1307,6 +1309,12 @@ final class SportsLibrary: ObservableObject {
         guard game.isLive || game.isUpcoming else { return nil }
         if game.isNFLRedZone {
             return NFLRedZoneChannelMatcher.score(channel: stream.name)
+        }
+        if game.league == .soccer {
+            return ExpandedSportsChannelMatcher.soccerScore(channel: channel, prepared: preparedGame, game: game, now: now)
+        }
+        if game.league.isRacing {
+            return ExpandedSportsChannelMatcher.racingScore(channel: channel, game: game, now: now)
         }
         if game.league == .ufc {
             return ufcScore(channel: stream.name, listings: listings, game: game, now: now)
@@ -1851,7 +1859,8 @@ final class SportsLibrary: ObservableObject {
     @Published private(set) var followedTeams = FollowedTeams()
 
     func isFollowing(_ game: SportsGame) -> Bool {
-        FollowedSlate.follows(Self.preferenceGame(game), in: followedTeams)
+        if let racing = game.racingFollow { return followedTeams.contains(racing.key) }
+        return FollowedSlate.follows(Self.preferenceGame(game), in: followedTeams)
     }
 
     func isFollowing(_ key: TeamChannelKey) -> Bool { followedTeams.contains(key) }
@@ -1859,6 +1868,7 @@ final class SportsLibrary: ObservableObject {
     /// The sides of this game that can be followed, with what it takes to draw
     /// one. An event has none, which is what leaves the menu off a fight card.
     func followableSides(of game: SportsGame) -> [FollowedTeam] {
+        if let racing = game.racingFollow { return [racing] }
         guard !game.isEvent else { return [] }
         let preference = Self.preferenceGame(game)
         return [(preference.awayKey, game.awayTeam, game.awayAbbreviation, game.awayLogo),
@@ -1915,7 +1925,9 @@ final class SportsLibrary: ObservableObject {
         let byName = game.league.isTennis
         return TeamChannelGame(league: game.league.rawValue,
                                homeTeam: game.homeTeam, homeAbbreviation: byName ? "" : game.homeAbbreviation,
-                               awayTeam: game.awayTeam, awayAbbreviation: byName ? "" : game.awayAbbreviation)
+                               awayTeam: game.awayTeam, awayAbbreviation: byName ? "" : game.awayAbbreviation,
+                               homeIdentity: game.league == .soccer ? game.homeTeamID.map { "ESPN:" + $0 } : nil,
+                               awayIdentity: game.league == .soccer ? game.awayTeamID.map { "ESPN:" + $0 } : nil)
     }
 
     /// What tapping this game should do. The decision itself lives in

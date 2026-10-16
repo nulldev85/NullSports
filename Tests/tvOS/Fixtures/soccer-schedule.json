@@ -1,0 +1,120 @@
+{
+  "events": [
+    {
+      "id": "401878771",
+      "uid": "s:600~l:700~e:401878771",
+      "date": "2026-10-17T11:30Z",
+      "name": "Chelsea at Everton",
+      "shortName": "CHE @ EVE",
+      "competitions": [
+        {
+          "id": "401878771",
+          "uid": "s:600~l:700~e:401878771~c:401878771",
+          "date": "2026-10-17T11:30Z",
+          "startDate": "2026-10-17T11:30Z",
+          "timeValid": true,
+          "status": {
+            "clock": 0.0,
+            "displayClock": "0'",
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sat, October 17th at 7:30 AM EDT",
+              "shortDetail": "Scheduled"
+            }
+          },
+          "venue": {
+            "id": "10318",
+            "fullName": "Hill Dickinson Stadium",
+            "address": {
+              "city": "Liverpool",
+              "country": "England"
+            }
+          },
+          "altGameNote": "English Premier League",
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "USA Net",
+                "Universo"
+              ]
+            }
+          ],
+          "broadcast": "",
+          "competitors": [
+            {
+              "id": "368",
+              "uid": "s:600~t:368",
+              "type": "team",
+              "order": 0,
+              "homeAway": "home",
+              "winner": false,
+              "score": "0",
+              "team": {
+                "id": "368",
+                "uid": "s:600~t:368",
+                "abbreviation": "EVE",
+                "displayName": "Everton",
+                "shortDisplayName": "Everton",
+                "name": "Everton",
+                "location": "Everton",
+                "color": "0606fa",
+                "alternateColor": "ffffff",
+                "isActive": true,
+                "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/368.png",
+                "venue": {
+                  "id": "10318"
+                }
+              }
+            },
+            {
+              "id": "363",
+              "uid": "s:600~t:363",
+              "type": "team",
+              "order": 1,
+              "homeAway": "away",
+              "winner": false,
+              "score": "0",
+              "team": {
+                "id": "363",
+                "uid": "s:600~t:363",
+                "abbreviation": "CHE",
+                "displayName": "Chelsea",
+                "shortDisplayName": "Chelsea",
+                "name": "Chelsea",
+                "location": "Chelsea",
+                "color": "144992",
+                "alternateColor": "FFFFFF",
+                "isActive": true,
+                "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
+                "venue": {
+                  "id": "249"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0'",
+        "type": {
+          "id": "1",
+          "name": "STATUS_SCHEDULED",
+          "state": "pre",
+          "completed": false,
+          "description": "Scheduled",
+          "detail": "Sat, October 17th at 7:30 AM EDT",
+          "shortDetail": "Scheduled"
+        }
+      },
+      "venue": {
+        "displayName": "Hill Dickinson Stadium"
+      }
+    }
+  ]
+}

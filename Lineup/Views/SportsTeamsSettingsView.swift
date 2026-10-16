@@ -7,6 +7,7 @@ struct SportsTeamsSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var selectedLeague: SportsLeague? = .nfl
+    @State private var soccerCompetition: String?
     private let directory = SportsTeamDirectory.bundled
 
     var body: some View {
@@ -25,7 +26,12 @@ struct SportsTeamsSettingsView: View {
     #if os(tvOS)
     private var visibleTeams: [FollowedTeam] {
         if let selectedLeague {
-            return directory.teams(in: selectedLeague, matching: query).map(\.followedTeam)
+            if let series = selectedLeague.seriesFollow {
+                return query.isEmpty || series.name.localizedStandardContains(query) ? [series] : []
+            }
+            return directory.teams(in: selectedLeague, matching: query)
+                .filter { selectedLeague != .soccer || soccerCompetition == nil || ($0.competitions ?? []).contains(soccerCompetition!) }
+                .map(\.followedTeam)
         }
         return library.followedTeams.teams.filter {
             query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -43,9 +49,11 @@ struct SportsTeamsSettingsView: View {
             }
             Text(savingNote).font(.inter(19)).foregroundStyle(LineupStyle.secondary)
             HStack(alignment: .top, spacing: 36) {
-                VStack(spacing: 12) {
-                    leagueChoice(nil)
-                    ForEach(SportsTeamDirectory.leagues) { league in leagueChoice(league) }
+                ScrollView {
+                    VStack(spacing: 12) {
+                        leagueChoice(nil)
+                        ForEach(SportsTeamDirectory.leagues + [.f1, .nascar]) { league in leagueChoice(league) }
+                    }
                 }
                 .padding(18)
                 .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -55,9 +63,10 @@ struct SportsTeamsSettingsView: View {
                     HStack {
                         Text(selectedLeague.map(SportsTeamDirectory.title) ?? "Following").font(.inter(30, .bold))
                         Spacer()
-                        Text("\(visibleTeams.count) \(visibleTeams.count == 1 ? "team" : "teams")")
+                        Text(selectedLeague?.isRacing == true ? "Follow the series" : "\(visibleTeams.count) \(visibleTeams.count == 1 ? "team" : "teams")")
                             .font(.inter(19)).foregroundStyle(LineupStyle.secondary)
                     }
+                    if selectedLeague == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
                     TextField("Search teams", text: $query)
                         .font(.inter(22)).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(18)
@@ -151,6 +160,16 @@ struct SportsTeamsSettingsView: View {
                 } header: { Text("Teams").lineupSettingsHeader() }
                 .lineupSettingsRows()
             }
+            let racing = [SportsLeague.f1, .nascar].compactMap(\.seriesFollow).filter {
+                query.isEmpty || $0.name.localizedStandardContains(query) || $0.league.localizedStandardContains(query)
+            }
+            if !racing.isEmpty {
+                Section {
+                    ForEach(racing) { series in SportsTeamFollowButton(team: series) }
+                } header: { Text("Racing").lineupSettingsHeader() }
+                  footer: { Text("Follow a series to include its practices, qualifying sessions, and races in My Teams.").lineupSettingsFooter() }
+                .lineupSettingsRows()
+            }
         }
         .lineupSettingsList()
         .navigationTitle("My Teams")
@@ -164,10 +183,18 @@ struct SportsTeamsSettingsView: View {
 private struct SportsLeagueTeamsView: View {
     let league: SportsLeague
     @State private var query = ""
-    private var teams: [SportsTeamDirectory.Team] { SportsTeamDirectory.bundled.teams(in: league, matching: query) }
+    @State private var soccerCompetition: String?
+    private var teams: [SportsTeamDirectory.Team] {
+        SportsTeamDirectory.bundled.teams(in: league, matching: query).filter {
+            league != .soccer || soccerCompetition == nil || ($0.competitions ?? []).contains(soccerCompetition!)
+        }
+    }
 
     var body: some View {
         List {
+            if league == .soccer {
+                Section { SoccerCompetitionFilter(selected: $soccerCompetition) }.lineupSettingsRows()
+            }
             if teams.isEmpty { Text("No matching teams. Try a name or abbreviation.").foregroundStyle(LineupPanelStyle.listValue) }
             if league == .ncaaf {
                 ForEach(["FBS", "FCS"], id: \.self) { division in
@@ -203,8 +230,7 @@ private struct SportsTeamLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {
-        Image("League-\(league.rawValue)").resizable().scaledToFit()
-            .frame(width: size, height: size).accessibilityHidden(true)
+        SportsMark(league: league, size: size).accessibilityHidden(true)
     }
 }
 
@@ -213,6 +239,14 @@ private struct SportsTeamFollowButton: View {
     let team: FollowedTeam
     var showsLeague = false
     private var following: Bool { library.isFollowing(team.key) }
+    private var caption: String {
+        if team.abbreviation == "SERIES" { return "Racing series" }
+        if team.league == "SOCCER", let entry = SportsTeamDirectory.soccerByIdentity[team.team] {
+            let names = (entry.competitions ?? []).compactMap { SportsTeamDirectory.soccerCompetitionNames[$0] }
+            return names.isEmpty ? team.abbreviation : names.joined(separator: " · ")
+        }
+        return showsLeague ? "\(team.league) · \(team.abbreviation)" : team.abbreviation
+    }
 
     var body: some View {
         #if os(tvOS)
@@ -248,11 +282,15 @@ private struct SportsTeamFollowButton: View {
         let detailSize: CGFloat = 13
         #endif
         return HStack(spacing: 14) {
-            TeamBadge(url: team.logo, fallback: team.abbreviation, size: badgeSize, tight: true)
+            if let league = SportsLeague(rawValue: team.league.lowercased()), league.isRacing {
+                SportsMark(league: league, size: badgeSize)
+            } else {
+                TeamBadge(url: team.logo, fallback: team.abbreviation, size: badgeSize, tight: true)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(team.name).font(.inter(nameSize, .semibold)).foregroundStyle(LineupStyle.text)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text(showsLeague ? "\(team.league) · \(team.abbreviation)" : team.abbreviation)
+                Text(caption)
                     .font(.inter(detailSize)).foregroundStyle(LineupPanelStyle.listValue).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

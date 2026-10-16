@@ -180,7 +180,7 @@ struct MobileLeagueMenu: View {
     private func noun(_ entry: Entry, _ count: Int) -> String {
         let one: String
         // A tennis tab lists tournaments, as UFC lists fight nights.
-        if entry.league?.isTennis == true || entry.league == .ufc { one = "EVENT" }
+        if entry.league?.isTennis == true || entry.league == .ufc || entry.league?.isRacing == true { one = "EVENT" }
         else { one = "GAME" }
         return count == 1 ? one : one + "S"
     }
