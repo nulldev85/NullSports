@@ -1,22 +1,4 @@
 import SwiftUI
-import Combine
-
-/// The field's draft is separate from completed search results. Only the field
-/// observes it, so typing cannot invalidate the provider-sized result subtree.
-@MainActor
-final class MobileChannelSearchDraft: ObservableObject {
-    @Published private(set) var query = ""
-
-    /// Forward edits at the input boundary, without waiting for a SwiftUI
-    /// render/onChange pass. The search store still debounces and filters off-main.
-    func binding(onQuery: @escaping (String) -> Void) -> Binding<String> {
-        Binding(get: { self.query }, set: { value in
-            guard self.query != value else { return }
-            self.query = value
-            onQuery(value)
-        })
-    }
-}
 
 /// Channel/favorite publications refresh the catalog; unrelated sports-store
 /// publications and the search field's draft do not invalidate the results.
@@ -61,18 +43,7 @@ struct MobileChannelPickerContent: View {
     @Environment(\.dismiss) private var dismiss
     let game: SportsGame
     @ObservedObject var search: MobileChannelSearch
-    // Retain the reference without subscribing the whole sheet to keystrokes.
-    // The field below owns the ObservableObject subscription.
-    @State private var draft: MobileChannelSearchDraft
     let onPick: (XtreamStream) -> Void
-
-    init(game: SportsGame, search: MobileChannelSearch, draft: MobileChannelSearchDraft? = nil,
-         onPick: @escaping (XtreamStream) -> Void) {
-        self.game = game
-        self.search = search
-        _draft = State(initialValue: draft ?? MobileChannelSearchDraft())
-        self.onPick = onPick
-    }
 
     var body: some View {
         let page = search.page
@@ -81,7 +52,7 @@ struct MobileChannelPickerContent: View {
                 LineupStyle.background.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
-                    MobileChannelSearchField(draft: draft) { query in search.search(query) }
+                    MobileChannelSearchField(search: search)
                     MobileChannelResults(search: search, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay {
@@ -118,37 +89,20 @@ struct MobileChannelPickerContent: View {
     }
 }
 
-/// Typing changes only this small subtree. The results publish separately
-/// after background filtering; neither the table nor the sheet owns this draft.
+/// The native field owns its editing buffer. SwiftUI only observes completed
+/// results, so keystrokes do not invalidate the sheet or reset the editor.
 private struct MobileChannelSearchField: View {
-    @ObservedObject var draft: MobileChannelSearchDraft
-    let onQuery: (String) -> Void
-    @FocusState private var searchFocused: Bool
-
-    private var text: Binding<String> { draft.binding(onQuery: onQuery) }
+    let search: MobileChannelSearch
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            TextField("Search channels", text: text)
-                .textFieldStyle(.plain)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .accessibilityIdentifier("ChooseAnotherChannelSearch")
-            if !draft.query.isEmpty {
-                Button { text.wrappedValue = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
-                }.buttonStyle(.plain).accessibilityLabel("Clear search")
-            }
+            MobileChannelSearchInput(search: search)
         }
         .font(.inter(.body))
         .padding(.horizontal, 14).frame(height: 44)
         .background(LineupPanelStyle.fill, in: Capsule())
         .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
-        .task { searchFocused = true }
     }
 }

@@ -34,7 +34,9 @@ control's own outline is removed. Native Liquid Glass remains the bottom
 navigation option. Apple's [toolbar background API](https://developer.apple.com/documentation/swiftui/toolbarcontent/sharedbackgroundvisibility(_:))
 provides the per-item customization.
 
-Choose Another Channel isolates the search draft in its field's small subtree.
+Choose Another Channel keeps its editing buffer in a native text field.
+Editing and Clear events go directly to the search store. Completed-result
+renders never write into the editor or disturb its cursor/composition state.
 Only completed answers publish to the results view, after cancellable background
 filtering with a 120ms debounce. The picker listens specifically to catalog and
 favorite changes, without observing every sports-store publication. Catalog
@@ -59,7 +61,9 @@ activation/return home, actual native/custom order changes with stable
 selection, stream-panel geometry and long-list scrolling, toolbar label widths
 and screenshot capture, and search coalescing/provider replacement/cancellation.
 A 30,000-channel model case checks that drafts do not publish catalog-sized UI
-updates. A real picker/window regression counts UIKit cell requests through an
+updates. A real picker/window regression drives the actual text control's editing
+and Clear events, checks that results retain its text and identity, and counts
+UIKit cell requests through an
 external data-source wrapper: opening, clearing back to all channels, and jumping
 to the last row must create fewer than 200 cells per operation. It checks reused
 row selection and exports a screenshot and row-work counts with test attachments.

@@ -43,7 +43,8 @@ final class MobileChannelSearch: ObservableObject {
     var results: [XtreamStream] { page.results }
     var loading: Bool { page.loading }
     private var index: MobileChannelIndex?
-    private var query = ""
+    /// Newest requested text, which can be ahead of the last completed page.
+    private(set) var query = ""
     private var request = UUID()
     private var catalogTask: Task<Void, Never>?
     private var queryTask: Task<Void, Never>?

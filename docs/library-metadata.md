@@ -62,24 +62,20 @@ References: [TMDB API](https://developer.themoviedb.org/docs/getting-started),
 
 ## Validation
 
-All twelve metadata tests passed in the iPhone simulator on the first default-source
-revision. That run compiled successfully but stopped in other integration tests:
-the playback origin incorrectly served suffix ranges from the start of the file,
-and the picker test changed the search model without changing the text field.
-The origin now serves suffix/open-ended ranges and 416 responses correctly.
-Subsequent builds passed playback and metadata checks but exposed the picker
-test's dependency on SwiftUI render callbacks. The field now forwards edits
-directly from its Binding setter; its draft is observed only by the field.
-The native results coordinator subscribes to completed pages and applies them
-without waiting for a representable body update. Repeated binds do no work,
-source/table changes replace the subscription, and dismantling cancels delivery.
-The test drives the exact input binding, retains all 30,000-row rendering,
-filtering, clearing, scrolling, and selection checks, and reports input/result/row
-state on failure. Separate table checks cover subscription delivery, disconnect,
-and rebinding without a SwiftUI render pass. HTTP round trips and a fast standalone
-range check cover the fixture correction. Simulator tests run serially to avoid
-contention over shared UI/audio services. The corrected full workflow still
-needs validation before an IPA is confirmed.
+All twelve metadata tests and the playback tests passed in iPhone build 95.
+The full run compiled and executed 422 tests (one physical-device PiP test
+skipped), but the picker rendering test failed while filtering; its teardown
+reported a second error. Independent search and table-subscription tests passed.
+The revised picker uses a native text field, with editing and Clear events
+delivered directly to the search store. Completed results never overwrite its
+editing buffer. The real-picker test now drives that control rather than a
+separate SwiftUI binding and checks immediate query delivery, input retention,
+and the existing 30,000-row rendering/filtering/clearing/scrolling/selection limits.
+The results coordinator subscribes directly to completed pages; separate checks
+cover subscription delivery, disconnect, and rebinding. Playback fixture coverage
+includes real HTTP suffix/open-ended requests and 416 responses, plus a standalone
+range-parser check. The full simulator suite remains enabled and runs serially.
+Build 96 still needs simulator validation and IPA packaging before it is confirmed.
 
 Live credentials have been checked against TMDB movie and episode endpoints and
 TVDB login, movie/show details, and official episode lookup. Shared XCTest
