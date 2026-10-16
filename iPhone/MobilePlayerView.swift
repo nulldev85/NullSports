@@ -121,6 +121,7 @@ struct MobilePlayerView: View {
                             MobilePlaybackEngineBadge(engine: controller.engine)
                             if isLive { statusBadge.fixedSize() }
                             if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
+                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                         }
                     }
                     }

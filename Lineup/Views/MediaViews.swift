@@ -916,6 +916,9 @@ private struct MediaCatalogsScreen: View {
     @State private var pushed: MediaItem?
     @State private var heroPlayableItem: MediaItem?
     @State private var isVisible = false
+    #if !os(tvOS)
+    @State private var phoneScrolling = false
+    #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
     @Environment(\.playMedia) private var playMedia
@@ -1017,12 +1020,16 @@ private struct MediaCatalogsScreen: View {
                             if let heroCatalog = media.heroCatalog {
                                 // The first panel starts a gap below the
                                 // hero, as each starts a gap below the last.
-                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem)
+                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
+                                                 scrollIsActive: phoneScrolling)
                             }
                             libraryShelves
                         }
                         .padding(.bottom, 44)
                     }
+                    .scrollBounceBehavior(.always, axes: .vertical)
+                    .onScrollPhaseChange { _, phase in phoneScrolling = phase != .idle }
+                    .onDisappear { phoneScrolling = false }
                     .ignoresSafeArea(edges: .top)
                     .task(id: catalogs.map(\.id)) { await prefetchShelfFronts() }
                     #endif
@@ -4125,8 +4132,9 @@ private struct MediaLibraryHero: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
+    var scrollIsActive = false
     @State private var index = 0
-    @GestureState private var isDragging = false
+    @State private var isDragging = false
     @State private var isVisible = false
     /// Each title's ratings once found, so a slide shown again has its chips.
     @State private var ratings: [String: MediaRatings] = [:]
@@ -4148,7 +4156,8 @@ private struct MediaLibraryHero: View {
             if !items.isEmpty {
                 GeometryReader { viewport in
                     let current = min(index, items.count - 1)
-                    let rotates = isVisible && scenePhase == .active && !voiceOver && !isDragging
+                    let rotates = isVisible && scenePhase == .active && !voiceOver
+                        && !isDragging && !scrollIsActive
                     let pixels = LineupArt.pixels(for: viewport.size.width)
                     // Two overlapping slides fade together, including last to
                     // first. A page controller otherwise jumps across the list.
@@ -4163,14 +4172,8 @@ private struct MediaLibraryHero: View {
                     .overlay(alignment: .bottom) { pageIndicator }
                     .accessibilityAction(named: Text("Next title")) { move(1) }
                     .accessibilityAction(named: Text("Previous title")) { move(-1) }
-                    .simultaneousGesture(DragGesture(minimumDistance: 12)
-                        .updating($isDragging) { _, dragging, _ in dragging = true }
-                        .onEnded { value in
-                            let translation = value.translation
-                            guard abs(translation.width) > 40,
-                                  abs(translation.width) > abs(translation.height) * 1.25 else { return }
-                            move(translation.width < 0 ? 1 : -1)
-                        })
+                    .gesture(MobileLibraryHeroSwipe(onInteractionChanged: { isDragging = $0 },
+                                                    onSwipe: move))
                     .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
                                                     enabled: rotates, pixels: pixels)) {
                         guard rotates else { return }
@@ -4190,7 +4193,7 @@ private struct MediaLibraryHero: View {
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         #endif
         .onAppear { isVisible = true }
-        .onDisappear { isVisible = false }
+        .onDisappear { isVisible = false; isDragging = false }
         #if os(tvOS)
         // Any focused control inside the hero participates in the same
         // carousel. A left/right press therefore changes the feature directly

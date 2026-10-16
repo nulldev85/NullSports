@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import LineupAetherPlayback
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -2535,7 +2536,7 @@ private struct LiveSelectedPreview: View {
 
     var body: some View {
         TVHostedSurface(controller: controller)
-            .overlay(alignment: .topTrailing) { TVPlaybackEngineBadge(engine: controller.engineKind).padding(10) }
+            .overlay(alignment: .bottomLeading) { TVPreviewFormatBadges(controller: controller) }
             .overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
         .onAppear {
             // Back from full screen, where it played on: nothing to open.
@@ -3793,6 +3794,7 @@ private struct GuidePreviewVideo: View {
 
     var body: some View {
         TVHostedSurface(controller: controller)
+            .overlay(alignment: .bottomLeading) { TVPreviewFormatBadges(controller: controller) }
             .overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear { open() }
@@ -6190,7 +6192,13 @@ private struct MultiviewTile: View {
                     Text(detail).font(.inter(14, .medium)).opacity(0.7).lineLimit(1)
                 }
             }
-            TVPlaybackEngineBadge(engine: controller.engineKind)
+            VStack(alignment: .leading, spacing: 6) {
+                TVPlaybackEngineBadge(engine: controller.engineKind)
+                PlaybackBadgeFlow {
+                    if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
+                    ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
+                }
+            }
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white)
@@ -6939,6 +6947,10 @@ private struct TVPlayerChrome: View {
                             }
                             TVPlaybackEngineBadge(engine: controller.engineKind)
                         }
+                        PlaybackBadgeFlow {
+                            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
+                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
+                        }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
                         if controller.catchUp == nil, let detail = synopsis?.detail ?? program?.detail, !detail.isEmpty {
@@ -7488,6 +7500,7 @@ private struct PlaybackClockReader<Content: View>: View {
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
+    @Published private(set) var mediaInfo = PlaybackMediaInfo()
     @Published private(set) var activeChannelName: String?
     @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
@@ -7707,6 +7720,8 @@ private struct PlaybackClockReader<Content: View>: View {
 
     private func openCurrent() {
         backend.stop()
+        mediaInfo = PlaybackMediaInfo()
+        videoHeight = 0
         resetSubtitles()
         sawPicture = false
         loggedCondition = nil
@@ -7841,6 +7856,8 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func checkPlayback() {
+        let nextMediaInfo = backend.mediaInfo
+        if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
         guard !isScrubbing else { return }
         holdAudioLevel()
         updateProgress()
@@ -8306,6 +8323,7 @@ private struct PlaybackClockReader<Content: View>: View {
         reconnecting = false
         isPlaying = false
         videoHeight = 0
+        mediaInfo = PlaybackMediaInfo()
         duration = 0
         elapsed = 0
         resetSubtitles()
@@ -8434,6 +8452,28 @@ private struct TVPlaybackEngineBadge: View {
             .accessibilityLabel("Playback engine: \(engine.title)")
             .accessibilityIdentifier("lineup.playback.activeEngine")
             .allowsHitTesting(false)
+    }
+}
+
+/// Preview metadata appears briefly on tune/format changes, then leaves the
+/// picture clear. Fullscreen uses the existing controls' visibility instead.
+private struct TVPreviewFormatBadges: View {
+    @ObservedObject var controller: TVPlaybackController
+    @State private var visible = true
+    var body: some View {
+        PlaybackBadgeFlow {
+            TVPlaybackEngineBadge(engine: controller.engineKind)
+            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
+            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
+        }
+        .padding(10)
+        .opacity(visible && controller.isPlaying && controller.error == nil ? 1 : 0)
+        .allowsHitTesting(false)
+        .task(id: controller.mediaInfo.badges + [controller.engineTitle, controller.qualityLabel, String(controller.isPlaying)]) {
+            visible = true
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            withAnimation(.easeOut(duration: 0.2)) { visible = false }
+        }
     }
 }
 

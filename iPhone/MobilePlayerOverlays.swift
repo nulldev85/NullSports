@@ -9,10 +9,7 @@ struct MobilePlayerHeader<Actions: View, Details: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             actions()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { details() }
-                VStack(alignment: .leading, spacing: 6) { details() }
-            }
+            PlaybackBadgeFlow { details() }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

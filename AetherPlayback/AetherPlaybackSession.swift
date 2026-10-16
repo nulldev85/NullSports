@@ -37,6 +37,23 @@ public final class AetherPlaybackSession {
         return current.width > 0 && current.height > 0 ? current : probedVideoSize
     }
     public var surface: UIView { canvas }
+    public var mediaInfo: PlaybackMediaInfo {
+        guard isOpen, !loading, hasPicture else { return PlaybackMediaInfo() }
+        let range: String?
+        switch engine.sourceVideoFormat {
+        case .sdr: range = nil
+        case .hdr10: range = "HDR10"
+        case .hdr10Plus: range = "HDR10+"
+        case .hlg: range = "HLG"
+        case .dolbyVision: range = "Dolby Vision"
+        @unknown default: range = nil
+        }
+        let audio = engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }
+        return PlaybackMediaInfo(dynamicRange: range, videoCodec: engine.sourceVideoCodecName,
+            frameRate: engine.sourceVideoFrameRate, audioCodec: audio?.codec, audioProfile: audio?.profile,
+            audioChannels: audio?.channels, audioLayout: audio?.channelLayout,
+            isDolbyAtmos: audio?.isAtmos == true)
+    }
     #if os(iOS)
     private lazy var pip = AetherPictureInPicture(session: self)
     private var restoringForeground = false

@@ -75,6 +75,8 @@ final class MobilePlaybackController: ObservableObject {
     @Published var error: String?
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
+    @Published private(set) var mediaInfo = PlaybackMediaInfo()
+    private let nativeMediaInfo = NativePlaybackMediaInfoReader()
     /// Which engine is currently rendering. Views use it only to decide whether
     /// a Picture in Picture button can do anything.
     @Published private(set) var engine: MobileStreamEngine = .vlc
@@ -320,9 +322,6 @@ final class MobilePlaybackController: ObservableObject {
         }
     }
 
-    // VLCKit's per-track dictionary API (frame rate, codec) varies across
-    // versions and isn't worth pinning to for a badge — the video size alone
-    // covers what was actually asked for ("quality of channel").
     var streamQualityLabel: String? { qualityLabel }
 
     var selectedSubtitleTitle: String {
@@ -804,6 +803,7 @@ final class MobilePlaybackController: ObservableObject {
                 // and only built while the diagnostics are on: the snapshot
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
+                self.refreshMediaInfo()
                 if self.isScrubbing { continue }
                 self.sampleProgress()
                 // A recording's place is kept while it is paused too, so the
@@ -929,6 +929,8 @@ final class MobilePlaybackController: ObservableObject {
         isPlaying = false
         videoWidth = nil
         videoHeight = nil
+        mediaInfo = PlaybackMediaInfo()
+        nativeMediaInfo.reset()
         guard !candidates.isEmpty else {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
@@ -1436,6 +1438,18 @@ final class MobilePlaybackController: ObservableObject {
         videoHeight = Int(size.height)
     }
 
+    private func refreshMediaInfo() {
+        let next: PlaybackMediaInfo
+        switch engine {
+        case .aether: next = aetherSession?.mediaInfo ?? PlaybackMediaInfo()
+        case .system:
+            nativeMediaInfo.refresh(systemPlayer.currentItem)
+            next = nativeMediaInfo.info
+        case .vlc: next = VLCPlaybackMediaInfo.read(player)
+        }
+        if mediaInfo != next { mediaInfo = next }
+    }
+
     // MARK: - Scene phase
 
     /// Backgrounding no longer means stopping. `MobileBackgroundPolicy` owns the
@@ -1775,6 +1789,8 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        nativeMediaInfo.reset()
+        mediaInfo = PlaybackMediaInfo()
         isScrubbing = false
         resumeAfterScrubbing = false
         scrubDestination = nil

@@ -24,6 +24,14 @@ layout, decoded image size and cache key remain stable. The scroll view's own
 bounce restores the picture on release, with no extra gesture, timer or spring.
 Reduce Motion leaves the normal scroll behavior without the zoom. This uses
 SwiftUI's [geometry-based visual effects](https://developer.apple.com/documentation/swiftui/view/visualeffect(_:)).
+The home carousel uses a native horizontal pan recognizer whose delegate rejects
+vertical and mainly vertical movement before recognition. Checking direction only
+after a SwiftUI drag ended could already have intercepted the Library's pull.
+The parent scroll view explicitly allows vertical bounce even with a short
+Library. Scroll-phase changes pause the four-second rotation during a pull or
+scroll, and horizontal swipes pause it until release/cancellation. This uses
+[UIKit gesture integration](https://developer.apple.com/documentation/swiftui/uigesturerecognizerrepresentable)
+and [early recognition decisions](https://developer.apple.com/documentation/uikit/uigesturerecognizerdelegate/gesturerecognizershouldbegin(_:)).
 Its home and full-bleed detail screens hide the navigation bar background and,
 on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffecthidden(_:for:)).
 The Guide applies measured bottom navigation coverage once, without an
@@ -105,6 +113,11 @@ Device review:
   top edge, while labels stay the same size. Release, scroll normally, swipe
   the carousel, rotate, and repeat with both navigation styles. With Reduce
   Motion enabled, check normal scrolling without the zoom.
+- Start a slow vertical pull directly on the home hero's picture, title and
+  ratings, then repeat with a diagonal but mainly vertical pull. Both should
+  scroll/zoom just as on a movie/show page. Also check a short Library, normal
+  scrolling, a deliberate left/right swipe and a tap to open details. The title
+  should not auto-advance while interacting; rotation resumes after release.
 - Open Catch Up, Choose Another Channel, Accent Color, its mixer, provider/server
   setup and Library dialogs. Check readable, themed close/Done buttons.
 - Type and clear a long channel search with a large provider, then type quickly

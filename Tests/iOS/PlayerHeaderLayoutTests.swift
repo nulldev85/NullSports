@@ -17,17 +17,18 @@ final class PlayerHeaderLayoutTests: XCTestCase {
             let layout = HeaderMeasurements()
             let host = UIHostingController(rootView: HeaderFixture(measurements: layout).preferredColorScheme(.dark))
             parent.addChild(host)
-            host.view.frame = CGRect(x: 0, y: 0, width: width, height: 180)
+            host.view.frame = CGRect(x: 0, y: 0, width: width, height: 240)
             host.view.autoresizingMask = []
             parent.view.addSubview(host.view)
             host.didMove(toParent: parent)
             try await Task.sleep(for: .milliseconds(300))
             host.view.layoutIfNeeded()
             let buttons = try ["close", "channels", "pip", "expand"].map { try XCTUnwrap(layout.frames[$0]) }
-            let badges = try ["engine", "live", "quality"].map { try XCTUnwrap(layout.frames[$0]) }
+            let badges = try (["engine", "live", "quality"] + HeaderFixture.formats).map { try XCTUnwrap(layout.frames[$0]) }
             for rect in buttons + badges {
                 XCTAssertGreaterThanOrEqual(rect.minX, -0.5)
                 XCTAssertLessThanOrEqual(rect.maxX, width + 0.5)
+                XCTAssertLessThanOrEqual(rect.maxY, host.view.bounds.height + 0.5)
             }
             for frames in [buttons, badges] {
                 for first in frames.indices {
@@ -74,6 +75,7 @@ private extension View {
 }
 
 private struct HeaderFixture: View {
+    static let formats = ["Dolby Vision", "Dolby Atmos", "HEVC", "59.94 fps"]
     let measurements: HeaderMeasurements
     var body: some View {
         MobilePlayerHeader {
@@ -90,6 +92,7 @@ private struct HeaderFixture: View {
                 .padding(.horizontal, 9).padding(.vertical, 7).measureHeader("live")
             Text("1080p").font(.inter(.caption2, .semibold)).fixedSize()
                 .padding(.horizontal, 9).padding(.vertical, 7).measureHeader("quality")
+            ForEach(Self.formats, id: \.self) { PlaybackFormatBadge(text: $0).measureHeader($0) }
         }
         .coordinateSpace(name: "header")
         .onPreferenceChange(HeaderFrames.self) { measurements.frames = $0 }

@@ -47,6 +47,8 @@ struct MobileGuidePlayer: View {
     /// screen has no way to, and alerts are not shown.
     var onWatchGame: ((SportsGame) -> Void)? = nil
     @State private var controlsVisible = true
+    @State private var measuredHeaderHeight: CGFloat = 76
+    @ScaledMetric(relativeTo: .caption2) private var previewInfoHeight: CGFloat = 32
     @State private var hideControlsTask: Task<Void, Never>?
     @ObservedObject private var alerts = GameAlertCenter.shared
 
@@ -107,9 +109,14 @@ struct MobileGuidePlayer: View {
                 if controlsVisible {
                     topBar
                     if !expanded {
-                        HStack(spacing: 8) { playbackDetails; Spacer(minLength: 0) }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                            .padding(10)
+                        VStack {
+                            Spacer(minLength: 0)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) { playbackDetails }
+                            }
+                            .frame(height: previewInfoHeight)
+                        }
+                        .padding(10)
                     }
                     transport
                     if expanded && (onStepChannel != nil || (lastChannelName != nil && onLastChannel != nil)) {
@@ -230,6 +237,7 @@ struct MobileGuidePlayer: View {
             } details: {
                 if expanded { playbackDetails }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measuredHeaderHeight = $0 }
             }
             Spacer()
         }
@@ -249,6 +257,7 @@ struct MobileGuidePlayer: View {
             if controller.catchUp == nil, let quality = controller.streamQualityLabel {
                 qualityBadge(quality).fixedSize()
             }
+            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
         }
     }
 
@@ -362,7 +371,7 @@ struct MobileGuidePlayer: View {
         .padding(.leading, screenInsets.leading)
         .padding(.trailing, screenInsets.trailing)
         // Below the top bar: its own padding, then a control's height.
-        .padding(.top, screenInsets.top + 20 + 36 + 8 + 32 + 10)
+        .padding(.top, screenInsets.top + 20 + measuredHeaderHeight + 10)
     }
 
     // MARK: Gestures
