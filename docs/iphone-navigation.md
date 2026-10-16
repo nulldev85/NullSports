@@ -2,10 +2,13 @@
 
 Settings > Liquid Glass chooses between two bottom navigation bars:
 
-- **Off:** Lineup's charcoal rectangular panel, with softly rounded corners,
-  the existing five icons and labels, a raised selected tile, and a marker in
-  the user's accent color. Each entire tile is tappable and selects immediately,
-  with a short press response and light selection haptic.
+- **Off:** Lineup's opaque charcoal capsule, tightly wrapping the existing five
+  icons and labels, with a rounded selected-tab highlight. The compact surface
+  follows the supplied native bar reference: 20-point side margins and a
+  20-point bottom gap on home-indicator phones (8 points without one). At the
+  default text size it is 62 points tall, with 54-point minimum tab targets;
+  larger text can grow the layout. Each entire tab is tappable and selects
+  immediately, with a short press response and light selection haptic.
 - **On (iOS 26 and later):** Apple's native Liquid Glass tab bar. The original
   UIKit appearance is restored; Lineup does not draw a glass substitute.
 
@@ -27,9 +30,12 @@ surface; it has no full-width background behind or below it.
 Sports, Library, Search and Settings share a measured bottom reservation through
 UIKit's [additional safe-area insets](https://developer.apple.com/documentation/uikit/uiviewcontroller/additionalsafeareainsets).
 It is applied to the selected tab's navigation container, including pushed pages.
-The panel's position and the window's home-indicator area are measured separately;
-there is no fixed navigation height or second outer SwiftUI inset. Other safe-area
-edges and existing additional insets are preserved. The Guide retains its own
+Only the floating overlay extends into the container's bottom safe area. Its
+bottom margin follows the window's home-indicator inset, independent of the
+navigation container's content reservation. The panel's actual position and the
+window's home-indicator area are measured separately; there is no fixed content
+reservation or second outer SwiftUI inset. Other safe-area edges and existing
+additional insets are preserved. The Guide retains its own
 scroller measurement below. Native Liquid Glass and full-screen playback restore
 the custom reservation. A transparent observer follows native layout/safe-area
 events, so rotations and late UIKit changes remeasure without a timer or polling.
@@ -37,7 +43,7 @@ events, so rotations and late UIKit changes remeasure without a timer or polling
 `NavigationContentInsetTests` checks four representative tab layouts with the real
 navigation chrome: Sports' nested viewport, Library's full-bleed top, Search's
 searchable stack and Settings' grouped list. It checks the usable bottom and last
-row through custom/native/custom changes, the panel's home-indicator clearance and
+row through custom/native/custom changes, the panel's lower floating placement and
 release of the reservation for full-screen playback. A UIKit containment test
 checks pushed-page inheritance and restoration of pre-existing insets.
 
@@ -52,8 +58,10 @@ in place.
 
 `NavigationStyleTests` switches styles, checks native appearance restoration,
 visits all five tabs in their visual order, checks controller identity, and
-checks full-screen visibility. Its screenshots are exported in the iPhone
-workflow's `Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests`
+checks full-screen visibility. It also checks the compact solid panel's actual
+side margins, height and bottom gap against the reference footprint. Its
+screenshots are exported in the iPhone workflow's
+`Lineup-iPhone-navigation-previews` artifact. `GuideScrollLayoutTests`
 checks that the last Guide row remains reachable in both styles.
 Additional navigation checks exercise every custom destination's return home,
 scrolling, controller preservation, and a real SwiftUI navigation path pop.
@@ -86,8 +94,10 @@ layout with a tall, scrolled content probe and no manual refresh. Neither test
 assumes a fixed tab-bar height or a zero bottom inset.
 
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
-Library, Search, and Settings. Change the accent color, switch tabs repeatedly,
-and confirm scrolling and pushed pages remain in place after switching styles.
+Library, Search, and Settings. Check that its compact capsule sits in the same
+lower area as the native bar, with readable labels and generous touch targets.
+Switch tabs repeatedly and confirm scrolling and pushed pages remain in place
+after switching styles.
 Expand a Sports or Guide preview and return: navigation should disappear and
 return with the player transition. With Liquid Glass on, check Apple's native
 bar over scrolling content. Check the last Guide channel and Library row in

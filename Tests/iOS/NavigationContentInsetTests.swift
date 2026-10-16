@@ -75,8 +75,8 @@ final class NavigationContentInsetTests: XCTestCase {
                     let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
                     barTop = boundary.convert(boundary.bounds, to: window).minY
                     XCTAssertEqual(boundary.convert(boundary.bounds, to: window).maxY,
-                                   window.bounds.maxY - window.safeAreaInsets.bottom, accuracy: 1,
-                                   "The floating panel must remain above the home indicator")
+                                   window.bounds.maxY - (window.safeAreaInsets.bottom > 0 ? 20 : 8), accuracy: 1,
+                                   "The compact panel must use the reference's lower floating position")
                 }
                 let usableBottom = scroll.convert(scroll.bounds, to: window).maxY - scroll.adjustedContentInset.bottom
                 XCTAssertLessThanOrEqual(usableBottom, barTop + 1,

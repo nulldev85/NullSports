@@ -57,25 +57,36 @@ extension EnvironmentValues {
     }
 }
 
-/// A solid panel matching the rest of Lineup, with the same five destinations
-/// and selection binding as Apple's bar. Buttons select immediately.
+enum MobileLineupNavigationLayout {
+    static let sideMargin: CGFloat = 20
+    static let padding: CGFloat = 4
+    static let itemHeight: CGFloat = 54
+
+    static func bottomGap(safeAreaBottom: CGFloat) -> CGFloat {
+        // Match the reference's floating placement on home-indicator phones,
+        // with a smaller edge margin when there is no home indicator.
+        safeAreaBottom > 0 ? 20 : 8
+    }
+}
+
+/// An opaque floating capsule around the icons and labels. It shares the
+/// native bar's destinations and selection; button actions remain immediate.
 struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
     var navigation: MobileTabNavigation? = nil
     let activate: (MobileNavigationTab) -> Void
-    @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
     @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 10
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             ForEach(MobileNavigationOrder.tabs(in: savedOrder)) { tab in
                 let selected = selection == tab.rawValue
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
                     activate(tab)
                 } label: {
-                    VStack(spacing: 5) {
+                    VStack(spacing: 3) {
                         tab.icon(selected: selected)
                             .resizable().scaledToFit()
                             .frame(width: 25, height: 24)
@@ -84,18 +95,9 @@ struct MobileLineupNavigationBar: View {
                             .lineLimit(1).minimumScaleFactor(0.75)
                     }
                     .foregroundStyle(selected ? Color.white : LineupPanelStyle.caption)
-                    .frame(maxWidth: .infinity, minHeight: 58)
-                    .padding(.vertical, 3)
-                    .background(selected ? LineupPanelStyle.well : .clear,
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .overlay(alignment: .top) {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 1.5)
-                                .fill(LineupAccent.accent(forHex: accentHex).color)
-                                .frame(width: 22, height: 3)
-                        }
-                    }
-                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, minHeight: MobileLineupNavigationLayout.itemHeight)
+                    .background(selected ? LineupPanelStyle.well : .clear, in: Capsule())
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(MobileNavigationButtonStyle())
                 .accessibilityLabel(tab.title)
@@ -103,16 +105,15 @@ struct MobileLineupNavigationBar: View {
                 .accessibilityIdentifier("lineup.navigation.tab.\(tab.rawValue)")
             }
         }
-        .padding(5)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(MobileLineupNavigationLayout.padding)
+        .background(LineupPanelStyle.fill, in: Capsule())
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            Capsule()
                 .strokeBorder(LineupPanelStyle.divider, lineWidth: 1)
                 .allowsHitTesting(false)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6).padding(.bottom, 4)
         .background(MobileLineupNavigationBoundary(navigation: navigation).allowsHitTesting(false))
+        .padding(.horizontal, MobileLineupNavigationLayout.sideMargin)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
@@ -134,17 +135,31 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 @MainActor
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
+    @Published private(set) var windowBottomInset: CGFloat = 0
     var order = MobileNavigationTab.allCases
     fileprivate weak var bottomBoundary: UIView?
     fileprivate var showsCustomNavigation = false
     fileprivate var currentSelection = 0
     private let contentInsets = MobileNavigationContentInsets()
     private var insetsUpdateScheduled = false
+    private var windowMetricsUpdateScheduled = false
     private struct Home {
         weak var probe: MobileTabHomeRegistration.Probe?
     }
     private var homes: [Int: Home] = [:]
     private var pendingHomes: Set<Int> = []
+
+    fileprivate func requestWindowMetrics(from view: UIView) {
+        guard let window = view.window, !windowMetricsUpdateScheduled else { return }
+        windowMetricsUpdateScheduled = true
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self else { return }
+            self.windowMetricsUpdateScheduled = false
+            guard let window else { return }
+            let bottom = window.safeAreaInsets.bottom
+            if abs(self.windowBottomInset - bottom) > 0.5 { self.windowBottomInset = bottom }
+        }
+    }
 
     fileprivate func requestContentInsetsUpdate() {
         guard !insetsUpdateScheduled else { return }
@@ -372,12 +387,16 @@ private struct MobileNavigationChrome: ViewModifier {
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // UIKit's navigation container owns the measured reservation.
             // A second outer SwiftUI inset would count the same panel twice.
-            // Keep the panel above the home indicator, with no full-width fill.
+            // Extend only the floating overlay into the bottom container area.
+            // Page clearance still comes from the actual capsule boundary.
             .overlay(alignment: .bottom) {
                 if !glass && !fullscreen {
                     MobileLineupNavigationBar(selection: $selection, navigation: navigation) { tab in
                         navigation.activate(tab) { selection = tab.rawValue }
                     }
+                    .padding(.bottom, MobileLineupNavigationLayout.bottomGap(safeAreaBottom: navigation.windowBottomInset))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .ignoresSafeArea(.container, edges: .bottom)
                 }
             }
     }
@@ -440,16 +459,19 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // Only discover the controller once. Layout and tab switches do
             // not walk the view hierarchy or recreate the glass material.
             if bar == nil { refresh() }
+            navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
 
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
+            navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
 
         func refresh() {
             guard let window else { return }
+            navigation?.requestWindowMetrics(from: self)
             if bar == nil || navigation?.tabs == nil {
                 let tabs = Self.findTabController(in: window.rootViewController)
                 navigation?.tabs = tabs

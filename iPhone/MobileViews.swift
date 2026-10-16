@@ -32,7 +32,7 @@ struct MainView: View {
             }
         }
         // Both navigation styles share this TabView and its selection. The
-        // Lineup panel supplies its own accent marker; native glass stays white.
+        // selected icons and labels stay white in both appearances.
         .tint(.white)
         .mobileNavigationChrome(selection: $tab, liquidGlass: navigationGlass,
                                 fullscreen: inlinePlayerFullscreen)
