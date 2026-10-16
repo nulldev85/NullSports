@@ -49,6 +49,15 @@ is an overlay without a second outer SwiftUI inset or full-width background.
 Window/home-indicator protection is counted once, and the custom reservation is
 restored when switching to Liquid Glass or entering full-screen playback.
 
+Inset ownership is keyed to the stable tab root. If NavigationStack installs
+its UIKit navigation container after the first layout, the early host releases
+its reservation before the navigation container takes over. This prevents a
+second copy of the compact bar's clearance. Layout observers are installed only
+inside UIKit navigation views; a SwiftUI hosting view retains its own hierarchy.
+`NavigationContentInsetTests` reproduces that delayed-container handoff and checks
+exact clearance, repeated application and restoration, alongside the existing
+real tab/style-switch layouts.
+
 App-owned toolbar controls use LineupToolbarItem. On iOS 26 and later it hides
 the native shared glass background and preserves the app control's intrinsic
 width. Text in LineupBarButtonStyle is one line with its full fitting width.
@@ -71,6 +80,13 @@ built in background work; the opening path does not scan the full Guide for
 favorites. Stale queries/catalogs cannot publish over newer work, and dismissal
 cancels queued work. Clearing search restores provider order with suggestions
 separate; radio entries and duplicate channel IDs are excluded.
+
+The channel-picker rendering regression drives the native text field's editing
+events without automatically opening the simulator software keyboard. This
+isolates table/filter behavior from keyboard-service startup and teardown;
+production still focuses the field automatically. Its 30,000-row filtering,
+editor retention, Clear, lazy row construction and last-row selection checks
+remain enabled, with the same five-second completed-result deadline.
 
 Results use a reusable UIKit table with the existing SwiftUI channel-logo rows,
 Lineup headers, panel colors and dividers. Only visible rows are configured.
