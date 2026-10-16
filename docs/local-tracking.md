@@ -24,7 +24,11 @@ watched status, and Continue Watching visibility are separate choices.
   replacement episode even when its focus slot stays the same.
 - Local viewing history determines the next episode. A server's later Next Up
   or watched flags for later episodes cannot skip ahead of the local position.
-  With no local history, the server's state remains the fallback. A new manual
+  With no local history, the server's state remains the fallback. A suggested or
+  generated episode cannot skip an unwatched gap after watched episodes in that
+  same season. For example, server-only watched E01/E02 plus a stale E10 hint
+  selects E03 and repairs the shared queued record. Genuine local or server
+  resume progress is retained. A new manual
   unwatched choice returns to that episode; completing a later episode moves
   past older partial progress while retaining its position for deliberate replay.
 - Complete episode metadata learned during this session permits immediate
@@ -50,7 +54,8 @@ relaunches, whole-show scope, refreshed Up Next, stale callbacks, real resume
 and Start Over, brief opens, repeated removals, manual watched changes, server
 isolation, metadata enrichment, retention, completion, and clearing history.
 `SeriesResumeTests` and `SeriesTrackingConsistencyTests` also run on both
-platforms. They cover the S02E10 jump after E02, remote flags ahead of local
+platforms. They cover the S02E10 jump after E02 with local completions and with
+server-only watched history plus an old generated marker, remote flags ahead of local
 progress, menu changes while offline with an episode list already loaded,
 out-of-order responses, thumbnail replacement, season boundaries, whole-show
 marks, server isolation, name-only legacy records, provider episode menus,

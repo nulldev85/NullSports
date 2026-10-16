@@ -12,6 +12,9 @@ custom bars. Selection uses stable destination tags; custom return-home logic
 resolves the saved visual order. Tab pages retain stable SwiftUI identities.
 The custom bar's full-width background is removed; its own panel is retained.
 Library artwork remains clear behind the status bar and options button.
+The iPhone Library hero uses the detail page's primary/poster artwork in a
+portrait frame, with a long vertical fade behind the copy into the Library
+background. Its four-second rotation and crossfade remain in place.
 Its home and full-bleed detail screens hide the navigation bar background and,
 on iOS 26+, the separate [top scroll-edge effect](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffecthidden(_:for:)).
 The Guide applies measured bottom navigation coverage once, without an

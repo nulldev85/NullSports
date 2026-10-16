@@ -5,7 +5,10 @@ independent **Metadata source:** and **Episode data:** dropdowns each contain
 Provider, TMDB, and TVDB. TMDB is the default for movie/show metadata and TVDB
 is the default for episode data when no choice has been saved. Existing explicit
 choices, including Provider, are preserved. The first choice covers movies/shows;
-the second covers individual episodes.
+the second covers individual episodes. Credits identify the data actually
+displayed: **Show metadata**, **Movie metadata**, or **Episode data**. Episode
+cards show their own source rather than inheriting the show's credit. Provider
+fallback is labeled Provider; choosing a service is not itself proof of a match.
 
 External metadata supplies display titles, summaries, artwork, genres, and dates.
 It does not replace stream URLs, server/library IDs, season/episode numbers,
@@ -62,20 +65,19 @@ References: [TMDB API](https://developer.themoviedb.org/docs/getting-started),
 
 ## Validation
 
-All twelve metadata tests and the playback tests passed in iPhone build 95.
-The full run compiled and executed 422 tests (one physical-device PiP test
-skipped), but the picker rendering test failed while filtering; its teardown
-reported a second error. Independent search and table-subscription tests passed.
-The revised picker uses a native text field, with editing and Clear events
-delivered directly to the search store. Completed results never overwrite its
-editing buffer. The real-picker test now drives that control rather than a
-separate SwiftUI binding and checks immediate query delivery, input retention,
-and the existing 30,000-row rendering/filtering/clearing/scrolling/selection limits.
-The results coordinator subscribes directly to completed pages; separate checks
-cover subscription delivery, disconnect, and rebinding. Playback fixture coverage
-includes real HTTP suffix/open-ended requests and 416 responses, plus a standalone
-range-parser check. The full simulator suite remains enabled and runs serially.
-Build 96 still needs simulator validation and IPA packaging before it is confirmed.
+Build 96 passed the complete iPhone simulator suite and release IPA packaging.
+The current revision adds shared regression coverage for independently switching
+show and episode sources through TMDB, TVDB and Provider, including previously
+displayed items and a delayed response from the old source. The checks compare
+returned titles, summaries, artwork and attribution, not just the saved settings.
+These new checks await the iPhone 97 and tvOS 74 workflows. The full simulator
+suites remain enabled; no Apple SDK is installed in the Windows workspace.
+
+The credentials packaged in the passed build 96 IPA were independently checked
+against the affected show. TMDB returned Marshals (290856); TVDB returned Marshals
+(463433) and official S02E03, Falling Sky (11964627), with a summary and still.
+This verifies the packaged configuration and live provider responses, not the
+user's device-local viewing history or which dropdown was changed.
 
 Live credentials have been checked against TMDB movie and episode endpoints and
 TVDB login, movie/show details, and official episode lookup. Shared XCTest

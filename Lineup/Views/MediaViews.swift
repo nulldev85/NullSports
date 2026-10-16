@@ -3633,6 +3633,7 @@ private struct MediaEpisodeCard: View {
                 Text(footer).font(.inter(.caption2))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             }
+            LibraryMetadataCredit(item: episode, interactive: false)
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4176,7 +4177,13 @@ private struct MediaLibraryHero: View {
             #endif
         }
         .frame(maxWidth: .infinity)
+        #if os(tvOS)
         .frame(height: heroHeight)
+        #else
+        // Match the detail page's portrait artwork instead of cropping a
+        // landscape backdrop into the phone's hero.
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        #endif
         .clipped()
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
@@ -4234,6 +4241,7 @@ private struct MediaLibraryHero: View {
                     else { Color.clear }
                 }
                 .frame(width: slide.size.width, height: slide.size.height)
+                #if os(tvOS)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.9), location: 0),
                     .init(color: .black.opacity(0.5), location: 0.5),
@@ -4249,6 +4257,17 @@ private struct MediaLibraryHero: View {
                     .init(color: LineupStyle.background.opacity(0.25), location: 0.98),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
+                #else
+                // A long portrait fade keeps the upper artwork clear, then
+                // blends behind the copy into the first shelf's background.
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.38),
+                    .init(color: LineupStyle.background.opacity(0.08), location: 0.52),
+                    .init(color: LineupStyle.background.opacity(0.45), location: 0.67),
+                    .init(color: LineupStyle.background.opacity(0.88), location: 0.84),
+                    .init(color: LineupStyle.background, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                #endif
 
                 VStack(alignment: .leading, spacing: heroSpacing) {
                     Spacer(minLength: 0)
@@ -4320,7 +4339,11 @@ private struct MediaLibraryHero: View {
     }
 
     private func artworkURL(for item: MediaItem) -> URL? {
+        #if os(tvOS)
         media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
+        #else
+        media.imageURL(for: item, width: artWidth) ?? media.backdropURL(for: item, width: artWidth)
+        #endif
     }
 
     private func rotate(pixels: Int) async {
@@ -4363,7 +4386,6 @@ private struct MediaLibraryHero: View {
     private var buttonMaxWidth: CGFloat { 190 }
     #else
     private var artWidth: Int { 1100 }
-    private var heroHeight: CGFloat { 500 }
     private var heroHorizontalPadding: CGFloat { 22 }
     // Artwork runs behind the status/navigation area; copy begins below it.
     private var heroTopPadding: CGFloat { 86 }

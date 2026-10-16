@@ -211,6 +211,124 @@ final class LibraryMetadataTests: XCTestCase {
     }
 
     @MainActor
+    func testShowAndEpisodeSourcesSwitchIndependentlyWithoutRetainingOldAttribution() async throws {
+        let suite = "LibraryMetadataSwitching." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        MetadataTestProtocol.install { request in
+            switch request.url!.path {
+            case "/3/find/tt0386676", "/3/find/73244":
+                return (200, #"{"movie_results":[],"tv_results":[{"id":2316}]}"#)
+            case "/3/tv/2316":
+                return (200, #"{"id":2316,"name":"TMDB show","overview":"TMDB show summary","poster_path":"/tmdb-show.jpg"}"#)
+            case "/3/tv/2316/season/2/episode/3":
+                return (200, #"{"id":300,"name":"TMDB episode","overview":"TMDB episode summary","season_number":2,"episode_number":3}"#)
+            case "/v4/login":
+                return (200, #"{"data":{"token":"test-bearer"}}"#)
+            case "/v4/search/remoteid/tt0386676":
+                return (200, #"{"data":[{"series":{"id":73244}}]}"#)
+            case "/v4/series/73244/extended":
+                return (200, #"{"data":{"id":73244,"name":"TVDB show","overview":"TVDB show summary","image":"https://artworks.thetvdb.com/show.jpg"}}"#)
+            case "/v4/series/73244/episodes/official":
+                return (200, #"{"data":{"episodes":[{"id":900,"name":"TVDB episode","overview":"TVDB episode summary","seasonNumber":2,"number":3,"seriesId":73244}]}}"#)
+            default: XCTFail("Unexpected metadata request: \(request.url!.path)"); return (404, "{}")
+            }
+        }
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "test", tvdb: "test"),
+            metadataResolver: resolver())
+        let show = item("Provider show", id: "show", type: "Series", ids: ["Imdb": "tt0386676"])
+        let episodeID = try XCTUnwrap(AIOStreamsItemID.make(.episode, provider: "tvdb", value: "73244", season: 2, episode: 3))
+        let episode = MediaItem(id: episodeID, name: "Provider episode", type: "Episode", overview: "Provider episode summary",
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 3, parentIndexNumber: 2, seriesName: "Provider show", seriesID: show.id, serverID: show.serverID)
+        await media.resolveMetadata(for: show)
+        await media.resolveMetadata(for: episode)
+        let oldShow = media.displayItem(show)
+        let oldEpisode = media.displayItem(episode)
+        XCTAssertEqual(oldShow.name, "TMDB show")
+        XCTAssertEqual(oldShow.metadata?.source, .tmdb)
+        XCTAssertEqual(oldEpisode.name, "TVDB episode")
+        XCTAssertEqual(oldEpisode.metadata?.source, .tvdb)
+
+        media.setMetadataSource(.tvdb)
+        XCTAssertNil(media.displayItem(oldShow).metadata, "An old row/page overlay must disappear immediately")
+        await media.resolveMetadata(for: oldShow)
+        let tvdbShow = media.displayItem(oldShow)
+        XCTAssertEqual(tvdbShow.name, "TVDB show")
+        XCTAssertEqual(tvdbShow.overview, "TVDB show summary")
+        XCTAssertEqual(tvdbShow.posterURL, "https://artworks.thetvdb.com/show.jpg")
+        XCTAssertEqual(tvdbShow.metadata?.source, .tvdb)
+        XCTAssertEqual(tvdbShow.metadata?.attributionURL, "https://www.thetvdb.com/dereferrer/series/73244")
+        XCTAssertEqual(media.displayItem(oldEpisode).name, "TVDB episode")
+
+        media.setMetadataSource(.tmdb, episodes: true)
+        XCTAssertNil(media.displayItem(oldEpisode).metadata)
+        await media.resolveMetadata(for: oldEpisode)
+        XCTAssertEqual(media.displayItem(oldEpisode).name, "TMDB episode")
+        XCTAssertEqual(media.displayItem(oldEpisode).metadata?.source, .tmdb)
+        XCTAssertEqual(media.displayItem(show).name, "TVDB show", "Episode settings must not change the show page")
+
+        media.setMetadataSource(.provider)
+        XCTAssertEqual(media.displayItem(tvdbShow).name, "Provider show")
+        XCTAssertNil(media.displayItem(tvdbShow).metadata)
+        XCTAssertEqual(media.displayItem(episode).name, "TMDB episode")
+        media.setMetadataSource(.tmdb)
+        XCTAssertEqual(media.displayItem(tvdbShow).name, "TMDB show")
+        XCTAssertEqual(media.displayItem(tvdbShow).metadata?.source, .tmdb)
+        XCTAssertEqual(media.displayItem(show).libraryKey, show.libraryKey)
+        XCTAssertEqual(media.displayItem(episode).indexNumber, 3)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.metadataSource, .tmdb)
+        XCTAssertEqual(restored.episodeDataSource, .tmdb)
+    }
+
+    @MainActor
+    func testLateTMDBResponseCannotReplaceTheSelectedTVDBShow() async throws {
+        let suite = "LibraryMetadataLateResponse." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let started = expectation(description: "Older TMDB request is in flight")
+        var reply: (() -> Void)?
+        defer { reply?() }
+        MetadataTestProtocol.install({ request in
+            switch request.url!.path {
+            case "/v4/login": return (200, #"{"data":{"token":"test-bearer"}}"#)
+            case "/v4/series/73244/extended":
+                return (200, #"{"data":{"id":73244,"name":"TVDB show"}}"#)
+            case "/3/tv/2316":
+                return (200, #"{"id":2316,"name":"Older TMDB show"}"#)
+            default: XCTFail("Unexpected metadata request"); return (404, "{}")
+            }
+        }, delaying: { request, status, body in
+            guard request.request.url?.path == "/3/tv/2316" else { return false }
+            // Hold the response without blocking URLSession's loading thread
+            // or relying on a fixed sleep to order the source changes.
+            Task { @MainActor in
+                reply = { request.respond(status: status, body: body) }
+                started.fulfill()
+            }
+            return true
+        })
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "test", tvdb: "test"),
+            metadataResolver: resolver())
+        let raw = item("Provider show", type: "Series", ids: ["Tmdb": "2316", "Tvdb": "73244"])
+        media.setMetadataSource(.tvdb)
+        await media.resolveMetadata(for: raw)
+        media.setMetadataSource(.tmdb)
+        let old = Task { await media.resolveMetadata(for: raw) }
+        await fulfillment(of: [started], timeout: 2)
+        media.setMetadataSource(.tvdb)
+        let deliver = try XCTUnwrap(reply)
+        reply = nil
+        deliver()
+        await old.value
+        XCTAssertEqual(media.displayItem(raw).name, "TVDB show")
+        XCTAssertEqual(media.displayItem(raw).metadata?.source, .tvdb)
+        media.setMetadataSource(.tmdb)
+        XCTAssertEqual(media.displayItem(raw).name, "Older TMDB show", "A late result may only fill its own source's cache")
+    }
+
+    @MainActor
     func testSettingsAreIndependentPersistAndRestoreProviderImmediately() async throws {
         let suite = "LibraryMetadataTests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -235,29 +353,36 @@ final class LibraryMetadataTests: XCTestCase {
 
 private final class MetadataTestProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = (URLRequest) throws -> (Int, String)
+    typealias Delay = (MetadataTestProtocol, Int, String) -> Bool
     private static let lock = NSLock()
     private static var handler: Handler?
+    private static var delay: Delay?
     private static var count = 0
     static var requestCount: Int { lock.lock(); defer { lock.unlock() }; return count }
-    static func install(_ handler: @escaping Handler) {
+    static func install(_ handler: @escaping Handler) { install(handler, delaying: nil) }
+    static func install(_ handler: @escaping Handler, delaying: Delay?) {
         lock.lock(); defer { lock.unlock() }
-        self.handler = handler; count = 0
+        self.handler = handler; delay = delaying; count = 0
     }
-    static func reset() { lock.lock(); defer { lock.unlock() }; handler = nil; count = 0 }
+    static func reset() { lock.lock(); defer { lock.unlock() }; handler = nil; delay = nil; count = 0 }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock()
         Self.count += 1
         let handler = Self.handler
+        let delay = Self.delay
         Self.lock.unlock()
         do {
             let (status, body) = try handler?(request) ?? (500, "{}")
-            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
-                httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
+            if delay?(self, status, body) != true { respond(status: status, body: body) }
         } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    func respond(status: Int, body: String) {
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }

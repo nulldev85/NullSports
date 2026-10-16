@@ -92,6 +92,37 @@ final class SeriesTrackingConsistencyTests: XCTestCase {
         assertPosition(reopened, episode: episodes[2])
     }
 
+    func testServerOnlyWatchedHistoryRepairsEpisodeTenAcrossAllSurfacesAndRelaunch() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let server = try XCTUnwrap(library.profiles.first?.id)
+        // This history exists only on the server, as on a new device or after
+        // upgrading from a build that did not save episode completions locally.
+        let episodes = self.episodes.map { episode in
+            MediaItem(id: episode.id, name: episode.name, type: "Episode", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                indexNumber: episode.indexNumber, parentIndexNumber: 2, seriesName: "Show", seriesID: "show",
+                userData: MediaUserData(played: (episode.indexNumber ?? 0) <= 2,
+                    isFavorite: false, playedPercentage: (episode.indexNumber ?? 0) <= 2 ? 100 : 0),
+                posterURL: episode.posterURL)
+        }
+        let generated = LocalMediaPlayback(profileID: server, item: episodes[9], position: 0,
+            duration: 3_000, updatedAt: .now, completed: false, isUpNext: true)
+        defaults.set(try JSONEncoder().encode([generated]), forKey: "Lineup.localMediaPlayback.v1")
+        let restored = MediaLibrary(defaults: defaults)
+        // The endpoint can return string-sorted IDs. Numeric episode order
+        // and watched flags must agree before accepting its E10 suggestion.
+        let lexical = episodes.sorted { $0.id < $1.id }
+        let target = restored.reconcileSeriesPlayback(in: show, episodes: lexical, serverNext: episodes[9])
+        XCTAssertEqual(target?.id, episodes[2].id)
+        assertPosition(restored, episode: episodes[2])
+        XCTAssertTrue(restored.isWatched(episodes[0]))
+        XCTAssertTrue(restored.isWatched(episodes[1]))
+        let reopened = MediaLibrary(defaults: defaults)
+        reopened.learnEpisodeOrder(episodes)
+        assertPosition(reopened, episode: episodes[2])
+    }
+
     func testLateServerResponseUsesNewerManualChanges() async throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }

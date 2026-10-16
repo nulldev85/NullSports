@@ -638,6 +638,22 @@ enum SeriesResumePolicy {
         func next(after position: Int) -> Int? {
             order.indices.first { $0 > position && !isWatched(order[$0]) }
         }
+        // A server suggestion or generated queue entry is not evidence that
+        // intervening episodes were watched. Some servers return E10 after
+        // E2 (string ordering), even while their episode list marks E3 unwatched.
+        // Repair that gap within the suggested season. Real local playback
+        // and manual choices are handled before these fallback hints.
+        func fallback(at position: Int, hint: MediaItem? = nil) -> MediaItem {
+            let candidate = order[position]
+            let progress = hint?.userData?.playedPercentage ?? candidate.userData?.playedPercentage ?? 0
+            if progress > 0 && progress < 92 { return candidate }
+            var hasWatched = false
+            for episode in order[..<position] where episode.parentIndexNumber == candidate.parentIndexNumber {
+                if isWatched(episode) { hasWatched = true }
+                else if hasWatched { return episode }
+            }
+            return candidate
+        }
         let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
 
         let started = latest(records.filter {
@@ -667,9 +683,9 @@ enum SeriesResumePolicy {
            next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
             return order[0]
         }
-        if finished == nil, let server { return order[server] }
+        if finished == nil, let server { return fallback(at: server, hint: serverNext) }
         if finished == nil, let queued = latest(records.filter { $0.isUpNext == true }),
-           let found = index(of: queued.item), !isWatched(order[found]) { return order[found] }
+           let found = index(of: queued.item), !isWatched(order[found]) { return fallback(at: found) }
         return order.first { !isWatched($0) } ?? order[0]
     }
 

@@ -141,12 +141,26 @@ struct LibraryMetadataSettingsView: View {
 /// Source attribution travels with a resolved item, including cached matches.
 struct LibraryMetadataCredit: View {
     let item: MediaItem
+    let interactive: Bool
+
+    init(item: MediaItem, interactive: Bool = true) {
+        self.item = item
+        self.interactive = interactive
+    }
+
+    private var title: String {
+        let role = item.type == "Episode" ? "Episode data" : item.isSeries ? "Show metadata" : "Movie metadata"
+        return role + ": " + (item.metadata?.source.title ?? LibraryMetadataSource.provider.title)
+    }
+
     var body: some View {
-        if let metadata = item.metadata,
-           let url = metadata.attributionURL.flatMap(URL.init(string:)) {
-            Link(metadata.source == .tvdb ? "Metadata: TheTVDB.com" : "Metadata: TMDB", destination: url)
-                .font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet)
-                .buttonStyle(.plain)
+        Group {
+            if interactive, let url = item.metadata?.attributionURL.flatMap(URL.init(string:)) {
+                Link(title, destination: url).buttonStyle(.plain)
+            } else {
+                Text(title)
+            }
         }
+        .font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet)
     }
 }
