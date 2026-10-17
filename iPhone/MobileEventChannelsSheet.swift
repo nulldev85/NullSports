@@ -30,7 +30,7 @@ struct MobileEventChannelsSheet: View {
                 guard current.isLive || current.isUpcoming,
                       let stream = library.stream(withID: entry.id),
                       stream.name == entry.stream.name, stream.epgChannelID == entry.stream.epgChannelID,
-                      library.isStream(stream, verifiedFor: current) else { reload(); return }
+                      library.isEventChannel(stream, verifiedFor: current) else { reload(); return }
                 onPick(stream)
             }, onClose: { dismiss() })
             .presentationDetents([.medium, .large])

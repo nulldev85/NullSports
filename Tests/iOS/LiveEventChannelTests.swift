@@ -20,8 +20,8 @@ final class LiveEventChannelTests: XCTestCase {
             broadcast: college ? "CBSSN" : "ABC", eventName: nil)
     }
 
-    private func stream(_ id: Int, _ name: String, epg: String? = "event", type: String = "live") -> XtreamStream {
-        XtreamStream(num: id, name: name, streamType: type, streamID: id, streamIcon: nil, epgChannelID: epg, categoryID: nil)
+    private func stream(_ id: Int, _ name: String, epg: String? = "event", type: String = "live", category: String? = nil) -> XtreamStream {
+        XtreamStream(num: id, name: name, streamType: type, streamID: id, streamIcon: nil, epgChannelID: epg, categoryID: category)
     }
 
     private func program(_ title: String, id: String = "event") -> CurrentProgram {
@@ -67,6 +67,66 @@ final class LiveEventChannelTests: XCTestCase {
         XCTAssertEqual(channels.map(\.id), [99, 1])
     }
 
+    func testMisassignedGuideCannotAdmitOtherTeamsSportsOrNonLiveCategories() {
+        let candidates = [stream(1, "US: ABC Miami FHD"), stream(2, "US: NBA Boston Celtics 4K"),
+            stream(3, "US: NFL Network 8K"), stream(4, "US: CNN International FHD"),
+            stream(5, "NBA Lakers vs Clippers 4K"), stream(6, "US: ESPN FHD", type: "movie"),
+            stream(7, "US: ESPN 4K", category: "news"), stream(8, "US: ESPN 4K", category: "football"),
+            stream(9, "US: NBA Orlando Magic HD"), stream(10, "US: NBA Miami Heat FHD"),
+            stream(11, "NBA Orlando Magic at Miami Heat FHD", epg: nil)]
+        let channels = SportsLibrary.matchingEventChannels(for: game(), candidates: candidates,
+            programs: ["event": [program("NBA Basketball: Orlando Magic at Miami Heat")]],
+            categories: [.init(categoryID: "news", categoryName: "News"),
+                         .init(categoryID: "football", categoryName: "NFL Football")], now: now)
+        XCTAssertEqual(Set(channels.map(\.id)), [1, 9, 10, 11])
+    }
+
+    func testTeamMentionsInsideTalkShowsAndRoundupsDoNotProveLiveCoverage() {
+        func entry(_ title: String, _ detail: String) -> CurrentProgram {
+            .init(channelID: "event", title: title, detail: detail,
+                start: now.addingTimeInterval(-1800), end: now.addingTimeInterval(6000))
+        }
+        let titles = [entry("SportsCenter", "Orlando Magic at Miami Heat"),
+            entry("NBA Today", "Orlando Magic at Miami Heat"),
+            entry("SportsCenter: Orlando Magic at Miami Heat", ""),
+            entry("NBA Basketball", "Highlights: Orlando Magic at Miami Heat"),
+            entry("NBA Basketball", "Orlando Magic at Miami Heat; Boston Celtics at Chicago Bulls"),
+            entry("NBA Basketball", "Orlando Magic at Miami Heat")]
+        for (index, listing) in titles.enumerated() {
+            let channels = SportsLibrary.matchingEventChannels(for: game(), candidates: [stream(1, "US: ESPN FHD")],
+                programs: ["event": [listing]], categories: [], now: now)
+            XCTAssertEqual(channels.map(\.id), index == titles.count - 1 ? [1] : [], "\(listing.title): \(listing.detail)")
+        }
+    }
+
+    func testExpiredOverlappingAndHistoricalEvidenceDoesNotFillEventChannels() {
+        let expired = CurrentProgram(channelID: "expired", title: "Orlando Magic at Miami Heat", detail: "",
+            start: now.addingTimeInterval(-6000), end: now.addingTimeInterval(-1))
+        let candidates = [stream(1, "NBA Orlando Magic at Miami Heat", epg: "expired"),
+            stream(2, "US: ESPN FHD", epg: "overlap"),
+            stream(3, "NBA Finals 2016 Orlando Magic at Miami Heat", epg: nil),
+            stream(4, "NBA Orlando Magic at Miami Heat", epg: nil)]
+        let channels = SportsLibrary.matchingEventChannels(for: game(), candidates: candidates,
+            programs: ["expired": [expired], "overlap": [program("Orlando Magic at Miami Heat"),
+                       program("Boston Celtics at Chicago Bulls")]], categories: [], now: now)
+        XCTAssertEqual(channels.map(\.id), [4], "An unambiguous guide-free event feed remains available")
+    }
+
+    func testSoccerChannelNamingAnotherMatchupCannotBorrowTheRequestedGamesGuide() {
+        let derby = SportsGame(id: "derby", league: .soccer, start: now.addingTimeInterval(-1200),
+            awayTeam: "Manchester United", homeTeam: "Manchester City", awayAbbreviation: "MUN", homeAbbreviation: "MNC",
+            awayLogo: "", homeLogo: "", awayScore: "1", homeScore: "1", awayColor: nil, homeColor: nil,
+            awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: "in",
+            broadcast: "Sky Sports", eventName: nil)
+        let candidates = [stream(1, "UK: Sky Sports Premier League FHD"),
+            stream(2, "Soccer England vs France 4K"), stream(3, "UK: EPL Arsenal 4K"),
+            stream(4, "Man Utd vs Man City FHD", epg: nil), stream(5, "PT: V Sports FHD"),
+            stream(6, "Soccer Womens 4K"), stream(7, "Soccer U21 4K")]
+        let channels = SportsLibrary.matchingEventChannels(for: derby, candidates: candidates,
+            programs: ["event": [program("Manchester United vs Manchester City")]], categories: [], now: now)
+        XCTAssertEqual(Set(channels.map(\.id)), [1, 4, 5])
+    }
+
     func testLanguagePreferenceSurvivesQualityRankingAndEvidenceStillBreaksQualityTies() {
         let quality: [Int: LiveChannelQuality] = [1: .init(name: "4K"), 2: .init(name: "FHD")]
         XCTAssertTrue(SportsLibrary.ranksAhead((2, 300), of: (1, 400), foreign: [1], qualities: quality))
@@ -88,6 +148,14 @@ final class LiveEventChannelTests: XCTestCase {
                          stream(3, "F1 Austin Practice 1 8K", epg: nil), stream(4, "Sky Sports F1 8K", epg: nil)],
             programs: [:], categories: [], now: race.start)
         XCTAssertEqual(channels.map(\.id), [1])
+
+        let sharedGuide = CurrentProgram(channelID: "event", title: "F1 \(race.eventName ?? "United States Grand Prix") Race", detail: "",
+            start: race.start.addingTimeInterval(-300), end: race.start.addingTimeInterval(7200))
+        let mislabeled = SportsLibrary.matchingEventChannels(for: race,
+            candidates: [stream(1, "F1 Austin Race 4K"), stream(2, "F1 Austin Qualifying 8K"),
+                         stream(3, "F1 Austin Practice 1 8K"), stream(4, "Sky Sports F1")],
+            programs: ["event": [sharedGuide]], categories: [], now: race.start)
+        XCTAssertEqual(mislabeled.map(\.id), [1, 4], "A race EPG cannot override an explicit practice/qualifying feed name")
     }
 
     #if !os(tvOS)

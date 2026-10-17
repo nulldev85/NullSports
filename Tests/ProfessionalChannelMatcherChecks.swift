@@ -87,6 +87,47 @@ enum ProfessionalChannelMatcherChecks {
                      "NFL Network is not RedZone")
         precondition(NFLRedZoneChannelMatcher.score(channel: "NFL RedZone Replay") == nil,
                      "A replay is not the live Sunday feed")
-        print("Professional matchup regression checks passed")
+        // Event-only Channels vetoes otherwise matching EPG when a provider
+        // assigns one game's listing to another team's or sport's feed.
+        let prepared = Matcher.prepare(game)
+        let participants = Set(prepared.away + prepared.home)
+        let knownTeams = ["New York Yankees", "Boston Red Sox", "New York Mets"].map {
+            EventChannelEvidence.Team(name: $0, abbreviation: "", nicknames: true)
+        }
+        func allows(_ channel: String, category: String = "", league: String = "mlb") -> Bool {
+            EventChannelEvidence.allowsSource(league: league, channel: channel, category: category,
+                date: start, participants: participants, teams: knownTeams)
+        }
+        precondition(allows("US: MLB Boston Red Sox FHD"), "A participant's feed remains eligible with proper EPG")
+        precondition(!allows("US: MLB New York Mets 4K"), "Another team's feed cannot borrow the same EPG")
+        precondition(!allows("US: NFL Network 4K"), "Another sport cannot borrow the same EPG")
+        precondition(!allows("US: CNN International"), "A news channel cannot borrow the same EPG")
+        precondition(!allows("US: ESPN", category: "Kids"), "A non-sports category is not event evidence")
+        precondition(!allows("US: NBA Basketball", league: "wnba"), "Specific league evidence beats a broad sport token")
+        precondition(!allows("US: ATP Tennis", league: "wta"), "The other tour's explicit label is contradictory")
+        precondition(allows("US: ESPN", category: "MLB / NBA"), "A multi-sport category may include this league")
+        precondition(allows("US: NASCAR", category: "NASCAR Cup Series", league: "nascar"), "Cup Series is not a TV-series category")
+        precondition(!allows("MLB Yankees vs Red Sox 2016"), "Historical names do not identify this live game")
+        for title in ["SportsCenter", "Sports Center: Yankees vs Red Sox", "Yankees vs Red Sox Highlights"] {
+            precondition(!EventChannelEvidence.allowsProgram(title: title, detail: "Yankees vs Red Sox", league: "mlb", date: start))
+        }
+        precondition(!EventChannelEvidence.isGenericTitle("MLB Tonight", league: "mlb"), "A studio title requires title-only event proof")
+        precondition(EventChannelEvidence.isGenericTitle("Live MLB Baseball", league: "mlb"))
+        precondition(EventChannelEvidence.allowsProgram(title: "MLB Baseball", detail: "Yankees vs Red Sox", league: "mlb", date: start))
+        precondition(!EventChannelEvidence.allowsProgram(title: "MLB Baseball", detail: "Highlights: Yankees vs Red Sox", league: "mlb", date: start))
+        precondition(EventChannelEvidence.namesMatchup("NBA: Magic vs Heat"))
+        precondition(EventChannelEvidence.namesMatchup("Soccer England at France"))
+        precondition(!EventChannelEvidence.namesMatchup("US: AT&T SportsNet"))
+        precondition(!EventChannelEvidence.namesMatchup("PT: V Sports"))
+        precondition(!EventChannelEvidence.allowsSoccerContext("Soccer Womens", women: false))
+        precondition(!EventChannelEvidence.allowsSoccerContext("Soccer U21", women: false))
+        precondition(!EventChannelEvidence.allowsSoccerContext("Mens Soccer", women: true))
+        precondition(EventChannelEvidence.allowsSoccerContext("Sky Sports Football", women: true))
+        precondition(!EventChannelEvidence.allowsRacingSession("F1 Austin Qualifying", session: "Race"))
+        precondition(!EventChannelEvidence.allowsRacingSession("F1 Austin Practice 1", session: "Practice 2"))
+        precondition(!EventChannelEvidence.allowsRacingSession("F1 Austin Qualifying", session: "Sprint Qualifying"))
+        precondition(EventChannelEvidence.allowsRacingSession("Sky Sports F1", session: "Race"))
+        precondition(EventChannelEvidence.allowsRacingSession("F1 Austin Sprint Qualifying", session: "Sprint Qualifying"))
+        print("Professional matchup and event evidence regression checks passed")
     }
 }

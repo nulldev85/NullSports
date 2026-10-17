@@ -1156,6 +1156,14 @@ final class SportsLibrary: ObservableObject {
         matchIsReady(game) && scheduleValidatedLeagues.contains(game.league)
     }
 
+    /// Reapply the list's stricter evidence to the current guide at selection.
+    func isEventChannel(_ stream: XtreamStream, verifiedFor game: SportsGame) -> Bool {
+        guard eventChannelsReady(for: game) else { return false }
+        let category = categories.first { $0.id == (stream.categoryID ?? "") }?.categoryName ?? ""
+        return Self.eventChannelScore(stream, game: game, preparedGame: Self.prepared(game),
+            listings: programs(for: stream), category: category, now: Date()) != nil
+    }
+
     /// The event's actual matching channels, not broad league/search suggestions.
     /// Build off the main actor; a provider or guide change retires the result.
     func eventChannels(for game: SportsGame) async -> [LiveEventChannel] {
@@ -1533,6 +1541,77 @@ final class SportsLibrary: ObservableObject {
         return channel.id < other.id
     }
 
+    nonisolated private static let eventChannelTeams: [SportsLeague: [EventChannelEvidence.Team]] = {
+        let clubCompetitions: Set<String> = ["eng.1", "esp.1", "ger.1", "ita.1", "fra.1", "usa.1", "usa.nwsl",
+            "uefa.champions", "uefa.europa", "uefa.europa.conf"]
+        let professional: Set<SportsLeague> = [.nba, .nfl, .nhl, .mlb]
+        let teams = SportsTeamDirectory.bundled.teams.filter { team in
+            // Country names can identify a broadcaster's region. Only club
+            // identities are negative evidence for soccer channel names.
+            team.league != .soccer || !Set(team.competitions ?? []).isDisjoint(with: clubCompetitions)
+        }
+        return Dictionary(grouping: teams, by: \.league).mapValues { entries in
+            entries.map { team in
+                EventChannelEvidence.Team(name: team.name, abbreviation: team.abbreviation,
+                    nicknames: professional.contains(team.league))
+            }
+        }
+    }()
+
+    nonisolated private static func eventChannelScore(_ stream: XtreamStream, game: SportsGame,
+                                                      preparedGame: ProfessionalChannelMatcher.PreparedGame,
+                                                      listings: [CurrentProgram], category: String, now: Date) -> Int? {
+        guard !["radio", "radio_streams", "movie", "series", "episode", "video", "vod"]
+            .contains(stream.streamType?.lowercased() ?? "") else { return nil }
+        func score(_ entries: [CurrentProgram]) -> Int? {
+            let channel = ProfessionalChannelMatcher.prepare(channel: stream.name,
+                listings: ProfessionalChannelMatcher.prepare(entries.map {
+                    .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+                }))
+            return Self.professionalScore(stream, game: game, preparedGame: preparedGame,
+                channel: channel, listings: entries, now: now)
+        }
+        guard let evidence = score(listings) else { return nil }
+        if game.league == .soccer {
+            let women = ["fifa.wwc", "usa.nwsl"].contains(game.competition?.id ?? "")
+            guard EventChannelEvidence.allowsSoccerContext(stream.name + " " + category, women: women) else { return nil }
+        }
+        if let race = game.race {
+            guard EventChannelEvidence.allowsRacingSession(stream.name, session: race.title) else { return nil }
+        }
+        let teams = eventChannelTeams[game.league] ?? []
+        let participants = Set(preparedGame.away + preparedGame.home)
+        if !game.isEvent, !game.league.isRacing,
+           !preparedGame.away.isEmpty, !preparedGame.home.isEmpty,
+           EventChannelEvidence.namesMatchup(stream.name) {
+            let name = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(stream.name))
+            guard preparedGame.away.contains(where: name.contains),
+                  preparedGame.home.contains(where: name.contains) else { return nil }
+        }
+        guard EventChannelEvidence.allowsSource(league: game.league.rawValue, channel: stream.name,
+            category: category, date: game.start, participants: participants, teams: teams) else { return nil }
+        let point = game.isLive ? now : game.start
+        let current = listings.filter { $0.end > $0.start && $0.start <= point && point < $0.end }
+        // A truly guide-free, explicit event feed remains usable. An expired
+        // guide is not evidence of what an old event-channel name carries now.
+        guard !current.isEmpty else { return listings.isEmpty ? evidence : nil }
+        for program in current {
+            guard EventChannelEvidence.allowsProgram(title: program.title, detail: program.detail,
+                league: game.league.rawValue, date: game.start), score([program]) != nil else { return nil }
+            if EventChannelEvidence.isGenericTitle(program.title, league: game.league.rawValue) {
+                let detail = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(program.detail))
+                guard !EventChannelEvidence.hasOtherTeam(in: detail, participants: participants, teams: teams) else { return nil }
+            } else {
+                // Mentions in a synopsis cannot turn an unrelated titled show
+                // into this event. Preserve the original description's vetoes.
+                let titleOnly = CurrentProgram(channelID: program.channelID, title: program.title,
+                    detail: "", start: program.start, end: program.end)
+                guard score([titleOnly]) != nil else { return nil }
+            }
+        }
+        return evidence
+    }
+
     nonisolated static func matchingEventChannels(for game: SportsGame, candidates: [XtreamStream],
                                                   programs: [String: [CurrentProgram]], categories: [XtreamCategory],
                                                   now: Date) -> [LiveEventChannel] {
@@ -1543,25 +1622,9 @@ final class SportsLibrary: ObservableObject {
         for stream in candidates {
             guard !Task.isCancelled else { return [] }
             guard seen.insert(stream.id).inserted else { continue }
-            guard !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "") else { continue }
-            if game.league == .ncaaf {
-                let category = (groups[stream.categoryID ?? ""] ?? "").lowercased()
-                if ["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) }) { continue }
-            }
             let listings = programs[stream.epgChannelID ?? ""] ?? []
-            let score: Int?
-            if game.league == .ncaaf {
-                score = CollegeChannelMatcher.score(channel: stream.name, listings: Self.collegeListings(listings),
-                    game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
-            } else {
-                let channel = ProfessionalChannelMatcher.prepare(channel: stream.name,
-                    listings: ProfessionalChannelMatcher.prepare(listings.map {
-                        .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
-                    }))
-                score = Self.professionalScore(stream, game: game, preparedGame: prepared,
-                    channel: channel, listings: listings, now: now)
-            }
-            guard let score else { continue }
+            guard let score = Self.eventChannelScore(stream, game: game, preparedGame: prepared,
+                listings: listings, category: groups[stream.categoryID ?? ""] ?? "", now: now) else { continue }
             let point = game.isLive ? now : game.start
             let program = listings.first { $0.start <= point && point < $0.end }
             result.append(.init(stream: stream, program: program, evidence: score, quality: .init(name: stream.name)))
