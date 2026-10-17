@@ -1,5 +1,6 @@
 import Foundation
 
+#if !os(iOS)
 /// How far the app is through bringing its data up to date, for the pop-up
 /// that says so: "Refreshing Data", the step under way, and how far through
 /// the whole refresh it is.
@@ -60,6 +61,7 @@ final class DataRefreshProgress: ObservableObject {
 
     /// Nil while there is nothing to say.
     @Published private(set) var status: Status?
+    var fraction: Double { Double(status?.percent ?? 0) / 100 }
 
     /// A gap this short between one step and the next is still one refresh.
     private static let settleFor: Duration = .milliseconds(700)
@@ -266,3 +268,4 @@ final class DataRefreshProgress: ObservableObject {
         "DataRefresh.\(kind).\(step.rawValue).\(profileKey)"
     }
 }
+#endif

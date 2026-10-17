@@ -3655,23 +3655,7 @@ private struct MediaEpisodeCard: View {
     }
 
     private func artwork(playback: MediaCardPlayback?) -> some View {
-        Color.clear
-                .frame(maxWidth: .infinity)
-                .overlay {
-                    ZStack {
-                        LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)
-                        LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
-                            if let image = loaded { image.resizable().scaledToFill() }
-                            else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
-                        }
-                    }
-                    .overlay(alignment: .bottom) {
-                        if let playback {
-                            MediaArtworkProgress(playback: playback)
-                        }
-                    }
-                }
+        artworkFrame(playback: playback)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
@@ -3685,6 +3669,29 @@ private struct MediaEpisodeCard: View {
                             .padding(8)
                     }
                 }
+    }
+
+    @ViewBuilder private func artworkFrame(playback: MediaCardPlayback?) -> some View {
+        #if os(tvOS)
+        TVMediaArtwork(playback: playback) { picture }
+        #else
+        Color.clear.frame(maxWidth: .infinity).overlay {
+            picture.overlay(alignment: .bottom) {
+                if let playback { MediaArtworkProgress(playback: playback) }
+            }
+        }
+        #endif
+    }
+
+    private var picture: some View {
+        ZStack {
+            LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+            LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
+                if let image = loaded { image.resizable().scaledToFill() }
+                else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
+            }
+        }
     }
 
     private var episodeArtworkIsFocused: Bool {
@@ -6081,33 +6088,7 @@ struct MediaItemCard: View {
             // clear rectangle with no size of its own, sized from the width the
             // grid offers, and the art hangs off it as an overlay where filling
             // and cropping cannot reach the layout.
-            Color.clear
-                .frame(maxWidth: .infinity)
-                .aspectRatio(shape.ratio, contentMode: .fit)
-                .overlay {
-                    ZStack {
-                        if let service = StreamingService.service(for: item) {
-                            // A service's poster is its own mark, drawn here
-                            // rather than fetched.
-                            StreamingServicePoster(service: service)
-                        } else {
-                            LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
-                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                            LineupArtView(url: artworkURL, width: artWidth) { loaded in
-                                if let image = loaded { image.resizable().scaledToFill() }
-                                else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
-                            }
-                        }
-                    }
-                    // Where the viewer is, on the art rather than under it: a
-                    // row's titles then sit on one line whether or not a card
-                    // has been started.
-                    .overlay(alignment: .bottom) {
-                        if let playback {
-                            MediaArtworkProgress(playback: playback)
-                        }
-                    }
-                }
+            artworkFrame(playback: playback)
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(LineupStyle.line, lineWidth: 1))
@@ -6169,6 +6150,36 @@ struct MediaItemCard: View {
         #else
         false
         #endif
+    }
+
+    @ViewBuilder private func artworkFrame(playback: MediaCardPlayback?) -> some View {
+        #if os(tvOS)
+        TVMediaArtwork(playback: playback) { picture }
+            .aspectRatio(shape.ratio, contentMode: .fit)
+        #else
+        Color.clear.frame(maxWidth: .infinity)
+            .aspectRatio(shape.ratio, contentMode: .fit)
+            .overlay {
+                picture.overlay(alignment: .bottom) {
+                    if let playback { MediaArtworkProgress(playback: playback) }
+                }
+            }
+        #endif
+    }
+
+    private var picture: some View {
+        ZStack {
+            if let service = StreamingService.service(for: item) {
+                StreamingServicePoster(service: service)
+            } else {
+                LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                LineupArtView(url: artworkURL, width: artWidth) { loaded in
+                    if let image = loaded { image.resizable().scaledToFill() }
+                    else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
+                }
+            }
+        }
     }
 
 
@@ -6236,6 +6247,29 @@ struct MediaItemCard: View {
         #endif
     }
 }
+
+#if os(tvOS)
+/// The visible card owns progress, independently of the source image's fill
+/// bounds. A portrait filling a still can extend far beyond the thumbnail;
+/// attaching progress to that image puts its bar outside the clipped card.
+struct TVMediaArtwork<Artwork: View>: View {
+    let playback: MediaCardPlayback?
+    private let artwork: Artwork
+
+    init(playback: MediaCardPlayback?, @ViewBuilder artwork: () -> Artwork) {
+        self.playback = playback
+        self.artwork = artwork()
+    }
+
+    var body: some View {
+        Color.clear.frame(maxWidth: .infinity)
+            .overlay { artwork }
+            .overlay(alignment: .bottom) {
+                if let playback { MediaArtworkProgress(playback: playback) }
+            }
+    }
+}
+#endif
 
 /// Where a viewer is in a title, laid across the foot of its artwork: the
 /// words, the track under them, and a shade behind both so they read over

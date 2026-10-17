@@ -1,10 +1,85 @@
 import XCTest
 import UIKit
+import SwiftUI
 import LineupAetherPlayback
 @testable import Lineup
 
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
+    func testPlayerViewReportsNormalRuntimeProgressAcrossAnEpisodeIDRefreshAndClose() async throws {
+        for kind in TVPlaybackEngine.allCases {
+            let fixture = try Fixture(kind)
+            defer { fixture.clean() }
+            let controller = fixture.controller()
+            defer { controller.stop() }
+            let profile = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid",
+                username: "viewer", userID: "user")
+            fixture.defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+            let media = MediaLibrary(defaults: fixture.defaults)
+            func episode(_ id: String) -> MediaItem {
+                MediaItem(id: id, name: "Episode 1", type: "Episode", overview: nil,
+                    productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                    runTimeTicks: 36_000_000_000, indexNumber: 1, parentIndexNumber: 1,
+                    seriesName: "The Wire", seriesID: "wire").servedBy(profile.id)
+            }
+            let old = episode("cached-episode")
+            let current = episode("current-episode")
+            media.trackPlayback(of: old, position: 600, duration: 3_600)
+            let session = UUID()
+            media.beginPlaybackSession(for: old, id: session)
+            defer { media.endPlaybackSession(session) }
+            let appeared = expectation(description: "\(kind.title) PlayerView opened the backend")
+            let reported = expectation(description: "\(kind.title) actual player clock reached tracking")
+            let closed = expectation(description: "\(kind.title) PlayerView reported its final position")
+            var didAppear = false
+            var didReport = false
+            var didClose = false
+            let backend = fixture.backend(kind)
+            backend.onLoad = { if !didAppear { didAppear = true; appeared.fulfill() } }
+            let player = PlayerView(urls: [Fixture.url], title: "The Wire", isLive: false,
+                initialPosition: media.resumePosition(for: current), expectedDuration: 3_600,
+                onProgress: { position, duration in
+                    media.trackPlayback(of: current, position: position, duration: duration, sessionID: session)
+                    if position == 615, !didReport { didReport = true; reported.fulfill() }
+                    if position == 617, !didClose { didClose = true; closed.fulfill() }
+                }, playbackController: controller)
+                .environmentObject(SportsLibrary(profileDefaults: fixture.defaults))
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let previous = scene.windows.first(where: \.isKeyWindow)
+            let window = UIWindow(windowScene: scene)
+            let host = UIHostingController(rootView: AnyView(player))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+                previous?.makeKey()
+            }
+            await fulfillment(of: [appeared], timeout: 5)
+            XCTAssertEqual(backend.loads.last?.startPosition, 600)
+            backend.time = 615
+            controller.checkPlayback()
+            await fulfillment(of: [reported], timeout: 5)
+            XCTAssertEqual(media.resumePosition(for: current), 615)
+            // This final two-second advance is below the ordinary reporting
+            // interval; the actual view's disappearance must still flush it.
+            backend.time = 617
+            controller.checkPlayback()
+            host.rootView = AnyView(Color.clear)
+            await fulfillment(of: [closed], timeout: 5)
+            media.endPlaybackSession(session)
+            let restored = MediaLibrary(defaults: fixture.defaults)
+            XCTAssertEqual(restored.resumePosition(for: current), 617)
+            XCTAssertEqual(restored.continueWatching.first?.position, 617)
+            XCTAssertFalse(restored.isWatched(current))
+            controller.start(urls: [Fixture.url], initialPosition: restored.resumePosition(for: current),
+                isLive: false, expectedDuration: 3_600)
+            XCTAssertEqual(backend.loads.last?.startPosition, 617)
+            controller.checkPlayback()
+            XCTAssertEqual(controller.elapsed, 617)
+        }
+    }
+
     func testFormatLabelsFollowTheCurrentStreamAndClearOnRetuneOrStop() throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
@@ -309,6 +384,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     var videoTracks: [PlaybackStreamTrack] = []
     var selectedVideoIndex: Int?
     var loads: [Load] = []
+    var onLoad: (() -> Void)?
     var seeks: [TimeInterval] = []
     init(_ kind: TVPlaybackEngine) { self.kind = kind }
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
@@ -319,6 +395,7 @@ private final class MockTVBackend: TVPlaybackBackend {
         time = startPosition ?? 0
         selectedAudioIndex = nil
         selectedSubtitleIndex = nil
+        onLoad?()
     }
     func play() { state = .playing }
     func pause() { state = .paused }

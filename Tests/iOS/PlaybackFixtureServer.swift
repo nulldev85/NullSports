@@ -9,20 +9,28 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     private let media: Data
     private let contentType: String
     private let live: Bool
+    private let stallsBeforeHeaders: Bool
+    private let onStalledRequest: (@Sendable () -> Void)?
+    private var reportedStall = false
     private var connections: [NWConnection] = []
     // NWListener.port can be .any (0) until the ready callback. Reading it
     // immediately made the playback tests connect to 127.0.0.1:0.
     private var readyPort: UInt16?
 
-    init(file: URL, contentType: String, live: Bool = false) throws {
+    init(file: URL, contentType: String, live: Bool = false,
+         stallsBeforeHeaders: Bool = false, onReady: (@Sendable () -> Void)? = nil,
+         onStalledRequest: (@Sendable () -> Void)? = nil) throws {
         media = try Data(contentsOf: file)
         self.contentType = contentType
         self.live = live
+        self.stallsBeforeHeaders = stallsBeforeHeaders
+        self.onStalledRequest = onStalledRequest
         listener = try NWListener(using: .tcp, on: .any)
         listener.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             if case .ready = state, let port = self.listener.port?.rawValue, port > 0 {
                 self.readyPort = port
+                onReady?()
             } else {
                 self.readyPort = nil
             }
@@ -61,6 +69,10 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     }
 
     private func respond(_ connection: NWConnection, request: String) {
+        if stallsBeforeHeaders {
+            if !reportedStall { reportedStall = true; onStalledRequest?() }
+            return
+        }
         if live {
             let header = "HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nConnection: close\r\n\r\n"
             connection.send(content: Data(header.utf8), completion: .contentProcessed { [weak self] error in
