@@ -116,7 +116,7 @@ final class MediaLibrary: ObservableObject {
     /// closing player's final samples and server Up Next refreshes cannot.
     private struct PlaybackSession {
         let profileID: UUID
-        let itemID: String
+        let item: MediaItem
         let initialPosition: TimeInterval
         let dismissalIDs: Set<UUID>
         var hasAdvanced = false
@@ -383,7 +383,8 @@ final class MediaLibrary: ObservableObject {
         var selected: [String: LocalMediaPlayback] = [:]
         for record in candidates {
             if let series = series(of: record.item), let key = episodeOrderKey(for: record.item),
-               seriesEpisodes[key] != nil, let target = seriesPlayTarget(in: series), target.id != record.item.id {
+               seriesEpisodes[key] != nil, let target = seriesPlayTarget(in: series),
+               !Self.samePlaybackItem(target, record.item) {
                 continue
             }
             let key = record.profileID.uuidString + "|" + (record.item.type == "Episode"
@@ -1192,10 +1193,35 @@ final class MediaLibrary: ObservableObject {
 
     // MARK: - Local playback tracking
 
+    /// A refreshed episode listing can change item IDs without changing the
+    /// episode. Match only explicit coordinates inside the same identified
+    /// series; callers separately require the same connected source profile.
+    nonisolated private static func samePlaybackItem(_ left: MediaItem, _ right: MediaItem) -> Bool {
+        if left.id == right.id { return true }
+        guard left.type == "Episode", right.type == "Episode",
+              let series = left.seriesID, !series.isEmpty, series == right.seriesID,
+              let season = left.parentIndexNumber, season >= 0, season == right.parentIndexNumber,
+              let number = left.indexNumber, number > 0, number == right.indexNumber else { return false }
+        return true
+    }
+
     func localPlaybackRecord(for item: MediaItem) -> LocalMediaPlayback? {
         guard let profileID = serverID(of: item) else { return nil }
-        if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { return held }
-        return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
+        if item.type != "Episode" {
+            if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { return held }
+            return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
+        }
+        var records = localPlayback.filter { $0.profileID == profileID && Self.samePlaybackItem($0.item, item) }
+        if let held = heldPlayback, held.profileID == profileID, Self.samePlaybackItem(held.item, item) {
+            records.removeAll { $0.id == held.id }
+            records.append(held)
+        }
+        return records.max { left, right in
+            let leftQueued = left.isUpNext == true && left.explicitlyUnwatched != true
+            let rightQueued = right.isUpNext == true && right.explicitlyUnwatched != true
+            if leftQueued != rightQueued { return leftQueued }
+            return left.updatedAt < right.updatedAt
+        }
     }
 
     /// The progress a card should present. Films and episodes match directly;
@@ -1336,7 +1362,9 @@ final class MediaLibrary: ObservableObject {
     func episodePlace(of episode: MediaItem) -> (number: Int, total: Int)? {
         guard episode.type == "Episode", let key = episodeOrderKey(for: episode) else { return nil }
         if let order = episodeOrders[key] {
-            guard let number = order.positions[episode.id] else { return nil }
+            if let number = order.positions[episode.id] { return (number, order.total) }
+            let currentID = seriesEpisodes[key]?.first { Self.samePlaybackItem($0, episode) }?.id
+            guard let number = currentID.flatMap({ order.positions[$0] }) else { return nil }
             return (number, order.total)
         }
         requestEpisodeOrder(key: key, for: episode)
@@ -1417,7 +1445,7 @@ final class MediaLibrary: ObservableObject {
 
     func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false) {
         guard playbackSessions[id] == nil, let profileID = serverID(of: item) else { return }
-        playbackSessions[id] = PlaybackSession(profileID: profileID, itemID: item.id,
+        playbackSessions[id] = PlaybackSession(profileID: profileID, item: item.servedBy(profileID),
             initialPosition: startsOver ? 0 : (resumePosition(for: item) ?? 0),
             dismissalIDs: Set(continueWatchingDismissals.filter {
                 $0.matches(item, profileID: profileID)
@@ -1432,7 +1460,7 @@ final class MediaLibrary: ObservableObject {
     private func acceptsPlayback(of item: MediaItem, profileID: UUID, sessionID: UUID?) -> Bool {
         guard let sessionID else { return true }
         guard let session = playbackSessions[sessionID] else { return false }
-        return session.profileID == profileID && session.itemID == item.id
+        return session.profileID == profileID && Self.samePlaybackItem(session.item, item)
     }
 
     func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval,
@@ -1496,7 +1524,10 @@ final class MediaLibrary: ObservableObject {
         let profileID = record.profileID
         let item = record.item
         let completed = record.completed
-        let wasCompleted = localPlayback.first(where: { $0.id == record.id })?.completed == true
+        let wasCompleted = localPlaybackRecord(for: item)?.completed == true
+        localPlayback.removeAll {
+            $0.profileID == profileID && $0.id != record.id && Self.samePlaybackItem($0.item, item)
+        }
         if let index = localPlayback.firstIndex(where: { $0.id == record.id }) {
             localPlayback[index] = record
         } else {
@@ -1514,7 +1545,9 @@ final class MediaLibrary: ObservableObject {
         }
         localPlayback = Array(retained)
         if completed {
-            playbackSessions = playbackSessions.filter { $0.value.profileID != profileID || $0.value.itemID != item.id }
+            playbackSessions = playbackSessions.filter {
+                $0.value.profileID != profileID || !Self.samePlaybackItem($0.value.item, item)
+            }
         }
         if item.type == "Episode", completed, !wasCompleted { reconcileCachedSeries(for: item) }
         persistLocalPlayback()
@@ -1595,9 +1628,11 @@ final class MediaLibrary: ObservableObject {
         let previousDuration = localPlaybackRecord(for: item)?.duration
         // A queued progress sample must not undo an explicit watched change
         // when the player or app later flushes its pending write.
-        if heldPlayback?.profileID == profileID, heldPlayback?.item.id == item.id { heldPlayback = nil }
-        playbackSessions = playbackSessions.filter { $0.value.profileID != profileID || $0.value.itemID != item.id }
-        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == item.id }
+        if let held = heldPlayback, held.profileID == profileID, Self.samePlaybackItem(held.item, item) { heldPlayback = nil }
+        playbackSessions = playbackSessions.filter {
+            $0.value.profileID != profileID || !Self.samePlaybackItem($0.value.item, item)
+        }
+        localPlayback.removeAll { $0.profileID == profileID && Self.samePlaybackItem($0.item, item) }
         let duration = item.runTimeTicks.map { max(1, Double($0) / 10_000_000) }
             ?? previousDuration.map { max(1, $0) } ?? 1
         localPlayback.append(LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
@@ -1806,7 +1841,7 @@ final class MediaLibrary: ObservableObject {
         let before = localPlayback
         let records = series(of: target).map { seriesRecords(of: $0, profileID: profileID) } ?? []
         let alreadyThere = records.contains { record in
-            record.item.id == target.id && (record.isUpNext == true
+            Self.samePlaybackItem(record.item, target) && (record.isUpNext == true
                 || (!record.completed && record.explicitlyUnwatched != true && record.position >= 5))
         }
         let watched = isWatched(target)
@@ -2021,19 +2056,18 @@ final class MediaLibrary: ObservableObject {
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
         guard let profileID = serverID(of: episode), !isWatched(episode) else { return }
         if !explicitlyUnwatched, let index = localPlayback.firstIndex(where: {
-            $0.profileID == profileID && $0.item.id == episode.id && $0.explicitlyUnwatched == true
+            $0.profileID == profileID && Self.samePlaybackItem($0.item, episode) && $0.explicitlyUnwatched == true
         }) {
             localPlayback[index].isUpNext = true
             return
         }
-        if let index = localPlayback.firstIndex(where: {
-            $0.profileID == profileID && $0.item.id == episode.id
-        }), localPlayback[index].position >= 5, !localPlayback[index].completed,
-           localPlayback[index].explicitlyUnwatched != true {
+        if let progress = localPlaybackRecord(for: episode), progress.position >= 5, !progress.completed,
+           progress.explicitlyUnwatched != true,
+           let index = localPlayback.firstIndex(where: { $0.id == progress.id }) {
             localPlayback[index].updatedAt = Date()
             return
         }
-        localPlayback.removeAll { $0.profileID == profileID && $0.item.id == episode.id }
+        localPlayback.removeAll { $0.profileID == profileID && Self.samePlaybackItem($0.item, episode) }
         let duration = episode.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? 1
         localPlayback.append(LocalMediaPlayback(profileID: profileID, item: episode.servedBy(profileID),
             position: 0, duration: duration, updatedAt: Date(), completed: false,

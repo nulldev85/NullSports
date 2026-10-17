@@ -6539,7 +6539,7 @@ struct PlayerView: View {
          recording: CatchUpProgramme? = nil, startsOver: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
          nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
-         continuing preview: TVPreviewHandoff? = nil) {
+         continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
         self.program = program
@@ -6554,7 +6554,7 @@ struct PlayerView: View {
         self.onChannelChange = onChannelChange
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
-        _controller = StateObject(wrappedValue: preview?.controller ?? TVPlaybackController())
+        _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
         _channelProgram = State(initialValue: program)

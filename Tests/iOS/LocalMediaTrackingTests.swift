@@ -7,6 +7,146 @@ import XCTest
 
 @MainActor
 final class LocalMediaTrackingTests: XCTestCase {
+    func testNormalRuntimeSurvivesRefreshedEpisodeIDsFromProviderAndJellyfin() throws {
+        for provider in [false, true] {
+            let suite = "RefreshedEpisodeIdentity.\(UUID())"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let server = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid",
+                username: "viewer", userID: "user")
+            let iptv = XtreamProfile(name: "Provider", serverURL: "https://provider.invalid", username: "viewer")
+            defaults.set(try JSONEncoder().encode([server]), forKey: "NullSports.mediaServers")
+            defaults.set(try JSONEncoder().encode([iptv]), forKey: "NullSports.profiles")
+            defaults.set(iptv.id.uuidString, forKey: "NullSports.activeProfile")
+            let sourceID = provider ? iptv.id : server.id
+            let seriesID = provider ? "iptv:series:42" : "wire"
+            func episode(_ id: String, number: Int = 1) -> MediaItem {
+                MediaItem(id: provider ? "iptv:episode:42:\(id)" : id, name: "Episode \(number)", type: "Episode",
+                    overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                    runTimeTicks: 36_000_000_000, indexNumber: number, parentIndexNumber: 1,
+                    seriesName: "The Wire", seriesID: seriesID).servedBy(sourceID)
+            }
+            let old = episode("cached-episode")
+            let current = episode("current-episode")
+            let next = episode("next-episode", number: 2)
+            let series = MediaItem(id: seriesID, name: "The Wire", type: "Series", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil).servedBy(sourceID)
+            let library = MediaLibrary(defaults: defaults)
+            library.trackPlayback(of: old, position: 900, duration: 3_600)
+            library.flushLocalPlayback()
+            // A fresh listing recognizes the same season/episode under a new
+            // ID. It must not replace genuine progress with an Up Next marker.
+            library.reconcileSeriesPlayback(in: series, episodes: [current, next], serverNext: current)
+            XCTAssertEqual(library.seriesPlayTarget(in: series)?.id, current.id)
+            XCTAssertEqual(library.resumePosition(for: current), 900)
+            XCTAssertEqual(library.continueWatching.first?.position, 900)
+            XCTAssertEqual(library.cardPlayback(for: current, asShow: false)?.fraction, 0.25)
+            XCTAssertEqual(library.episodePlace(of: old)?.number, 1)
+            XCTAssertNotEqual(library.localPlaybackRecord(for: current)?.isUpNext, true)
+            let session = UUID()
+            library.beginPlaybackSession(for: old, id: session)
+            library.trackPlayback(of: current, position: 930, duration: 3_600, sessionID: session)
+            library.endPlaybackSession(session)
+            let restored = MediaLibrary(defaults: defaults)
+            restored.learnEpisodeOrder([current, next])
+            XCTAssertEqual(restored.resumePosition(for: current), 930)
+            XCTAssertEqual(restored.resumePosition(for: old), 930)
+            XCTAssertEqual(restored.continueWatching.map(\.item.id), [current.id])
+            XCTAssertEqual(restored.localPlayback.filter { $0.item.parentIndexNumber == 1 && $0.item.indexNumber == 1 }.count, 1)
+        }
+    }
+
+    func testNewerGeneratedAliasCannotHideAnExistingResumePoint() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let old = trackingEpisode(1)
+        let current = MediaItem(id: "refreshed-e1", name: "Episode 1", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let sourceID = try XCTUnwrap(library.profiles.first?.id)
+        let records = [
+            LocalMediaPlayback(profileID: sourceID, item: old.servedBy(sourceID), position: 900, duration: 3_600,
+                updatedAt: Date(timeIntervalSince1970: 100), completed: false),
+            LocalMediaPlayback(profileID: sourceID, item: current.servedBy(sourceID), position: 0, duration: 3_600,
+                updatedAt: Date(timeIntervalSince1970: 200), completed: false, isUpNext: true)
+        ]
+        defaults.set(try JSONEncoder().encode(records), forKey: "Lineup.localMediaPlayback.v1")
+        let restored = MediaLibrary(defaults: defaults)
+        restored.learnEpisodeOrder([current, trackingEpisode(2)])
+        XCTAssertEqual(restored.resumePosition(for: current), 900)
+        XCTAssertEqual(restored.continueWatching.first?.position, 900)
+        XCTAssertEqual(restored.displayedPlaybackRecord(for: current)?.position, 900)
+        XCTAssertFalse(restored.isWatched(current))
+    }
+
+    func testEpisodeAliasMatchingCannotBorrowAnotherSourceShowOrSeason() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        library.trackPlayback(of: trackingEpisode(1), position: 900, duration: 3_600)
+        func candidate(series: String? = "show", season: Int? = 1, number: Int? = 1) -> MediaItem {
+            MediaItem(id: UUID().uuidString, name: "Episode 1", type: "Episode", overview: nil,
+                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                indexNumber: number, parentIndexNumber: season, seriesName: "Show", seriesID: series)
+        }
+        XCTAssertEqual(library.resumePosition(for: candidate()), 900)
+        XCTAssertNil(library.resumePosition(for: candidate().servedBy(UUID())))
+        XCTAssertNil(library.resumePosition(for: candidate(series: "another-show")))
+        XCTAssertNil(library.resumePosition(for: candidate(series: nil)))
+        XCTAssertNil(library.resumePosition(for: candidate(season: 2)))
+        XCTAssertNil(library.resumePosition(for: candidate(season: nil)))
+        XCTAssertNil(library.resumePosition(for: candidate(number: 2)))
+        XCTAssertNil(library.resumePosition(for: candidate(number: nil)))
+    }
+
+    func testMarkingRefreshedEpisodeUnwatchedRetiresItsOldSessionAndCheckpoint() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let old = trackingEpisode(1)
+        let current = MediaItem(id: "refreshed-e1", name: "Episode 1", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let session = UUID()
+        library.beginPlaybackSession(for: old, id: session)
+        library.trackPlayback(of: old, position: 900, duration: 3_600, sessionID: session)
+        library.trackPlayback(of: old, position: 930, duration: 3_600, sessionID: session)
+        library.setLocallyPlayed(false, for: current)
+        library.trackPlayback(of: old, position: 999, duration: 3_600, sessionID: session)
+        library.endPlaybackSession(session)
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertNil(restored.resumePosition(for: old))
+        XCTAssertEqual(restored.localPlaybackRecord(for: old)?.explicitlyUnwatched, true)
+        XCTAssertEqual(restored.localPlayback.filter { $0.item.indexNumber == 1 }.count, 1)
+        XCTAssertFalse(restored.isWatched(current))
+        restored.setLocallyPlayed(true, for: old)
+        XCTAssertTrue(restored.isWatched(current))
+    }
+
+    func testHiddenEpisodeKeepsItsCheckpointThroughAnIDRefreshUntilNewPlaybackAdvances() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let old = trackingEpisode(1)
+        let current = MediaItem(id: "refreshed-e1", name: "Episode 1", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: 1, parentIndexNumber: 1, seriesName: "Show", seriesID: "show")
+        let oldSession = UUID()
+        library.beginPlaybackSession(for: old, id: oldSession)
+        library.trackPlayback(of: old, position: 900, duration: 3_600, sessionID: oldSession)
+        library.removeFromContinueWatching(current)
+        library.trackPlayback(of: current, position: 930, duration: 3_600, sessionID: oldSession)
+        library.endPlaybackSession(oldSession)
+        let restored = MediaLibrary(defaults: defaults)
+        restored.rememberNextUp(current)
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        XCTAssertEqual(restored.resumePosition(for: current), 930)
+        let nextSession = UUID()
+        restored.beginPlaybackSession(for: current, id: nextSession)
+        restored.trackPlayback(of: current, position: 930, duration: 3_600, sessionID: nextSession)
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        restored.trackPlayback(of: current, position: 936, duration: 3_600, sessionID: nextSession)
+        restored.endPlaybackSession(nextSession)
+        XCTAssertEqual(restored.continueWatching.first?.position, 936)
+    }
+
     private func record(position: TimeInterval, duration: TimeInterval,
                         completed: Bool = false) -> LocalMediaPlayback {
         LocalMediaPlayback(
