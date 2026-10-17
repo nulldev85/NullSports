@@ -7662,6 +7662,8 @@ private struct PlaybackClockReader<Content: View>: View {
     private var scrubDestination: Double?
     private let scrubSeeks = PlaybackSeekCoalescer()
     private var seekLanding = PlaybackSeekLanding()
+    private var videoProgressAnchor = TVVideoProgressAnchor()
+    private var playbackLogSampler = TVPlaybackLogSampler()
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel, or a film or an episode. A channel that stops is
@@ -7834,6 +7836,8 @@ private struct PlaybackClockReader<Content: View>: View {
 
     private func openCurrent() {
         backend.stop()
+        videoProgressAnchor.reset()
+        playbackLogSampler.reset()
         mediaInfo = PlaybackMediaInfo()
         videoHeight = 0
         resetSubtitles()
@@ -7879,7 +7883,11 @@ private struct PlaybackClockReader<Content: View>: View {
         guard !isScrubbing else { return }
         let length = backend.duration
         if length.isFinite, length > 0, length != duration { duration = length }
-        let time = backend.time
+        let measuredTime = backend.time
+        let time = !isLive && backend.isPlaying
+            ? (videoProgressAnchor.heldPosition(now: uptime(), clock: measuredTime,
+                                               expectedFrameRate: mediaInfo.frameRate) ?? measuredTime)
+            : measuredTime
         guard time.isFinite else { return }
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
@@ -7925,6 +7933,7 @@ private struct PlaybackClockReader<Content: View>: View {
     func beginScrubbing() {
         guard !isLive, duration.isFinite, duration > 0, !isScrubbing else { return }
         isScrubbing = true
+        videoProgressAnchor.reset()
         scrubDestination = elapsed
         scrubSeeks.cancel()
         resumeAfterScrubbing = !pausedByUser
@@ -7956,6 +7965,7 @@ private struct PlaybackClockReader<Content: View>: View {
     private func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        videoProgressAnchor.reset()
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: uptime())
@@ -7973,6 +7983,12 @@ private struct PlaybackClockReader<Content: View>: View {
         let nextMediaInfo = backend.mediaInfo
         if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
         guard !isScrubbing else { return }
+        if seekLanding.isWaiting(now: uptime()) {
+            videoProgressAnchor.reset()
+        } else if !isLive {
+            videoProgressAnchor.observe(now: uptime(), position: backend.time, frames: backend.frames,
+                playing: backend.isPlaying, video: backend.hasVideoOut)
+        }
         holdAudioLevel()
         updateProgress()
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
@@ -7982,6 +7998,13 @@ private struct PlaybackClockReader<Content: View>: View {
         restoreTrackChoices()
         holdScreenAwake()
         noteCondition()
+        if watched != nil, !isLive, !urls.isEmpty {
+            for line in playbackLogSampler.lines(now: uptime(), engine: engineTitle, state: backend.state,
+                ready: backend.hasVideoOut, height: videoHeight, info: mediaInfo,
+                position: elapsed, duration: duration, diagnostics: backend.diagnostics, clock: backend.time) {
+                log(line)
+            }
+        }
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
         let now = uptime()
         guard UIApplication.shared.applicationState == .active else {
@@ -8051,7 +8074,8 @@ private struct PlaybackClockReader<Content: View>: View {
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
         if !isLive, reopenPosition == nil, elapsed > 0 {
-            reopenPosition = max(0, elapsed - 2)
+            let pictureStalled = health.stall == .frozenWhileArriving || health.stall == .nothingArriving
+            reopenPosition = videoProgressAnchor.recoveryPosition(clock: elapsed, pictureStalled: pictureStalled)
         }
         // A recording that stops is picked up from where it had got to --
         // or, having reached the present or the end of its programme, isn't.
@@ -8182,6 +8206,7 @@ private struct PlaybackClockReader<Content: View>: View {
               keepTrackChoices: true)
     }
     func togglePlayback() {
+        videoProgressAnchor.reset()
         pausedByUser.toggle()
         if pausedByUser {
             backend.pause()
@@ -8358,6 +8383,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+        videoProgressAnchor.reset()
         backend.selectSubtitle(index: track.engineIndex)
         selectedSubtitleID = track.id
         chosenSubtitle = track
@@ -8381,12 +8407,14 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectAudioTrack(_ track: PlaybackStreamTrack) {
+        videoProgressAnchor.reset()
         backend.selectAudio(index: track.id)
         selectedAudioTrackID = track.id
         chosenAudioTrack = track.id
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
+        videoProgressAnchor.reset()
         backend.selectVideo(index: track.id)
         selectedVideoTrackID = track.id
         chosenVideoTrack = track.id
@@ -8418,6 +8446,8 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func stop() {
+        videoProgressAnchor.reset()
+        playbackLogSampler.reset()
         isScrubbing = false
         resumeAfterScrubbing = false
         scrubDestination = nil

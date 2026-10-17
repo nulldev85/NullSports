@@ -322,6 +322,69 @@ final class PlaybackEngineTests: XCTestCase {
         }
     }
 
+    func testFrozenFramesAfterMinutesOfPlaybackRecoverAtTheLastPictureWithoutSkippingAhead() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let backend = fixture.vlc
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3600)
+        backend.mediaInfo = PlaybackMediaInfo(videoCodec: "h264", frameRate: 24)
+        for second in 1...180 {
+            fixture.now = 1000 + Double(second)
+            backend.time = 600 + Double(second)
+            backend.frames = second * 24
+            backend.bytes = second * 100_000
+            controller.checkPlayback()
+        }
+        XCTAssertEqual(controller.elapsed, 780)
+        for second in 181...240 {
+            fixture.now = 1000 + Double(second)
+            backend.time = 600 + Double(second) // Audio clock keeps running.
+            backend.bytes = second * 100_000 // Source still arrives.
+            controller.checkPlayback()
+            if second >= 183 { XCTAssertLessThanOrEqual(controller.elapsed, 780) }
+        }
+        XCTAssertTrue(controller.reconnecting)
+        XCTAssertFalse(controller.finished)
+        XCTAssertEqual(controller.elapsed, 780)
+        fixture.now += 2
+        controller.checkPlayback()
+        XCTAssertEqual(backend.loads.count, 2)
+        XCTAssertEqual(backend.loads.last?.startPosition, 778, "840s of audio is not 840s of watched video")
+        XCTAssertEqual(backend.loads.last?.url, Fixture.url, "Recovery keeps the exact selected release")
+    }
+
+    func testTemporaryBufferingAndUserPauseDoNotReopenOrSeekAHealthyRecordedStream() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let backend = fixture.vlc
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3600)
+        backend.time = 600; backend.frames = 100; backend.bytes = 100_000
+        controller.checkPlayback()
+        backend.state = .buffering
+        for second in 1...20 {
+            fixture.now += 1
+            backend.bytes = 100_000 + second * 10_000
+            controller.checkPlayback()
+        }
+        XCTAssertFalse(controller.reconnecting)
+        backend.state = .playing
+        backend.time = 601; backend.frames = 124
+        controller.checkPlayback()
+        XCTAssertEqual(controller.elapsed, 601)
+        controller.togglePlayback()
+        fixture.now += 300
+        controller.checkPlayback()
+        XCTAssertFalse(controller.reconnecting)
+        controller.togglePlayback()
+        controller.checkPlayback()
+        XCTAssertEqual(backend.loads.count, 1)
+        XCTAssertTrue(backend.seeks.isEmpty)
+    }
+
     func testProviderRecordingIsNotOpenedAsAnUnboundedLiveStream() throws {
         let fixture = try Fixture(.aether)
         defer { fixture.clean() }
@@ -355,6 +418,7 @@ final class PlaybackEngineTests: XCTestCase {
 @MainActor
 private final class MockTVBackend: TVPlaybackBackend {
     struct Load {
+        let url: URL
         let startPosition: TimeInterval?
         let isLive: Bool
         let expectedDuration: TimeInterval?
@@ -371,8 +435,8 @@ private final class MockTVBackend: TVPlaybackBackend {
     var mediaInfo = PlaybackMediaInfo()
     var duration: TimeInterval = 3_600
     var time: TimeInterval = 0
-    var frames: Int? { nil }
-    var bytes: Int? { nil }
+    var frames: Int?
+    var bytes: Int?
     var isSeekable = true
     var isOpen = false
     var volume: Int32 = 100
@@ -389,7 +453,9 @@ private final class MockTVBackend: TVPlaybackBackend {
     init(_ kind: TVPlaybackEngine) { self.kind = kind }
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         mediaInfo = PlaybackMediaInfo()
-        loads.append(.init(startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
+        frames = nil
+        bytes = nil
+        loads.append(.init(url: url, startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
                            primary: primary, matchContent: matchContent))
         isOpen = true
         time = startPosition ?? 0

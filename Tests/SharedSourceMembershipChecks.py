@@ -61,6 +61,16 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         self.assertFalse(is_included(project, "App", SHARED[0]))
         self.assertTrue(is_included(project, "App", "Lineup/Views/Other.swift"))
 
+    def test_playback_diagnostics_and_tv_http_fixture_have_target_membership(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        source = "AetherPlayback/PlaybackDiagnosticsSnapshot.swift"
+        self.assertTrue((ROOT / source).is_file())
+        for target in ("LineupAetherPlayback", "LineupAetherPlaybackiOS"):
+            self.assertTrue(is_included(project, target, source))
+        for source in ("Tests/iOS/PlaybackFixtureServer.swift", "Tests/iOS/PlaybackFixtureByteRange.swift"):
+            self.assertTrue(is_included(project, "LineupTests", source))
+        self.assertTrue(is_included(project, "Lineup", "Lineup/Services/TVPlaybackReliability.swift"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ protocol TVPlaybackBackend: AnyObject {
     var hasVideoOut: Bool { get }
     var videoSize: CGSize { get }
     var mediaInfo: PlaybackMediaInfo { get }
+    var diagnostics: PlaybackDiagnosticsSnapshot { get }
     var duration: TimeInterval { get }
     var time: TimeInterval { get }
     var frames: Int? { get }
@@ -41,6 +42,10 @@ protocol TVPlaybackBackend: AnyObject {
     func selectSubtitle(index: Int?)
     func selectAudio(index: Int)
     func selectVideo(index: Int)
+}
+
+extension TVPlaybackBackend {
+    var diagnostics: PlaybackDiagnosticsSnapshot { PlaybackDiagnosticsSnapshot() }
 }
 
 @MainActor
@@ -81,6 +86,9 @@ final class TVVLCBackend: TVPlaybackBackend {
     var hasVideoOut: Bool { player.hasVideoOut }
     var videoSize: CGSize { player.videoSize }
     var mediaInfo: PlaybackMediaInfo { VLCPlaybackMediaInfo.read(player) }
+    var diagnostics: PlaybackDiagnosticsSnapshot {
+        PlaybackDiagnosticsSnapshot(route: "VLC", bytesRead: bytes.map { Int64($0) }, displayedFrames: frames)
+    }
     var duration: TimeInterval { Double(player.media?.length.intValue ?? 0) / 1000 }
     var time: TimeInterval { Double(player.time.intValue) / 1000 }
     var frames: Int? { player.media?.numberOfDisplayedPictures }
@@ -174,6 +182,7 @@ final class TVAetherBackend: TVPlaybackBackend {
     var hasVideoOut: Bool { session?.hasPicture == true }
     var videoSize: CGSize { session?.videoSize ?? .zero }
     var mediaInfo: PlaybackMediaInfo { session?.mediaInfo ?? PlaybackMediaInfo() }
+    var diagnostics: PlaybackDiagnosticsSnapshot { session?.diagnostics ?? PlaybackDiagnosticsSnapshot() }
     var duration: TimeInterval { session?.duration ?? 0 }
     var time: TimeInterval { session?.position ?? 0 }
     var frames: Int? { nil }

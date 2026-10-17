@@ -30,6 +30,7 @@ public final class AetherPlaybackSession {
     private var initialPosition: Double = 0
     private var sourceSeekableAtLoad: Bool?
     private var liveSource = false
+    private var nativeFrameRecoveryEnabled = false
     public private(set) var isOpen = false
     private var probedVideoSize: CGSize = .zero
     public var videoSize: CGSize {
@@ -53,6 +54,21 @@ public final class AetherPlaybackSession {
             frameRate: engine.sourceVideoFrameRate, audioCodec: audio?.codec, audioProfile: audio?.profile,
             audioChannels: audio?.channels, audioLayout: audio?.channelLayout,
             isDolbyAtmos: audio?.isAtmos == true)
+    }
+    public var diagnostics: PlaybackDiagnosticsSnapshot {
+        guard isOpen, !loading else { return PlaybackDiagnosticsSnapshot() }
+        let telemetry = engine.liveTelemetry
+        return PlaybackDiagnosticsSnapshot(
+            route: engine.videoRoute == .software ? "software" : (engine.currentAVPlayerItem != nil ? "native" : nil),
+            decoder: engine.activeVideoDecoder,
+            bytesRead: telemetry?.demuxerBytesFetched,
+            droppedFrames: telemetry?.droppedFrameCount,
+            nativeBufferSeconds: telemetry?.forwardBufferSeconds,
+            decodedVideoSeconds: telemetry?.displayCushionSeconds,
+            sourceWindowBytes: telemetry?.readerWindowAheadBytes,
+            networkMbps: telemetry?.networkThroughputMbps,
+            frameDelaySeconds: telemetry?.accumulatedFrameDelaySeconds,
+            nativeFrameRecoveryEnabled: nativeFrameRecoveryEnabled)
     }
     #if os(iOS)
     private lazy var pip = AetherPictureInPicture(session: self)
@@ -224,6 +240,13 @@ public final class AetherPlaybackSession {
         options.suppressDisplayCriteria = !matchContent
         options.matchContentEnabled = matchContent
         options.sharedOutputRole = primary ? .primary : .secondary
+        #if os(tvOS)
+        // Aether owns the verified SDR output-gap check and its bounded repair.
+        // It excludes pauses, seeks, background/external playback and routes it
+        // cannot measure. No app-level A/V offset or playback-rate guessing.
+        nativeFrameRecoveryEnabled = !isLive && primary && expectedDuration.map { $0.isFinite && $0 > 0 } == true
+        options.nativeVideoFrameRecovery = nativeFrameRecoveryEnabled
+        #endif
         #if os(iOS)
         // Native PiP cannot see the host overlay; prepare subtitle renditions.
         options.prepareNativeSubtitles = true
@@ -277,6 +300,7 @@ public final class AetherPlaybackSession {
         failure = nil
         sourceSeekableAtLoad = nil
         liveSource = false
+        nativeFrameRecoveryEnabled = false
         probedVideoSize = .zero
         engine.stop()
         canvas.display(cues: [], at: 0, videoSize: .zero)

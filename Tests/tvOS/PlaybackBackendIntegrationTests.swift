@@ -7,6 +7,79 @@ import LineupAetherPlayback
 /// Controller policy tests above also cover failure and retry deterministically.
 @MainActor
 final class PlaybackBackendIntegrationTests: XCTestCase {
+    func testBothEnginesPlayPauseAndSeekThroughAJellyfinStyleRedirect() async throws {
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv",
+                                                            subdirectory: "Fixtures"))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKey() }
+        for kind in TVPlaybackEngine.allCases {
+            let ready = expectation(description: "\(kind.title) redirected HTTP origin listening")
+            let origin = try PlaybackFixtureServer(file: file, contentType: "video/x-matroska",
+                onReady: { ready.fulfill() }, redirectsVideoRoute: true)
+            defer { origin.stop() }
+            await fulfillment(of: [ready], timeout: 5)
+            let url = try XCTUnwrap(origin.url(path: "videos/item/stream?static=true&MediaSourceId=selected&PlaySessionId=snapshot"))
+            let backend = makeTVPlaybackBackend(kind)
+            defer { backend.stop(); backend.surface.removeFromSuperview() }
+            backend.surface.frame = host.view.bounds
+            host.view.addSubview(backend.surface)
+            backend.isMuted = true
+            backend.load(url: url, startPosition: nil, isLive: false, expectedDuration: 12,
+                         primary: true, matchContent: false)
+            backend.play()
+            try await waitUntil("\(kind.title) did not render redirected Jellyfin-shaped HTTP video") {
+                backend.isPlaying && backend.hasVideoOut && backend.time > 0.2
+            }
+            XCTAssertGreaterThan(origin.requestCounts.redirects, 0)
+            XCTAssertEqual(backend.duration, 12, accuracy: 0.75)
+            try await waitUntil("\(kind.title) did not expose the actual HTTP source formats") {
+                backend.mediaInfo.badges.contains("H.264") && backend.mediaInfo.badges.contains("AAC")
+            }
+            if kind == .aether {
+                XCTAssertTrue(backend.diagnostics.nativeFrameRecoveryEnabled,
+                    "The guarded native repair is configured for primary recorded playback; software routes ignore it")
+            }
+            backend.pause()
+            try await waitUntil("\(kind.title) did not pause redirected playback") { backend.state == .paused }
+            try await waitUntil("\(kind.title) did not retain seeking on redirected playback") { backend.isSeekable }
+            backend.seek(to: 6)
+            backend.play()
+            try await waitUntil("\(kind.title) did not continue after seeking through HTTP playback") {
+                backend.time >= 6.5 && backend.isPlaying && backend.hasVideoOut
+            }
+            try await waitUntil("\(kind.title) did not complete the redirected source") { backend.state == .ended }
+            backend.stop()
+            XCTAssertFalse(backend.diagnostics.nativeFrameRecoveryEnabled)
+        }
+    }
+
+    func testRedirectedByteRangesReturnTheExactSelectedFileBytes() async throws {
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv",
+                                                            subdirectory: "Fixtures"))
+        let media = try Data(contentsOf: file)
+        let ready = expectation(description: "range origin listening")
+        let origin = try PlaybackFixtureServer(file: file, contentType: "video/x-matroska",
+            onReady: { ready.fulfill() }, redirectsVideoRoute: true)
+        defer { origin.stop() }
+        await fulfillment(of: [ready], timeout: 5)
+        let url = try XCTUnwrap(origin.url(path: "videos/item/stream?MediaSourceId=selected&PlaySessionId=snapshot"))
+        for (range, expected) in [("bytes=100-199", 100..<200),
+                                  ("bytes=-128", (media.count - 128)..<media.count)] {
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            request.setValue(range, forHTTPHeaderField: "Range")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 206)
+            XCTAssertEqual(data, media.subdata(in: expected))
+        }
+        XCTAssertEqual(origin.requestCounts.redirects, 2)
+        XCTAssertEqual(origin.requestCounts.ranges, 2)
+    }
+
     func testBoundedSourceProbeReportsGeneratedVideoDimensions() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv", subdirectory: "Fixtures"))
         let quality = try await AetherSourceProbe.quality(url: fixture, timeout: 5)
@@ -126,6 +199,7 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
         try await waitUntil("AetherEngine did not resume the replacement session") {
             backend.isPlaying && backend.hasVideoOut && backend.time >= 6
         }
+        XCTAssertFalse(backend.diagnostics.nativeFrameRecoveryEnabled, "Secondary playback keeps its existing policy")
         XCTAssertEqual(backend.kind.title, "AetherEngine")
     }
 

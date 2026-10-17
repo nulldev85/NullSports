@@ -10,6 +10,9 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     private let contentType: String
     private let live: Bool
     private let stallsBeforeHeaders: Bool
+    private let redirectsVideoRoute: Bool
+    private var redirectCount = 0
+    private var rangeCount = 0
     private let onStalledRequest: (@Sendable () -> Void)?
     private var reportedStall = false
     private var connections: [NWConnection] = []
@@ -19,11 +22,12 @@ final class PlaybackFixtureServer: @unchecked Sendable {
 
     init(file: URL, contentType: String, live: Bool = false,
          stallsBeforeHeaders: Bool = false, onReady: (@Sendable () -> Void)? = nil,
-         onStalledRequest: (@Sendable () -> Void)? = nil) throws {
+         onStalledRequest: (@Sendable () -> Void)? = nil, redirectsVideoRoute: Bool = false) throws {
         media = try Data(contentsOf: file)
         self.contentType = contentType
         self.live = live
         self.stallsBeforeHeaders = stallsBeforeHeaders
+        self.redirectsVideoRoute = redirectsVideoRoute
         self.onStalledRequest = onStalledRequest
         listener = try NWListener(using: .tcp, on: .any)
         listener.stateUpdateHandler = { [weak self] state in
@@ -45,6 +49,7 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     }
 
     var port: UInt16? { queue.sync { readyPort } }
+    var requestCounts: (redirects: Int, ranges: Int) { queue.sync { (redirectCount, rangeCount) } }
     func url(path: String) -> URL? { port.flatMap { URL(string: "http://127.0.0.1:\($0)/\(path)") } }
     func stop() {
         listener.cancel()
@@ -69,6 +74,15 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     }
 
     private func respond(_ connection: NWConnection, request: String) {
+        let firstLine = request.components(separatedBy: "\r\n").first ?? ""
+        let parts = firstLine.split(separator: " ")
+        let target = parts.count > 1 ? String(parts[1]) : ""
+        if redirectsVideoRoute, target.hasPrefix("/videos/") {
+            redirectCount += 1
+            let header = "HTTP/1.1 302 Found\r\nLocation: /origin/selected-release\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
         if stallsBeforeHeaders {
             if !reportedStall { reportedStall = true; onStalledRequest?() }
             return
@@ -82,6 +96,7 @@ final class PlaybackFixtureServer: @unchecked Sendable {
             return
         }
         let rangeLine = request.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("range:") }
+        if rangeLine != nil { rangeCount += 1 }
         let rangeValue = rangeLine?.split(separator: ":", maxSplits: 1).last.map(String.init)
         guard let range = PlaybackFixtureByteRange.resolve(rangeValue, count: media.count) else {
             let header = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */\(media.count)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
