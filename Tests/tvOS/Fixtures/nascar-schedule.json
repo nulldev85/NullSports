@@ -1,0 +1,54 @@
+{
+  "events": [
+    {
+      "id": "202610180053",
+      "uid": "s:2000~l:2021~e:202610180053",
+      "date": "2026-10-18T19:00Z",
+      "name": "NASCAR Cup Series at Phoenix",
+      "shortName": "NASCAR Cup Series at Phoenix",
+      "competitions": [
+        {
+          "id": "202610180053",
+          "uid": "s:2000~l:2021~e:202610180053~c:202610180053",
+          "date": "2026-10-18T19:00Z",
+          "timeValid": true,
+          "status": {
+            "period": 0,
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sun, October 18th at 3:00 PM EDT",
+              "shortDetail": "10/18 - 3:00 PM EDT"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "USA Net",
+                "HBO Max"
+              ]
+            }
+          ],
+          "startDate": "2026-10-18T19:00Z",
+          "broadcast": "USA Net/HBO Max"
+        }
+      ],
+      "status": {
+        "period": 0,
+        "type": {
+          "id": "1",
+          "name": "STATUS_SCHEDULED",
+          "state": "pre",
+          "completed": false,
+          "description": "Scheduled",
+          "detail": "Sun, October 18th at 3:00 PM EDT",
+          "shortDetail": "10/18 - 3:00 PM EDT"
+        }
+      }
+    }
+  ]
+}

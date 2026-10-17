@@ -1,0 +1,490 @@
+{
+  "events": [
+    {
+      "id": "600057445",
+      "uid": "s:2000~l:2030~e:600057445",
+      "date": "2026-10-09T08:30Z",
+      "endDate": "2026-10-11T12:00Z",
+      "name": "Singapore Airlines Singapore Grand Prix",
+      "shortName": "Singapore Airlines Singapore GP",
+      "competitions": [
+        {
+          "id": "401839117",
+          "uid": "s:2000~l:2030~e:600057445~c:401839117",
+          "date": "2026-10-11T12:00Z",
+          "type": {
+            "id": "3",
+            "abbreviation": "Race"
+          },
+          "timeValid": true,
+          "competitors": [
+            {
+              "id": "4665",
+              "uid": "s:2000~a:4665",
+              "type": "athlete",
+              "order": 1,
+              "winner": true,
+              "athlete": {
+                "fullName": "Max Verstappen",
+                "displayName": "Max Verstappen",
+                "shortName": "M. Verstappen",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/ned.png",
+                  "alt": "Netherlands",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5498",
+              "uid": "s:2000~a:5498",
+              "type": "athlete",
+              "order": 2,
+              "winner": false,
+              "athlete": {
+                "fullName": "Charles Leclerc",
+                "displayName": "Charles Leclerc",
+                "shortName": "C. Leclerc",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/mon.png",
+                  "alt": "Monaco",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5829",
+              "uid": "s:2000~a:5829",
+              "type": "athlete",
+              "order": 3,
+              "winner": false,
+              "athlete": {
+                "fullName": "Kimi Antonelli",
+                "displayName": "Kimi Antonelli",
+                "shortName": "K. Antonelli",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/ita.png",
+                  "alt": "Italy",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5579",
+              "uid": "s:2000~a:5579",
+              "type": "athlete",
+              "order": 4,
+              "winner": false,
+              "athlete": {
+                "fullName": "Lando Norris",
+                "displayName": "Lando Norris",
+                "shortName": "L. Norris",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/gbr.png",
+                  "alt": "Britain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5752",
+              "uid": "s:2000~a:5752",
+              "type": "athlete",
+              "order": 5,
+              "winner": false,
+              "athlete": {
+                "fullName": "Oscar Piastri",
+                "displayName": "Oscar Piastri",
+                "shortName": "O. Piastri",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/aus.png",
+                  "alt": "Australia",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "868",
+              "uid": "s:2000~a:868",
+              "type": "athlete",
+              "order": 6,
+              "winner": false,
+              "athlete": {
+                "fullName": "Lewis Hamilton",
+                "displayName": "Lewis Hamilton",
+                "shortName": "L. Hamilton",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/gbr.png",
+                  "alt": "Britain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5741",
+              "uid": "s:2000~a:5741",
+              "type": "athlete",
+              "order": 7,
+              "winner": false,
+              "athlete": {
+                "fullName": "Liam Lawson",
+                "displayName": "Liam Lawson",
+                "shortName": "L. Lawson",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/nzl.png",
+                  "alt": "New Zealand",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4396",
+              "uid": "s:2000~a:4396",
+              "type": "athlete",
+              "order": 8,
+              "winner": false,
+              "athlete": {
+                "fullName": "Nico Hülkenberg",
+                "displayName": "Nico Hülkenberg",
+                "shortName": "N. Hülkenberg",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/ger.png",
+                  "alt": "Germany",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5503",
+              "uid": "s:2000~a:5503",
+              "type": "athlete",
+              "order": 9,
+              "winner": false,
+              "athlete": {
+                "fullName": "George Russell",
+                "displayName": "George Russell",
+                "shortName": "G. Russell",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/gbr.png",
+                  "alt": "Britain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5790",
+              "uid": "s:2000~a:5790",
+              "type": "athlete",
+              "order": 10,
+              "winner": false,
+              "athlete": {
+                "fullName": "Isack Hadjar",
+                "displayName": "Isack Hadjar",
+                "shortName": "I. Hadjar",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+                  "alt": "France",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5501",
+              "uid": "s:2000~a:5501",
+              "type": "athlete",
+              "order": 11,
+              "winner": false,
+              "athlete": {
+                "fullName": "Pierre Gasly",
+                "displayName": "Pierre Gasly",
+                "shortName": "P. Gasly",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+                  "alt": "France",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5789",
+              "uid": "s:2000~a:5789",
+              "type": "athlete",
+              "order": 12,
+              "winner": false,
+              "athlete": {
+                "fullName": "Oliver Bearman",
+                "displayName": "Oliver Bearman",
+                "shortName": "O. Bearman",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/gbr.png",
+                  "alt": "Britain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4678",
+              "uid": "s:2000~a:4678",
+              "type": "athlete",
+              "order": 13,
+              "winner": false,
+              "athlete": {
+                "fullName": "Esteban Ocon",
+                "displayName": "Esteban Ocon",
+                "shortName": "E. Ocon",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+                  "alt": "France",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4686",
+              "uid": "s:2000~a:4686",
+              "type": "athlete",
+              "order": 14,
+              "winner": false,
+              "athlete": {
+                "fullName": "Carlos Sainz",
+                "displayName": "Carlos Sainz",
+                "shortName": "C. Sainz",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+                  "alt": "Spain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5855",
+              "uid": "s:2000~a:5855",
+              "type": "athlete",
+              "order": 15,
+              "winner": false,
+              "athlete": {
+                "fullName": "Arvid Lindblad",
+                "displayName": "Arvid Lindblad",
+                "shortName": "A. Lindblad",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/gbr.png",
+                  "alt": "Britain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "348",
+              "uid": "s:2000~a:348",
+              "type": "athlete",
+              "order": 16,
+              "winner": false,
+              "athlete": {
+                "fullName": "Fernando Alonso",
+                "displayName": "Fernando Alonso",
+                "shortName": "F. Alonso",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+                  "alt": "Spain",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4472",
+              "uid": "s:2000~a:4472",
+              "type": "athlete",
+              "order": 17,
+              "winner": false,
+              "athlete": {
+                "fullName": "Sergio Pérez",
+                "displayName": "Sergio Pérez",
+                "shortName": "S. Pérez",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/mex.png",
+                  "alt": "Mexico",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5592",
+              "uid": "s:2000~a:5592",
+              "type": "athlete",
+              "order": 18,
+              "winner": false,
+              "athlete": {
+                "fullName": "Alexander Albon",
+                "displayName": "Alexander Albon",
+                "shortName": "A. Albon",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/tha.png",
+                  "alt": "Thailand",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4520",
+              "uid": "s:2000~a:4520",
+              "type": "athlete",
+              "order": 19,
+              "winner": false,
+              "athlete": {
+                "fullName": "Valtteri Bottas",
+                "displayName": "Valtteri Bottas",
+                "shortName": "V. Bottas",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/fin.png",
+                  "alt": "Finland",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "4775",
+              "uid": "s:2000~a:4775",
+              "type": "athlete",
+              "order": 20,
+              "winner": false,
+              "athlete": {
+                "fullName": "Lance Stroll",
+                "displayName": "Lance Stroll",
+                "shortName": "L. Stroll",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/can.png",
+                  "alt": "Canada",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5823",
+              "uid": "s:2000~a:5823",
+              "type": "athlete",
+              "order": 21,
+              "winner": false,
+              "athlete": {
+                "fullName": "Franco Colapinto",
+                "displayName": "Franco Colapinto",
+                "shortName": "F. Colapinto",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/arg.png",
+                  "alt": "Argentina",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "5835",
+              "uid": "s:2000~a:5835",
+              "type": "athlete",
+              "order": 22,
+              "winner": false,
+              "athlete": {
+                "fullName": "Gabriel Bortoleto",
+                "displayName": "Gabriel Bortoleto",
+                "shortName": "G. Bortoleto",
+                "flag": {
+                  "href": "https://a.espncdn.com/i/teamlogos/countries/500/bra.png",
+                  "alt": "Brazil",
+                  "rel": [
+                    "country-flag"
+                  ]
+                }
+              }
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "0:00",
+            "period": 62,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Apple TV"
+              ]
+            }
+          ],
+          "startDate": "2026-10-11T12:00Z",
+          "broadcast": "Apple TV"
+        }
+      ],
+      "circuit": {
+        "id": "740",
+        "fullName": "Marina Bay Street Circuit",
+        "address": {
+          "city": "Singapore",
+          "country": "Singapore"
+        }
+      },
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 28,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      }
+    }
+  ]
+}

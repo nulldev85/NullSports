@@ -4,8 +4,10 @@ import LineupAetherPlayback
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.scenePhase) private var scenePhase
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
+    @State private var soccerCompetition: String?
     /// What is full screen. One value carries the channel, the game and the
     /// preview's player together: read from state of their own inside the
     /// cover, the game and the player could come through as they were a
@@ -19,6 +21,8 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -31,7 +35,13 @@ struct LiveView: View {
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
-    private var events: [SportsGame] { library.games(for: selectedLeague).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
+    private var events: [SportsGame] {
+        library.games(for: selectedLeague).filter {
+            let end = $0.league.isRacing ? (Calendar.current.date(byAdding: .day, value: 14, to: dayStart) ?? horizon) : horizon
+            return ($0.isLive || ($0.start >= dayStart && $0.start < end))
+                && (selectedLeague != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }
+    }
     private var tickerEvents: [SportsGame] { library.scoreTickerGames() }
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
     private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
@@ -43,8 +53,9 @@ struct LiveView: View {
                     LiveScreen(
                         events: events,
                         selectedLeague: $selectedLeague,
+                        soccerCompetition: $soccerCompetition,
                         previewStream: previewStream,
-                        previewGame: events.first { $0.id == previewGameID },
+                        previewGame: library.gamesByLeague.values.lazy.flatMap { $0 }.first { $0.id == previewGameID },
                         previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                         multiviewPrimaryID: multiviewPrimary?.id,
                         multiviewTitle: multiviewPrimary?.name,
@@ -138,6 +149,11 @@ struct LiveView: View {
             .onChange(of: isActive) { _, active in
                 if !active { stopPreview() }
             }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck() }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(LineupStyle.background.ignoresSafeArea())
@@ -170,12 +186,25 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
+        case let .play(streamID, source):
             if let stream = library.stream(withID: streamID) {
-                start(game, on: stream, startsMultiview: startsMultiview)
+                TVPreviewHandoff.stopPreviews()
+                let request = UUID()
+                if source == .verified {
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { start(game, on: chosen, startsMultiview: startsMultiview) }
+                        else { chooseChannel(for: game, startsMultiview: startsMultiview) }
+                    }
+                } else { start(game, on: stream, startsMultiview: startsMultiview) }
             } else {
                 chooseChannel(for: game, startsMultiview: startsMultiview)
             }
@@ -188,6 +217,7 @@ struct LiveView: View {
 
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
                        manuallySelected: Bool = false) {
+        cancelQualityCheck()
         if startsMultiview {
             stopPreview()
             multiviewPrimary = stream
@@ -268,10 +298,17 @@ struct LiveView: View {
     }
 
     private func stopPreview() {
+        cancelQualityCheck()
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
         previewWasManuallySelected = false
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 }
 
@@ -1098,6 +1135,7 @@ private struct LiveScreen: View {
     @EnvironmentObject private var library: SportsLibrary
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
+    @Binding var soccerCompetition: String?
     let previewStream: XtreamStream?
     let previewGame: SportsGame?
     let previewURLs: [URL]
@@ -1122,6 +1160,7 @@ private struct LiveScreen: View {
         VStack(spacing: 14) {
             stage
             LiveMatchupBoard(events: events, selectedLeague: $selectedLeague, spotlight: spotlight,
+                             soccerCompetition: $soccerCompetition,
                              previewGameID: previewGame?.id, multiviewPrimaryID: multiviewPrimaryID,
                              multiviewTitle: multiviewTitle, isScheduleLoading: isScheduleLoading,
                              isScheduleAvailable: isScheduleAvailable,
@@ -1311,8 +1350,9 @@ private struct LiveSlate: View {
     /// right a red LIVE tag, or when it starts.
     private var header: some View {
         HStack(spacing: 14) {
-            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 32)
-            Text(game.league.shortName).font(.inter(17, .heavy)).tracking(0.6)
+            if game.competition != nil { SportsMark(league: game.league, competition: game.competition, size: 32) }
+            else { LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 32) }
+            Text(game.competition?.shortName ?? game.league.shortName).font(.inter(17, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.text)
             if let network = nonempty(game.broadcast) {
                 Rectangle().fill(LivePalette.secondary.opacity(0.5)).frame(width: 1, height: 18)
@@ -1344,6 +1384,9 @@ private struct LiveSlate: View {
                 .lineLimit(1).minimumScaleFactor(0.5)
                 .contentTransition(.numericText())
                 LiveStatusCapsule(status: game.status)
+                if let detail = game.soccer?.detail {
+                    Text(detail).font(.inter(18, .semibold)).foregroundStyle(LivePalette.secondary)
+                }
             }
         } else if game.isLive {
             LiveStatusCapsule(status: game.status)
@@ -1365,14 +1408,14 @@ private struct LiveSlate: View {
     private var event: some View {
         VStack(spacing: 18) {
             LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 92)
-            Text(game.eventName ?? game.league.shortName)
+            Text(game.matchupLine)
                 .font(.inter(46, .bold)).foregroundStyle(LivePalette.text)
                 .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.6)
                 .frame(maxWidth: 900)
             if game.isLive {
                 LiveStatusCapsule(status: game.status)
             } else {
-                Text("\(liveStartWord(game.league))  ·  \(game.startLabel.uppercased())")
+                Text("\(game.race?.title.uppercased() ?? liveStartWord(game.league))  ·  \(game.startLabel.uppercased())")
                     .font(.interDigits(20, .bold)).tracking(2)
                     .foregroundStyle(LivePalette.secondary)
             }
@@ -1830,7 +1873,11 @@ private struct LiveMyTeamsEmpty: View {
                 VStack(spacing: 0) {
                     ForEach(Array(teams.prefix(5))) { team in
                         HStack(spacing: 12) {
-                            TeamBadge(url: team.logo, fallback: team.abbreviation, size: 30)
+                            if let league = SportsLeague(rawValue: team.league.lowercased()), league.isRacing {
+                                SportsMark(league: league, size: 30)
+                            } else {
+                                TeamBadge(url: team.logo, fallback: team.abbreviation, size: 30)
+                            }
                             Text(team.name).font(.inter(17, .semibold))
                                 .foregroundStyle(LivePalette.text).lineLimit(1)
                             Spacer(minLength: 8)
@@ -1868,7 +1915,7 @@ private struct LiveTeamRow: View {
             if game.isEvent {
                 HStack(spacing: 12) {
                     LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 30)
-                    Text(game.eventName ?? game.league.shortName).font(.inter(19, .semibold))
+                    Text(game.matchupLine).font(.inter(19, .semibold))
                         .foregroundStyle(LivePalette.text).lineLimit(2).minimumScaleFactor(0.8)
                 }
             } else {
@@ -1979,6 +2026,7 @@ private struct LiveGameMenu: ViewModifier {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
+    @State private var showingRaceDetails = false
     let game: SportsGame
     let isPrimary: Bool
     let onStartMultiview: () -> Void
@@ -1986,6 +2034,9 @@ private struct LiveGameMenu: ViewModifier {
     func body(content: Content) -> some View {
         content.tvHoldMenu(game.matchupLine, symbol: "sportscourt") {
             var items: [TVChoice] = []
+            if game.league.isRacing {
+                items.append(TVChoice("Race Details", symbol: "flag.checkered") { showingRaceDetails = true })
+            }
             if game.isUpcoming {
                 let on = reminders.reminds(game)
                 items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -2010,6 +2061,7 @@ private struct LiveGameMenu: ViewModifier {
             }
             return items
         }
+        .fullScreenCover(isPresented: $showingRaceDetails) { RacingSessionDetails(game: game) }
     }
 }
 
@@ -2023,6 +2075,7 @@ private struct LiveMatchupBoard: View {
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     let spotlight: LiveSpotlight
+    @Binding var soccerCompetition: String?
     let previewGameID: String?
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
@@ -2086,12 +2139,13 @@ private struct LiveMatchupBoard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     HStack(spacing: 12) {
                         LineupIconTile(symbol: "sportscourt", size: LineupPanelStyle.headerSize * 1.6)
-                        Text("MATCHUPS")
+                        Text(selectedLeague?.isRacing == true ? "EVENTS" : "MATCHUPS")
                             .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
                             .tracking(LineupPanelStyle.headerTracking)
                     }
                     .foregroundStyle(LineupPanelStyle.caption)
-                    LiveBoardCount(total: events.count, live: events.filter(\.isLive).count)
+                    LiveBoardCount(total: events.count, live: events.filter(\.isLive).count,
+                                   noun: selectedLeague?.isRacing == true ? "EVENT" : "GAME")
                 }
             }
             Spacer(minLength: 20)
@@ -2101,6 +2155,7 @@ private struct LiveMatchupBoard: View {
                     LiveChipLabel(symbol: "xmark", title: "Cancel multiview")
                 }
             } else {
+                if selectedLeague == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
                 LiveLeagueFilter(selectedLeague: $selectedLeague)
             }
         }
@@ -2137,10 +2192,11 @@ private struct LiveEmptyLane: View {
 private struct LiveBoardCount: View {
     let total: Int
     let live: Int
+    var noun = "GAME"
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("\(total) \(total == 1 ? "GAME" : "GAMES")")
+            Text("\(total) \(noun)\(total == 1 ? "" : "S")")
             if live > 0 {
                 Circle().fill(LivePalette.onAir).frame(width: 7, height: 7)
                 Text("\(live) LIVE").foregroundStyle(LineupStyle.liveStatus)
@@ -2328,10 +2384,15 @@ private struct LiveMatchupCard: View {
             if game.isEvent {
                 HStack(spacing: 16) {
                     LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 56)
-                    Text(game.eventName ?? game.league.shortName)
-                        .font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
-                        .lineLimit(3).minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(game.eventName ?? game.league.shortName)
+                            .font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
+                            .lineLimit(2).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let session = game.race?.title {
+                            Text(session).font(.inter(16, .bold)).foregroundStyle(LineupStyle.highlight).lineLimit(1)
+                        }
+                    }
                 }
             } else {
                 let lead = liveLeader(game)
@@ -2340,6 +2401,10 @@ private struct LiveMatchupCard: View {
                          dim: lead == .home, isAway: true)
                     team(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeRecord, game.homeScore,
                          dim: lead == .away, isAway: false)
+                }
+                if let detail = game.soccer?.detail {
+                    Text(detail).font(.inter(13, .semibold)).foregroundStyle(LivePalette.secondary)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -2369,8 +2434,12 @@ private struct LiveMatchupCard: View {
 
     private var topLine: some View {
         HStack(spacing: 10) {
-            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-            Text(game.league.shortName).font(.inter(15, .heavy)).tracking(0.6)
+            if game.competition != nil || game.league.isRacing {
+                SportsMark(league: game.league, competition: game.competition, size: 26)
+            } else {
+                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
+            }
+            Text(game.competition?.shortName ?? game.league.shortName).font(.inter(15, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.secondary)
             Spacer(minLength: 0)
         }
@@ -2500,6 +2569,9 @@ private func liveStartWord(_ league: SportsLeague) -> String {
     case .mlb: "FIRST PITCH"
     case .ufc: "MAIN CARD"
     case .atp, .wta: "FIRST SERVE"
+    case .soccer: "KICKOFF"
+    case .f1: "LIGHTS OUT"
+    case .nascar: "GREEN FLAG"
     }
 }
 
@@ -2510,7 +2582,7 @@ private func liveLeagueName(_ league: SportsLeague) -> String {
 
 /// The matchup in a line: "BOS 3 – NYY 5", "BOS @ MIL", or an event's name.
 private func liveHeadline(_ game: SportsGame) -> String {
-    if game.isEvent { return game.eventName ?? game.league.shortName }
+    if game.isEvent { return game.matchupLine }
     if game.isLive && !game.awayScore.isEmpty && !game.homeScore.isEmpty {
         return "\(game.awayAbbreviation) \(game.awayScore)  –  \(game.homeAbbreviation) \(game.homeScore)"
     }
@@ -2518,7 +2590,7 @@ private func liveHeadline(_ game: SportsGame) -> String {
 }
 
 private func liveAccessibilityLabel(_ game: SportsGame) -> String {
-    let matchup = game.isEvent ? (game.eventName ?? game.league.shortName) : game.matchupLine
+    let matchup = game.matchupLine
     guard game.isLive else { return "\(matchup), \(game.start.formatted(date: .abbreviated, time: .shortened))" }
     let score = game.awayScore.isEmpty || game.homeScore.isEmpty ? "" : ", \(game.awayScore) to \(game.homeScore)"
     return "\(matchup)\(score), \(game.status.isEmpty ? "live" : game.status)"
@@ -2779,6 +2851,8 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .mlb: "baseball.fill"
     case .ufc: "figure.martial.arts"
     case .atp, .wta: "tennisball.fill"
+    case .soccer: "soccerball"
+    case .f1, .nascar: "flag.checkered"
     }
 }
 
@@ -2798,7 +2872,9 @@ private struct LeagueLogo: View {
         Group {
             // ESPN has no league mark for these: UFC, the NCAA's and the
             // tennis tours' come with the app.
-            if league == .ufc || league == .ncaaf || league.isTennis {
+            if league == .soccer || league.isRacing {
+                SportsMark(league: league, size: size)
+            } else if league == .ufc || league == .ncaaf || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in
@@ -2908,7 +2984,7 @@ private struct GameEventCard: View {
                 MatchupArtwork(event: event)
                 VStack(alignment: .leading, spacing: 8) {
                     if event.isEvent {
-                        Text(event.eventName ?? "")
+                        Text(event.matchupLine)
                             .font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
                             .lineLimit(2).minimumScaleFactor(0.75)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -4623,6 +4699,7 @@ struct AccountView: View {
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
+    @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
@@ -4673,6 +4750,15 @@ struct AccountView: View {
                         playbackEngine = engine.rawValue
                     }
                 }
+            }
+            .tvChoices("Live TV Sources", symbol: "antenna.radiowaves.left.and.right", isPresented: $choosingProvider,
+                       message: "Your provider supplies the streams. Connect its Xtream login or add an EPGenius / M3U playlist.") {
+                library.profiles.map { profile in
+                    TVChoice(profile.name, symbol: profile.isPlaylist ? "list.bullet.rectangle" : "server.rack",
+                             id: profile.id.uuidString, isSelected: library.activeProfile?.id == profile.id) {
+                        Task { await library.selectProfile(profile) }
+                    }
+                } + [TVChoice("Add TV Source", symbol: "plus", id: "add-provider") { addingProvider = true }]
             }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
@@ -4725,6 +4811,7 @@ struct AccountView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             if library.activeProfile != nil {
+                providersRow
                 preferredChannelsRow
             }
             // Every server feeds the Library at once, so with more than one
@@ -4742,6 +4829,33 @@ struct AccountView: View {
                 .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
+    }
+
+    /// Adding a provider remains available after first setup. New connections
+    /// are saved alongside the active one and can be selected from this menu.
+    private var providersRow: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return TVSelectable(scale: 1.01, fillRadius: 18, action: { choosingProvider = true }) {
+            HStack(spacing: 20) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
+                    .frame(width: 52)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Live TV Sources").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text("Add an EPGenius / M3U playlist or switch saved connections")
+                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                Text("\(library.profiles.count) saved")
+                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 96)
+            .background(LineupPanelStyle.well, in: shape)
+        }
+        .disabled(library.isSwitchingProfile)
     }
 
     /// The channels saved for teams, one press from their list.
@@ -4774,7 +4888,7 @@ struct AccountView: View {
         if let profile = library.activeProfile {
             AccountSourceCard(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
+                kind: profile.isPlaylist ? "PLAYLIST & GUIDE" : "IPTV PROVIDER",
                 title: profile.name,
                 subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: library.channelsAreSyncing ? .busy("Updating")
@@ -4798,13 +4912,13 @@ struct AccountView: View {
         } else {
             AccountEmptySource(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
-                title: "No provider",
-                detail: "Add your IPTV login to fill Live and the guide."
+                kind: "LIVE TV SOURCE",
+                title: "No TV source",
+                detail: "Connect your provider or add an EPGenius / M3U playlist."
             ) {
                 // The first-run screen is the only other place to sign in, and
                 // it never returns once a media server is saved.
-                AccountButton(title: "Add IPTV Provider", symbol: "plus", prominent: true) {
+                AccountButton(title: "Add TV Source", symbol: "plus", prominent: true) {
                     addingProvider = true
                 }
             }
@@ -7229,7 +7343,7 @@ private struct TVGameAlertBanner: View {
 
     /// "BOS @ NYY", or an event's name.
     static func matchup(_ game: SportsGame) -> String {
-        game.isEvent ? (game.eventName ?? game.league.shortName)
+        game.isEvent ? game.matchupLine
             : "\(game.awayAbbreviation) \(game.sidesSymbol) \(game.homeAbbreviation)"
     }
 
@@ -8480,10 +8594,12 @@ private struct TVPreviewFormatBadges: View {
 @MainActor private func configureGameFailover(_ controller: TVPlaybackController,
                                                game: SportsGame, library: SportsLibrary,
                                                chooseChannel: @escaping @MainActor () -> Void) {
+    let automaticID = library.verifiedStream(for: game)?.id
     controller.failover = TVPlaybackController.FailoverContext(
         plan: { library.failoverPlan(for: game) },
         urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
         didPlay: { id in
+            guard id != automaticID else { return }
             if let working = library.stream(withID: id) {
                 library.saveGameSelection(working, for: game)
             }
@@ -8627,7 +8743,7 @@ final class TVPreviewHandoff {
 
     /// Stops every preview but this player. A preview covered by full screen
     /// opens again when it is uncovered.
-    @MainActor fileprivate static func stopPreviews(except kept: TVPlaybackController) {
+    @MainActor static func stopPreviews(except kept: TVPlaybackController? = nil) {
         for entry in previews {
             guard let controller = entry.controller, controller !== kept, controller.isOpen else { continue }
             controller.lentToFullScreen = false

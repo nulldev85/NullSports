@@ -29,7 +29,7 @@ extension SportsGame {
     var spokenScoreline: String {
         let network = leadNetwork.map { ", on \($0)" } ?? ""
         let when = isLive ? (status.isEmpty ? "Live" : status) : startLabel
-        if isEvent { return "\(eventName ?? ""), \(when)\(network)" }
+        if isEvent { return "\(matchupLine), \(when)\(network)" }
         let away = Self.spokenName(awayTeam, rank: awayRank)
         let home = Self.spokenName(homeTeam, rank: homeRank)
         guard isLive else { return "\(away) \(sidesWord == "vs" ? "versus" : "at") \(home), \(when)\(network)" }
@@ -126,7 +126,7 @@ struct MobileNowPlayingStrip: View {
             if game.isEvent {
                 MobileLeagueLogo(league: game.league, size: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(game.eventName ?? "").font(.inter(14, .bold)).lineLimit(1)
+                    Text(game.matchupLine).font(.inter(14, .bold)).lineLimit(1)
                     if game.isLive { clock } else {
                         Text(game.startLabel).font(.interDigits(12, .heavy))
                     }
@@ -140,7 +140,7 @@ struct MobileNowPlayingStrip: View {
                         Text(game.startLabel).font(.interDigits(12, .heavy))
                     }
                     HStack(spacing: 4) {
-                        MobileLeagueLogo(league: game.league, size: 13)
+                        SportsMark(league: game.league, competition: game.competition, size: 16)
                         if let network = game.leadNetwork {
                             Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
                                 .lineLimit(1)

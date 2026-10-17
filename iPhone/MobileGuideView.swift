@@ -49,6 +49,8 @@ struct MobileGuideView: View {
         nonmutating set { playbackSlot.controller = newValue }
     }
     @State private var selectedStream: XtreamStream?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     @State private var expanded = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
@@ -259,6 +261,7 @@ struct MobileGuideView: View {
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             .onChange(of: scenePhase) { _, phase in
+                if phase == .background, qualityRequest != nil { cancelQualityCheck(); closePlayer() }
                 if phase == .active { returnToNow() }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
                 // decides whether this transition touches playback at all.
@@ -278,6 +281,7 @@ struct MobileGuideView: View {
                 if value { expanded = false }
             }
             .onChange(of: isActive) { _, active in
+                if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
                 // while the PiP window is showing this stream, which the viewer
                 // asked to keep watching.
@@ -291,6 +295,10 @@ struct MobileGuideView: View {
                 returnToNow()
                 if let game { recommendedStreamID = library.verifiedStream(for: game)?.id }
             }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck(); closePlayer() } }
+            }
+            .onDisappear { cancelQualityCheck() }
             // Played once the list has gone, so the player doesn't open
             // under a sheet that is still closing.
             .sheet(item: $catchUpChannel, onDismiss: {
@@ -404,6 +412,7 @@ struct MobileGuideView: View {
     }
 
     private func selectChannel(_ stream: XtreamStream) {
+        cancelQualityCheck()
         searchFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // The manual game picker still returns its selection to the Live screen.
@@ -462,6 +471,7 @@ struct MobileGuideView: View {
     /// Changes channel on the same player, so full screen stays full screen,
     /// and names the new channel over the picture for a moment.
     private func tune(_ stream: XtreamStream, for game: SportsGame? = nil) {
+        cancelQualityCheck()
         guard let current = selectedStream, current.id != stream.id || game != nil else { return }
         if current.id != stream.id { previousChannel = current }
         watchingGame = game
@@ -484,9 +494,28 @@ struct MobileGuideView: View {
     /// game with no channel yet is left for the Live tab, where one can be
     /// chosen for it.
     private func watchGame(_ game: SportsGame) {
+        cancelQualityCheck()
         GameAlertCenter.shared.dismiss()
         guard let stream = library.resolvedStream(for: game) else { return }
-        tune(stream, for: game)
+        guard case .play(_, .verified) = library.preferredChannel(for: game) else { tune(stream, for: game); return }
+        playback.shutdown()
+        playback = MobilePlaybackController()
+        let request = UUID()
+        qualityRequest = request
+        qualityTask = Task { @MainActor in
+            let chosen = await library.bestQualityStream(for: game, fallback: stream)
+            guard !Task.isCancelled, qualityRequest == request else { return }
+            qualityRequest = nil
+            qualityTask = nil
+            if let chosen { tune(chosen, for: game) }
+            else { closePlayer() }
+        }
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 
     /// Expanding moves the video, the guide behind it, the navigation bar, the
@@ -507,6 +536,7 @@ struct MobileGuideView: View {
     }
 
     private func closePlayer() {
+        cancelQualityCheck()
         guard selectedStream != nil else { return }
         playback.shutdown()
         selectedStream = nil

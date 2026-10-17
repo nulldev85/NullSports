@@ -134,7 +134,8 @@ enum AppSearch {
             let game = entry.game
             guard game.isLive || game.start > now else { return false }
             let text = [game.awayTeam, game.homeTeam, game.awayAbbreviation, game.homeAbbreviation,
-                        game.eventName ?? "", game.league.shortName, game.league.fullName].joined(separator: " ")
+                        game.matchupLine, game.competition?.name ?? "",
+                        game.league.shortName, game.league.fullName].joined(separator: " ")
             return matches(text, words)
         }
         return found.sorted { left, right in

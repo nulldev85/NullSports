@@ -1,10 +1,25 @@
 import XCTest
 import AVKit
+import Combine
 import LineupAetherPlayback
 @testable import LineupiOS
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testSourceProbeMeasuresVideoRatherThanTheFHDChannelName() async throws {
+        let file = try fixture("playback-native", "mp4")
+        let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")
+        defer { origin.stop() }
+        try await waitUntil("Local probe origin did not become ready") { origin.port != nil }
+        let url = try XCTUnwrap(origin.url(path: "live/FHD-channel"))
+        let quality = try await AetherSourceProbe.quality(url: url, timeout: 5)
+        XCTAssertEqual(quality.width, 320)
+        XCTAssertEqual(quality.height, 180)
+        // Aether 7.36.0 SourceProbe.videoFrameRate is display-normalized:
+        // FrameRateSnap maps even an exact 24 fps source to 23.976.
+        XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
+    }
+
     func testLocalOriginServesRangesOnlyAfterARealPortIsReady() async throws {
         let file = try fixture("playback-native", "mp4")
         let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")
@@ -55,10 +70,7 @@ final class AetherPlaybackTests: XCTestCase {
             defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
             controller.isLive = false
             controller.start(urls: [url], initialPosition: 10)
-            try await waitUntil("\(route) playback did not render: \(controller.error ?? "no error")") {
-                controller.engine == .aether && controller.isPlaying && !controller.loading
-                    && controller.aetherSession?.hasPicture == true
-            }
+            guard await waitForRenderedPicture(controller, route: route) else { return }
             let session = try XCTUnwrap(controller.aetherSession)
             try await waitUntil("Selected-source audio metadata was not reported") {
                 controller.mediaInfo.badges.contains("AAC")
@@ -222,6 +234,31 @@ final class AetherPlaybackTests: XCTestCase {
         controller.attachVideo(host)
         return (window, host, previous)
     }
+    private func waitForRenderedPicture(_ controller: MobilePlaybackController, route: String) async -> Bool {
+        // Observe the production controller's ready publications. XCTest owns
+        // the same bounded 30-second wait; success still requires a real
+        // picture and the original playing/engine/loading conditions.
+        let picture = expectation(description: "\(route) playback publishes an actual rendered picture")
+        let subscription = controller.$loading.combineLatest(controller.$isPlaying)
+            .first { loading, playing in
+                controller.engine == .aether && !loading && playing
+                    && controller.aetherSession?.hasPicture == true
+            }
+            .sink { _ in picture.fulfill() }
+        defer { subscription.cancel() }
+        await fulfillment(of: [picture], timeout: 30)
+        let ready = controller.engine == .aether && controller.isPlaying && !controller.loading
+            && controller.aetherSession?.hasPicture == true
+        XCTAssertTrue(ready, "\(route) playback must still be rendering when the ready wait completes")
+        if !ready {
+            let evidence = XCTAttachment(string: "engine=\(controller.engineTitle), loading=\(controller.loading), playing=\(controller.isPlaying), phase=\(String(describing: controller.aetherSession?.phase)), picture=\(controller.aetherSession?.hasPicture == true), error=\(controller.error ?? "none")")
+            evidence.name = "\(route)-playback-readiness-failure"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+        return ready
+    }
+
     private func waitUntil(_ message: String, timeout: TimeInterval = 30, condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }

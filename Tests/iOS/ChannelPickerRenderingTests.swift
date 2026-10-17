@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import Combine
 @testable import LineupiOS
 
 @MainActor
@@ -61,28 +62,40 @@ final class ChannelPickerRenderingTests: XCTestCase {
 
         // Exercise the actual control's production editing target, not a
         // second Binding or a direct call into the search model.
+        let filtered = expectation(description: "The newest query publishes its completed results")
+        let filteredSubscription = search.$page.first(where: { $0.query == "Sports 29999" && !$0.loading })
+            .sink { _ in filtered.fulfill() }
+        defer { filteredSubscription.cancel() }
         for query in ["S", "Sp", "Sport", "Sports 2", "Sports 29999"] {
             input.text = query
             input.sendActions(for: .editingChanged)
             XCTAssertEqual(search.query, query, "Editing must reach search without a SwiftUI render pass")
         }
         XCTAssertEqual(counted.cellsCreated, openingCells, "Draft changes must not rebuild the channel rows")
-        try await settle(message: { "input=\(input.text ?? "nil"), requested=\(search.query), result=\(search.page.query), rows=\(table.numberOfRows(inSection: 0))" }) {
-            search.page.query == "Sports 29999" && table.numberOfRows(inSection: 0) == 1
-        }
+        await fulfillment(of: [filtered], timeout: 5)
+        XCTAssertEqual(search.page.query, "Sports 29999")
+        guard search.page.query == "Sports 29999" else { return } // The expectation records a missing publication.
         table.layoutIfNeeded()
+        XCTAssertEqual(table.numberOfRows(inSection: 0), 1)
         XCTAssertEqual(search.results.first?.id, 29_999)
         XCTAssertTrue(findInput(in: window) === input, "Completed results must retain the editor")
         XCTAssertEqual(input.text, "Sports 29999", "Rendering results must not overwrite the input")
         XCTAssertLessThan(counted.cellsCreated - openingCells, 200)
 
         let beforeClear = counted.cellsCreated
+        let cleared = expectation(description: "Clear publishes the full catalog")
+        let clearedSubscription = search.$page.first(where: { $0.query.isEmpty && !$0.loading })
+            .sink { _ in cleared.fulfill() }
+        defer { clearedSubscription.cancel() }
         XCTAssertEqual(input.delegate?.textFieldShouldClear?(input), true)
         XCTAssertEqual(search.query, "", "The native Clear action must request the full catalog immediately")
         input.text = "" // UIKit performs this after its delegate accepts Clear.
         input.sendActions(for: .editingChanged)
-        try await settle { search.page.query.isEmpty && table.numberOfRows(inSection: 0) == channels.count }
+        await fulfillment(of: [cleared], timeout: 5)
+        XCTAssertEqual(search.page.query, "")
+        guard search.page.query.isEmpty else { return }
         table.layoutIfNeeded()
+        XCTAssertEqual(table.numberOfRows(inSection: 0), channels.count)
         XCTAssertLessThan(counted.cellsCreated - beforeClear, 200, "Clearing search must also remain lazy")
         let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)

@@ -8,11 +8,14 @@ struct MobileLiveView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @State private var league: SportsLeague?
+    @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
+    @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
+    @State private var racingDetails: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var expanded = false
@@ -24,6 +27,8 @@ struct MobileLiveView: View {
     /// The channel just moved to, named over the picture for a moment.
     @State private var channelBanner: MobileChannelBannerInfo?
     @State private var bannerTask: Task<Void, Never>?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     /// Both teams have a usable preference and they disagree.
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
@@ -58,7 +63,10 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league).filter { !onlyFollowed || library.isFollowing($0) }
+        let all = library.games(for: league).filter {
+            (!onlyFollowed || library.isFollowing($0))
+                && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }
         let calendar = Calendar.current
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
@@ -129,7 +137,7 @@ struct MobileLiveView: View {
             slate.all.first { $0.id == game.id }
                 // Narrowed to a league or to followed teams, the list may not
                 // hold the game being watched; the schedule still does.
-                ?? library.games(for: nil).first { $0.id == game.id }
+                ?? library.gamesByLeague[game.league]?.first { $0.id == game.id }
                 ?? game
         }
         return NavigationStack {
@@ -257,6 +265,18 @@ struct MobileLiveView: View {
                 // comes back upright as the preview, not as full screen.
                 if value { expanded = false }
             }
+            .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck() }
+            .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
+                MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
+                    pendingStream = stream
+                    pendingGame = game
+                    showingEventChannels = nil
+                }
+            }
             .lineupChoices("Game has not started yet", symbol: "clock",
                            isPresented: Binding(get: { upcomingGame != nil },
                                                 set: { if !$0 { upcomingGame = nil } }),
@@ -276,15 +296,7 @@ struct MobileLiveView: View {
                            isPresented: $showsChannelSyncMessage,
                            message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
                            cancelTitle: "OK") { [] }
-            .sheet(item: $choosingChannel, onDismiss: {
-                // The scope prompt has to wait for the sheet to be gone, or it
-                // would try to present over a dismissing sheet.
-                if let stream = pendingStream, let game = pendingGame {
-                    pendingStream = nil
-                    pendingGame = nil
-                    applySelection(stream, for: game)
-                }
-            }) { game in
+            .sheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
                 MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game
@@ -343,6 +355,7 @@ struct MobileLiveView: View {
                 }] + sides
             }
             .onChange(of: isActive) { _, active in
+                if !active { cancelQualityCheck() }
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
                 if active { playback.resume() } else { leagueMenuOpen = false }
@@ -354,6 +367,7 @@ struct MobileLiveView: View {
                 if playing, let stream = previewStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: scenePhase) { _, phase in
+                if phase == .background { cancelQualityCheck() }
                 guard previewStream != nil else { return }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
                 // decides whether this transition touches playback at all.
@@ -382,7 +396,7 @@ struct MobileLiveView: View {
                         MobileLiveDot()
                     }
                     let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
-                    Text(liveCount == 0 ? "\(slate.all.count) MATCHUPS" : "\(liveCount) LIVE NOW")
+                    Text(liveCount == 0 ? "\(slate.all.count) \(league?.isRacing == true ? "EVENTS" : "MATCHUPS")" : "\(liveCount) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
                 .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
@@ -400,6 +414,7 @@ struct MobileLiveView: View {
             MobileLeagueMenuButton(league: league, isOpen: leagueMenuOpen) {
                 setLeagueMenu(!leagueMenuOpen)
             }
+            if league == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
             Spacer(minLength: 0)
             if !library.followedTeams.isEmpty { followedChip }
         }
@@ -440,7 +455,7 @@ struct MobileLiveView: View {
             HStack(spacing: 6) {
                 Image(systemName: onlyFollowed ? "star.fill" : "star")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
-                Text("My Teams")
+                if league != .soccer { Text("My Teams") }
             }
             .lineupChip(onlyFollowed)
             .frame(height: 36)
@@ -542,10 +557,14 @@ struct MobileLiveView: View {
     /// of the viewer.
     private func gameMenuItems(_ game: SportsGame) -> [MobileMenuItem] {
         var items: [MobileMenuItem] = []
+        if game.league.isRacing {
+            items.append(MobileMenuItem("Race Details", symbol: "flag.checkered") { racingDetails = game })
+        }
         if game.isLive {
             let watching = previewGame?.id == game.id && previewStream != nil
             items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
                                         isEnabled: !watching) { open(game) })
+            items.append(MobileMenuItem("Channels", symbol: "tv") { showingEventChannels = game })
         } else {
             let on = reminders.reminds(game)
             items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -569,11 +588,27 @@ struct MobileLiveView: View {
     /// saved preferences plus what the provider currently carries — see
     /// `TeamChannelPreferences.resolve`.
     private func open(_ game: SportsGame) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
-            if let stream = library.stream(withID: streamID) { showPreview(stream, for: game) }
+        case let .play(streamID, source):
+            if let stream = library.stream(withID: streamID) {
+                if source == .verified {
+                    playback.shutdown()
+                    previewStream = nil
+                    let request = UUID()
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { showPreview(chosen, for: game) }
+                        else { choosingChannel = game }
+                    }
+                } else { showPreview(stream, for: game) }
+            }
             else { choosingChannel = game }
         case let .chooseFeed(home, away):
             feedChoice = FeedChoice(game: game, home: home, away: away)
@@ -596,6 +631,7 @@ struct MobileLiveView: View {
     }
 
     private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
+        cancelQualityCheck()
         setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
@@ -610,10 +646,17 @@ struct MobileLiveView: View {
         playback.loadCatchUpSource(for: stream, from: library)
     }
 
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
+    }
+
     private func failoverContext(for game: SportsGame) -> MobilePlaybackController.FailoverContext {
         // Bound once, so the stored closures hold the library directly
         // rather than a copy of this view.
         let library = self.library
+        let automaticID = library.verifiedStream(for: game)?.id
         return MobilePlaybackController.FailoverContext(
             plan: { library.failoverPlan(for: game) },
             urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
@@ -623,6 +666,9 @@ struct MobileLiveView: View {
                 if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
             },
             didPlay: { id in
+                // Normal automatic playback must not become a manual pin that
+                // overrides a later quality-ranked match. Keep chosen/recovery feeds.
+                guard id != automaticID else { return }
                 if let working = library.stream(withID: id) {
                     library.saveGameSelection(working, for: game)
                 }
@@ -704,6 +750,15 @@ struct MobileLiveView: View {
 
     /// A channel came back from the picker. Play it now, and ask whether it
     /// should stick to either team.
+    private func finishChannelSelection() {
+        // Scope prompts wait until the outgoing channel sheet is gone.
+        if let stream = pendingStream, let game = pendingGame {
+            pendingStream = nil
+            pendingGame = nil
+            applySelection(stream, for: game)
+        }
+    }
+
     private func applySelection(_ stream: XtreamStream, for game: SportsGame) {
         showPreview(stream, for: game)
         let sides = library.preferenceSides(for: game)
@@ -762,19 +817,27 @@ private struct MobileMatchupRow: View {
                                 .font(.inter(.body, .semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
+                        if let session = game.race?.title {
+                            Text(session).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.highlight)
+                        }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
+                    if let competition = game.competition {
+                        Text(competition.name.uppercased()).font(.inter(10, .bold))
+                            .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
                          record: game.awayRecord, score: game.awayScore, isAway: true)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
                          record: game.homeRecord, score: game.homeScore, isAway: false)
                     if let whereItIs { place(whereItIs) }
+                    if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
-                MobileLeagueLogo(league: game.league, size: 23)
+                SportsMark(league: game.league, competition: game.competition, size: 26)
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -876,9 +939,7 @@ struct MobileLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {
-        Image("League-\(league.rawValue)")
-            .resizable().scaledToFit()
-            .frame(width: size, height: size)
+        SportsMark(league: league, size: size)
             .accessibilityLabel(league.shortName)
     }
 }

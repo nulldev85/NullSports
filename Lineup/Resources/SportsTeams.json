@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-14",
+  "updatedAt": "2026-10-16",
   "season": 2026,
   "sources": [
     "https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/seasons/2026/types/2/groups/80/teams?limit=1000",
@@ -8,7 +8,25 @@
     "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=1000",
     "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/teams?limit=1000",
     "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams?limit=1000",
-    "https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams?limit=1000"
+    "https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.nwsl/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa.conf/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.wwc/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.euro/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.america/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.gold/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/caf.nations/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/afc.asian.cup/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000"
   ],
   "teams": [
     {
@@ -3122,6 +3140,4234 @@
       "abbreviation": "YSU",
       "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2754.png",
       "division": "FCS"
+    },
+    {
+      "league": "soccer",
+      "espnID": "598",
+      "name": "1. FC Union Berlin",
+      "abbreviation": "FCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/598.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "103",
+      "name": "AC Milan",
+      "abbreviation": "MIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/103.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "887",
+      "name": "AEK Athens",
+      "abbreviation": "AEK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/887.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "349",
+      "name": "AFC Bournemouth",
+      "abbreviation": "BOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/349.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7853",
+      "name": "AGF",
+      "abbreviation": "AGF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7853.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "172",
+      "name": "AJ Auxerre",
+      "abbreviation": "AUX",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/172.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "139",
+      "name": "Ajax Amsterdam",
+      "abbreviation": "AJA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/139.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "96",
+      "name": "Alavés",
+      "abbreviation": "ALA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/96.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "585",
+      "name": "Albania",
+      "abbreviation": "ALB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/alb.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "624",
+      "name": "Algeria",
+      "abbreviation": "ALG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/alg.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "441",
+      "name": "Anderlecht",
+      "abbreviation": "AND",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/441.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "587",
+      "name": "Andorra",
+      "abbreviation": "AND",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/and.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21422",
+      "name": "Angel City FC",
+      "abbreviation": "LA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21422.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7868",
+      "name": "Angers",
+      "abbreviation": "ANG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7868.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "653",
+      "name": "Angola",
+      "abbreviation": "ANG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ang.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20024",
+      "name": "Ararat-Armenia",
+      "abbreviation": "ARA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20024.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "202",
+      "name": "Argentina",
+      "abbreviation": "ARG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/arg.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2750",
+      "name": "Argentina",
+      "abbreviation": "ARG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/arg.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "579",
+      "name": "Armenia",
+      "abbreviation": "ARM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fifa.armenia.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "359",
+      "name": "Arsenal",
+      "abbreviation": "ARS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/359.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "174",
+      "name": "AS Monaco",
+      "abbreviation": "MON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/174.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "104",
+      "name": "AS Roma",
+      "abbreviation": "ROMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/104.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "362",
+      "name": "Aston Villa",
+      "abbreviation": "AVL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/362.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "105",
+      "name": "Atalanta",
+      "abbreviation": "ATA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/105.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "93",
+      "name": "Athletic Club",
+      "abbreviation": "ATH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/93.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18418",
+      "name": "Atlanta United FC",
+      "abbreviation": "ATL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18418.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1068",
+      "name": "Atlético Madrid",
+      "abbreviation": "ATM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1068.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20906",
+      "name": "Austin FC",
+      "abbreviation": "ATX",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20906.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "628",
+      "name": "Australia",
+      "abbreviation": "AUS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aus.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2751",
+      "name": "Australia",
+      "abbreviation": "AUS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aus.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "474",
+      "name": "Austria",
+      "abbreviation": "AUT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aut.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "140",
+      "name": "AZ Alkmaar",
+      "abbreviation": "AZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/140.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "581",
+      "name": "Azerbaijan",
+      "abbreviation": "AZE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aze.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4381",
+      "name": "Bahrain",
+      "abbreviation": "BHR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bhr.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "83",
+      "name": "Barcelona",
+      "abbreviation": "BAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/83.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22187",
+      "name": "Bay FC",
+      "abbreviation": "BAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22187.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131",
+      "name": "Bayer Leverkusen",
+      "abbreviation": "B04",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "132",
+      "name": "Bayern Munich",
+      "abbreviation": "MUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/132.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "583",
+      "name": "Belarus",
+      "abbreviation": "BLR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/blr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "459",
+      "name": "Belgium",
+      "abbreviation": "BEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bel.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1929",
+      "name": "Benfica",
+      "abbreviation": "SLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1929.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2844",
+      "name": "Benin",
+      "abbreviation": "BEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ben.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1895",
+      "name": "Besiktas",
+      "abbreviation": "BES",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1895.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2980",
+      "name": "Bodo/Glimt",
+      "abbreviation": "BODO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2980.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "204",
+      "name": "Bolivia",
+      "abbreviation": "BOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bol.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "107",
+      "name": "Bologna",
+      "abbreviation": "BOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/107.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20710",
+      "name": "Borac Banja Luka",
+      "abbreviation": "BBL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20710.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "124",
+      "name": "Borussia Dortmund",
+      "abbreviation": "DOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/124.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "268",
+      "name": "Borussia Mönchengladbach",
+      "abbreviation": "BMG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/268.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "452",
+      "name": "Bosnia-Herzegovina",
+      "abbreviation": "BIH",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bih.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131562",
+      "name": "Boston Legacy FC",
+      "abbreviation": "BOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131562.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4245",
+      "name": "Botswana",
+      "abbreviation": "BOT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bot.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2994",
+      "name": "Braga",
+      "abbreviation": "SCB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2994.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "205",
+      "name": "Brazil",
+      "abbreviation": "BRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bra.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2752",
+      "name": "Brazil",
+      "abbreviation": "BRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bra.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "337",
+      "name": "Brentford",
+      "abbreviation": "BRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/337.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6997",
+      "name": "Brest",
+      "abbreviation": "BRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6997.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "331",
+      "name": "Brighton & Hove Albion",
+      "abbreviation": "BHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/331.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "462",
+      "name": "Bulgaria",
+      "abbreviation": "BUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bul.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2845",
+      "name": "Burkina Faso",
+      "abbreviation": "BKA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bka.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2925",
+      "name": "Cagliari",
+      "abbreviation": "CAG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2925.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "656",
+      "name": "Cameroon",
+      "abbreviation": "CMR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crm.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "206",
+      "name": "Canada",
+      "abbreviation": "CAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/can.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2753",
+      "name": "Canada",
+      "abbreviation": "CAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/can.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2597",
+      "name": "Cape Verde",
+      "abbreviation": "CPV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cpv.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "85",
+      "name": "Celta Vigo",
+      "abbreviation": "CEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/85.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "256",
+      "name": "Celtic",
+      "abbreviation": "CEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/256.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9720",
+      "name": "CF Montréal",
+      "abbreviation": "MTL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9720.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21300",
+      "name": "Charlotte FC",
+      "abbreviation": "CLT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21300.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "363",
+      "name": "Chelsea",
+      "abbreviation": "CHE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "182",
+      "name": "Chicago Fire FC",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/182.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15360",
+      "name": "Chicago Stars FC",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15360.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "207",
+      "name": "Chile",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chi.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2754",
+      "name": "China",
+      "abbreviation": "CHN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chn.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "658",
+      "name": "China",
+      "abbreviation": "CHN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "570",
+      "name": "Club Brugge",
+      "abbreviation": "BRU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/570.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "208",
+      "name": "Colombia",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/col.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11337",
+      "name": "Colombia",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/col.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "184",
+      "name": "Colorado Rapids",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/184.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "183",
+      "name": "Columbus Crew",
+      "abbreviation": "CLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/183.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2572",
+      "name": "Como",
+      "abbreviation": "COMO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2572.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8601",
+      "name": "Comoros",
+      "abbreviation": "COM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/com.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2850",
+      "name": "Congo DR",
+      "abbreviation": "COD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rdc.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2894",
+      "name": "Costa Rica",
+      "abbreviation": "CRC",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crc.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "214",
+      "name": "Costa Rica",
+      "abbreviation": "CRC",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crc.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "388",
+      "name": "Coventry City",
+      "abbreviation": "COV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/388.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "477",
+      "name": "Croatia",
+      "abbreviation": "CRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cro.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "384",
+      "name": "Crystal Palace",
+      "abbreviation": "CRY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/384.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10834",
+      "name": "CSKA Sofia",
+      "abbreviation": "CSKA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10834.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8089",
+      "name": "CSU Craiova",
+      "abbreviation": "UCRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/8089.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11678",
+      "name": "Curaçao",
+      "abbreviation": "CUW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11678.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "445",
+      "name": "Cyprus",
+      "abbreviation": "CYP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cyp.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "450",
+      "name": "Czechia",
+      "abbreviation": "CZE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cze.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "193",
+      "name": "D.C. United",
+      "abbreviation": "DC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/193.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2896",
+      "name": "Denmark",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/den.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "479",
+      "name": "Denmark",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/den.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131563",
+      "name": "Denver Summit FC",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131563.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "90",
+      "name": "Deportivo",
+      "abbreviation": "DEP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/90.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "597",
+      "name": "Dinamo Zagreb",
+      "abbreviation": "DZG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/597.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2649",
+      "name": "Dominican Republic",
+      "abbreviation": "DOM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/dom.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "209",
+      "name": "Ecuador",
+      "abbreviation": "ECU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ecu.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21943",
+      "name": "Egnatia",
+      "abbreviation": "EGN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21943.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2620",
+      "name": "Egypt",
+      "abbreviation": "EGY",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/egy.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "125",
+      "name": "Eintracht Frankfurt",
+      "abbreviation": "SGE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/125.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2650",
+      "name": "El Salvador",
+      "abbreviation": "SLV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/slv.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3751",
+      "name": "Elche",
+      "abbreviation": "ELC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3751.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "448",
+      "name": "England",
+      "abbreviation": "ENG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eng.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5159",
+      "name": "England",
+      "abbreviation": "ENG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eng.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8938",
+      "name": "Equatorial Guinea",
+      "abbreviation": "EQG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eqg.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "88",
+      "name": "Espanyol",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/88.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "444",
+      "name": "Estonia",
+      "abbreviation": "EST",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/est.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "368",
+      "name": "Everton",
+      "abbreviation": "EVE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/368.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "909",
+      "name": "F.C. København",
+      "abbreviation": "KBH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/909.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "447",
+      "name": "Faroe Islands",
+      "abbreviation": "FRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fro.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3841",
+      "name": "FC Augsburg",
+      "abbreviation": "FCA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3841.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18267",
+      "name": "FC Cincinnati",
+      "abbreviation": "CIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18267.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "122",
+      "name": "FC Cologne",
+      "abbreviation": "KOE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/122.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "185",
+      "name": "FC Dallas",
+      "abbreviation": "DAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/185.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7672",
+      "name": "FC Lugano",
+      "abbreviation": "LUG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7672.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "572",
+      "name": "FC Midtjylland",
+      "abbreviation": "MID",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/572.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3101",
+      "name": "FC Nordsjælland",
+      "abbreviation": "FCN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3101.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "437",
+      "name": "FC Porto",
+      "abbreviation": "FCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/437.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3024",
+      "name": "FC Thun",
+      "abbreviation": "THUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3024.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "152",
+      "name": "FC Twente",
+      "abbreviation": "TWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/152.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "436",
+      "name": "Fenerbahce",
+      "abbreviation": "FEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/436.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "622",
+      "name": "Ferencvaros",
+      "abbreviation": "FER",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/622.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "142",
+      "name": "Feyenoord Rotterdam",
+      "abbreviation": "FEY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/142.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "458",
+      "name": "Finland",
+      "abbreviation": "FIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fin.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "109",
+      "name": "Fiorentina",
+      "abbreviation": "FIO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/109.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "478",
+      "name": "France",
+      "abbreviation": "FRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2755",
+      "name": "France",
+      "abbreviation": "FRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4057",
+      "name": "Frosinone",
+      "abbreviation": "FRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4057.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "370",
+      "name": "Fulham",
+      "abbreviation": "FUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/370.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4231",
+      "name": "Gabon",
+      "abbreviation": "GAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gab.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "432",
+      "name": "Galatasaray",
+      "abbreviation": "GAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/432.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3263",
+      "name": "Genoa",
+      "abbreviation": "GEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3263.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "584",
+      "name": "Georgia",
+      "abbreviation": "GEO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/geo.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "481",
+      "name": "Germany",
+      "abbreviation": "GER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ger.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2756",
+      "name": "Germany",
+      "abbreviation": "GER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ger.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2922",
+      "name": "Getafe",
+      "abbreviation": "GET",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2922.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4469",
+      "name": "Ghana",
+      "abbreviation": "GHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gha.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "16721",
+      "name": "Gibraltar",
+      "abbreviation": "GIB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gib.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15364",
+      "name": "Gotham FC",
+      "abbreviation": "GFC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15364.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "455",
+      "name": "Greece",
+      "abbreviation": "GRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gre.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7657",
+      "name": "Guadeloupe",
+      "abbreviation": "GDL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gdl.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2652",
+      "name": "Guatemala",
+      "abbreviation": "GUA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gua.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2654",
+      "name": "Haiti",
+      "abbreviation": "HAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hai.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2891",
+      "name": "Haiti",
+      "abbreviation": "HAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hai.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "489",
+      "name": "Hajduk Split",
+      "abbreviation": "HAJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/489.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "127",
+      "name": "Hamburg SV",
+      "abbreviation": "HSV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/127.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "13083",
+      "name": "Hapoel Be'er",
+      "abbreviation": "HBE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/13083.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "262",
+      "name": "Heart of Midlothian",
+      "abbreviation": "HOM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/262.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "215",
+      "name": "Honduras",
+      "abbreviation": "HON",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hon.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17346",
+      "name": "Houston Dash",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17346.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6077",
+      "name": "Houston Dynamo FC",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6077.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "306",
+      "name": "Hull City",
+      "abbreviation": "HUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/306.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "480",
+      "name": "Hungary",
+      "abbreviation": "HUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hun.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20025",
+      "name": "Iberia 1999",
+      "abbreviation": "IBE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20025.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "470",
+      "name": "Iceland",
+      "abbreviation": "ISL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/isl.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4895",
+      "name": "Indonesia",
+      "abbreviation": "IDN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/idn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20703",
+      "name": "Inter D'Escaldes",
+      "abbreviation": "IDE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20703.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20232",
+      "name": "Inter Miami CF",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20232.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "110",
+      "name": "Internazionale",
+      "abbreviation": "INT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/110.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "373",
+      "name": "Ipswich Town",
+      "abbreviation": "IPS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/373.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "469",
+      "name": "Iran",
+      "abbreviation": "IRN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irn.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4375",
+      "name": "Iraq",
+      "abbreviation": "IRQ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irq.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "461",
+      "name": "Israel",
+      "abbreviation": "ISR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/isr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2792",
+      "name": "Italy",
+      "abbreviation": "ITA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ita.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "162",
+      "name": "Italy",
+      "abbreviation": "ITA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ita.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4789",
+      "name": "Ivory Coast",
+      "abbreviation": "CIV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/civ.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7922",
+      "name": "Jablonec",
+      "abbreviation": "JABL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7922.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11505",
+      "name": "Jagiellonia Bialystok",
+      "abbreviation": "JAG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11505.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2893",
+      "name": "Jamaica",
+      "abbreviation": "JAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jam.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1038",
+      "name": "Jamaica",
+      "abbreviation": "JAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jam.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "627",
+      "name": "Japan",
+      "abbreviation": "JPN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jpn.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2758",
+      "name": "Japan",
+      "abbreviation": "JPN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jpn.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2917",
+      "name": "Jordan",
+      "abbreviation": "JOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jor.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "111",
+      "name": "Juventus",
+      "abbreviation": "JUV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/111.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3611",
+      "name": "KAA Gent",
+      "abbreviation": "GENT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3611.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2528",
+      "name": "Kairat Almaty",
+      "abbreviation": "KAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2528.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20907",
+      "name": "Kansas City Current",
+      "abbreviation": "KC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20907.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20028",
+      "name": "Kauno Zalgiris",
+      "abbreviation": "ZAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20028.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2619",
+      "name": "Kazakhstan",
+      "abbreviation": "KAZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kaz.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18272",
+      "name": "Kosovo",
+      "abbreviation": "KOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kosovo.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8169",
+      "name": "KuPS Kuopio",
+      "abbreviation": "KUPS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/8169.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "841",
+      "name": "Kuwait",
+      "abbreviation": "KUW",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kuw.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6724",
+      "name": "Kyrgyz Republic",
+      "abbreviation": "KGZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kgz.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "187",
+      "name": "LA Galaxy",
+      "abbreviation": "LA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/187.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18966",
+      "name": "LAFC",
+      "abbreviation": "LAFC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18966.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4411",
+      "name": "LASK Linz",
+      "abbreviation": "LAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4411.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "456",
+      "name": "Latvia",
+      "abbreviation": "LVA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lva.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "112",
+      "name": "Lazio",
+      "abbreviation": "LAZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/112.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3236",
+      "name": "Le Havre AC",
+      "abbreviation": "HAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3236.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2697",
+      "name": "Le Mans",
+      "abbreviation": "MNS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2697.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "113",
+      "name": "Lecce",
+      "abbreviation": "LEC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/113.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2990",
+      "name": "Lech Poznan",
+      "abbreviation": "LECH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2990.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "357",
+      "name": "Leeds United",
+      "abbreviation": "LEE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/357.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "175",
+      "name": "Lens",
+      "abbreviation": "RCL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/175.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1538",
+      "name": "Levante",
+      "abbreviation": "LEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1538.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "490",
+      "name": "Levski Sofia",
+      "abbreviation": "LEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/490.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "589",
+      "name": "Liechtenstein",
+      "abbreviation": "LIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lie.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "166",
+      "name": "Lille",
+      "abbreviation": "LILL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/166.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "987",
+      "name": "Lillestrom",
+      "abbreviation": "LSK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/987.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17856",
+      "name": "Lincoln Red Imps",
+      "abbreviation": "LRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17856.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "460",
+      "name": "Lithuania",
+      "abbreviation": "LTU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ltu.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "364",
+      "name": "Liverpool",
+      "abbreviation": "LIV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/364.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "273",
+      "name": "Lorient",
+      "abbreviation": "LOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/273.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "582",
+      "name": "Luxembourg",
+      "abbreviation": "LUX",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lux.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "167",
+      "name": "Lyon",
+      "abbreviation": "LYON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/167.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2950",
+      "name": "Mainz",
+      "abbreviation": "M05",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2950.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2849",
+      "name": "Mali",
+      "abbreviation": "MLI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mli.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "453",
+      "name": "Malta",
+      "abbreviation": "MLT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mlt.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "382",
+      "name": "Manchester City",
+      "abbreviation": "MNC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/382.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "360",
+      "name": "Manchester United",
+      "abbreviation": "MAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/360.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "176",
+      "name": "Marseille",
+      "abbreviation": "OLM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/176.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "203",
+      "name": "Mexico",
+      "abbreviation": "MEX",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mex.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17362",
+      "name": "Minnesota United FC",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17362.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20301",
+      "name": "Mjällby AIF",
+      "abbreviation": "MJA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20301.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "483",
+      "name": "Moldova",
+      "abbreviation": "MDA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mda.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6775",
+      "name": "Montenegro",
+      "abbreviation": "MNE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mtg.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4007",
+      "name": "Monza",
+      "abbreviation": "MON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4007.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2869",
+      "name": "Morocco",
+      "abbreviation": "MAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mar.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18221",
+      "name": "Morocco",
+      "abbreviation": "MAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mor.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8939",
+      "name": "Mozambique",
+      "abbreviation": "MOZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/moz.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "99",
+      "name": "Málaga",
+      "abbreviation": "MCF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/99.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "114",
+      "name": "Napoli",
+      "abbreviation": "NAP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/114.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18986",
+      "name": "Nashville SC",
+      "abbreviation": "NSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18986.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "147",
+      "name": "NEC Nijmegen",
+      "abbreviation": "NEC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/147.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "449",
+      "name": "Netherlands",
+      "abbreviation": "NED",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ned.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7151",
+      "name": "Netherlands",
+      "abbreviation": "NED",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ned.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "189",
+      "name": "New England Revolution",
+      "abbreviation": "NE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/189.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17606",
+      "name": "New York City FC",
+      "abbreviation": "NYC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17606.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2666",
+      "name": "New Zealand",
+      "abbreviation": "NZL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nzl.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4153",
+      "name": "New Zealand",
+      "abbreviation": "NZL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nzl.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "361",
+      "name": "Newcastle United",
+      "abbreviation": "NEW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/361.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2502",
+      "name": "Nice",
+      "abbreviation": "NICE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2502.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2761",
+      "name": "Nigeria",
+      "abbreviation": "NGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nga.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "657",
+      "name": "Nigeria",
+      "abbreviation": "NGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nga.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3362",
+      "name": "NK Celje",
+      "abbreviation": "NKC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3362.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15366",
+      "name": "North Carolina Courage",
+      "abbreviation": "NC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15366.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4860",
+      "name": "North Korea",
+      "abbreviation": "PRK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/korn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "463",
+      "name": "North Macedonia",
+      "abbreviation": "MKD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mkd.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "586",
+      "name": "Northern Ireland",
+      "abbreviation": "NIR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nir.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "464",
+      "name": "Norway",
+      "abbreviation": "NOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nor.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2762",
+      "name": "Norway",
+      "abbreviation": "NOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nor.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "393",
+      "name": "Nottingham Forest",
+      "abbreviation": "NFO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/393.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1010",
+      "name": "OFI Crete",
+      "abbreviation": "OFI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1010.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "435",
+      "name": "Olympiacos",
+      "abbreviation": "OLY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/435.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2841",
+      "name": "Oman",
+      "abbreviation": "OMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/oma.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "617",
+      "name": "Omonia Nicosia",
+      "abbreviation": "OMON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/617.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "12011",
+      "name": "Orlando City SC",
+      "abbreviation": "ORL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/12011.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18206",
+      "name": "Orlando Pride",
+      "abbreviation": "ORL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18206.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "97",
+      "name": "Osasuna",
+      "abbreviation": "OSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/97.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22281",
+      "name": "Pafos",
+      "abbreviation": "PAF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22281.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6167",
+      "name": "Palestine",
+      "abbreviation": "PLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pal.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2659",
+      "name": "Panama",
+      "abbreviation": "PAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pan.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2895",
+      "name": "Panama",
+      "abbreviation": "PAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pan.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "443",
+      "name": "Panathinaikos",
+      "abbreviation": "PAO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/443.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "210",
+      "name": "Paraguay",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/par.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6851",
+      "name": "Paris FC",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6851.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "160",
+      "name": "Paris Saint-Germain",
+      "abbreviation": "PSG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/160.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "115",
+      "name": "Parma",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/115.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "211",
+      "name": "Peru",
+      "abbreviation": "PER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/per.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10739",
+      "name": "Philadelphia Union",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10739.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21546",
+      "name": "Philippines",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/phi.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "471",
+      "name": "Poland",
+      "abbreviation": "POL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pol.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15362",
+      "name": "Portland Thorns FC",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15362.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9723",
+      "name": "Portland Timbers",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9723.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "482",
+      "name": "Portugal",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/por.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9531",
+      "name": "Portugal",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/por.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "148",
+      "name": "PSV Eindhoven",
+      "abbreviation": "PSV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/148.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4398",
+      "name": "Qatar",
+      "abbreviation": "QAT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/qat.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20905",
+      "name": "Racing Louisville FC",
+      "abbreviation": "LOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20905.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "87",
+      "name": "Racing Santander",
+      "abbreviation": "RAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/87.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "101",
+      "name": "Rayo Vallecano",
+      "abbreviation": "RAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/101.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11420",
+      "name": "RB Leipzig",
+      "abbreviation": "RBL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11420.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2790",
+      "name": "RB Salzburg",
+      "abbreviation": "SLZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2790.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "244",
+      "name": "Real Betis",
+      "abbreviation": "BET",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/244.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "86",
+      "name": "Real Madrid",
+      "abbreviation": "RMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/86.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4771",
+      "name": "Real Salt Lake",
+      "abbreviation": "RSL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4771.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "89",
+      "name": "Real Sociedad",
+      "abbreviation": "RSO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/89.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "190",
+      "name": "Red Bull New York",
+      "abbreviation": "RBNY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/190.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2290",
+      "name": "Red Star Belgrade",
+      "abbreviation": "RSB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2290.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4178",
+      "name": "Republic of Ireland",
+      "abbreviation": "IRL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irl.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "476",
+      "name": "Republic of Ireland",
+      "abbreviation": "IRL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irl.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19246",
+      "name": "Riga FC",
+      "abbreviation": "RIG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/19246.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "473",
+      "name": "Romania",
+      "abbreviation": "ROU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rom.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21922",
+      "name": "Sabah FK",
+      "abbreviation": "SAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21922.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22529",
+      "name": "San Diego FC",
+      "abbreviation": "SD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22529.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21423",
+      "name": "San Diego Wave FC",
+      "abbreviation": "SD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21423.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "191",
+      "name": "San Jose Earthquakes",
+      "abbreviation": "SJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/191.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "588",
+      "name": "San Marino",
+      "abbreviation": "SMR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/smr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3997",
+      "name": "Sassuolo",
+      "abbreviation": "SAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3997.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "655",
+      "name": "Saudi Arabia",
+      "abbreviation": "KSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ksa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "126",
+      "name": "SC Freiburg",
+      "abbreviation": "SCF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/126.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3307",
+      "name": "SC Paderborn 07",
+      "abbreviation": "SCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3307.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133",
+      "name": "Schalke 04",
+      "abbreviation": "S04",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/133.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "580",
+      "name": "Scotland",
+      "abbreviation": "SCO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sco.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15363",
+      "name": "Seattle Reign FC",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15363.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9726",
+      "name": "Seattle Sounders FC",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9726.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "654",
+      "name": "Senegal",
+      "abbreviation": "SEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sen.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6757",
+      "name": "Serbia",
+      "abbreviation": "SRB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sba.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "243",
+      "name": "Sevilla",
+      "abbreviation": "SEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/243.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "493",
+      "name": "Shakhtar Donetsk",
+      "abbreviation": "SHK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/493.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4384",
+      "name": "Singapore",
+      "abbreviation": "SIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sin.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "936",
+      "name": "Sint-Truidense",
+      "abbreviation": "STVV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/936.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "620",
+      "name": "SK Brann",
+      "abbreviation": "SKBR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/620.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3746",
+      "name": "SK Sturm Graz",
+      "abbreviation": "STG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3746.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "494",
+      "name": "Slavia Prague",
+      "abbreviation": "SLP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/494.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "468",
+      "name": "Slovakia",
+      "abbreviation": "SVK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/svk.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "521",
+      "name": "Slovan Bratislava",
+      "abbreviation": "SLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/521.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "472",
+      "name": "Slovenia",
+      "abbreviation": "SVN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/svn.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "467",
+      "name": "South Africa",
+      "abbreviation": "RSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rsa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "13313",
+      "name": "South Africa",
+      "abbreviation": "RSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rsa.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "451",
+      "name": "South Korea",
+      "abbreviation": "KOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kors.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17639",
+      "name": "South Korea",
+      "abbreviation": "KOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kors.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "164",
+      "name": "Spain",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17640",
+      "name": "Spain",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "433",
+      "name": "Sparta Prague",
+      "abbreviation": "SPP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/433.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2250",
+      "name": "Sporting CP",
+      "abbreviation": "SCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2250.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "186",
+      "name": "Sporting Kansas City",
+      "abbreviation": "SKC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/186.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21812",
+      "name": "St. Louis CITY SC",
+      "abbreviation": "STL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21812.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "169",
+      "name": "Stade Rennais",
+      "abbreviation": "REN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/169.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "180",
+      "name": "Strasbourg",
+      "abbreviation": "STR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/180.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4319",
+      "name": "Sudan",
+      "abbreviation": "SUD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sud.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "366",
+      "name": "Sunderland",
+      "abbreviation": "SUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/366.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2664",
+      "name": "Suriname",
+      "abbreviation": "SUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sur.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10388",
+      "name": "SV Elversberg",
+      "abbreviation": "ELV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10388.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "466",
+      "name": "Sweden",
+      "abbreviation": "SWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/swe.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2764",
+      "name": "Sweden",
+      "abbreviation": "SWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/swe.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "475",
+      "name": "Switzerland",
+      "abbreviation": "SUI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sui.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17641",
+      "name": "Switzerland",
+      "abbreviation": "SUI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sui.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4380",
+      "name": "Syria",
+      "abbreviation": "SYR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/syr.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6723",
+      "name": "Tajikistan",
+      "abbreviation": "TJK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tjk.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5778",
+      "name": "Tanzania",
+      "abbreviation": "TAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tan.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4396",
+      "name": "Thailand",
+      "abbreviation": "THA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tha.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "239",
+      "name": "Torino",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/239.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7318",
+      "name": "Toronto FC",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7318.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21615",
+      "name": "Torreense",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21615.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "367",
+      "name": "Tottenham Hotspur",
+      "abbreviation": "TOT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/367.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "179",
+      "name": "Toulouse",
+      "abbreviation": "TOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/179.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "997",
+      "name": "Trabzonspor",
+      "abbreviation": "TRAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/997.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2627",
+      "name": "Trinidad and Tobago",
+      "abbreviation": "TRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tri.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "170",
+      "name": "Troyes",
+      "abbreviation": "TRY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/170.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7911",
+      "name": "TSG Hoffenheim",
+      "abbreviation": "TSG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7911.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "659",
+      "name": "Tunisia",
+      "abbreviation": "TUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tun.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "465",
+      "name": "Türkiye",
+      "abbreviation": "TUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tur.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "118",
+      "name": "Udinese",
+      "abbreviation": "UDI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/118.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4211",
+      "name": "Uganda",
+      "abbreviation": "UGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uga.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "457",
+      "name": "Ukraine",
+      "abbreviation": "UKR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ukr.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5807",
+      "name": "Union St.-Gilloise",
+      "abbreviation": "USG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5807.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4397",
+      "name": "United Arab Emirates",
+      "abbreviation": "UAE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uae.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "660",
+      "name": "United States",
+      "abbreviation": "USA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/usa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2765",
+      "name": "United States",
+      "abbreviation": "USA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/usa.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "212",
+      "name": "Uruguay",
+      "abbreviation": "URU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uru.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19141",
+      "name": "Utah Royals",
+      "abbreviation": "UTA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/19141.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2570",
+      "name": "Uzbekistan",
+      "abbreviation": "UZB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uzb.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "94",
+      "name": "Valencia",
+      "abbreviation": "VAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/94.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9727",
+      "name": "Vancouver Whitecaps",
+      "abbreviation": "VAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9727.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17530",
+      "name": "Venezia",
+      "abbreviation": "VEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17530.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "213",
+      "name": "Venezuela",
+      "abbreviation": "VEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ven.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "134",
+      "name": "VfB Stuttgart",
+      "abbreviation": "VFB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/134.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17815",
+      "name": "Vietnam",
+      "abbreviation": "VIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/vie.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7349",
+      "name": "Vietnam",
+      "abbreviation": "VIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/vie.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "510",
+      "name": "VIKING FK",
+      "abbreviation": "Viking FK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/510.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11706",
+      "name": "Viktoria Plzen",
+      "abbreviation": "PLZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11706.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "102",
+      "name": "Villarreal",
+      "abbreviation": "VIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/102.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "578",
+      "name": "Wales",
+      "abbreviation": "WAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/wal.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15365",
+      "name": "Washington Spirit",
+      "abbreviation": "WAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15365.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "137",
+      "name": "Werder Bremen",
+      "abbreviation": "SVW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/137.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6014",
+      "name": "Yemen",
+      "abbreviation": "YEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/yem.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20795",
+      "name": "Zambia",
+      "abbreviation": "ZAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/zam.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4277",
+      "name": "Zambia",
+      "abbreviation": "ZAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/zam.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4214",
+      "name": "Zimbabwe",
+      "abbreviation": "ZIM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4214.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
     }
   ]
 }

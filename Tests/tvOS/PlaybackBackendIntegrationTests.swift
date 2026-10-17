@@ -1,11 +1,22 @@
 import XCTest
 import UIKit
+import LineupAetherPlayback
 @testable import Lineup
 
 /// Real decoders, generated video/audio/subtitles, and no network account.
 /// Controller policy tests above also cover failure and retry deterministically.
 @MainActor
 final class PlaybackBackendIntegrationTests: XCTestCase {
+    func testBoundedSourceProbeReportsGeneratedVideoDimensions() async throws {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv", subdirectory: "Fixtures"))
+        let quality = try await AetherSourceProbe.quality(url: fixture, timeout: 5)
+        XCTAssertEqual(quality.width, 320)
+        XCTAssertEqual(quality.height, 180)
+        // Aether 7.36.0 SourceProbe.videoFrameRate is display-normalized:
+        // FrameRateSnap maps even an exact 24 fps source to 23.976.
+        XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
+    }
+
     func testVLCAndAetherRenderSeekSelectTracksAndReachTheEnd() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv",
                                                               subdirectory: "Fixtures"))

@@ -21,7 +21,13 @@ struct SportsScheduleClient: Sendable {
         // the feed answers with whole tournaments either way.
         async let tennis = tennisSchedule(from: Calendar.current.startOfDay(for: Date()),
                                           days: includeTomorrow ? 2 : 1)
-        guard includeTomorrow else { return Self.adding(await tennis, to: await snapshot(for: today)) }
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: includeTomorrow ? 2 : 1, to: start) ?? start
+        let racingEnd = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? end
+        async let expanded = ExpandedSportsScheduleClient.shared.games(from: start, to: end, racingTo: racingEnd)
+        guard includeTomorrow else {
+            return Self.merging(await expanded, into: Self.adding(await tennis, to: await snapshot(for: today)))
+        }
 
         async let todaySnapshot = snapshot(for: today)
         async let tomorrowSnapshot = snapshot(for: tomorrow)
@@ -32,16 +38,24 @@ struct SportsScheduleClient: Sendable {
             merged[league] = Dictionary(grouping: games, by: \.id).values.compactMap { $0.first }.sorted { $0.start < $1.start }
         }
         let errors = [first.errorMessage, second.errorMessage].compactMap { $0 }
-        return Self.adding(await tennis, to: Snapshot(
+        return Self.merging(await expanded, into: Self.adding(await tennis, to: Snapshot(
             games: merged,
             loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
             errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
-        ))
+        )))
     }
 
     /// The leagues with a feed of their own rather than a place in the
     /// combined schedule.
-    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta]
+    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta, .soccer, .f1, .nascar]
+
+    private static func merging(_ extra: Snapshot, into base: Snapshot) -> Snapshot {
+        var games = base.games
+        for (league, slate) in extra.games { games[league] = slate }
+        let errors = [base.errorMessage, extra.errorMessage].compactMap { $0 }
+        return .init(games: games, loadedLeagues: base.loadedLeagues.union(extra.loadedLeagues),
+                     errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
+    }
 
     private static func adding(_ tennis: Result<[SportsGame], Error>, to snapshot: Snapshot) -> Snapshot {
         var games = snapshot.games
@@ -443,7 +457,7 @@ struct SportsScheduleClient: Sendable {
         return formatter
     }
 
-    private static func parseDate(_ value: String) -> Date? {
+    static func parseDate(_ value: String) -> Date? {
         if let date = internetDate.date(from: value) { return date }
         for formatter in fallbackDates {
             if let date = formatter.date(from: value) { return date }

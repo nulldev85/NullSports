@@ -11,6 +11,9 @@ final class LeagueMatchingTests: XCTestCase {
         let value = text.lowercased()
         let words = Set(value.components(separatedBy: CharacterSet.alphanumerics.inverted))
         switch league {
+        case .soccer, .f1, .nascar:
+            XCTFail("New sports have no legacy matching policy; their fixture and safety checks live in ExpandedSportsTests")
+            return false
         case .ncaaf:
             return words.contains("ncaaf")
                 || ["college football", "ncaa football", "cfb", "sec network", "acc network",
@@ -66,7 +69,7 @@ final class LeagueMatchingTests: XCTestCase {
     func testEveryLeagueDecidesExactlyWhatItUsedTo() {
         for sample in samples {
             let prepared = SportsMatchText(alreadyLowercased: sample.lowercased())
-            for league in SportsLeague.allCases {
+            for league in [SportsLeague.nfl, .nba, .nhl, .mlb, .ncaaf, .ufc, .atp, .wta] {
                 XCTAssertEqual(league.matches(prepared), legacyMatches(league, sample),
                                "\(league.rawValue) disagreed about \"\(sample)\"")
             }

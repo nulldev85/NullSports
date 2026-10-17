@@ -19,8 +19,14 @@ final class SportsTeamDirectoryTests: XCTestCase {
         XCTAssertGreaterThan(college.count, 250)
         XCTAssertEqual(Set(college.compactMap(\.division)), ["FBS", "FCS"])
         XCTAssertEqual(Set(directory.teams.map(\.id)).count, directory.teams.count)
+        XCTAssertGreaterThan(directory.teams(in: .soccer).count, 300)
         XCTAssertTrue(directory.teams.allSatisfy { !$0.name.isEmpty && !$0.abbreviation.isEmpty && URL(string: $0.logo)?.scheme == "https" })
         for league in SportsTeamDirectory.leagues {
+            if league == .soccer {
+                XCTAssertEqual(SportsCompetitionCatalog.bundled.competitions.count, 18)
+                XCTAssertTrue(SportsCompetitionCatalog.bundled.competitions.allSatisfy { URL(string: $0.logo)?.scheme == "https" })
+                continue // Soccer is a category; each actual competition supplies its own official logo.
+            }
             XCTAssertNotNil(UIImage(named: "League-\(league.rawValue)"), "Bundle the league logo on both platforms")
         }
     }
@@ -31,6 +37,7 @@ final class SportsTeamDirectoryTests: XCTestCase {
         XCTAssertEqual(directory.teams(in: .ncaaf, matching: "san jose").map(\.name), ["San José State Spartans"])
         XCTAssertEqual(directory.teams(in: .nfl, matching: "   ").count, 32)
         XCTAssertTrue(directory.teams(matching: "there is no such team").isEmpty)
+        XCTAssertTrue(directory.teams(in: .soccer, matching: "premier league").contains { $0.name == "Arsenal" })
     }
 
     @MainActor
@@ -99,5 +106,40 @@ final class SportsTeamDirectoryTests: XCTestCase {
         let team = try XCTUnwrap(directory.teams.first)
         library.toggleFollow(team.followedTeam)
         XCTAssertTrue(library.followedTeams.isEmpty)
+    }
+
+    @MainActor
+    func testSoccerFollowUsesTheSameClubAcrossCompetitionsAndAfterRelaunch() throws {
+        let (library, defaults, suite, _, _) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let club = try XCTUnwrap(directory.teams(in: .soccer).first { $0.espnID == "363" })
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "soccer-schedule", withExtension: "json", subdirectory: "Fixtures"))
+        var game = try XCTUnwrap(ExpandedSportsScheduleClient.soccerGames(data: Data(contentsOf: file),
+            competitions: SportsCompetitionCatalog.bundled.competitions).first)
+        library.toggleFollow(club.followedTeam)
+        XCTAssertTrue(library.isFollowing(game))
+        game.competition = SportsCompetitionCatalog.bundled.competitions.first { $0.id == "uefa.champions" }
+        XCTAssertTrue(library.isFollowing(game))
+        let changedDisplay = FollowedTeam(key: club.key, name: "Chelsea FC", abbreviation: "CFC", logo: club.logo)
+        let restored = try JSONDecoder().decode(FollowedTeam.self, from: JSONEncoder().encode(changedDisplay))
+        XCTAssertEqual(restored.key, club.key, "Saved identity must not be reconstructed from a changed display abbreviation")
+        let relaunched = SportsLibrary(profileDefaults: defaults)
+        XCTAssertTrue(relaunched.isFollowing(game))
+        relaunched.toggleFollow(restored)
+        XCTAssertFalse(SportsLibrary(profileDefaults: defaults).isFollowing(game))
+    }
+
+    @MainActor
+    func testFollowingARacingSeriesIncludesEverySessionAndIsProviderScoped() throws {
+        let (library, defaults, suite, _, second) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "f1-weekend", withExtension: "json", subdirectory: "Fixtures"))
+        let games = try ExpandedSportsScheduleClient.racingGames(data: Data(contentsOf: file), league: .f1)
+        library.toggleFollow(try XCTUnwrap(SportsLeague.f1.seriesFollow))
+        XCTAssertTrue(games.allSatisfy { library.isFollowing($0) })
+        XCTAssertEqual(library.followableSides(of: games[0]).map(\.name), ["Formula 1"])
+        XCTAssertTrue(SportsLibrary(profileDefaults: defaults).isFollowing(games[0]))
+        defaults.set(second.id.uuidString, forKey: "NullSports.activeProfile")
+        XCTAssertFalse(SportsLibrary(profileDefaults: defaults).isFollowing(games[0]))
     }
 }

@@ -103,6 +103,8 @@ struct ProfileSetupView: View {
     @State private var password = ""
     @State private var connecting = false
     @State private var connectionError: String?
+    @State private var playlistConnection = false
+    @State private var guideURL = ""
 
     var body: some View {
         NavigationStack {
@@ -115,12 +117,21 @@ struct ProfileSetupView: View {
                     }.padding(.vertical, 16)
                 }.lineupSettingsRows()
                 Section {
+                    Picker("Connection", selection: $playlistConnection) {
+                        Label("Xtream", systemImage: "server.rack").tag(false)
+                        Label("M3U / EPGenius", systemImage: "list.bullet.rectangle").tag(true)
+                    }
                     TextField("Profile name", text: $name)
                         .textInputAutocapitalization(.words)
-                    TextField("Server URL", text: $server)
+                    TextField(playlistConnection ? "Playlist URL" : "Server URL", text: $server)
                         .keyboardType(.URL).textContentType(.URL)
+                    if playlistConnection {
+                        TextField("XMLTV guide URL (optional)", text: $guideURL)
+                            .keyboardType(.URL).textContentType(.URL)
+                    } else {
                     TextField("Username", text: $username).textContentType(.username)
                     SecureField("Password", text: $password).textContentType(.password)
+                    }
                 } header: {
                     Text("Your provider").lineupSettingsHeader()
                 }.lineupSettingsRows()
@@ -129,9 +140,14 @@ struct ProfileSetupView: View {
                         connecting = true
                         connectionError = nil
                         Task {
-                            let added = await library.addProfile(name: name,
-                                serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
-                                username: username, password: password)
+                            let added: Bool
+                            if playlistConnection {
+                                added = await library.addPlaylist(name: name, playlist: server, guide: guideURL)
+                            } else {
+                                added = await library.addProfile(name: name,
+                                    serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    username: username, password: password)
+                            }
                             connecting = false
                             if !added { connectionError = library.errorMessage }
                             if added && addingProvider { dismiss() }
@@ -142,9 +158,12 @@ struct ProfileSetupView: View {
                             Spacer()
                             if connecting { ProgressView() } else { Image(systemName: "arrow.right") }
                         }
-                    }.disabled(connecting || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || username.isEmpty || password.isEmpty)
+                    }.disabled(connecting || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                               || (!playlistConnection && (username.isEmpty || password.isEmpty)))
                 } footer: {
-                    Text("Use your Xtream-compatible provider. Your password is stored securely in this iPhone’s Keychain.")
+                    Text(playlistConnection
+                         ? "Use the playlist and EPG URLs supplied by EPGenius or your provider. Connection URLs are stored securely in Keychain. Playlist connections provide live TV; Xtream is required for provider VOD and catch up."
+                         : "Use your Xtream-compatible provider. Your password is stored securely in this iPhone’s Keychain.")
                         .lineupSettingsFooter()
                 }.lineupSettingsRows()
                 if let connectionError {

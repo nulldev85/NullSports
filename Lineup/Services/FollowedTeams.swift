@@ -25,7 +25,7 @@ struct FollowedTeam: Codable, Equatable, Sendable, Identifiable {
 
     var id: String { league + "|" + team }
     var key: TeamChannelKey {
-        TeamChannelKey(league: league, abbreviation: abbreviation, name: name)
+        TeamChannelKey(league: league, identity: team)
     }
 
     init(key: TeamChannelKey, name: String, abbreviation: String, logo: String,
