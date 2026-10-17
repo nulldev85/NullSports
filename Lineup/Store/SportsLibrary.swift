@@ -157,10 +157,12 @@ final class SportsLibrary: ObservableObject {
     private var libraryRefreshInFlight = false
     @Published private var channelMatchingWorkCount = 0 {
         didSet {
+            #if !os(iOS)
             // Matching a refresh sets off is part of it. Matching on its own
             // -- after a score changed -- starts no refresh of its own.
             if oldValue == 0, channelMatchingWorkCount > 0 { refreshProgress.start(.matching) }
             if oldValue > 0, channelMatchingWorkCount == 0 { refreshProgress.finish(.matching) }
+            #endif
         }
     }
     private var cacheWriteTask: Task<Void, Never>?
@@ -310,6 +312,11 @@ final class SportsLibrary: ObservableObject {
         defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
         indexGeneration = generation
+        #if os(iOS)
+        let progress = refreshProgress
+        let indexWork = progress.start(.indexing)
+        defer { progress.finish(indexWork) }
+        #endif
         let profileID = activeProfile?.id
         let currentCategories = categories
         let currentStreams = streams
@@ -336,6 +343,9 @@ final class SportsLibrary: ObservableObject {
             .map { "\($0.rawValue) \(index.leagues[$0]?.count ?? 0)" }.joined(separator: ", ")
         StartupTrace.shared.note("index built",
                                  "\(index.professional.count) sports channels of \(currentStreams.count) — " + byLeague)
+        #if os(iOS)
+        progress.finish(indexWork)
+        #endif
         await rebuildGameStreamCache(force: true)
     }
 
@@ -655,7 +665,9 @@ final class SportsLibrary: ObservableObject {
             if refreshChannels { steps.append(.channels) }
             if forceGuide && !isGuideLoading { steps += [.guide, .guideReading] }
             refreshProgress.plan(steps, profile: profile.id)
+            #if !os(iOS)
             if channelMatchingWorkCount > 0 { refreshProgress.start(.matching) }
+            #endif
         }
         if refreshChannels && invalidatesSession {
             channelsValidatedThisSession = false
@@ -667,9 +679,15 @@ final class SportsLibrary: ObservableObject {
         let client = XtreamClient(profile: profile, password: password)
         if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         guard refreshChannels else { return }
+        #if os(iOS)
+        let progress = refreshProgress
+        let channelWork = progress.start(.channels)
+        defer { progress.finish(channelWork) }
+        #else
         refreshProgress.start(.channels)
         defer { refreshProgress.finish(.channels) }
         let progress = refreshProgress
+        #endif
         do {
             // nil back means the server sent the same bytes as last time, so
             // there is nothing to decode and nothing to compare -- which on a
@@ -686,7 +704,13 @@ final class SportsLibrary: ObservableObject {
                 async let loadedStreams = client.streams(
                     ifChangedFrom: LibraryCachePolicy.digest(streamsDigest,
                                                              whenHolding: !streams.isEmpty),
-                    progress: { progress.download(.channels, $0) })
+                    progress: {
+                        #if os(iOS)
+                        progress.download(channelWork, $0)
+                        #else
+                        progress.download(.channels, $0)
+                        #endif
+                    })
                 return try await (loadedCategories, loadedStreams)
             }
             let (freshCategories, freshStreams) = answers
@@ -718,6 +742,11 @@ final class SportsLibrary: ObservableObject {
                 streams = newStreams.value
             }
             libraryUpdatedAt = Date()
+            #if os(iOS)
+            // Input is now installed. Track the current index/match operations
+            // separately, so an obsolete overlapping pass cannot hold this open.
+            progress.finish(channelWork)
+            #endif
             // Rebuilt here, on the channel list alone, and again when the guide
             // lands. That is one build more than it needs.
             //
@@ -741,6 +770,9 @@ final class SportsLibrary: ObservableObject {
             isLoading = false
             saveCache(profileID: profile.id)
         } catch {
+            #if os(iOS)
+            progress.fail(channelWork)
+            #endif
             guard activeProfile?.id == profile.id else { return }
             isLoading = false
             if streams.isEmpty { errorMessage = error.localizedDescription }
@@ -757,14 +789,23 @@ final class SportsLibrary: ObservableObject {
     private func refreshGuide(client: XtreamClient, profileID: UUID) -> Task<Void, Never>? {
         guard !isGuideLoading else { return nil }
         isGuideLoading = true
+        #if os(iOS)
+        let progress = refreshProgress
+        let guideWork = progress.start(.guide)
+        #else
         refreshProgress.start(.guide)
         let progress = refreshProgress
+        #endif
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
                 if self.activeProfile?.id == profileID { self.isGuideLoading = false }
+                #if os(iOS)
+                progress.finish(guideWork)
+                #else
                 progress.finish(.guide)
                 progress.finish(.guideReading)
+                #endif
             }
             // Keep the last good guide and its timestamp when a refresh fails.
             // A thrown error and an unchanged guide are different answers: the
@@ -781,15 +822,24 @@ final class SportsLibrary: ObservableObject {
                 // says which one was paid.
                 answer = try await trace.measure("fetch guide") {
                     try await client.programsToday(ifChangedFrom: ask, progress: { update in
+                        #if os(iOS)
+                        progress.download(guideWork, update)
+                        #else
                         progress.download(.guide, update)
                         // Once it has all arrived, what is left is reading it.
                         if update.finished {
                             progress.finish(.guide)
                             progress.start(.guideReading)
                         }
+                        #endif
                     })
                 }
-            } catch { return }
+            } catch {
+                #if os(iOS)
+                progress.fail(guideWork)
+                #endif
+                return
+            }
             trace.note("guide downloaded",
                        "\(StartupTrace.size(answer.bytes)), "
                        + (answer.payload == nil ? "unchanged — not parsed" : "parsed"))
@@ -804,12 +854,19 @@ final class SportsLibrary: ObservableObject {
                 guard self.activeProfile?.id == profileID else { return }
                 self.guideDigest = fresh.digest
                 if changed { self.programsByChannel = programs }
+                #if !os(iOS)
                 progress.finish(.guideReading)
+                #endif
             } else {
                 // The same bytes as last time: there was nothing to read.
+                #if !os(iOS)
                 progress.skip(.guideReading)
+                #endif
             }
             self.guideUpdatedAt = Date()
+            #if os(iOS)
+            progress.finish(guideWork)
+            #endif
             if changed {
                 await trace.measure("rebuild sports index", detail: "guide changed",
                                     { await self.rebuildProfessionalStreams() })
@@ -1719,6 +1776,11 @@ final class SportsLibrary: ObservableObject {
         defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
         matchGeneration = generation
+        #if os(iOS)
+        let progress = refreshProgress
+        let matchingWork = progress.start(.matching)
+        defer { progress.finish(matchingWork) }
+        #endif
         let profileID = activeProfile?.id
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }
         let leagues = leagueStreamCache
@@ -1792,7 +1854,21 @@ final class SportsLibrary: ObservableObject {
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
             var evidenceByGame: [String: Int] = [:]
+            #if os(iOS)
+            var processedGames = 0
+            var reportedPercent = -1
+            #endif
             for game in games {
+                #if os(iOS)
+                // Count completed games, including every early-continue path.
+                // At most 100 main-actor updates per pass; no per-frame ticker.
+                let percent = processedGames * 100 / max(1, games.count)
+                if percent != reportedPercent {
+                    await progress.advance(matchingWork, completed: processedGames, total: games.count)
+                    reportedPercent = percent
+                }
+                processedGames += 1
+                #endif
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
                     let collegeStart = clock()
@@ -1866,6 +1942,9 @@ final class SportsLibrary: ObservableObject {
                 let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(matches[game.id]?.id.description ?? "none") evidence=\(evidence?.description ?? "none") candidates=\((leagues[game.league] ?? []).count) policy=\(reused == nil ? "professional-fresh" : "professional-reused")"
                 Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
             }
+            #if os(iOS)
+            await progress.advance(matchingWork, completed: games.count, total: games.count)
+            #endif
             return (matches, signatures, matches != previousMatches, evidenceByGame,
                     collegeSlate.count, collegeCandidates.count, collegeSeconds, professionalSeconds)
             }.value
@@ -2585,6 +2664,9 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func resetProviderState() {
+        #if os(iOS)
+        refreshProgress.cancel()
+        #endif
         measuredPlaybackURLs = [:]
         // A refresh started for the previous provider must never land in the
         // next one's state. Everything provider-scoped — cached matches,

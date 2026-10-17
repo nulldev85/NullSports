@@ -1,5 +1,6 @@
 import Foundation
 
+#if !os(iOS)
 /// How far the app is through bringing its data up to date, for the pop-up
 /// that says so: "Refreshing Data", the step under way, and how far through
 /// the whole refresh it is.
@@ -266,3 +267,4 @@ final class DataRefreshProgress: ObservableObject {
         "DataRefresh.\(kind).\(step.rawValue).\(profileKey)"
     }
 }
+#endif

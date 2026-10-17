@@ -28,6 +28,22 @@ private struct DataRefreshCapsule: View {
 
     private typealias Metrics = DataRefreshMetrics
 
+    private var detail: String {
+        #if os(iOS)
+        status.detail
+        #else
+        "\(status.step.title) · \(status.percent)%"
+        #endif
+    }
+
+    private var accessibilityDetail: String {
+        #if os(iOS)
+        status.detail
+        #else
+        "\(status.step.title), \(status.percent) percent"
+        #endif
+    }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous)
         VStack(alignment: .leading, spacing: Metrics.lineGap) {
@@ -35,14 +51,32 @@ private struct DataRefreshCapsule: View {
                 .font(.inter(Metrics.title, .bold))
                 .foregroundStyle(Color.white)
                 .fixedSize()
-            Text("\(status.step.title) · \(status.percent)%")
+            Text(detail)
                 .font(.interDigits(Metrics.detail, .semibold))
                 .foregroundStyle(Color.white.opacity(0.56))
                 .fixedSize()
+            #if os(iOS)
+            if let percent = status.percent {
+                LineupProgressBar(value: Double(percent) / 100, height: Metrics.bar)
+                    .frame(width: Metrics.barWidth)
+                    .padding(.top, Metrics.barGap)
+                    .animation(.easeOut(duration: 0.2), value: percent)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.accentColor).controlSize(.small)
+                    Text("In Progress")
+                        .font(.inter(12, .medium))
+                        .foregroundStyle(Color.white.opacity(0.56))
+                }
+                .frame(width: Metrics.barWidth, alignment: .leading)
+                .padding(.top, Metrics.barGap)
+            }
+            #else
             LineupProgressBar(value: Double(status.percent) / 100, height: Metrics.bar)
                 .frame(width: Metrics.barWidth)
                 .padding(.top, Metrics.barGap)
                 .animation(.easeOut(duration: 0.35), value: status.percent)
+            #endif
         }
         .lineLimit(1)
         .padding(.horizontal, Metrics.side)
@@ -52,7 +86,7 @@ private struct DataRefreshCapsule: View {
         .shadow(color: .black.opacity(0.45), radius: Metrics.shadow, y: Metrics.shadow / 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Refreshing Data")
-        .accessibilityValue("\(status.step.title), \(status.percent) percent")
+        .accessibilityValue(accessibilityDetail)
         .accessibilityAddTraits(.updatesFrequently)
     }
 }

@@ -1,107 +1,194 @@
+import Combine
 import XCTest
 @testable import LineupiOS
 
-/// The "Refreshing Data" pop-up: which step it names, and how far through the
-/// whole refresh it says the app is.
 @MainActor
 final class DataRefreshProgressTests: XCTestCase {
-    private func store() -> UserDefaults {
-        let name = "DataRefreshProgressTests." + UUID().uuidString
-        let defaults = UserDefaults(suiteName: name)!
-        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
-        return defaults
+    private var observations: Set<AnyCancellable> = []
+
+    private func expectStatus(_ progress: DataRefreshProgress, _ description: String,
+                              matching condition: @escaping (DataRefreshProgress.Status?) -> Bool) -> XCTestExpectation {
+        let result = expectation(description: description)
+        progress.$status.filter(condition).prefix(1).sink { _ in result.fulfill() }.store(in: &observations)
+        return result
     }
 
-    private func waitUntil(_ condition: () -> Bool, within seconds: TimeInterval = 4) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
+    func testDownloadPercentageMeasuresTheCurrentPhaseFromActualBytes() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .guideReading, .matching], profile: UUID())
+        let channels = progress.start(.channels)
+        let guide = progress.start(.guide)
+        progress.finish(channels)
+        progress.download(guide, .init(received: 50, expected: 100, finished: false))
+        XCTAssertEqual(progress.status, .init(step: .guide, percent: 50))
+        progress.cancel()
     }
 
-    // A download is measured by its bytes, and the percentage is of the whole
-    // refresh: the channels done and half the guide in is 42%, on the guide.
-    func testTheGuideDownloadMovesThePercentageByItsBytes() {
-        let progress = DataRefreshProgress(defaults: store(), showAfter: 0)
-        progress.plan([.matching, .channels, .guide, .guideReading], profile: UUID())
-        progress.start(.channels)
-        progress.start(.guide)
-        progress.finish(.channels)
-        progress.download(.guide, XtreamDownloadUpdate(received: 50, expected: 100, finished: false))
-        XCTAssertEqual(progress.status, DataRefreshProgress.Status(step: .guide, percent: 42))
+    func testUnknownDownloadSizeAndUnmeasuredWorkNeverInventAPercentage() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.guide, .guideReading, .matching], profile: UUID())
+        let guide = progress.start(.guide)
+        progress.download(guide, .init(received: 90_000_000, expected: nil, finished: false))
+        XCTAssertEqual(progress.status, .init(step: .guide, percent: nil))
+        XCTAssertEqual(progress.status?.detail, "Loading TV Guide")
+        progress.download(guide, .init(received: 90_000_000, expected: 90_000_000, finished: true))
+        XCTAssertEqual(progress.status, .init(step: .guideReading, percent: nil))
+        progress.finish(guide)
+        let index = progress.start(.indexing)
+        XCTAssertEqual(progress.status, .init(step: .indexing, percent: nil))
+        progress.finish(index)
+        progress.cancel()
     }
 
-    // A server that gives no size is measured against what the same download
-    // came to last time, for the same provider.
-    func testAServerThatGivesNoSizeIsMeasuredAgainstTheLastDownload() {
-        let defaults = store()
-        let profile = UUID()
-        let first = DataRefreshProgress(defaults: defaults, showAfter: 0)
-        first.plan([.guide], profile: profile)
-        first.start(.guide)
-        first.download(.guide, XtreamDownloadUpdate(received: 400, expected: 400, finished: true))
-        first.finish(.guide)
-
-        let next = DataRefreshProgress(defaults: defaults, showAfter: 0)
-        next.plan([.guide], profile: profile)
-        next.start(.guide)
-        next.download(.guide, XtreamDownloadUpdate(received: 100, expected: nil, finished: false))
-        XCTAssertEqual(next.status?.percent, 25)
-    }
-
-    // Matching that starts over adds work, but the number on screen holds
-    // rather than falling back.
-    func testThePercentageNeverGoesBackwards() {
-        let progress = DataRefreshProgress(defaults: store(), showAfter: 0)
+    func testDownloadedChannelsAreNamedAsReadingUntilTheirDataIsInstalled() {
+        let progress = DataRefreshProgress(showAfter: 0)
         progress.plan([.channels, .matching], profile: UUID())
-        progress.start(.channels)
-        progress.download(.channels, XtreamDownloadUpdate(received: 90, expected: 100, finished: false))
-        XCTAssertEqual(progress.status?.percent, 45)
-        progress.start(.matching)
-        progress.finish(.matching)
-        XCTAssertEqual(progress.status?.percent, 95)
-        progress.start(.matching)
-        XCTAssertEqual(progress.status, DataRefreshProgress.Status(step: .channels, percent: 95))
+        let channels = progress.start(.channels)
+        progress.download(channels, .init(received: 100, expected: 100, finished: true))
+        XCTAssertEqual(progress.status, .init(step: .channelReading, percent: nil))
+        progress.cancel()
     }
 
-    // Matching after a score changed is not a refresh, and shows nothing.
-    func testMatchingOnItsOwnShowsNothing() {
-        let progress = DataRefreshProgress(defaults: store(), showAfter: 0)
-        progress.start(.matching)
+    func testMatchingPercentageCountsFinishedGamesAndResetsForANewPass() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.matching], profile: UUID())
+        let old = progress.start(.matching)
+        progress.advance(old, completed: 198, total: 200)
+        XCTAssertEqual(progress.status?.percent, 99)
+        let current = progress.start(.matching)
+        progress.advance(current, completed: 3, total: 12)
+        XCTAssertEqual(progress.status, .init(step: .matching, percent: 25))
+        progress.advance(old, completed: 200, total: 200)
+        progress.finish(old)
+        XCTAssertEqual(progress.status, .init(step: .matching, percent: 25),
+                       "Late callbacks from a replaced pass cannot change the current progress")
+        progress.cancel()
+    }
+
+    func testCurrentResultsFinishWithoutWaitingForAnObsoleteMatchingPass() async {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .guideReading, .matching], profile: UUID())
+        let channels = progress.start(.channels)
+        let guide = progress.start(.guide)
+        progress.finish(channels)
+        let oldIndex = progress.start(.indexing)
+        progress.finish(guide)
+        let currentIndex = progress.start(.indexing)
+        progress.finish(currentIndex)
+        let matching = progress.start(.matching)
+        progress.advance(matching, completed: 12, total: 12)
+        let ready = expectStatus(progress, "current results are ready") { $0?.completed == true }
+        progress.finish(matching)
+        // oldIndex is deliberately still running. Its result is already stale.
+        await fulfillment(of: [ready], timeout: 4)
+        XCTAssertEqual(progress.status?.detail, "Up to Date · 100%")
+        progress.finish(oldIndex)
+        XCTAssertEqual(progress.status?.completed, true)
+        let background = progress.start(.matching)
+        progress.advance(background, completed: 1, total: 10)
+        XCTAssertEqual(progress.status?.completed, true, "A score poll cannot reopen a finished refresh")
+        let dismissed = expectStatus(progress, "finished indicator dismisses") { $0 == nil }
+        await fulfillment(of: [dismissed], timeout: 4)
+        progress.finish(background)
         XCTAssertNil(progress.status)
     }
 
-    // A refresh over in a blink is never shown at all.
-    func testNothingIsShownBeforeTheRefreshHasRunAMoment() {
-        let progress = DataRefreshProgress(defaults: store(), showAfter: 60)
+    func testANewIndexRetiresTheOldMatchWithoutLettingItsCallbacksFinishTheNewWork() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.matching], profile: UUID())
+        let oldMatch = progress.start(.matching)
+        let index = progress.start(.indexing)
+        progress.advance(oldMatch, completed: 99, total: 100)
+        progress.finish(oldMatch)
+        XCTAssertEqual(progress.status, .init(step: .indexing, percent: nil))
+        progress.finish(index)
+        let current = progress.start(.matching)
+        progress.advance(current, completed: 1, total: 10)
+        XCTAssertEqual(progress.status, .init(step: .matching, percent: 10))
+        progress.cancel()
+    }
+
+    func testCompletedCalculationWaitsForTheResultToBeAppliedBeforeSayingOneHundred() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.matching], profile: UUID())
+        let matching = progress.start(.matching)
+        progress.advance(matching, completed: 100, total: 100)
+        XCTAssertEqual(progress.status, .init(step: .applying, percent: nil))
+        XCTAssertFalse(progress.status?.completed ?? true)
+        progress.cancel()
+    }
+
+    func testUnchangedDataWithNoMatchingNeededStillCompletes() async {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .guideReading, .matching], profile: UUID())
+        let channels = progress.start(.channels)
+        let guide = progress.start(.guide)
+        progress.finish(channels)
+        let ready = expectStatus(progress, "unchanged input completes without a matching pass") { $0?.completed == true }
+        progress.finish(guide)
+        await fulfillment(of: [ready], timeout: 4)
+        progress.cancel()
+    }
+
+    func testADownloadStillInFlightDoesNotAnnounceAllDataReady() async {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .matching], profile: UUID())
+        let guide = progress.start(.guide)
+        let matching = progress.start(.matching)
+        progress.finish(matching)
+        XCTAssertEqual(progress.status?.step, .guide)
+        XCTAssertEqual(progress.status?.completed, false)
+        let ready = expectStatus(progress, "guide input finishes") { $0?.completed == true }
+        progress.finish(guide)
+        await fulfillment(of: [ready], timeout: 4)
+        progress.cancel()
+    }
+
+    func testFailedRefreshDismissesWithoutFalselyAnnouncingSuccess() async {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .matching], profile: UUID())
+        let channels = progress.start(.channels)
+        let guide = progress.start(.guide)
+        var announcedSuccess = false
+        progress.$status.sink { if $0?.completed == true { announcedSuccess = true } }.store(in: &observations)
+        progress.fail(guide)
+        let dismissed = expectStatus(progress, "failed refresh retires") { $0 == nil }
+        progress.finish(channels)
+        await fulfillment(of: [dismissed], timeout: 4)
+        XCTAssertFalse(announcedSuccess)
+    }
+
+    func testProviderSwitchDiscardsCallbacksFromThePreviousProvider() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.guide], profile: UUID())
+        let oldGuide = progress.start(.guide)
         progress.plan([.channels], profile: UUID())
-        progress.start(.channels)
-        progress.download(.channels, XtreamDownloadUpdate(received: 10, expected: 100, finished: false))
+        let current = progress.start(.channels)
+        progress.download(current, .init(received: 1, expected: 10, finished: false))
+        progress.download(oldGuide, .init(received: 100, expected: 100, finished: true))
+        progress.fail(oldGuide)
+        progress.finish(oldGuide)
+        XCTAssertEqual(progress.status, .init(step: .channels, percent: 10))
+        progress.cancel()
+    }
+
+    func testBackgroundMatchingAloneNeverOpensTheIndicator() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        let matching = progress.start(.matching)
+        progress.advance(matching, completed: 3, total: 4)
+        progress.finish(matching)
         XCTAssertNil(progress.status)
     }
 
-    // Done, it says 100% for a moment, then goes.
-    func testAFinishedRefreshSaysOneHundredThenGoes() async throws {
-        let progress = DataRefreshProgress(defaults: store(), showAfter: 0)
+    func testBriefRefreshDoesNotFlickerAndCancellationClearsImmediately() {
+        let progress = DataRefreshProgress(showAfter: 60)
         progress.plan([.channels], profile: UUID())
-        progress.start(.channels)
-        progress.finish(.channels)
-        XCTAssertEqual(progress.status?.percent, 99, "Never 100 while anything could still be running")
-        let saidHundred = try await waitUntil { progress.status?.percent == 100 }
-        XCTAssertTrue(saidHundred)
-        let went = try await waitUntil { progress.status == nil }
-        XCTAssertTrue(went)
-    }
-
-    // Without bytes to count, a step moves by the clock: steadily to nine
-    // tenths over the time it usually takes, then ever more slowly.
-    func testTheClockPacesAStepToNineTenthsThenSlows() {
-        XCTAssertEqual(DataRefreshProgress.estimate(elapsed: 0, usual: 10), 0)
-        XCTAssertEqual(DataRefreshProgress.estimate(elapsed: 5, usual: 10), 0.45, accuracy: 0.0001)
-        XCTAssertEqual(DataRefreshProgress.estimate(elapsed: 10, usual: 10), 0.9, accuracy: 0.0001)
-        XCTAssertGreaterThan(DataRefreshProgress.estimate(elapsed: 20, usual: 10), 0.9)
-        XCTAssertLessThanOrEqual(DataRefreshProgress.estimate(elapsed: 1000, usual: 10), 0.99)
+        let channels = progress.start(.channels)
+        progress.download(channels, .init(received: 10, expected: 100, finished: false))
+        progress.finish(channels)
+        XCTAssertNil(progress.status)
+        progress.cancel()
+        progress.download(channels, .init(received: 100, expected: 100, finished: true))
+        XCTAssertNil(progress.status)
     }
 }
