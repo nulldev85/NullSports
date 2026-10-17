@@ -26,6 +26,11 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "27.0"
+      - name: Check Swift syntax and shared source membership
+        run: |
+          set -euo pipefail
+          python3 -B Tests/SharedSourceMembershipChecks.py
+          find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
 
       - name: Check college channel matching policy
         run: |

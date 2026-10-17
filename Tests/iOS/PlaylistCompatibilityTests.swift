@@ -14,7 +14,7 @@ final class PlaylistCompatibilityTests: XCTestCase {
     https://example.test/live/456.ts?token=second
     #EXTINF:-1 tvg-id="abc.local" group-title="Local",Local ABC
     https://example.test/live/789.m3u8
-    """
+    """#
 
     func testReadsEPGeniusStylePlaylistGroupsLogosAndDistinctFeedsSharingEPG() throws {
         let list = try M3UPlaylist.parse(Data(playlist.utf8))
