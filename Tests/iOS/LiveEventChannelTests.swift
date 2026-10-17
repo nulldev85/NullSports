@@ -57,6 +57,17 @@ final class LiveEventChannelTests: XCTestCase {
         XCTAssertEqual(channels.first?.program?.title, "NBA Basketball: Orlando Magic at Miami Heat")
     }
 
+    func testAutomaticDiscoveryHonorsItsDeadlineWithoutLimitingTheChannelsMenu() {
+        let candidates = [stream(1, "US: ABC Miami HD"), stream(90, "US: ABC Miami FHD")]
+        let listings = ["event": [program("NBA Basketball: Orlando Magic at Miami Heat")]]
+        let expired = SportsLibrary.matchingEventChannels(for: game(), candidates: candidates,
+            programs: listings, categories: [], now: now, deadline: -1)
+        XCTAssertTrue(expired.isEmpty)
+        let menu = SportsLibrary.matchingEventChannels(for: game(), candidates: candidates,
+            programs: listings, categories: [], now: now)
+        XCTAssertEqual(menu.map(\.id), [90, 1], "The manual Channels list still includes every relevant match")
+    }
+
     func testCollegeChannelsUseStrictGameEvidenceAndFindGenericProviderChannels() {
         let candidates = [stream(1, "US: CBSSN HD"), stream(99, "US: CBSSN FHD 60FPS"),
             stream(2, "US: CBSSN 8K", epg: "wrong"), stream(3, "US: CBSSN 4K", epg: nil)]

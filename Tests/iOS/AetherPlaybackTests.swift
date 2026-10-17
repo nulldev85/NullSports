@@ -6,6 +6,26 @@ import LineupAetherPlayback
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testSourceQualityDeadlineClosesARealHTTPOriginThatNeverSendsHeaders() async throws {
+        let ready = expectation(description: "stalled local origin is ready")
+        let requested = expectation(description: "probe reached the stalled origin")
+        let file = try fixture("playback-native", "mp4")
+        let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4",
+            stallsBeforeHeaders: true, onReady: { ready.fulfill() }, onStalledRequest: { requested.fulfill() })
+        defer { origin.stop() }
+        await fulfillment(of: [ready], timeout: 5)
+        let url = try XCTUnwrap(origin.url(path: "stalled-quality"))
+        let began = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await AetherSourceProbe.quality(url: url, timeout: LiveQualityVerifier.perURLBudget)
+            XCTFail("An origin that never sends headers cannot supply video dimensions")
+        } catch {
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - began, 4,
+                "The native probe must close on its deadline, not wait for a normal HTTP timeout")
+        }
+        await fulfillment(of: [requested], timeout: 5)
+    }
+
     func testSourceProbeMeasuresVideoRatherThanTheFHDChannelName() async throws {
         let file = try fixture("playback-native", "mp4")
         let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")

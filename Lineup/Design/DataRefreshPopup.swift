@@ -12,7 +12,7 @@ struct DataRefreshPopup: View {
     var body: some View {
         ZStack {
             if let status = progress.status {
-                DataRefreshCapsule(status: status)
+                DataRefreshCapsule(status: status, fraction: progress.fraction)
                     .transition(reduceMotion ? .opacity
                                 : .move(edge: .top).combined(with: .opacity))
             }
@@ -23,14 +23,15 @@ struct DataRefreshPopup: View {
     }
 }
 
-private struct DataRefreshCapsule: View {
+struct DataRefreshCapsule: View {
     let status: DataRefreshProgress.Status
+    let fraction: Double
 
     private typealias Metrics = DataRefreshMetrics
 
     private var detail: String {
         #if os(iOS)
-        status.detail
+        status.completed ? status.detail : "\(status.step.title) · \(Int((fraction * 100).rounded(.down)))%"
         #else
         "\(status.step.title) · \(status.percent)%"
         #endif
@@ -38,7 +39,7 @@ private struct DataRefreshCapsule: View {
 
     private var accessibilityDetail: String {
         #if os(iOS)
-        status.detail
+        detail
         #else
         "\(status.step.title), \(status.percent) percent"
         #endif
@@ -56,21 +57,10 @@ private struct DataRefreshCapsule: View {
                 .foregroundStyle(Color.white.opacity(0.56))
                 .fixedSize()
             #if os(iOS)
-            if let percent = status.percent {
-                LineupProgressBar(value: Double(percent) / 100, height: Metrics.bar)
+                LineupProgressBar(value: fraction, height: Metrics.bar)
                     .frame(width: Metrics.barWidth)
                     .padding(.top, Metrics.barGap)
-                    .animation(.easeOut(duration: 0.2), value: percent)
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().tint(.accentColor).controlSize(.small)
-                    Text("In Progress")
-                        .font(.inter(12, .medium))
-                        .foregroundStyle(Color.white.opacity(0.56))
-                }
-                .frame(width: Metrics.barWidth, alignment: .leading)
-                .padding(.top, Metrics.barGap)
-            }
+                    .animation(.easeOut(duration: 0.2), value: fraction)
             #else
             LineupProgressBar(value: Double(status.percent) / 100, height: Metrics.bar)
                 .frame(width: Metrics.barWidth)

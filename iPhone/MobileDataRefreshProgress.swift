@@ -45,13 +45,19 @@ final class DataRefreshProgress: ObservableObject {
         let work: Work
         var step: Step
         var percent: Int?
+        var fraction: Double = 0
     }
 
     @Published private(set) var status: Status?
+    /// One stable bar for the whole refresh. Only measured bytes, completed
+    /// games and installed phases move it; unknown work holds its last value.
+    @Published private(set) var fraction: Double = 0
     private let showAfter: TimeInterval
     private var profileID: UUID?
     private var beganAt: Date?
     private var activities: [Step: Activity] = [:]
+    private var planned: Set<Step> = []
+    private var done: Set<Step> = []
     private var completed = false
     private var failed = false
     private var showing: Task<Void, Never>?
@@ -61,7 +67,7 @@ final class DataRefreshProgress: ObservableObject {
         self.showAfter = showAfter
     }
 
-    func plan(_: [Step], profile: UUID) {
+    func plan(_ steps: [Step], profile: UUID) {
         if let profileID, profileID != profile { cancel() }
         if beganAt == nil || completed {
             ending?.cancel()
@@ -71,12 +77,24 @@ final class DataRefreshProgress: ObservableObject {
             beganAt = Date()
             profileID = profile
             status = nil
+            fraction = 0
+            planned = []
+            done = []
             showing?.cancel()
             showing = Task { [weak self, showAfter] in
                 do { try await Task.sleep(for: .seconds(max(0, showAfter))) } catch { return }
                 self?.publish()
             }
         }
+        for step in steps {
+            switch step {
+            case .channelReading: planned.insert(.channels)
+            case .guideReading: planned.insert(.guide)
+            case .applying: planned.insert(.matching)
+            default: planned.insert(step)
+            }
+        }
+        if planned.contains(.matching) { planned.insert(.indexing) }
         // A cached index may already be matching when the network refresh
         // starts. Its current operation is retained; a score poll alone does
         // not call plan and therefore never opens a refresh indicator.
@@ -92,7 +110,10 @@ final class DataRefreshProgress: ObservableObject {
         if step == .indexing {
             // A new index replaces the input used by an older match pass.
             activities[.matching] = nil
+            done.remove(.matching)
         }
+        done.remove(step)
+        if beganAt != nil, !completed { planned.insert(step) }
         let work = Work(lane: step)
         activities[step] = Activity(work: work, step: step)
         publish()
@@ -106,8 +127,10 @@ final class DataRefreshProgress: ObservableObject {
             // phase rather than displaying 99% while parsing/comparing it.
             activity.step = work.lane == .guide ? .guideReading : .channelReading
             activity.percent = nil
+            activity.fraction = work.lane == .guide ? 0.75 : 0.95
         } else if let expected = update.expected, expected > 0 {
             activity.percent = min(100, Int(max(0, min(1, Double(update.received) / Double(expected))) * 100))
+            activity.fraction = Double(activity.percent ?? 0) / 100 * (work.lane == .guide ? 0.75 : 0.95)
         } else {
             // Chunked/compressed responses and playlists need not have a
             // trustworthy length. A spinner is honest; last run's size isn't.
@@ -127,6 +150,7 @@ final class DataRefreshProgress: ObservableObject {
         } else {
             activity.percent = Int(Double(max(0, count)) / Double(total) * 100)
         }
+        activity.fraction = min(1, Double(max(0, count)) / Double(total))
         activities[work.lane] = activity
         publish()
     }
@@ -134,6 +158,7 @@ final class DataRefreshProgress: ObservableObject {
     func finish(_ work: Work) {
         guard current(work) != nil else { return }
         activities[work.lane] = nil
+        done.insert(work.lane)
         publish()
         settle()
     }
@@ -163,6 +188,9 @@ final class DataRefreshProgress: ObservableObject {
         beganAt = nil
         profileID = nil
         activities = [:]
+        planned = []
+        done = []
+        fraction = 0
         completed = false
         failed = false
         status = nil
@@ -174,7 +202,22 @@ final class DataRefreshProgress: ObservableObject {
     }
 
     private func publish() {
-        guard let beganAt, !completed, Date().timeIntervalSince(beganAt) >= showAfter,
+        guard let beganAt, !completed else { return }
+        func weight(_ step: Step) -> Double {
+            switch step {
+            case .channels: 0.2
+            case .guide: 0.6
+            default: 0.1
+            }
+        }
+        let total = planned.reduce(0) { $0 + weight($1) }
+        if total > 0 {
+            let reached = planned.reduce(0) { result, step in
+                result + weight(step) * (done.contains(step) ? 1 : (activities[step]?.fraction ?? 0))
+            }
+            fraction = max(fraction, min(reached / total, 0.99))
+        }
+        guard Date().timeIntervalSince(beganAt) >= showAfter,
               let activity = activities.values.min(by: { $0.step < $1.step }) else { return }
         let next = Status(step: activity.step, percent: activity.percent)
         if status != next { status = next }
@@ -186,6 +229,7 @@ final class DataRefreshProgress: ObservableObject {
         showing = nil
         guard !failed, let status else { cancel(); return }
         completed = true
+        fraction = 1
         self.status = Status(step: status.step, percent: 100, completed: true)
         ending = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(900)) } catch { return }

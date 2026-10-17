@@ -1,4 +1,6 @@
 import Combine
+import SwiftUI
+import UIKit
 import XCTest
 @testable import LineupiOS
 
@@ -190,5 +192,47 @@ final class DataRefreshProgressTests: XCTestCase {
         progress.cancel()
         progress.download(channels, .init(received: 100, expected: 100, finished: true))
         XCTAssertNil(progress.status)
+    }
+
+    func testOneWholeRefreshBarHoldsAcrossUnknownPhasesInsteadOfResetting() {
+        let progress = DataRefreshProgress(showAfter: 0)
+        progress.plan([.channels, .guide, .guideReading, .matching], profile: UUID())
+        let channels = progress.start(.channels)
+        let guide = progress.start(.guide)
+        progress.finish(channels)
+        progress.download(guide, .init(received: 50, expected: 100, finished: false))
+        XCTAssertEqual(progress.fraction, 0.425, accuracy: 0.0001)
+        progress.download(guide, .init(received: 60, expected: nil, finished: false))
+        XCTAssertEqual(progress.fraction, 0.425, accuracy: 0.0001, "Unknown work holds the measured position")
+        progress.download(guide, .init(received: 100, expected: 100, finished: true))
+        XCTAssertEqual(progress.fraction, 0.65, accuracy: 0.0001)
+        progress.finish(guide)
+        XCTAssertEqual(progress.fraction, 0.8, accuracy: 0.0001)
+        let index = progress.start(.indexing)
+        XCTAssertEqual(progress.fraction, 0.8, accuracy: 0.0001)
+        progress.finish(index)
+        let matching = progress.start(.matching)
+        progress.advance(matching, completed: 1, total: 4)
+        XCTAssertEqual(progress.fraction, 0.925, accuracy: 0.0001)
+        progress.start(.indexing)
+        XCTAssertEqual(progress.fraction, 0.925, accuracy: 0.0001, "A replacement pass cannot move the bar backwards")
+        progress.cancel()
+    }
+
+    func testRefreshCapsuleKeepsTheSameSizeAcrossMeasuredAndUnknownPhases() {
+        let states: [DataRefreshProgress.Status] = [
+            .init(step: .guide, percent: 50), .init(step: .guideReading, percent: nil),
+            .init(step: .indexing, percent: nil), .init(step: .matching, percent: 25),
+            .init(step: .applying, percent: nil), .init(step: .matching, percent: 100, completed: true)
+        ]
+        let sizes = states.map { status in
+            UIHostingController(rootView: DataRefreshCapsule(status: status, fraction: 0.65))
+                .sizeThatFits(in: CGSize(width: 390, height: 200))
+        }
+        for size in sizes {
+            XCTAssertEqual(size.width, sizes[0].width, accuracy: 0.5)
+            XCTAssertEqual(size.height, sizes[0].height, accuracy: 0.5,
+                "Changing phases must not swap between a spinner row and a differently sized bar")
+        }
     }
 }

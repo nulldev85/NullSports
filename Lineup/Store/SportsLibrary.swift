@@ -139,6 +139,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
     private var measuredPlaybackURLs: [String: (url: URL, expires: Date)] = [:]
+    private var eventChannelCache: [String: (channels: [LiveEventChannel], expires: Date)] = [:]
     @Published private var matchEvidenceScores: [String: Int] = [:]
     @Published private var didCompleteMatching = false
     // Same-day matches can be released before the large XMLTV download finishes,
@@ -1249,44 +1250,62 @@ final class SportsLibrary: ObservableObject {
 
     /// The event's actual matching channels, not broad league/search suggestions.
     /// Build off the main actor; a provider or guide change retires the result.
-    func eventChannels(for game: SportsGame) async -> [LiveEventChannel] {
+    func eventChannels(for game: SportsGame, deadline: TimeInterval? = nil) async -> [LiveEventChannel] {
         guard eventChannelsReady(for: game) else { return [] }
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
         guard current.isLive || current.isUpcoming else { return [] }
         let profile = activeProfile?.id, generation = indexGeneration
         let identity = Self.matchIdentity(current)
+        let cacheKey = ([profile?.uuidString ?? "", generation.uuidString, current.id] + identity).joined(separator: "|")
+        let now = Date()
+        eventChannelCache = eventChannelCache.filter { $0.value.expires > now }
+        if let cached = eventChannelCache[cacheKey] { return cached.channels }
         let candidates = game.league == .ncaaf ? streams : streams(for: game.league)
         let programs = programsByChannel, groups = categories
         let work = Task.detached(priority: .userInitiated) {
-            Self.matchingEventChannels(for: current, candidates: candidates, programs: programs, categories: groups, now: Date())
+            Self.matchingEventChannels(for: current, candidates: candidates, programs: programs,
+                categories: groups, now: Date(), deadline: deadline)
         }
         let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
         guard !Task.isCancelled, activeProfile?.id == profile, indexGeneration == generation,
               Self.matchIdentity(gamesByLeague[game.league]?.first { $0.id == game.id } ?? game) == identity,
               eventChannelsReady(for: current) else { return [] }
+        // Partial deadline-limited discovery is only for a quick automatic
+        // selection. The Channels menu must still get its complete results.
+        if deadline.map({ ProcessInfo.processInfo.systemUptime < $0 }) ?? true {
+            if eventChannelCache.count >= 32 { eventChannelCache.removeAll() }
+            let boundary = result.compactMap { $0.program?.end }.filter { $0 > now }.min()
+            let expires = min(min(now.addingTimeInterval(15), boundary ?? now.addingTimeInterval(15)),
+                current.isUpcoming ? current.start : now.addingTimeInterval(15))
+            eventChannelCache[cacheKey] = (result, expires)
+        }
         return result
     }
 
     /// Only automatic event playback calls this. Manual and team preferences
     /// remain explicit choices; unrelated channels never enter the probe list.
     func bestQualityStream(for game: SportsGame, fallback: XtreamStream) async -> XtreamStream? {
+        let deadline = ProcessInfo.processInfo.systemUptime + LiveQualityVerifier.startupBudget
         let profileID = activeProfile?.id
         let generation = indexGeneration
         let identity = Self.matchIdentity(game)
-        let channels = await eventChannels(for: game)
+        let channels = await eventChannels(for: game, deadline: deadline)
         guard !Task.isCancelled, activeProfile?.id == profileID else { return nil }
         let context = ([profileID?.uuidString ?? ""] + identity).joined(separator: "|")
+        let now = Date()
+        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
         let candidates = channels.map { channel in
             LiveQualityVerifier.Candidate(id: channel.stream.id, urls: sourcePlaybackURLs(for: channel.stream),
-                context: context + "|" + programs(for: channel.stream).filter { $0.start <= Date() && $0.end > Date() }
+                context: context + "|" + programs(for: channel.stream).filter { $0.start <= now && $0.end > now }
                     .map { "\($0.title)|\($0.start.timeIntervalSince1970)" }.joined(separator: "|"),
                 languageRank: ChannelLanguage.isForeign(name: channel.stream.name,
-                    category: categories.first { $0.id == channel.stream.categoryID }?.categoryName ?? "") ? 1 : 0)
+                    category: groups[channel.stream.categoryID ?? ""] ?? "") ? 1 : 0)
         }
-        let selection = await LiveQualityVerifier.shared.best(candidates, fallback: fallback.id)
+        let selection = await LiveQualityVerifier.shared.best(candidates, fallback: fallback.id,
+            budget: max(0, deadline - ProcessInfo.processInfo.systemUptime))
         let selected = selection.streamID
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
-        guard !Task.isCancelled, activeProfile?.id == profileID, indexGeneration == generation,
+        guard !Task.isCancelled, !selection.wasCancelled, activeProfile?.id == profileID, indexGeneration == generation,
               current.isLive, Self.matchIdentity(current) == identity else { return nil }
         guard let stream = stream(withID: selected) else { return nil }
         let allowed = selected == fallback.id ? isStream(stream, verifiedFor: current) : isEventChannel(stream, verifiedFor: current)
@@ -1734,13 +1753,14 @@ final class SportsLibrary: ObservableObject {
 
     nonisolated static func matchingEventChannels(for game: SportsGame, candidates: [XtreamStream],
                                                   programs: [String: [CurrentProgram]], categories: [XtreamCategory],
-                                                  now: Date) -> [LiveEventChannel] {
+                                                  now: Date, deadline: TimeInterval? = nil) -> [LiveEventChannel] {
         let prepared = Self.prepared(game)
         let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
         var result: [LiveEventChannel] = []
         var seen: Set<Int> = []
         for stream in candidates {
             guard !Task.isCancelled else { return [] }
+            if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { break }
             guard seen.insert(stream.id).inserted else { continue }
             let listings = programs[stream.epgChannelID ?? ""] ?? []
             guard let score = Self.eventChannelScore(stream, game: game, preparedGame: prepared,
@@ -2668,6 +2688,7 @@ final class SportsLibrary: ObservableObject {
         refreshProgress.cancel()
         #endif
         measuredPlaybackURLs = [:]
+        eventChannelCache = [:]
         // A refresh started for the previous provider must never land in the
         // next one's state. Everything provider-scoped — cached matches,
         // favorites, recent channels, preferences — is re-read from that

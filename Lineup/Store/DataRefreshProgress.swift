@@ -61,6 +61,7 @@ final class DataRefreshProgress: ObservableObject {
 
     /// Nil while there is nothing to say.
     @Published private(set) var status: Status?
+    var fraction: Double { Double(status?.percent ?? 0) / 100 }
 
     /// A gap this short between one step and the next is still one refresh.
     private static let settleFor: Duration = .milliseconds(700)
