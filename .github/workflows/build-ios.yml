@@ -112,12 +112,15 @@ jobs:
           fi
       - name: Upload navigation previews
         if: always()
+        # Supplementary previews must not prevent the release build/package.
+        # Simulator tests and the installable IPA upload remain mandatory.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Lineup-iPhone-navigation-previews
           path: navigation-previews
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
       - name: Build unsigned iPhone app
         if: env.PACKAGES_IPA == 'true'
         run: |
@@ -200,4 +203,4 @@ jobs:
           name: Lineup-iPhone-unsigned-IPA
           path: Lineup-iPhone-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone') && 14 || 7 }}

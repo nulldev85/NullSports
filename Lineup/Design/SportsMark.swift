@@ -70,7 +70,7 @@ struct SoccerCompetitionFilter: View {
 
     #if !os(tvOS)
     // Present through the tab-root host. An overlay attached to this button
-    // is confined to its clipped List row in Settings.
+    // is confined to its Sports header or clipped List row in Settings.
     static func choices(selection: Binding<String?>) -> [MobileMenuItem] {
         [MobileMenuItem("All competitions", id: "all", isSelected: selection.wrappedValue == nil) {
             selection.wrappedValue = nil

@@ -30,9 +30,9 @@ refreshes invalidate retained match signatures as before. Existing exact-game
 choices remain scoped to their original game and expire normally.
 
 The iPhone soccer-competition chooser now presents through the tab-root menu
-host. Its previous button-local overlay was clipped to the rounded Settings
-List row. The same selector in Sports uses that root host; tvOS retains its
-native full-screen choice presentation.
+host. Its previous button-local overlay was confined to its Live tab header
+or rounded Settings List row. Both locations use that root host; tvOS retains
+its native full-screen choice presentation.
 
 Shared XCTest coverage exercises quality/rate parsing, honest unknown labels,
 event-only filtering, a higher-ID 4K feed winning over HD, strict college

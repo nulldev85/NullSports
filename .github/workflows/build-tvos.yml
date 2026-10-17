@@ -160,12 +160,15 @@ jobs:
 
       - name: Upload playback proof screenshots
         if: always()
+        # Screenshots are supplementary. A storage/upload outage must not stop
+        # the launch smoke test or IPA packaging; tests and IPA upload still fail.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Lineup-tvOS-playback-previews
           path: playback-previews
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       - name: Smoke test app launch in tvOS Simulator
         run: |
@@ -210,4 +213,4 @@ jobs:
           name: Lineup-tvOS-unsigned-IPA
           path: Lineup-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 7 }}
