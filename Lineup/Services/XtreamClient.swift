@@ -82,21 +82,33 @@ struct XtreamClient {
     let password: String
 
     func authenticate() async throws -> XtreamEnvelope {
-        try await request(action: nil)
+        guard !profile.isPlaylist else { throw XtreamError.invalidServer }
+        return try await request(action: nil)
     }
 
     func categories(ifChangedFrom digest: String?) async throws -> XtreamAnswer<[XtreamCategory]> {
-        try await request(action: "get_live_categories", ifChangedFrom: digest)
+        if profile.isPlaylist {
+            let list = try await PlaylistDownloads.shared.load(profileID: profile.id, secret: password)
+            return digest == list.digest ? .unchanged(bytes: list.bytes) : .fresh(XtreamPayload(value: list.categories, digest: list.digest, bytes: list.bytes))
+        }
+        return try await request(action: "get_live_categories", ifChangedFrom: digest)
     }
 
     /// On a large provider this list is the bulk of a refresh, and decoding it
     /// only to find it unchanged was most of what a refresh did.
     func streams(ifChangedFrom digest: String?,
                  progress: DownloadProgress? = nil) async throws -> XtreamAnswer<[XtreamStream]> {
-        try await request(action: "get_live_streams", ifChangedFrom: digest, progress: progress)
+        if profile.isPlaylist {
+            let list = try await PlaylistDownloads.shared.load(profileID: profile.id, secret: password)
+            return digest == list.digest ? .unchanged(bytes: list.bytes) : .fresh(XtreamPayload(value: list.streams, digest: list.digest, bytes: list.bytes))
+        }
+        return try await request(action: "get_live_streams", ifChangedFrom: digest, progress: progress)
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
+        if profile.isPlaylist {
+            return PlaylistCache.read(profileID: profile.id, secret: password)?.urls[stream.id].map { [$0] } ?? []
+        }
         guard let base = normalizedBaseURL else { return [] }
         let root = base.appendingPathComponent("live")
             .appendingPathComponent(profile.username)
@@ -114,6 +126,7 @@ struct XtreamClient {
     /// read it -- and to the minute, as finely as either form can say.
     func catchUpURLs(for stream: XtreamStream, from start: Date, minutes: Int,
                      serverTimeZone: TimeZone) -> [URL] {
+        guard !profile.isPlaylist else { return [] }
         guard let base = normalizedBaseURL else { return [] }
         let stamp = CatchUpPolicy.addressStamp(start, in: serverTimeZone)
         let path = base.appendingPathComponent("timeshift")
@@ -161,14 +174,30 @@ struct XtreamClient {
     /// hour of history the Guide draws.
     func programsToday(ifChangedFrom digest: String?,
                        progress: DownloadProgress? = nil) async throws -> XtreamAnswer<[String: [CurrentProgram]]> {
-        guard let base = normalizedBaseURL,
-              var components = URLComponents(url: base.appendingPathComponent("xmltv.php"), resolvingAgainstBaseURL: false)
-        else { throw XtreamError.invalidServer }
-        components.queryItems = [
-            URLQueryItem(name: "username", value: profile.username),
-            URLQueryItem(name: "password", value: password)
-        ]
-        guard let url = components.url else { throw XtreamError.invalidServer }
+        let url: URL
+        if profile.isPlaylist {
+            let credentials = try PlaylistCredentials.read(password)
+            // Guide refresh starts beside channel refresh. Use the same
+            // playlist fetch when its header supplies the guide URL.
+            var headerGuide: URL?
+            if credentials.guide == nil {
+                headerGuide = try await PlaylistDownloads.shared.load(profileID: profile.id, secret: password).guide
+            }
+            guard let guide = credentials.guide ?? headerGuide else {
+                return .fresh(XtreamPayload(value: [:], digest: "no-guide", bytes: 0))
+            }
+            url = guide
+        } else {
+            guard let base = normalizedBaseURL,
+                  var components = URLComponents(url: base.appendingPathComponent("xmltv.php"), resolvingAgainstBaseURL: false)
+            else { throw XtreamError.invalidServer }
+            components.queryItems = [
+                URLQueryItem(name: "username", value: profile.username),
+                URLQueryItem(name: "password", value: password)
+            ]
+            guard let address = components.url else { throw XtreamError.invalidServer }
+            url = address
+        }
         var request = URLRequest(url: url)
         request.timeoutInterval = 45
         request.cachePolicy = .reloadRevalidatingCacheData
@@ -178,8 +207,12 @@ struct XtreamClient {
         }
         let fresh = XtreamPayloadDigest.of(data)
         if let digest, digest == fresh { return .unchanged(bytes: data.count) }
-        let programs = await Task.detached(priority: .utility) {
-            XMLTVParser().parse(data)
+        let programs = try await Task.detached(priority: .utility) {
+            let expanded = try XMLTVData.expanded(data)
+            let parser = XMLTVParser()
+            let programs = parser.parse(expanded)
+            guard parser.isValid else { throw PlaylistError.guide }
+            return programs
         }.value
         return .fresh(XtreamPayload(value: programs, digest: fresh, bytes: data.count))
     }
@@ -325,6 +358,7 @@ struct XtreamClient {
     }
 
     private var normalizedBaseURL: URL? {
+        guard !profile.isPlaylist else { return nil }
         let trimmed = profile.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
         return URL(string: value)?.standardized

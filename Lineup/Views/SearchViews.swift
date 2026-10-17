@@ -11,6 +11,7 @@ import SwiftUI
 struct AppSearchView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
     #if !os(tvOS)
     /// Plays a channel full screen. On the phone the player belongs to the
     /// view that owns the tabs.
@@ -25,6 +26,8 @@ struct AppSearchView: View {
     @State private var searchingServers = false
     @State private var serverProblem: String?
     @State private var pushed: MediaItem?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     #if !os(tvOS)
     @State private var homeRevision = 0
     #endif
@@ -102,6 +105,11 @@ struct AppSearchView: View {
                        lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""))
         }
         #endif
+        .overlay(alignment: .top) {
+            if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+        }
+        .onDisappear { cancelQualityCheck() }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
     }
 
     // MARK: Searching
@@ -162,6 +170,7 @@ struct AppSearchView: View {
     // MARK: Choosing
 
     private func open(_ hit: AppSearchHit) {
+        cancelQualityCheck()
         switch hit.kind {
         case .title(let item, _), .vod(let item, _):
             pushed = item
@@ -173,7 +182,21 @@ struct AppSearchView: View {
             // The channel the Live tab would play: one chosen for this game
             // before, or the match it has checked; else the one the row names.
             if game.isLive, let station = library.resolvedStream(for: game) ?? channel {
-                tune(station, game: game)
+                if case .play(_, .verified) = library.preferredChannel(for: game) {
+                    #if os(tvOS)
+                    TVPreviewHandoff.stopPreviews()
+                    #endif
+                    let request = UUID()
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: station)
+                        guard !Task.isCancelled, qualityRequest == request else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { tune(chosen, game: game) }
+                        else { choice = hit }
+                    }
+                } else { tune(station, game: game) }
             } else {
                 choice = hit
             }
@@ -181,12 +204,19 @@ struct AppSearchView: View {
     }
 
     private func tune(_ channel: XtreamStream, game: SportsGame?) {
+        cancelQualityCheck()
         choice = nil
         #if os(tvOS)
         playback = AppSearchPlayback(channel: channel, game: game)
         #else
         play(channel)
         #endif
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 
     private func channel(of hit: AppSearchHit) -> XtreamStream? {

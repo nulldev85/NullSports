@@ -1,6 +1,9 @@
 import Foundation
 
 final class XMLTVParser: NSObject, XMLParserDelegate {
+    private(set) var isValid = false
+    private var hasTVRoot = false
+    private var hasSeenRoot = false
     /// How much of the past a guide can show, and therefore how much of it has
     /// to survive parsing. The Guide draws the hour before the current
     /// half-hour so a programme already in progress has its elapsed shading
@@ -33,13 +36,17 @@ final class XMLTVParser: NSObject, XMLParserDelegate {
     }
 
     func parse(_ data: Data) -> [String: [CurrentProgram]] {
+        hasTVRoot = false
+        hasSeenRoot = false
+        programs = [:]
         let parser = XMLParser(data: data)
         parser.delegate = self
-        _ = parser.parse()
+        isValid = parser.parse() && hasTVRoot
         return programs.mapValues { $0.normalizedEPG() }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
+        if !hasSeenRoot { hasSeenRoot = true; hasTVRoot = elementName == "tv" }
         text = ""
         guard elementName == "programme" else { return }
         currentChannel = attributeDict["channel"] ?? ""

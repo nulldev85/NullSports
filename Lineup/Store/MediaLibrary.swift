@@ -233,6 +233,7 @@ final class MediaLibrary: ObservableObject {
     private var ratingsSave: Task<Void, Never>?
     /// Which kind of server each one is, as it said when first asked.
     private var serverKinds: [UUID: MediaServerKind] = [:]
+    private var serverExtensions: [UUID: MediaServerPublicInfo.Extensions] = [:]
     /// The IPTV provider's films and shows: one more place a title's streams
     /// can come from.
     let providerVOD: ProviderVOD
@@ -522,6 +523,7 @@ final class MediaLibrary: ObservableObject {
         try MediaKeychainStore.save(token: token, profileID: profile.id)
         clients[profile.id] = nil
         serverKinds[profile.id] = nil
+        serverExtensions[profile.id] = nil
         if let existing {
             profiles[existing] = profile
         } else {
@@ -545,6 +547,7 @@ final class MediaLibrary: ObservableObject {
         MediaKeychainStore.delete(profileID: profile.id)
         clients[profile.id] = nil
         serverKinds[profile.id] = nil
+        serverExtensions[profile.id] = nil
         profiles.removeAll { $0.id == profile.id }
         servers[profile.id] = nil
         if heldPlayback?.profileID == profile.id { heldPlayback = nil }
@@ -666,7 +669,7 @@ final class MediaLibrary: ObservableObject {
             let loadedCatalogs = await withTaskGroup(of: (Int, MediaCatalog).self) { group in
                 for (index, root) in selectedRoots.enumerated() {
                     group.addTask {
-                        let items = (try? await source.items(userID: profile.userID, parentID: root.id,
+                        let items = (try? await source.items(userID: profile.userID, parent: root,
                                                              sortBy: MediaServerQuery.shelfSort,
                                                              limit: MediaServerQuery.shelfLimit)) ?? []
                         return (index, MediaCatalog(root: root, items: items.map { $0.servedBy(profile.id) }))
@@ -803,7 +806,7 @@ final class MediaLibrary: ObservableObject {
             return catalogs.first { $0.id == parent.id }?.items ?? []
         }
         guard let profile = profile(for: parent) else { return [] }
-        return try await client(for: profile).items(userID: profile.userID, parentID: parent.id,
+        return try await client(for: profile).items(userID: profile.userID, parent: parent,
                                                     sortBy: MediaServerQuery.shelfSort,
                                                     limit: MediaServerQuery.shelfLimit)
             .map { $0.servedBy(profile.id) }
@@ -2273,7 +2276,7 @@ final class MediaLibrary: ObservableObject {
         guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
         var loaded: [MediaItem] = []
         do {
-            loaded = try await client(for: profile).items(userID: profile.userID, parentID: root.id,
+            loaded = try await client(for: profile).items(userID: profile.userID, parent: root,
                                                           sortBy: MediaServerQuery.shelfSort,
                                                           limit: MediaServerQuery.shelfLimit)
                 .map { $0.servedBy(profile.id) }
@@ -2666,7 +2669,7 @@ final class MediaLibrary: ObservableObject {
     /// item it plays from. The title's own server is asked about the item
     /// itself; another server about its own copy, and it throws
     /// `StreamLookupError.notOnServer` when it holds none.
-    func playbackSources(for item: MediaItem, on profile: MediaServerProfile) async throws -> [MediaPlaybackSource] {
+    func playbackSources(for item: MediaItem, on profile: MediaServerProfile, refresh: Bool = false) async throws -> [MediaPlaybackSource] {
         let target: MediaItem
         if serverID(of: item) == profile.id {
             target = item
@@ -2677,13 +2680,19 @@ final class MediaLibrary: ObservableObject {
             }
             target = copy
         }
-        return try await client(for: profile).playbackInfo(itemID: target.id).mediaSources
-            .filter { $0.path != "/videos/no-streams" && $0.name != "No streams found" }
+        _ = await serverKind(of: profile)
+        let features = serverExtensions[profile.id]
+        let options = MediaPlaybackRequest(fresh: features?.supports("versions") == true,
+            refresh: refresh && features?.supports("refreshVersions") == true)
+        let info = try await client(for: profile).playbackInfo(itemID: target.id, options: options)
+        return info.mediaSources
+            .filter { !$0.isPlaceholder && $0.path != "/videos/no-streams" && $0.name != "No streams found" }
             .map { source in
                 var source = source
                 source.serverID = profile.id
                 source.serverName = profile.name
                 source.itemID = target.id
+                source.playSessionID = info.playSessionID
                 return source
             }
     }
@@ -2692,14 +2701,14 @@ final class MediaLibrary: ObservableObject {
     /// the title, or the provider's own address for one of its films.
     func playbackURL(for item: MediaItem, source: MediaPlaybackSource) -> URL? {
         if let direct = source.directURL { return direct }
-        // AIOStreams gives each stream's own address as its path, and its
-        // stream route only looks the stream up again and redirects there:
-        // going straight to it saves a round trip to the server on every start.
-        if let own = Self.ownAddress(of: source) { return own }
+        // Retain the direct-path fallback for older compatibility servers.
+        // Documented stable versions go through the server with their source
+        // and session IDs, so an old list can never select a different release.
+        if source.aiostreams?.id == nil, let own = Self.ownAddress(of: source) { return own }
         let offering = source.serverID.flatMap { id in profiles.first { $0.id == id } }
         guard let profile = offering ?? profile(for: item) else { return nil }
         return try? client(for: profile).playbackURL(itemID: source.itemID ?? item.id,
-                                                     mediaSourceID: source.sourceID)
+            mediaSourceID: source.selectionID, playSessionID: source.playSessionID)
     }
 
     /// An AIOStreams stream's own address: its path, when that is a web
@@ -2719,6 +2728,7 @@ final class MediaLibrary: ObservableObject {
         if let known = serverKinds[profile.id] { return known }
         guard let info = try? await client(for: profile).publicInfo() else { return .jellyfin }
         serverKinds[profile.id] = info.kind
+        serverExtensions[profile.id] = info.aiostreams
         return info.kind
     }
 
@@ -4060,7 +4070,7 @@ extension MediaLibrary {
             return MediaCatalog(root: shelf.root, items: Array(shelf.items.prefix(limit)))
         }
         guard let profile = profile(for: root), let server = try? client(for: profile),
-              let items = try? await server.items(userID: profile.userID, parentID: root.id,
+              let items = try? await server.items(userID: profile.userID, parent: root,
                                                   sortBy: MediaServerQuery.shelfSort, limit: limit) else { return nil }
         return MediaCatalog(root: root.servedBy(profile.id), items: items.map { $0.servedBy(profile.id).cardOnly })
     }

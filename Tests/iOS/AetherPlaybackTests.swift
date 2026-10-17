@@ -6,6 +6,18 @@ import LineupAetherPlayback
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testSourceProbeMeasuresVideoRatherThanTheFHDChannelName() async throws {
+        let file = try fixture("playback-native", "mp4")
+        let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")
+        defer { origin.stop() }
+        try await waitUntil("Local probe origin did not become ready") { origin.port != nil }
+        let url = try XCTUnwrap(origin.url(path: "live/FHD-channel"))
+        let quality = try await AetherSourceProbe.quality(url: url, timeout: 5)
+        XCTAssertEqual(quality.width, 320)
+        XCTAssertEqual(quality.height, 180)
+        XCTAssertEqual(try XCTUnwrap(quality.frameRate), 24, accuracy: 0.01)
+    }
+
     func testLocalOriginServesRangesOnlyAfterARealPortIsReady() async throws {
         let file = try fixture("playback-native", "mp4")
         let origin = try PlaybackFixtureServer(file: file, contentType: "video/mp4")

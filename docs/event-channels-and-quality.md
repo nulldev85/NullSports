@@ -38,6 +38,34 @@ Provider HD/SD labels are displayed as HD/SD, not invented measured pixel counts
 These hints do not claim bitrate, HDR, Atmos, or actual decoder output; the
 existing playback-info badges continue reading confirmed source metadata.
 
+Before **automatic live-event playback**, both apps now use AetherEngine 7.36.0's
+bounded static source probe to compare actual video dimensions, then frame rate,
+within the existing language priority. Candidates come only from the stricter
+event-only list. Each candidate's HLS/TS URLs are checked independently; the
+winning URL index is retained and that exact variant leads playback's URL list.
+The probe demuxes source media; it does not trust an FHD name,
+start a player, activate audio, or perform expensive HDR/Atmos detail passes.
+Sports and Search use this path; the iPhone Guide's game-alert action does too.
+An existing preview being replaced is stopped before the checks. Probes are
+serialized globally, including superseded requests: cancellation waits for the
+old probe to return/close before another begins. Leaving the screen or
+backgrounding cancels a pending selection. A changed provider, index, schedule,
+or completed event cannot publish a late selection.
+
+Each URL has a five-second input/packet/time budget; the whole comparison has
+a thirty-second budget. Results are stored for ten minutes under hashes of the
+provider, event, current guide slot and full candidate URL set; changed URLs or
+credentials invalidate that entry. Failures remain unknown and are cached for
+thirty seconds. If some sources cannot be inspected, the app selects the best
+measured eligible source; if none can, it retains the existing verified match.
+It cannot guarantee a higher-quality provider feed exists, predict bandwidth,
+or guarantee an adaptive stream stays at its initial resolution. Player badges
+continue to report the playing source, independently of this short-lived cache.
+Manual game/team choices and recovery selections are not overridden. A measured
+automatic winner updates the automatic match rather than becoming a manual pin.
+The Channels list now explicitly calls name-derived labels **Provider FHD**, etc.
+Opening that list alone still creates no probe or playback connection.
+
 Explicit game/team selections and successful recovery feeds retain their normal
 priority. Ordinary automatic playback no longer saves itself as an exact-game
 manual pin. Automatic match identities/signatures include a policy revision so

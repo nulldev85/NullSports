@@ -6,6 +6,9 @@ struct XtreamProfile: Codable, Identifiable, Equatable {
     var name: String
     var serverURL: String
     var username: String
+    /// Nil is the legacy Xtream connection; existing saved profiles still read.
+    var connectionKind: String? = nil
+    var isPlaylist: Bool { connectionKind == "m3u" }
 
     init(id: UUID = UUID(), name: String, serverURL: String, username: String) {
         self.id = id

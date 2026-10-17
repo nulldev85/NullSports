@@ -314,16 +314,17 @@ extension KeyedDecodingContainer {
         }
         if let number = try? decode(Int.self, forKey: key) { return String(number) }
         if let number = try? decode(Double.self, forKey: key) {
-            return number.rounded() == number ? String(Int(number)) : String(number)
+            guard number.isFinite else { return nil }
+            return Int(exactly: number).map(String.init) ?? String(number)
         }
         return nil
     }
 
     func lenientInt(_ key: Key) -> Int? {
         if let number = try? decode(Int.self, forKey: key) { return number }
-        if let number = try? decode(Double.self, forKey: key), number.isFinite { return Int(number) }
+        if let number = try? decode(Double.self, forKey: key), number.isFinite { return Int(exactly: number.rounded(.towardZero)) }
         guard let text = lenientString(key) else { return nil }
-        return Int(text) ?? Double(text).flatMap { $0.isFinite ? Int($0) : nil }
+        return Int(text) ?? Double(text).flatMap { $0.isFinite ? Int(exactly: $0.rounded(.towardZero)) : nil }
     }
 
     func lenientDouble(_ key: Key) -> Double? {

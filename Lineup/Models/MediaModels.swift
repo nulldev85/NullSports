@@ -229,6 +229,11 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     /// because with several servers connected an item id only means something
     /// to the server that issued it.
     var serverID: UUID?
+    var serverExtensions: ServerExtensions? = nil
+
+    struct ServerExtensions: Codable, Hashable, Sendable {
+        let genreRequired: Bool?
+    }
 
     // An optional `let` gets no implicit default, so the added fields are given
     // one here and every existing caller keeps the call it already makes.
@@ -434,7 +439,65 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case providerBackdropURL = "LineupBackdrop"
         case logoArtworkURL = "LineupLogo"
         case serverID = "LineupServer"
+        case serverExtensions = "aiostreams"
     }
+}
+
+extension MediaItem {
+    /// Optional server metadata is independent: an odd rating or a numeric
+    /// provider ID must not discard the title, its episode coordinates, or art.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard let identity = values.lenientString(.id), let kind = values.lenientString(.type) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "A media item requires an identity and type"))
+        }
+        id = identity
+        type = kind
+        providerName = values.lenientString(.providerName) ?? identity
+        providerOverview = values.lenientString(.providerOverview)
+        providerYear = values.lenientString(.providerYear).flatMap(Int.init)
+        primaryImageAspectRatio = values.lenientDouble(.primaryImageAspectRatio)
+        childCount = values.lenientString(.childCount).flatMap(Int.init)
+        providerGenres = try? values.decodeIfPresent([String].self, forKey: .providerGenres)
+        officialRating = values.lenientString(.officialRating)
+        communityRating = values.lenientDouble(.communityRating)
+        criticRating = values.lenientDouble(.criticRating)
+        runTimeTicks = values.lenientString(.runTimeTicks).flatMap(Int64.init)
+        providerPremiereDate = values.lenientString(.providerPremiereDate)
+        indexNumber = values.lenientString(.indexNumber).flatMap(Int.init)
+        parentIndexNumber = values.lenientString(.parentIndexNumber).flatMap(Int.init)
+        seriesName = values.lenientString(.seriesName)
+        seriesID = values.lenientString(.seriesID)
+        userData = try? values.decodeIfPresent(MediaUserData.self, forKey: .userData)
+        imageTags = try? values.decodeIfPresent([String: String].self, forKey: .imageTags)
+        backdropImageTags = try? values.decodeIfPresent([String].self, forKey: .backdropImageTags)
+        status = values.lenientString(.status)
+        endDate = values.lenientString(.endDate)
+        tags = try? values.decodeIfPresent([String].self, forKey: .tags)
+        studios = try? values.decodeIfPresent([MediaNamedInfo].self, forKey: .studios)
+        productionLocations = try? values.decodeIfPresent([String].self, forKey: .productionLocations)
+        people = try? values.decodeIfPresent([MediaPerson].self, forKey: .people)
+        remoteTrailers = try? values.decodeIfPresent([MediaTrailer].self, forKey: .remoteTrailers)
+        let ids = try? values.nestedContainer(keyedBy: ServerMetadataKey.self, forKey: .originalProviderIDs)
+        originalProviderIDs = ids.map { container in
+            container.allKeys.reduce(into: [:]) { result, key in
+                if let value = container.lenientString(key) { result[key.stringValue] = value }
+            }
+        }
+        providerPosterURL = values.lenientString(.providerPosterURL)
+        providerBackdropURL = values.lenientString(.providerBackdropURL)
+        logoArtworkURL = values.lenientString(.logoArtworkURL)
+        serverID = try? values.decodeIfPresent(UUID.self, forKey: .serverID)
+        serverExtensions = try? values.decodeIfPresent(ServerExtensions.self, forKey: .serverExtensions)
+    }
+}
+
+private struct ServerMetadataKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
 }
 
 struct MediaNamedInfo: Codable, Hashable, Sendable {
@@ -945,7 +1008,9 @@ struct MediaServerPublicInfo: Decodable, Sendable {
 
     struct Extensions: Decodable, Sendable {
         let configureURL: String?
-        enum CodingKeys: String, CodingKey { case configureURL = "configureUrl" }
+        var features: [String: Int]? = nil
+        func supports(_ name: String) -> Bool { (features?[name] ?? 0) >= 1 }
+        enum CodingKeys: String, CodingKey { case configureURL = "configureUrl", features }
     }
 
     var kind: MediaServerKind {
@@ -1081,8 +1146,9 @@ struct JellyfinAuthenticationResponse: Codable, Sendable {
 
 struct MediaPlaybackInfo: Decodable, Sendable {
     let mediaSources: [MediaPlaybackSource]
+    var playSessionID: String? = nil
 
-    enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources" }
+    enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources", playSessionID = "PlaySessionId" }
 }
 
 /// One subtitle choice exposed by the active playback engine. The engine keeps
@@ -1155,9 +1221,14 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// Where a stream that no media server serves plays from: the IPTV
     /// provider's own address for a film or an episode.
     var directURL: URL? = nil
+    var playSessionID: String? = nil
+    /// Unlike the first standard Id, this names one exact AIOStreams version.
+    var selectionID: String { aiostreams?.id ?? sourceID }
+    var sourceType: String? = nil
+    var isPlaceholder: Bool { sourceType?.caseInsensitiveCompare("Placeholder") == .orderedSame }
 
     /// Unique across servers, which can number their streams alike.
-    var id: String { (serverID?.uuidString ?? "") + "|" + sourceID }
+    var id: String { (serverID?.uuidString ?? "") + "|" + selectionID }
 
     struct RemuxInfo: Decodable, Hashable, Sendable {
         let providerInfo: ProviderInfo?
@@ -1179,14 +1250,22 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let addon: String?
         let filename: String?
         let cached: Bool?
+        let id: String?
+        let name: String?
+        let description: String?
+        let bingeGroup: String?
 
-        enum CodingKeys: String, CodingKey { case addon, filename, cached }
+        enum CodingKeys: String, CodingKey { case addon, filename, cached, id, name, description, bingeGroup }
 
         init(from decoder: Decoder) throws {
             let values = try? decoder.container(keyedBy: CodingKeys.self)
             addon = values?.lenientString(.addon)
             filename = values?.lenientString(.filename)
             cached = try? values?.decodeIfPresent(Bool.self, forKey: .cached)
+            id = values?.lenientString(.id).flatMap { $0.isEmpty ? nil : $0 }
+            name = values?.lenientString(.name)
+            description = values?.lenientString(.description)
+            bingeGroup = values?.lenientString(.bingeGroup)
         }
     }
 
@@ -1199,10 +1278,13 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         case bitrate = "Bitrate"
         case remux = "Remux"
         case aiostreams
+        case sourceType = "Type"
     }
 
     var displayLines: [String] {
-        (name ?? remux?.providerInfo?.description ?? "Stream")
+        let formatted = [aiostreams?.name, aiostreams?.description].compactMap { $0 }
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+        return (formatted.isEmpty ? (name ?? remux?.providerInfo?.description ?? "Stream") : formatted)
             .split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }
 
@@ -1267,6 +1349,9 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// writes no score when it is nought: there, an unwritten score among
     /// written ones ranks as zero, between the positive and the negative.
     static func ranked(_ sources: [MediaPlaybackSource]) -> [MediaPlaybackSource] {
+        // The documented version extension is already in the server's chosen
+        // order. A formatter's decorative score must not rerank these results.
+        if sources.contains(where: { $0.aiostreams?.id != nil }) { return sources }
         guard sources.contains(where: { $0.score != nil }) else { return sources }
         func rank(_ source: MediaPlaybackSource) -> Int? {
             source.score ?? (source.aiostreams != nil ? 0 : nil)

@@ -138,6 +138,7 @@ final class SportsLibrary: ObservableObject {
     @Published private var guideValidatedThisSession = false
     @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
     @Published private var gameStreamCache: [String: XtreamStream] = [:]
+    private var measuredPlaybackURLs: [String: (url: URL, expires: Date)] = [:]
     @Published private var matchEvidenceScores: [String: Int] = [:]
     @Published private var didCompleteMatching = false
     // Same-day matches can be released before the large XMLTV download finishes,
@@ -431,7 +432,35 @@ final class SportsLibrary: ObservableObject {
             let client = XtreamClient(profile: profile, password: password)
             let envelope = try await client.authenticate()
             guard envelope.userInfo?.auth == 1 else { throw XtreamClient.XtreamError.unauthorized }
-            try KeychainStore.save(password: password, profileID: profile.id)
+            return try await saveConnectedProfile(profile, secret: password)
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func addPlaylist(name: String, playlist: String, guide: String) async -> Bool {
+        do {
+            let credentials = try PlaylistCredentials(playlist: playlist, guide: guide)
+            // Public profile metadata holds only the origin, never a credential
+            // path, query string, Drive file ID, or EPGenius token.
+            var origin = URLComponents()
+            origin.scheme = credentials.playlist.scheme
+            origin.host = credentials.playlist.host
+            origin.port = credentials.playlist.port
+            var profile = XtreamProfile(name: name.isEmpty ? "My Playlist" : name,
+                serverURL: origin.string ?? "", username: "M3U playlist")
+            profile.connectionKind = "m3u"
+            _ = try await PlaylistDownloads.shared.load(profileID: profile.id, secret: credentials.encoded)
+            return try await saveConnectedProfile(profile, secret: credentials.encoded)
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func saveConnectedProfile(_ profile: XtreamProfile, secret: String) async throws -> Bool {
+            try KeychainStore.save(password: secret, profileID: profile.id)
             passwordCache = nil
             profiles.append(profile)
             // Additional providers are saved without interrupting the current one.
@@ -446,10 +475,6 @@ final class SportsLibrary: ObservableObject {
             persistProfiles()
             if isFirstProfile { await reload() }
             return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
     }
 
     func bootstrap() async {
@@ -933,6 +958,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     nonisolated private static func removeCaches(profileID: UUID) {
+        PlaylistCache.remove(profileID: profileID)
         let manager = FileManager.default
         for url in [cacheURL(profileID: profileID), channelsURL(profileID: profileID),
                     guideURL(profileID: profileID), stateURL(profileID: profileID)] {
@@ -1182,6 +1208,43 @@ final class SportsLibrary: ObservableObject {
               Self.matchIdentity(gamesByLeague[game.league]?.first { $0.id == game.id } ?? game) == identity,
               eventChannelsReady(for: current) else { return [] }
         return result
+    }
+
+    /// Only automatic event playback calls this. Manual and team preferences
+    /// remain explicit choices; unrelated channels never enter the probe list.
+    func bestQualityStream(for game: SportsGame, fallback: XtreamStream) async -> XtreamStream? {
+        let profileID = activeProfile?.id
+        let generation = indexGeneration
+        let identity = Self.matchIdentity(game)
+        let channels = await eventChannels(for: game)
+        guard !Task.isCancelled, activeProfile?.id == profileID else { return nil }
+        let context = ([profileID?.uuidString ?? ""] + identity).joined(separator: "|")
+        let candidates = channels.map { channel in
+            LiveQualityVerifier.Candidate(id: channel.stream.id, urls: sourcePlaybackURLs(for: channel.stream),
+                context: context + "|" + programs(for: channel.stream).filter { $0.start <= Date() && $0.end > Date() }
+                    .map { "\($0.title)|\($0.start.timeIntervalSince1970)" }.joined(separator: "|"),
+                languageRank: ChannelLanguage.isForeign(name: channel.stream.name,
+                    category: categories.first { $0.id == channel.stream.categoryID }?.categoryName ?? "") ? 1 : 0)
+        }
+        let selection = await LiveQualityVerifier.shared.best(candidates, fallback: fallback.id)
+        let selected = selection.streamID
+        let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        guard !Task.isCancelled, activeProfile?.id == profileID, indexGeneration == generation,
+              current.isLive, Self.matchIdentity(current) == identity else { return nil }
+        guard let stream = stream(withID: selected) else { return nil }
+        let allowed = selected == fallback.id ? isStream(stream, verifiedFor: current) : isEventChannel(stream, verifiedFor: current)
+        guard allowed else { return nil }
+        measuredPlaybackURLs = measuredPlaybackURLs.filter { $0.value.expires > Date() }
+        if let index = selection.urlIndex, let candidate = candidates.first(where: { $0.id == selected }),
+           candidate.urls.indices.contains(index) {
+            measuredPlaybackURLs["\(profileID?.uuidString ?? "")|\(selected)"] =
+                (candidate.urls[index], Date().addingTimeInterval(600))
+        } else {
+            measuredPlaybackURLs.removeValue(forKey: "\(profileID?.uuidString ?? "")|\(selected)")
+        }
+        gameStreamCache[game.id] = stream
+        if let channel = channels.first(where: { $0.id == selected }) { matchEvidenceScores[game.id] = channel.evidence }
+        return stream
     }
 
     // Which rule authorized a match, for the diagnostics screen. A wrong game
@@ -2309,6 +2372,16 @@ final class SportsLibrary: ObservableObject {
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
+        let urls = sourcePlaybackURLs(for: stream)
+        if let profile = activeProfile,
+           let preferred = measuredPlaybackURLs["\(profile.id.uuidString)|\(stream.id)"],
+           preferred.expires > Date(), urls.contains(preferred.url) {
+            return [preferred.url] + urls.filter { $0 != preferred.url }
+        }
+        return urls
+    }
+
+    private func sourcePlaybackURLs(for stream: XtreamStream) -> [URL] {
         guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
     }
@@ -2512,6 +2585,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     private func resetProviderState() {
+        measuredPlaybackURLs = [:]
         // A refresh started for the previous provider must never land in the
         // next one's state. Everything provider-scoped — cached matches,
         // favorites, recent channels, preferences — is re-read from that

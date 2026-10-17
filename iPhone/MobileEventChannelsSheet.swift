@@ -138,7 +138,7 @@ private struct MobileEventChannelRow: View {
                             }
                         }
                         if let label = channel.quality.label {
-                            Text(label).foregroundStyle(LineupStyle.secondary)
+                            Text("Provider \(label)").foregroundStyle(LineupStyle.secondary)
                                 .accessibilityLabel("Provider quality: \(label)")
                         }
                     }.font(.inter(11, .semibold))

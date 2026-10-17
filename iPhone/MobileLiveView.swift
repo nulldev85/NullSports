@@ -27,6 +27,8 @@ struct MobileLiveView: View {
     /// The channel just moved to, named over the picture for a moment.
     @State private var channelBanner: MobileChannelBannerInfo?
     @State private var bannerTask: Task<Void, Never>?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     /// Both teams have a usable preference and they disagree.
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
@@ -264,6 +266,10 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck() }
             .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
                 MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
                     pendingStream = stream
@@ -349,6 +355,7 @@ struct MobileLiveView: View {
                 }] + sides
             }
             .onChange(of: isActive) { _, active in
+                if !active { cancelQualityCheck() }
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
                 if active { playback.resume() } else { leagueMenuOpen = false }
@@ -360,6 +367,7 @@ struct MobileLiveView: View {
                 if playing, let stream = previewStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: scenePhase) { _, phase in
+                if phase == .background { cancelQualityCheck() }
                 guard previewStream != nil else { return }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
                 // decides whether this transition touches playback at all.
@@ -580,11 +588,27 @@ struct MobileLiveView: View {
     /// saved preferences plus what the provider currently carries — see
     /// `TeamChannelPreferences.resolve`.
     private func open(_ game: SportsGame) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
-            if let stream = library.stream(withID: streamID) { showPreview(stream, for: game) }
+        case let .play(streamID, source):
+            if let stream = library.stream(withID: streamID) {
+                if source == .verified {
+                    playback.shutdown()
+                    previewStream = nil
+                    let request = UUID()
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { showPreview(chosen, for: game) }
+                        else { choosingChannel = game }
+                    }
+                } else { showPreview(stream, for: game) }
+            }
             else { choosingChannel = game }
         case let .chooseFeed(home, away):
             feedChoice = FeedChoice(game: game, home: home, away: away)
@@ -607,6 +631,7 @@ struct MobileLiveView: View {
     }
 
     private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
+        cancelQualityCheck()
         setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
@@ -619,6 +644,12 @@ struct MobileLiveView: View {
         if let game { playback.failover = failoverContext(for: game) }
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
         playback.loadCatchUpSource(for: stream, from: library)
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 
     private func failoverContext(for game: SportsGame) -> MobilePlaybackController.FailoverContext {

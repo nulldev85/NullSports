@@ -4,6 +4,7 @@ import LineupAetherPlayback
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.scenePhase) private var scenePhase
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
@@ -20,6 +21,8 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -146,6 +149,11 @@ struct LiveView: View {
             .onChange(of: isActive) { _, active in
                 if !active { stopPreview() }
             }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck() }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(LineupStyle.background.ignoresSafeArea())
@@ -178,12 +186,25 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
+        case let .play(streamID, source):
             if let stream = library.stream(withID: streamID) {
-                start(game, on: stream, startsMultiview: startsMultiview)
+                TVPreviewHandoff.stopPreviews()
+                let request = UUID()
+                if source == .verified {
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { start(game, on: chosen, startsMultiview: startsMultiview) }
+                        else { chooseChannel(for: game, startsMultiview: startsMultiview) }
+                    }
+                } else { start(game, on: stream, startsMultiview: startsMultiview) }
             } else {
                 chooseChannel(for: game, startsMultiview: startsMultiview)
             }
@@ -196,6 +217,7 @@ struct LiveView: View {
 
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
                        manuallySelected: Bool = false) {
+        cancelQualityCheck()
         if startsMultiview {
             stopPreview()
             multiviewPrimary = stream
@@ -276,10 +298,17 @@ struct LiveView: View {
     }
 
     private func stopPreview() {
+        cancelQualityCheck()
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
         previewWasManuallySelected = false
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 }
 
@@ -8676,7 +8705,7 @@ final class TVPreviewHandoff {
 
     /// Stops every preview but this player. A preview covered by full screen
     /// opens again when it is uncovered.
-    @MainActor fileprivate static func stopPreviews(except kept: TVPlaybackController) {
+    @MainActor static func stopPreviews(except kept: TVPlaybackController? = nil) {
         for entry in previews {
             guard let controller = entry.controller, controller !== kept, controller.isOpen else { continue }
             controller.lentToFullScreen = false

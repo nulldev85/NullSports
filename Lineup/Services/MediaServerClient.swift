@@ -12,6 +12,7 @@ import Foundation
 protocol MediaServerClient: Sendable {
     func views(userID: String) async throws -> [MediaItem]
     func items(userID: String, parentID: String, sortBy: String, limit: Int) async throws -> [MediaItem]
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem]
     func allCollections(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem]
     func episodes(userID: String, seriesID: String) async throws -> [MediaItem]
     func allTitles(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem]
@@ -34,6 +35,8 @@ protocol MediaServerClient: Sendable {
     func seriesPosterURL(for episode: MediaItem, maxWidth: Int) -> URL?
     func playbackURL(itemID: String, mediaSourceID: String?) -> URL?
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo
+    func playbackInfo(itemID: String, options: MediaPlaybackRequest) async throws -> MediaPlaybackInfo
+    func playbackURL(itemID: String, mediaSourceID: String?, playSessionID: String?) -> URL?
 
     // Nullfin's own routes. Any other server has none of them, and says so
     // the way a plain Jellyfin server does: by refusing.
@@ -56,6 +59,15 @@ enum MediaServerQuery {
 }
 
 extension MediaServerClient {
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem] {
+        try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit)
+    }
+    func playbackInfo(itemID: String, options: MediaPlaybackRequest) async throws -> MediaPlaybackInfo {
+        try await playbackInfo(itemID: itemID)
+    }
+    func playbackURL(itemID: String, mediaSourceID: String?, playSessionID: String?) -> URL? {
+        playbackURL(itemID: itemID, mediaSourceID: mediaSourceID)
+    }
     func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL? {
         imageURL(itemID: item.id, type: type, maxWidth: maxWidth)
     }
