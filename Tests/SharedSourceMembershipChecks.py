@@ -13,6 +13,7 @@ SHARED = (
     "Lineup/Services/LiveSourceQuality.swift",
     "Lineup/Services/M3UPlaylist.swift",
     "Lineup/Services/MediaPlaybackRequest.swift",
+    "Lineup/Services/SportsIndexFacts.swift",
 )
 
 

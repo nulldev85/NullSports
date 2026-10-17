@@ -169,6 +169,83 @@ final class LiveSourceQualityTests: XCTestCase {
         XCTAssertEqual(chosen.urlIndex, 0, "Alternate transport quality remains eligible")
     }
 
+    #if os(iOS)
+    func testLowerQualityTSDoesNotUseWholeBudgetBeforeSameChannelsFullHDHLS() async {
+        let clock = QualityTestClock()
+        let recorder = BudgetRecorder(clock: clock)
+        let verifier = LiveQualityVerifier(defaults: nil, uptime: { clock.now }) { url, timeout in
+            await recorder.measure(url, timeout: timeout)
+        }
+        let channels = (1...5).map { id in
+            LiveQualityVerifier.Candidate(id: id, urls: [
+                URL(string: "https://example.test/fhd-\(id).m3u8")!,
+                URL(string: "https://example.test/hd-\(id).ts")!
+            ], context: "ohio-state-event", advertisedHeight: 1080)
+        }
+        let selected = await verifier.best(channels, fallback: 5)
+        let paths = await recorder.paths
+        XCTAssertEqual(Array(paths.prefix(2)), ["/hd-1.ts", "/fhd-1.m3u8"])
+        XCTAssertEqual(selected.streamID, 1)
+        XCTAssertEqual(selected.urlIndex, 0)
+        XCTAssertEqual(selected.quality?.height, 1080)
+        XCTAssertLessThanOrEqual(clock.now, LiveQualityVerifier.startupBudget)
+    }
+
+    func testCachedPartial720pStillChecksUnmeasured1080pAlternateAfterRelaunch() async throws {
+        let suite = "PartialTransportQuality.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = QualityTestClock()
+        let recorder = BudgetRecorder(clock: clock)
+        let channel = LiveQualityVerifier.Candidate(id: 1, urls: [
+            URL(string: "https://example.test/fhd.m3u8")!, URL(string: "https://example.test/hd.ts")!
+        ], context: "event", advertisedHeight: 1080)
+        let first = LiveQualityVerifier(defaults: defaults, uptime: { clock.now }) { url, timeout in
+            await recorder.measure(url, timeout: timeout)
+        }
+        let partial = await first.best([channel], fallback: 1, budget: 0.9)
+        XCTAssertEqual(partial.quality?.height, 720)
+        let reopened = LiveQualityVerifier(defaults: defaults, uptime: { clock.now }) { url, timeout in
+            await recorder.measure(url, timeout: timeout)
+        }
+        let selected = await reopened.best([channel], fallback: 1)
+        let paths = await recorder.paths
+        XCTAssertEqual(paths, ["/hd.ts", "/fhd.m3u8"], "Do not repeat measured TS or freeze a partial 720p result")
+        XCTAssertEqual(selected.urlIndex, 0)
+        XCTAssertEqual(selected.quality?.height, 1080)
+    }
+
+    func testHigherQualityHLSGetsTimeForPlaylistAndMediaWithoutExtendingStartupBudget() async {
+        let clock = QualityTestClock()
+        let verifier = LiveQualityVerifier(defaults: nil, uptime: { clock.now }) { url, timeout in
+            let hls = url.pathExtension == "m3u8"
+            let needs: TimeInterval = hls ? 1.6 : 0.4
+            clock.advance(min(needs, timeout))
+            guard timeout >= needs else { throw URLError(.timedOut) }
+            return .init(width: hls ? 1920 : 1280, height: hls ? 1080 : 720, frameRate: 60)
+        }
+        let channel = LiveQualityVerifier.Candidate(id: 1, urls: [
+            URL(string: "https://example.test/source.m3u8")!, URL(string: "https://example.test/source.ts")!
+        ], context: "event", advertisedHeight: 1080)
+        let selected = await verifier.best([channel], fallback: 1)
+        XCTAssertEqual(selected.urlIndex, 0)
+        XCTAssertEqual(selected.quality?.height, 1080)
+        XCTAssertEqual(clock.now, 2, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(clock.now, LiveQualityVerifier.startupBudget)
+    }
+
+    func testAdvertisedFHDStillReportsOnly720pWhenBothTransportsActuallyMeasure720p() async {
+        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+            .init(width: 1280, height: 720, frameRate: 60)
+        }
+        let channel = LiveQualityVerifier.Candidate(id: 1, urls: [
+            URL(string: "https://example.test/source.m3u8")!, URL(string: "https://example.test/source.ts")!
+        ], context: "event", advertisedHeight: 1080)
+        let selected = await verifier.best([channel], fallback: 1)
+        XCTAssertEqual(selected.quality?.height, 720, "Provider labels may prioritize checks but cannot invent quality")
+    }
+    #endif
+
     func testNewSelectionCancelsOldProbeAndWaitsForItsCloseBeforeOpeningAnother() async {
         await checkSupersession(expireWhileClosing: false)
     }

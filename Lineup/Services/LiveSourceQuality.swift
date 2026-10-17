@@ -30,6 +30,8 @@ actor LiveQualityVerifier {
         let urls: [URL]
         let context: String
         var languageRank: Int = 0
+        // Scheduling hint only. Never substituted for a measured quality.
+        var advertisedHeight: Int = 0
     }
     struct Entry: Codable {
         let quality: LiveSourceQuality?
@@ -45,6 +47,7 @@ actor LiveQualityVerifier {
         let streamID: Int
         var urlIndex: Int? = nil
         var wasCancelled = false
+        var quality: LiveSourceQuality? = nil
     }
     typealias Probe = @Sendable (URL, TimeInterval) async throws -> LiveSourceQuality
     private let probe: Probe
@@ -129,28 +132,60 @@ actor LiveQualityVerifier {
                 for (slot, index) in indices.enumerated() {
                     guard !Task.isCancelled else { return Selection(streamID: fallback.streamID, wasCancelled: true) }
                     guard legacy[index] == nil, orders[slot].indices.contains(round) else { continue }
-                    let urlIndex = orders[slot][round]
-                    guard samples[index][urlIndex] == nil else { continue }
                     let candidate = candidates[index]
-                    let sourceKey = Self.sourceKey(candidate, urlIndex)
-                    let sample: Sample
-                    if let reused = shared[sourceKey] { sample = reused }
-                    else {
-                        let remaining = deadline - uptime()
-                        if remaining <= 0 { break network }
-                        let value = try? await probe(candidate.urls[urlIndex], min(Self.perURLBudget, remaining))
-                        guard !Task.isCancelled else { return Selection(streamID: fallback.streamID, wasCancelled: true) }
-                        let quality = value.flatMap { $0.isValid ? $0 : nil }
-                        sample = Sample(quality: quality, expires: Date().addingTimeInterval(quality == nil ? 30 : 600))
-                        shared[sourceKey] = sample
+                    var pending = [orders[slot][round]]
+                    while !pending.isEmpty {
+                        let urlIndex = pending.removeFirst()
+                        if samples[index][urlIndex] == nil {
+                            let sourceKey = Self.sourceKey(candidate, urlIndex)
+                            let sample: Sample
+                            if let reused = shared[sourceKey] { sample = reused }
+                            else {
+                                let remaining = deadline - uptime()
+                                if remaining <= 0 { break network }
+                                var sourceBudget = Self.perURLBudget
+                                #if os(iOS)
+                                // HLS needs a playlist and a media read. Give
+                                // this selected upgrade a little more of the
+                                // SAME overall budget, not another long scan.
+                                let knownHeight = samples[index].values.compactMap(\.quality)
+                                    .filter(\.isValid).map { min($0.width, $0.height) }.max()
+                                if candidate.urls[urlIndex].pathExtension.lowercased() == "m3u8",
+                                   let knownHeight, knownHeight < max(1080, candidate.advertisedHeight) {
+                                    sourceBudget = 2
+                                }
+                                #endif
+                                let value = try? await probe(candidate.urls[urlIndex], min(sourceBudget, remaining))
+                                guard !Task.isCancelled else { return Selection(streamID: fallback.streamID, wasCancelled: true) }
+                                let quality = value.flatMap { $0.isValid ? $0 : nil }
+                                sample = Sample(quality: quality, expires: Date().addingTimeInterval(quality == nil ? 30 : 600))
+                                shared[sourceKey] = sample
+                            }
+                            samples[index][urlIndex] = sample
+                            let best = samples[index].filter { $0.value.quality?.isValid == true }.max {
+                                $1.value.quality!.outranks($0.value.quality!)
+                            }
+                            cache[Self.key(candidate)] = Entry(quality: best?.value.quality,
+                                expires: samples[index].values.map(\.expires).max() ?? now,
+                                urlIndex: best?.key, samples: samples[index])
+                        }
+                        #if os(iOS)
+                        // A provider can serve 720p TS and 1080p HLS for the
+                        // SAME channel. Round-robin TS reads spent the whole
+                        // deadline on other channels before checking that HLS.
+                        // Resolve a measured shortfall on this promising feed
+                        // first, including a cached partial result. Claims only
+                        // schedule a probe; the winning dimensions stay measured.
+                        let bestHeight = samples[index].values.compactMap(\.quality)
+                            .filter(\.isValid).map { min($0.width, $0.height) }.max()
+                        let directTS = candidate.urls[urlIndex].pathExtension.lowercased() == "ts"
+                        let target = directTS ? max(1080, candidate.advertisedHeight) : candidate.advertisedHeight
+                        if round == 0, let bestHeight, bestHeight < target {
+                            let remaining = orders[slot].filter { samples[index][$0] == nil && !pending.contains($0) }
+                            pending.append(contentsOf: remaining)
+                        }
+                        #endif
                     }
-                    samples[index][urlIndex] = sample
-                    let best = samples[index].filter { $0.value.quality?.isValid == true }.max {
-                        $1.value.quality!.outranks($0.value.quality!)
-                    }
-                    cache[Self.key(candidate)] = Entry(quality: best?.value.quality,
-                        expires: samples[index].values.map(\.expires).max() ?? now,
-                        urlIndex: best?.key, samples: samples[index])
                 }
             }
         }
@@ -165,7 +200,7 @@ actor LiveQualityVerifier {
             for (urlIndex, quality) in measured {
                 if winner == nil || candidate.languageRank < winner!.2
                     || (candidate.languageRank == winner!.2 && quality.outranks(winner!.1)) {
-                    winner = (Selection(streamID: candidate.id, urlIndex: urlIndex), quality, candidate.languageRank)
+                    winner = (Selection(streamID: candidate.id, urlIndex: urlIndex, quality: quality), quality, candidate.languageRank)
                 }
             }
         }
