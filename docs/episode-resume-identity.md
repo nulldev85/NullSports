@@ -31,4 +31,20 @@ restored checkpoint. Existing real-decoder integration tests remain enabled.
 These fixtures reproduce the identity-loss path without a private server. The
 user reported that The Wire has a normal seek bar/runtime and fails with both
 provider VOD and Jellyfin; their actual server responses have not been inspected.
-Confirmation on that title remains device review after the builds pass.
+The user tested tvOS 84 and confirmed it remembers the position from before the
+app was updated. They reported missing thumbnail progress as the remaining issue.
+
+The tvOS artwork compositor now anchors progress to the visible card bounds,
+separately from the cropped image. A portrait source filling a still, or a wide
+source filling a poster, can extend outside that card. The previous overlay was
+attached to the image's expanded bounds and could be clipped off the screen.
+Both Continue Watching/Library cards and the show page's episode thumbnails use
+the fixed compositor. iPhone retains its previous composition. Tracking and
+resume storage/transport are unchanged in this rendering follow-up.
+
+Two tvOS rendering regressions use generated artwork and actual restored
+provider/Jellyfin checkpoints. They inspect visible accent pixels for episode and
+movie progress across portrait, landscape and matching aspect ratios, retain
+proof screenshots, and check the show's current-episode bar at the bottom edge.
+They await actual layout callbacks instead of guessing a render delay. Apple SDK
+execution remains CI validation; these render checks cannot run on Windows.
