@@ -19,7 +19,7 @@ struct ProfileSetupView: View {
                     .font(.inter(.caption, .black))
                     .tracking(3)
                     .foregroundStyle(LineupStyle.field)
-                Text("Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
+                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
                     .font(.inter(58, .bold))
                     .foregroundStyle(LineupStyle.text)
                 Text("A quiet, fast home for live American sports.").foregroundColor(LineupStyle.lightPurple)
@@ -38,7 +38,7 @@ struct ProfileSetupView: View {
                     .textContentType(.URL)
                 if playlistConnection {
                     TextField("XMLTV guide URL (optional)", text: $guideURL).textContentType(.URL)
-                    Text("Live TV playlists. Use the playlist and EPG URLs supplied by EPGenius or your provider.")
+                    Text("EPGenius organizes your existing provider's channels and guide. It does not supply video. Paste the playlist and EPG links from its setup.")
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
                 } else {
                 TextField("Username", text: $username)

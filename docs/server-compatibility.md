@@ -50,6 +50,12 @@ Quick Connect, tracker/history administration, or transcoding.
 The [official setup guide](https://epgenius.org/) supplies an M3U playlist and
 XMLTV guide URL and explicitly requires an M3U connection. Lineup now offers
 **M3U / EPGenius** alongside Xtream in Add Provider on iPhone and tvOS.
+EPGenius curates the lineup and guide using the user's existing TV provider;
+it does not supply video streams or provider credentials.
+On tvOS with an existing provider, open **Settings → Sources → Live TV Sources
+→ Add TV Source**, then choose **M3U / EPGenius** under Connection. The same
+Live TV Sources menu selects saved connections; adding another does not replace
+or activate it over the current provider. Select the saved connection to use it.
 
 Paste the generated playlist URL and optional guide URL. A playlist's
 x-tvg-url/url-tvg header can supply the guide. Known Google Drive file-share

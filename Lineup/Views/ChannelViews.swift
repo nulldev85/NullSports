@@ -4699,6 +4699,7 @@ struct AccountView: View {
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
+    @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
@@ -4749,6 +4750,15 @@ struct AccountView: View {
                         playbackEngine = engine.rawValue
                     }
                 }
+            }
+            .tvChoices("Live TV Sources", symbol: "antenna.radiowaves.left.and.right", isPresented: $choosingProvider,
+                       message: "Your provider supplies the streams. Connect its Xtream login or add an EPGenius / M3U playlist.") {
+                library.profiles.map { profile in
+                    TVChoice(profile.name, symbol: profile.isPlaylist ? "list.bullet.rectangle" : "server.rack",
+                             id: profile.id.uuidString, isSelected: library.activeProfile?.id == profile.id) {
+                        Task { await library.selectProfile(profile) }
+                    }
+                } + [TVChoice("Add TV Source", symbol: "plus", id: "add-provider") { addingProvider = true }]
             }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
@@ -4801,6 +4811,7 @@ struct AccountView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             if library.activeProfile != nil {
+                providersRow
                 preferredChannelsRow
             }
             // Every server feeds the Library at once, so with more than one
@@ -4818,6 +4829,33 @@ struct AccountView: View {
                 .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
+    }
+
+    /// Adding a provider remains available after first setup. New connections
+    /// are saved alongside the active one and can be selected from this menu.
+    private var providersRow: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return TVSelectable(scale: 1.01, fillRadius: 18, action: { choosingProvider = true }) {
+            HStack(spacing: 20) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
+                    .frame(width: 52)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Live TV Sources").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text("Add an EPGenius / M3U playlist or switch saved connections")
+                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                Text("\(library.profiles.count) saved")
+                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 96)
+            .background(LineupPanelStyle.well, in: shape)
+        }
+        .disabled(library.isSwitchingProfile)
     }
 
     /// The channels saved for teams, one press from their list.
@@ -4850,7 +4888,7 @@ struct AccountView: View {
         if let profile = library.activeProfile {
             AccountSourceCard(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
+                kind: profile.isPlaylist ? "PLAYLIST & GUIDE" : "IPTV PROVIDER",
                 title: profile.name,
                 subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: library.channelsAreSyncing ? .busy("Updating")
@@ -4874,13 +4912,13 @@ struct AccountView: View {
         } else {
             AccountEmptySource(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
-                title: "No provider",
-                detail: "Add your IPTV login to fill Live and the guide."
+                kind: "LIVE TV SOURCE",
+                title: "No TV source",
+                detail: "Connect your provider or add an EPGenius / M3U playlist."
             ) {
                 // The first-run screen is the only other place to sign in, and
                 // it never returns once a media server is saved.
-                AccountButton(title: "Add IPTV Provider", symbol: "plus", prominent: true) {
+                AccountButton(title: "Add TV Source", symbol: "plus", prominent: true) {
                     addingProvider = true
                 }
             }
