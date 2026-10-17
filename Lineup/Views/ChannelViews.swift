@@ -8527,10 +8527,12 @@ private struct TVPreviewFormatBadges: View {
 @MainActor private func configureGameFailover(_ controller: TVPlaybackController,
                                                game: SportsGame, library: SportsLibrary,
                                                chooseChannel: @escaping @MainActor () -> Void) {
+    let automaticID = library.verifiedStream(for: game)?.id
     controller.failover = TVPlaybackController.FailoverContext(
         plan: { library.failoverPlan(for: game) },
         urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
         didPlay: { id in
+            guard id != automaticID else { return }
             if let working = library.stream(withID: id) {
                 library.saveGameSelection(working, for: game)
             }

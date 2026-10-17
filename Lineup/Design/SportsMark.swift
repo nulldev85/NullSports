@@ -37,6 +37,9 @@ struct SportsMark: View {
 struct SoccerCompetitionFilter: View {
     @Binding var selected: String?
     @State private var choosing = false
+    #if !os(tvOS)
+    @Environment(\.mobileHoldMenu) private var menu
+    #endif
     private let competitions = SportsCompetitionCatalog.bundled.competitions
     private var current: SportsCompetition? { competitions.first { $0.id == selected } }
 
@@ -53,19 +56,31 @@ struct SoccerCompetitionFilter: View {
                 }
         }
         #else
-        Button { choosing = true } label: {
+        Button {
+            menu?.present("Soccer competitions", symbol: "soccerball", message: nil,
+                          items: Self.choices(selection: $selected))
+        } label: {
             label.padding(.horizontal, 10).frame(minHeight: 36)
                 .background(LineupPanelStyle.well, in: Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())
-        .lineupChoices("Soccer competitions", symbol: "soccerball", isPresented: $choosing) {
-            [MobileMenuItem("All competitions", id: "all", isSelected: selected == nil) { selected = nil }]
-                + competitions.map { competition in
-                    MobileMenuItem(competition.name, id: competition.id, isSelected: selected == competition.id) { selected = competition.id }
-                }
-        }
+        .accessibilityIdentifier("SoccerCompetitionFilter")
         #endif
     }
+
+    #if !os(tvOS)
+    // Present through the tab-root host. An overlay attached to this button
+    // is confined to its clipped List row in Settings.
+    static func choices(selection: Binding<String?>) -> [MobileMenuItem] {
+        [MobileMenuItem("All competitions", id: "all", isSelected: selection.wrappedValue == nil) {
+            selection.wrappedValue = nil
+        }] + SportsCompetitionCatalog.bundled.competitions.map { competition in
+            MobileMenuItem(competition.name, id: competition.id, isSelected: selection.wrappedValue == competition.id) {
+                selection.wrappedValue = competition.id
+            }
+        }
+    }
+    #endif
 
     private var label: some View {
         HStack(spacing: 8) {

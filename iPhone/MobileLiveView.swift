@@ -11,6 +11,7 @@ struct MobileLiveView: View {
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
     @State private var choosingChannel: SportsGame?
+    @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
@@ -263,6 +264,13 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
+                MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
+                    pendingStream = stream
+                    pendingGame = game
+                    showingEventChannels = nil
+                }
+            }
             .lineupChoices("Game has not started yet", symbol: "clock",
                            isPresented: Binding(get: { upcomingGame != nil },
                                                 set: { if !$0 { upcomingGame = nil } }),
@@ -282,15 +290,7 @@ struct MobileLiveView: View {
                            isPresented: $showsChannelSyncMessage,
                            message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
                            cancelTitle: "OK") { [] }
-            .sheet(item: $choosingChannel, onDismiss: {
-                // The scope prompt has to wait for the sheet to be gone, or it
-                // would try to present over a dismissing sheet.
-                if let stream = pendingStream, let game = pendingGame {
-                    pendingStream = nil
-                    pendingGame = nil
-                    applySelection(stream, for: game)
-                }
-            }) { game in
+            .sheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
                 MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game
@@ -556,6 +556,7 @@ struct MobileLiveView: View {
             let watching = previewGame?.id == game.id && previewStream != nil
             items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
                                         isEnabled: !watching) { open(game) })
+            items.append(MobileMenuItem("Channels", symbol: "tv") { showingEventChannels = game })
         } else {
             let on = reminders.reminds(game)
             items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -624,6 +625,7 @@ struct MobileLiveView: View {
         // Bound once, so the stored closures hold the library directly
         // rather than a copy of this view.
         let library = self.library
+        let automaticID = library.verifiedStream(for: game)?.id
         return MobilePlaybackController.FailoverContext(
             plan: { library.failoverPlan(for: game) },
             urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
@@ -633,6 +635,9 @@ struct MobileLiveView: View {
                 if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
             },
             didPlay: { id in
+                // Normal automatic playback must not become a manual pin that
+                // overrides a later quality-ranked match. Keep chosen/recovery feeds.
+                guard id != automaticID else { return }
                 if let working = library.stream(withID: id) {
                     library.saveGameSelection(working, for: game)
                 }
@@ -714,6 +719,15 @@ struct MobileLiveView: View {
 
     /// A channel came back from the picker. Play it now, and ask whether it
     /// should stick to either team.
+    private func finishChannelSelection() {
+        // Scope prompts wait until the outgoing channel sheet is gone.
+        if let stream = pendingStream, let game = pendingGame {
+            pendingStream = nil
+            pendingGame = nil
+            applySelection(stream, for: game)
+        }
+    }
+
     private func applySelection(_ stream: XtreamStream, for game: SportsGame) {
         showPreview(stream, for: game)
         let sides = library.preferenceSides(for: game)

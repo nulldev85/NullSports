@@ -1152,6 +1152,30 @@ final class SportsLibrary: ObservableObject {
         matchIsReady(game) && scheduleValidatedLeagues.contains(game.league) ? gameStreamCache[game.id] : nil
     }
 
+    func eventChannelsReady(for game: SportsGame) -> Bool {
+        matchIsReady(game) && scheduleValidatedLeagues.contains(game.league)
+    }
+
+    /// The event's actual matching channels, not broad league/search suggestions.
+    /// Build off the main actor; a provider or guide change retires the result.
+    func eventChannels(for game: SportsGame) async -> [LiveEventChannel] {
+        guard eventChannelsReady(for: game) else { return [] }
+        let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        guard current.isLive || current.isUpcoming else { return [] }
+        let profile = activeProfile?.id, generation = indexGeneration
+        let identity = Self.matchIdentity(current)
+        let candidates = game.league == .ncaaf ? streams : streams(for: game.league)
+        let programs = programsByChannel, groups = categories
+        let work = Task.detached(priority: .userInitiated) {
+            Self.matchingEventChannels(for: current, candidates: candidates, programs: programs, categories: groups, now: Date())
+        }
+        let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+        guard !Task.isCancelled, activeProfile?.id == profile, indexGeneration == generation,
+              Self.matchIdentity(gamesByLeague[game.league]?.first { $0.id == game.id } ?? game) == identity,
+              eventChannelsReady(for: current) else { return [] }
+        return result
+    }
+
     // Which rule authorized a match, for the diagnostics screen. A wrong game
     // should be able to name the evidence behind it without a device log.
     enum MatchEvidence: String {
@@ -1199,7 +1223,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     nonisolated private static func matchIdentity(_ game: SportsGame) -> [String] {
-        [game.league.rawValue, game.awayTeam, game.homeTeam,
+        ["quality-v1", game.league.rawValue, game.awayTeam, game.homeTeam,
          game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
          game.eventName ?? "",
          game.competition?.id ?? "", game.race?.kind ?? "",
@@ -1307,6 +1331,10 @@ final class SportsLibrary: ObservableObject {
                                                        listings: [CurrentProgram],
                                                        now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
+        if game.league == .ncaaf {
+            return CollegeChannelMatcher.score(channel: stream.name, listings: Self.collegeListings(listings),
+                game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
+        }
         if game.isNFLRedZone {
             return NFLRedZoneChannelMatcher.score(channel: stream.name)
         }
@@ -1475,6 +1503,7 @@ final class SportsLibrary: ObservableObject {
                                                   channels: [Int: ProfessionalChannelMatcher.PreparedChannel],
                                                   preparedGame: ProfessionalChannelMatcher.PreparedGame,
                                                   foreign: Set<Int> = [],
+                                                  qualities: [Int: LiveChannelQuality] = [:],
                                                   now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
         for candidate in candidates {
@@ -1484,7 +1513,7 @@ final class SportsLibrary: ObservableObject {
                 now: now) else { continue }
             if let current = best {
                 guard Self.ranksAhead((candidate.id, score), of: (current.stream.id, current.score),
-                                      foreign: foreign) else { continue }
+                                      foreign: foreign, qualities: qualities) else { continue }
             }
             best = (candidate, score)
         }
@@ -1492,14 +1521,55 @@ final class SportsLibrary: ObservableObject {
     }
 
     /// Which of two channels carrying a game is offered first: one in English
-    /// before one in another language whatever the evidence, then the stronger
-    /// evidence, then the provider's own order.
+    /// before one in another language, then advertised resolution/frame rate,
+    /// evidence strength, and stable provider order. Only verified feeds enter.
     nonisolated static func ranksAhead(_ channel: (id: Int, score: Int), of other: (id: Int, score: Int),
-                                       foreign: Set<Int>) -> Bool {
+                                       foreign: Set<Int>, qualities: [Int: LiveChannelQuality] = [:]) -> Bool {
         let english = !foreign.contains(channel.id), otherEnglish = !foreign.contains(other.id)
         if english != otherEnglish { return english }
+        let quality = qualities[channel.id] ?? .unknown, otherQuality = qualities[other.id] ?? .unknown
+        if quality != otherQuality { return quality > otherQuality }
         if channel.score != other.score { return channel.score > other.score }
         return channel.id < other.id
+    }
+
+    nonisolated static func matchingEventChannels(for game: SportsGame, candidates: [XtreamStream],
+                                                  programs: [String: [CurrentProgram]], categories: [XtreamCategory],
+                                                  now: Date) -> [LiveEventChannel] {
+        let prepared = Self.prepared(game)
+        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
+        var result: [LiveEventChannel] = []
+        var seen: Set<Int> = []
+        for stream in candidates {
+            guard !Task.isCancelled else { return [] }
+            guard seen.insert(stream.id).inserted else { continue }
+            guard !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "") else { continue }
+            if game.league == .ncaaf {
+                let category = (groups[stream.categoryID ?? ""] ?? "").lowercased()
+                if ["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) }) { continue }
+            }
+            let listings = programs[stream.epgChannelID ?? ""] ?? []
+            let score: Int?
+            if game.league == .ncaaf {
+                score = CollegeChannelMatcher.score(channel: stream.name, listings: Self.collegeListings(listings),
+                    game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
+            } else {
+                let channel = ProfessionalChannelMatcher.prepare(channel: stream.name,
+                    listings: ProfessionalChannelMatcher.prepare(listings.map {
+                        .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+                    }))
+                score = Self.professionalScore(stream, game: game, preparedGame: prepared,
+                    channel: channel, listings: listings, now: now)
+            }
+            guard let score else { continue }
+            let point = game.isLive ? now : game.start
+            let program = listings.first { $0.start <= point && point < $0.end }
+            result.append(.init(stream: stream, program: program, evidence: score, quality: .init(name: stream.name)))
+        }
+        let foreign = Set(result.filter { ChannelLanguage.isForeign(name: $0.stream.name,
+            category: groups[$0.stream.categoryID ?? ""] ?? "") }.map(\.id))
+        let qualities = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0.quality) })
+        return result.sorted { ranksAhead(($0.id, $0.evidence), of: ($1.id, $1.evidence), foreign: foreign, qualities: qualities) }
     }
 
     /// Match today's games to channels.
@@ -1587,9 +1657,11 @@ final class SportsLibrary: ObservableObject {
                                                          listings: preparedListings)
             // Channels in another language, settled once for the pass: an
             // English channel carrying the game comes before any of them.
-            let foreign = Set(leagues.values.flatMap { $0 }.filter { stream in
+            let foreign = Set(currentStreams.filter { stream in
                 ChannelLanguage.isForeign(name: stream.name, category: categoryNames[stream.categoryID ?? ""] ?? "")
             }.map(\.id))
+            let qualities = Dictionary(currentStreams.map { ($0.id, LiveChannelQuality(name: $0.name)) },
+                                      uniquingKeysWith: { first, _ in first })
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -1600,9 +1672,15 @@ final class SportsLibrary: ObservableObject {
                     let collegeStart = clock()
                     defer { collegeSeconds += clock() - collegeStart }
                     let matchup = Self.collegeMatchup(game)
-                    let selectedID = CollegeChannelMatcher.select(collegeCandidates, game: matchup, now: now,
-                        allowNetworkFallback: false)
-                    let selected = selectedID.flatMap { id in collegeStreams.first { $0.id == id } }
+                    var best: (id: Int, score: Int)?
+                    for candidate in collegeCandidates {
+                        guard let score = CollegeChannelMatcher.score(candidate: candidate, game: matchup,
+                            now: now, allowNetworkFallback: false) else { continue }
+                        if let current = best, !Self.ranksAhead((candidate.id, score), of: current,
+                            foreign: foreign, qualities: qualities) { continue }
+                        best = (candidate.id, score)
+                    }
+                    let selected = best.flatMap { match in collegeStreams.first { $0.id == match.id } }
                     matches[game.id] = selected
                     // The evidence tier that authorized the match: a wrong game names
                     // the rule that approved it without reading the matcher's source.
@@ -1620,7 +1698,7 @@ final class SportsLibrary: ObservableObject {
                 defer { professionalSeconds += clock() - professionalStart }
                 // Worked out once for this game, not once per candidate.
                 let preparedGame = Self.prepared(game)
-                let signature = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+                let signature = "quality-v1|\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
                 // A match in another language is not kept as it stands: it is
                 // looked for again, in case an English channel carries the game.
                 let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
@@ -1641,7 +1719,7 @@ final class SportsLibrary: ObservableObject {
                 if reused == nil {
                     if let stream = Self.matchedStream(for: game, candidates: leagues[game.league] ?? [],
                                                        programs: programs, channels: preparedChannels,
-                                                       preparedGame: preparedGame, foreign: foreign, now: now) {
+                                                       preparedGame: preparedGame, foreign: foreign, qualities: qualities, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
                         let key = stream.epgChannelID ?? ""
@@ -2089,6 +2167,8 @@ final class SportsLibrary: ObservableObject {
         let foreign = Set(streams(for: game.league).filter { stream in
             ChannelLanguage.isForeign(name: stream.name, category: categoryNames[stream.categoryID ?? ""] ?? "")
         }.map(\.id))
+        let qualities = Dictionary(streams(for: game.league).map { ($0.id, LiveChannelQuality(name: $0.name)) },
+                                  uniquingKeysWith: { first, _ in first })
         let alternates = streams(for: game.league)
             .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
             .compactMap { stream -> (stream: XtreamStream, score: Int)? in
@@ -2102,7 +2182,7 @@ final class SportsLibrary: ObservableObject {
                                               channel: channel, listings: programs, now: now)
                     .map { (stream, $0) }
             }
-            .sorted { Self.ranksAhead(($0.stream.id, $0.score), of: ($1.stream.id, $1.score), foreign: foreign) }
+            .sorted { Self.ranksAhead(($0.stream.id, $0.score), of: ($1.stream.id, $1.score), foreign: foreign, qualities: qualities) }
             .prefix(limit)
             .map { FailoverChannel(streamID: $0.stream.id, name: $0.stream.name, reason: .alternate) }
         return FailoverPlanner.plan(
