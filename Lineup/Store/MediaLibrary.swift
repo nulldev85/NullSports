@@ -301,8 +301,18 @@ final class MediaLibrary: ObservableObject {
 
     /// Every shelf: each server's, servers in the order they were added, then
     /// the MDBList shelves that draw on all of them.
+    private var sourceCatalogs: [MediaCatalog] {
+        profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+    }
+
+    #if os(iOS)
+    /// Cards resolve their own metadata. Remapping every title on every image,
+    /// metadata or playback publication needlessly replaces the row's data.
+    var mobileShelfCatalogs: [MediaCatalog] { sourceCatalogs }
+    #endif
+
     var catalogs: [MediaCatalog] {
-        let originals = profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+        let originals = sourceCatalogs
         guard metadataSource != .provider || episodeDataSource != .provider else { return originals }
         return originals.map { MediaCatalog(root: $0.root, items: $0.items.map { displayItem($0) }) }
     }

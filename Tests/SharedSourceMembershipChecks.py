@@ -37,6 +37,14 @@ def is_included(project, target, source):
 
 
 class SharedSourceMembershipChecks(unittest.TestCase):
+    def test_mobile_library_rows_and_artwork_are_iphone_only(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift"):
+            self.assertTrue((ROOT / source).is_file())
+            self.assertTrue(is_included(project, "LineupiOS", source))
+            self.assertFalse(is_included(project, "Lineup", source))
+        self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileLibraryShelfTests.swift"))
+
     def test_shared_compatibility_sources_belong_to_both_apps(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for target in ("Lineup", "LineupiOS"):
