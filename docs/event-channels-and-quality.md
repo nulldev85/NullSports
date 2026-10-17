@@ -39,10 +39,13 @@ These hints do not claim bitrate, HDR, Atmos, or actual decoder output; the
 existing playback-info badges continue reading confirmed source metadata.
 
 Before **automatic live-event playback**, both apps now use AetherEngine 7.36.0's
-bounded static source probe to compare actual video dimensions, then frame rate,
-within the existing language priority. Candidates come only from the stricter
+bounded static source probe to compare actual video dimensions, then the engine's
+display-normalized frame rate, within the existing language priority.
+Candidates come only from the stricter
 event-only list. Each candidate's HLS/TS URLs are checked independently; the
 winning URL index is retained and that exact variant leads playback's URL list.
+The pinned probe normalizes the film-rate window, including an exact 24 fps
+input, to 23.976; this is a ranking hint, not a raw container-rate measurement.
 The probe demuxes source media; it does not trust an FHD name,
 start a player, activate audio, or perform expensive HDR/Atmos detail passes.
 Sports and Search use this path; the iPhone Guide's game-alert action does too.
