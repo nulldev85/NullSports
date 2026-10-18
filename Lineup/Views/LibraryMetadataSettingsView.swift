@@ -68,6 +68,7 @@ struct LibraryMetadataSettingsView: View {
                 Toggle(isOn: $media.introDBEnabled) {
                     sourceLabel("Skip Intro", symbol: "forward.end.fill")
                 }
+                .tint(LineupStyle.highlight)
                 Link("Intro timestamps provided by IntroDB", destination: URL(string: "https://introdb.app")!)
                     .font(.inter(.footnote))
             } header: { Text("Playback").lineupSettingsHeader() }
@@ -77,6 +78,7 @@ struct LibraryMetadataSettingsView: View {
                 Toggle(isOn: $media.betterPostersEnabled) {
                     sourceLabel("BetterPosters", symbol: "photo.on.rectangle.angled")
                 }
+                .tint(LineupStyle.highlight)
                 if media.betterPostersEnabled {
                     NavigationLink("Poster Style") { MobileBetterPostersSettings() }
                 }

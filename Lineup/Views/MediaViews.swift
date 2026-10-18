@@ -1102,11 +1102,17 @@ private struct MediaCatalogsScreen: View {
 
     /// One of the phone's rows: the device's own, or a shelf.
     private enum PhoneRow: Identifiable {
+        #if !os(tvOS)
+        case collections
+        #endif
         case local(id: String, title: String, items: [MediaItem], opensPages: Bool)
         case catalog(MediaCatalog)
 
         var id: String {
             switch self {
+            #if !os(tvOS)
+            case .collections: LibraryShelfOrder.collections
+            #endif
             case .local(let id, _, _, _): id
             case .catalog(let catalog): catalog.id
             }
@@ -1116,6 +1122,9 @@ private struct MediaCatalogsScreen: View {
     /// Every row, in the order the viewer arranged them.
     private var phoneRows: [PhoneRow] {
         var rows: [PhoneRow] = []
+        #if !os(tvOS)
+        rows.append(.collections)
+        #endif
         if !continueWatching.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continueWatching.map(\.item), opensPages: true))
@@ -1138,11 +1147,12 @@ private struct MediaCatalogsScreen: View {
 
     @ViewBuilder
     private var libraryShelves: some View {
-        #if !os(tvOS)
-        MobileLibraryCollectionsRow()
-        #endif
         ForEach(phoneRows) { row in
             switch row {
+            #if !os(tvOS)
+            case .collections:
+                MobileLibraryCollectionsRow()
+            #endif
             case .local(let id, let title, let items, let opensPages):
                 localShelf(id: id, title: title, items: items, opensPages: opensPages)
             case .catalog(let catalog):

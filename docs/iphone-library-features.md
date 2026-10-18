@@ -11,6 +11,13 @@ Hold a poster or use the collection button on a movie/show page to choose its
 collections. The existing app menu and panel styling is reused. Collection cards
 preview up to three saved posters; empty collections use a folder symbol.
 
+Collections participates in Library > Edit Shelves with the same persistent
+row ordering as other shelves. Its stable row ID is `collections`. The home
+screen and editor both apply the existing saved order; Reset restores its
+original first-row position. The header also uses the existing saved shelf name.
+Skip Intro, BetterPosters and collection-membership switches explicitly use the
+selected accent, overriding the settings container's neutral text tint.
+
 The collections browser also lists all collections exposed by connected servers.
 The home panel previews the first 20; See All has the complete list. Server
 collections use their existing parent-item route and are not copied or modified.

@@ -4022,6 +4022,10 @@ extension MediaLibrary {
     /// Every row the Library has on it now, in the viewer's order.
     var libraryRows: [LibraryRow] {
         var rows: [LibraryRow] = []
+        #if !os(tvOS)
+        rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
+                               detail: nil, symbol: "folder.fill", brand: nil))
+        #endif
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                    detail: nil, symbol: "play.circle", brand: nil))

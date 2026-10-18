@@ -48,6 +48,7 @@ struct MobileAddToCollectionView: View {
                             if included { media.personalCollections[index].add(item) }
                             else { media.personalCollections[index].items.removeAll { $0.libraryKey == item.libraryKey } }
                         }))
+                        .tint(LineupStyle.highlight)
                     }
                 } header: { Text(item.name).lineupSettingsHeader() }
                   .lineupSettingsRows()
@@ -177,7 +178,8 @@ struct MobileLibraryCollectionsRow: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 LineupIconTile(symbol: "folder.fill", size: 24)
-                Text("COLLECTIONS").font(.inter(14, .heavy))
+                Text(media.shelfTitle(id: LibraryShelfOrder.collections, default: "Collections").uppercased())
+                    .font(.inter(14, .heavy))
                 Spacer()
                 NavigationLink { MobileLibraryCollectionsView() } label: {
                     Label("See All", systemImage: "chevron.right").font(.inter(14, .bold))
