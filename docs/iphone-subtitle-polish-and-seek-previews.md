@@ -68,6 +68,14 @@ dependency resolution, in addition to the existing full SDK regressions.
 Local membership5, bundle9, focus, workflow lint and diff checks passed for
 build123. Apple SDK tests and device playback remain pending.
 
+Build123 subsequently compiled and passed all seven player-polish tests,
+including real Trickplay pixel crops/cache/source selection/authentication.
+The real Aether MP4/MKV caption appearance/timing/PiP-source integration passed.
+The full build failed two VLC pause-state checks, documented in
+iphone-game-replays.md. Build124 repairs the shared published pause state and
+strengthens the original VLC subtitle test with its native pause callback and
+actual transport assertion; no subtitle/search/thumbnail feature is removed.
+
 Build121 failed before tests ran: the new native-input test helper omitted
 explicit self in a lazy escaping compactMap closure. Fixed that exact compiler
 error, retaining its real editor callbacks and full assertions. Its simulator

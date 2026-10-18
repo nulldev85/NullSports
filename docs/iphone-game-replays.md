@@ -106,3 +106,39 @@ exercises ten-second skipping, drag release and paused dragging through both
 Aether and VLC, retaining the source/session. The standalone playback-policy
 check covers the0:06→0:16 rounding regression. Full tests remain enabled;
 Apple SDK/device validation for this repair is pending.
+
+## VLC pause-state follow-up (iPhone124)
+
+Build123 compiled the app and tests. All560 tests ran, with one existing skip
+and three failures in two playback tests. Real Aether replay seeks landed at10,
+16 and6seconds without reopening. The VLC portion timed out while checking a
+paused drag; the subtitle-attachment test also found isPlaying still true after
+pause. The failed seek's teardown additionally reported InvalidTransition
+idle→failed(deinit); this is retained as a pending verification concern, not
+claimed to be an independent diagnosed engine defect.
+
+The controller called VLC.pause(), then immediately read the engine's old
+playing flag back into its published state. The monitor skips transport updates
+while pausedByUser is true, so that published flag could stay true indefinitely.
+refreshIsPlaying now respects explicit pause intent. Engine seek commands,
+source URLs, tracking, coalescing and provider precision policy are unchanged.
+
+The existing real VLC tests now await its actual VLCMediaPlayerStateChanged
+pause callback with a bounded XCTest expectation. They require both immediate
+control-state feedback and the actual decoder being paused; paused replay
+seeking still requires the real clock and recording position within two seconds
+of the final destination. Assertions and the full suite are preserved.
+
+Build123's simulator step took24m17s, including about1m56s of test execution
+and a600-second diagnostic-collection timeout after the failures. Release/IPA
+steps were skipped. Subtitle preferences, Trickplay images/cache/authentication,
+OpenSubtitles UI, replay provider fallback and Sports Catch Up tests passed.
+The Foundation-only early preference compile/behavior check also passed.
+These results validate those checks in123, not the new124 repair.
+
+Local membership5, bundle9, focus and diff checks passed. Apple SDK and device
+validation for124 remain pending. No retries, test exclusions or relaxed
+assertions are introduced.
+
+VLC3 reference for native notifications and pause implementation:
+https://raw.githubusercontent.com/videolan/vlckit/3.0/Sources/VLCMediaPlayer.m

@@ -1402,7 +1402,12 @@ final class MobilePlaybackController: ObservableObject {
         case .aether: aetherSession?.isPlaying == true
         }
     }
-    private func refreshIsPlaying() { isPlaying = activeEngineIsPlaying }
+    private func refreshIsPlaying() {
+        // VLC completes pause asynchronously. Reading its old playing flag
+        // immediately after pause() must not undo the viewer's intent: the
+        // paused monitor deliberately skips transport/recovery updates.
+        isPlaying = !pausedByUser && activeEngineIsPlaying
+    }
 
     private func confirmWorkingChannel() {
         guard let id = pendingWorkingChannelID, id == currentChannelID else { return }

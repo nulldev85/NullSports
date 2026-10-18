@@ -205,7 +205,7 @@ final class AetherPlaybackTests: XCTestCase {
         let oldIDs = Set(controller.subtitleTracks.map(\.id))
         let sessionID = controller.subtitleSessionID
         let player = controller.player
-        controller.toggle()
+        await pauseVLCAndAwaitNativeState(controller)
         let added = expectation(description: "VLC selects its actual newly added subtitle track")
         let chosen = controller.$subtitleTracks.combineLatest(controller.$selectedSubtitleID)
             .first { tracks, selected in selected != PlaybackSubtitleTrack.off.id && !oldIDs.contains(selected) && tracks.contains { $0.id == selected } }
@@ -223,6 +223,7 @@ final class AetherPlaybackTests: XCTestCase {
         XCTAssertTrue(controller.player === player)
         XCTAssertEqual(controller.subtitleSessionID, sessionID)
         XCTAssertFalse(controller.isPlaying)
+        XCTAssertFalse(player.isPlaying, "Adding/changing subtitles must preserve the native paused transport too")
         controller.selectSubtitle(.off)
         XCTAssertEqual(controller.selectedSubtitleID, PlaybackSubtitleTrack.off.id)
         controller.stop()
@@ -367,22 +368,42 @@ final class AetherPlaybackTests: XCTestCase {
             try await waitUntil("The replay drag must land at its final destination and resume") {
                 abs(controller.recordingElapsed - 16) < 2 && controller.isPlaying
             }
-            controller.toggle()
-            if let session { _ = try await pausedClock(controller, session: session) }
-            else { try await waitUntil("VLC pause must settle") { !controller.player.isPlaying } }
+            if let session {
+                controller.toggle()
+                _ = try await pausedClock(controller, session: session)
+            } else {
+                await pauseVLCAndAwaitNativeState(controller)
+            }
             controller.beginScrubbing()
             controller.previewScrubbing(at: 22)
             controller.endScrubbing(at: 6)
             try await waitUntil("Dragging a paused replay must seek while preserving pause") {
                 let actual = preference == .vlc ? Double(controller.player.time.intValue) / 1000
                     : controller.aetherSession?.position ?? 0
-                return abs(actual - 6) < 2 && abs(controller.recordingElapsed - 6) < 2 && !controller.isPlaying
+                let nativePaused = preference == .vlc ? !controller.player.isPlaying
+                    : controller.aetherSession?.phase == .paused
+                return abs(actual - 6) < 2 && abs(controller.recordingElapsed - 6) < 2
+                    && !controller.isPlaying && nativePaused
             }
             XCTAssertEqual(addresses, 1, "Native replay seeking must retain the same provider connection")
             XCTAssertEqual(controller.subtitleSessionID, sessionID)
             if let session { XCTAssertTrue(controller.aetherSession === session) }
             XCTAssertFalse(controller.finished)
         }
+    }
+
+    private func pauseVLCAndAwaitNativeState(_ controller: MobilePlaybackController) async {
+        let paused = expectation(description: "VLC publishes its native paused-state callback")
+        let subscription = NotificationCenter.default.publisher(
+            for: Notification.Name("VLCMediaPlayerStateChanged"), object: controller.player)
+            .first { _ in controller.player.state == .paused && !controller.player.isPlaying }
+            .sink { _ in paused.fulfill() }
+        defer { subscription.cancel() }
+        controller.toggle()
+        XCTAssertFalse(controller.isPlaying, "A manual pause must immediately update the controls, even before VLC acknowledges it")
+        await fulfillment(of: [paused], timeout: 5)
+        XCTAssertFalse(controller.player.isPlaying, "The actual decoder must also pause, not only the controls")
+        XCTAssertFalse(controller.isPlaying)
     }
 
     private func fixture(_ name: String, _ ext: String) throws -> URL {
