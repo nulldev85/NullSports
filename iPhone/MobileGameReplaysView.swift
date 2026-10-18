@@ -170,8 +170,15 @@ struct MobileGameReplayPlayer: View {
         do {
             // Revalidate the selected listing, not the whole replay catalog,
             // before opening its exact archive interval. Never fall back live.
-            let current = try await library.gameReplayProgrammes(for: stream, profileID: selection.profileID)
-            guard !Task.isCancelled else { return }
+            let current: [CatchUpProgramme]
+            if selection.usesChannelCatchUp {
+                // Sports' Catch Up entry has the same current/past program
+                // semantics as Guide, including a program still being recorded.
+                current = try await library.catchUpProgrammes(for: stream)
+            } else {
+                current = try await library.gameReplayProgrammes(for: stream, profileID: selection.profileID)
+            }
+            guard !Task.isCancelled, library.activeProfile?.id == selection.profileID else { return }
             guard let program = current.first(where: { $0.id == recording.program.id && $0.title == recording.program.title && $0.end == recording.program.end }) else {
                 unavailable()
                 return

@@ -45,5 +45,33 @@ provide this Xtream archive table. This addition is iPhone-only.
 Ten iOS regressions cover visibility, eligible channels, archive flags/retention,
 two-team matching and alternate feeds, expiration, bounded concurrency/cache,
 late account responses, partial failure/retry, disabled contexts, and a failed
-recording opening without live fallback. SDK compilation, these new tests and
-device playback validation are pending the review build. No tests are disabled.
+recording opening without live fallback. iPhone119 passed SDK compilation,
+simulator tests, release checks and IPA upload; the user reported that pass.
+Private provider recording availability and device replay playback have not
+been independently confirmed. No tests are disabled.
+
+## Catch Up from a live Sports event
+
+iPhone120 adds only **Catch Up** to an existing Sports event hold menu, after
+Channels. It is available for any live sport with an archive-enabled matching
+channel, without requiring My Teams. The entire TV Guide menu is not copied.
+Opening a hold menu triggers the existing strict event-channel lookup off the
+main actor; there are no new provider requests, stream probes or startup work.
+All matched channels are considered, including an archive-capable alternative
+when the ordinary playback feed lacks catch-up support. A menu request ID
+prevents a late capability answer from modifying another or dismissed menu.
+
+One eligible channel opens the existing Catch Up program list directly; several
+offer a channel choice first. Profile and current event evidence are checked
+again on channel selection. Program selection waits for the sheet to dismiss
+before opening the existing fullscreen recording player. It uses the same
+current/past program lookup as TV Guide, allowing a current program to start
+over while still recording. Selection retains the exact account, stream and
+program; playback revalidates the program and never falls back live on error.
+The My Teams NFL replay section retains its stricter completed-game policy.
+
+Four additional iOS regressions cover alternate capable feeds/deduplication,
+unrelated archived feeds rejected by the real NFL/NBA/soccer event matcher,
+account/program routing including ongoing programs, and menu request isolation
+while keeping the original actions. These additions require iPhone120 SDK and
+device validation; local source-membership, focus and diff checks passed.

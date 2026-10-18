@@ -17,6 +17,7 @@ struct MobileGameReplay: Identifiable, Sendable {
 struct MobileGameReplaySelection: Identifiable {
     let profileID: UUID
     let recording: MobileGameReplayRecording
+    var usesChannelCatchUp = false
     var id: String { profileID.uuidString + "|" + recording.id }
 }
 

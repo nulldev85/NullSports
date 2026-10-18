@@ -12,6 +12,9 @@ struct MobileLiveView: View {
     @State private var onlyFollowed = false
     @StateObject private var gameReplays = MobileGameReplayStore()
     @State private var selectedGameReplay: MobileGameReplaySelection?
+    @State private var catchUpChannel: MobileSportsCatchUpChannel?
+    @State private var pendingCatchUp: MobileGameReplaySelection?
+    @State private var catchUpLookup: Task<Void, Never>?
     @State private var choosingChannel: SportsGame?
     @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
@@ -271,10 +274,13 @@ struct MobileLiveView: View {
             .fullScreenCover(item: $selectedGameReplay) { selection in
                 MobileGameReplayPlayer(selection: selection).environmentObject(library)
             }
+            .sheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
+                sportsCatchUpSheet(channel)
+            }
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
-            .onDisappear { cancelQualityCheck() }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
             .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
                 MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
                     pendingStream = stream
@@ -360,11 +366,16 @@ struct MobileLiveView: View {
                 }] + sides
             }
             .onChange(of: isActive) { _, active in
-                if !active { cancelQualityCheck() }
+                if !active { cancelQualityCheck(); catchUpLookup?.cancel() }
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
                 if active { playback.resume() } else { leagueMenuOpen = false }
                 if !active && !playback.pictureInPictureActive { closePreview() }
+            }
+            .onChange(of: library.activeProfile?.id) { _, _ in
+                catchUpLookup?.cancel()
+                pendingCatchUp = nil
+                catchUpChannel = nil
             }
             .onChange(of: playback.isPlaying) { _, playing in
                 // Genuinely playing, not merely selected: a channel that never
@@ -555,7 +566,8 @@ struct MobileLiveView: View {
                          isWatching: previewStream != nil && previewGame?.id == game.id)
             .accessibilityElement(children: .combine)
             .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", press: .well,
-                            items: { gameMenuItems(game) }) {
+                            items: { gameMenuItems(game) },
+                            onPresent: { menu in loadCatchUpOption(for: game, menu: menu) }) {
                 guard !game.isUpcoming else {
                     upcomingGame = game
                     return
@@ -596,6 +608,66 @@ struct MobileLiveView: View {
             })
         }
         return items
+    }
+
+    private func loadCatchUpOption(for game: SportsGame, menu: MobileHoldMenu) {
+        catchUpLookup?.cancel()
+        guard game.isLive, let profile = library.activeProfile, !profile.isPlaylist,
+              let requestID = menu.request?.id else { return }
+        catchUpLookup = Task { @MainActor in
+            guard menu.request?.id == requestID else { return }
+            let matched = await library.eventChannels(for: game)
+            guard !Task.isCancelled, isActive, library.activeProfile?.id == profile.id,
+                  menu.request?.id == requestID else { return }
+            let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+            let channels = MobileSportsCatchUpPolicy.channels(matched, live: current.isLive, playlist: profile.isPlaylist)
+            guard !channels.isEmpty else { return }
+            var items = gameMenuItems(current)
+            let catchUp = MobileMenuItem("Catch Up", symbol: "clock.arrow.circlepath", id: "catch-up") { [weak menu] in
+                guard let menu, library.activeProfile?.id == profile.id else { return }
+                if channels.count == 1, let stream = channels.first {
+                    chooseCatchUpChannel(stream, for: current, profileID: profile.id)
+                } else {
+                    menu.present("Catch Up Channels", symbol: "clock.arrow.circlepath", message: current.matchupLine,
+                        items: channels.map { stream in
+                            MobileMenuItem(stream.name, symbol: "tv", id: String(stream.id)) {
+                                chooseCatchUpChannel(stream, for: current, profileID: profile.id)
+                            }
+                        })
+                }
+            }
+            let position = items.firstIndex { $0.title == "Channels" }.map { $0 + 1 } ?? 0
+            items.insert(catchUp, at: position)
+            menu.updateItems(items, requestID: requestID)
+        }
+    }
+
+    private func chooseCatchUpChannel(_ selected: XtreamStream, for game: SportsGame, profileID: UUID) {
+        guard library.activeProfile?.id == profileID,
+              let stream = library.stream(withID: selected.id), stream.hasCatchUp,
+              library.isEventChannel(stream, verifiedFor: game) else { return }
+        catchUpChannel = MobileSportsCatchUpChannel(profileID: profileID, stream: stream)
+    }
+
+    private func sportsCatchUpSheet(_ channel: MobileSportsCatchUpChannel) -> some View {
+        MobileCatchUpSheet(stream: channel.stream) { program in
+            guard library.activeProfile?.id == channel.profileID else { catchUpChannel = nil; return }
+            pendingCatchUp = channel.selection(for: program)
+            catchUpChannel = nil
+        }
+        .environmentObject(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
+    }
+
+    private func finishCatchUpSelection() {
+        guard let selection = pendingCatchUp else { return }
+        pendingCatchUp = nil
+        guard library.activeProfile?.id == selection.profileID,
+              let stream = library.stream(withID: selection.recording.stream.id), stream.hasCatchUp else { return }
+        cancelQualityCheck()
+        closePreview()
+        // Present only after the program sheet dismisses. The recording player
+        // retains the selected program for retries and never silently goes live.
+        selectedGameReplay = selection
     }
 
     /// One game, one decision. `PreferredChannel` is resolved entirely from
