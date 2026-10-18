@@ -1,10 +1,16 @@
 """Check the built resource without displaying its credential values."""
 import json
 from pathlib import Path
-import sys
+import argparse
 
-app = Path(sys.argv[1])
+parser = argparse.ArgumentParser()
+parser.add_argument("app", type=Path)
+parser.add_argument("--require-online-subtitles", action="store_true")
+args = parser.parse_args()
+app = args.app
 data = json.loads((app / "LineupMetadata.json").read_text(encoding="utf-8"))
-assert set(data) == {"tmdb", "tvdb"}, "Missing Library metadata configuration"
+assert set(data) == {"tmdb", "tvdb", "opensubtitles"}, "Missing Library service configuration"
 assert all(isinstance(value, str) for value in data.values()), "Invalid Library metadata configuration"
+if args.require_online_subtitles:
+    assert data["opensubtitles"].strip(), "Missing built-in OpenSubtitles configuration"
 print("Library metadata resource packaged correctly")

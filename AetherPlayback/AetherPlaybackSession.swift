@@ -304,6 +304,13 @@ public final class AetherPlaybackSession {
     public func selectSubtitle(index: Int?) {
         if let index { engine.selectSubtitleTrack(index: index) } else { engine.clearSubtitle() }
     }
+    /// Mid-session sidecars are foreground tracks in the pinned engine. This
+    /// does not reload the video or change native PiP's subtitle renditions.
+    public func addSubtitle(url: URL, title: String, language: String) -> Int {
+        let info = engine.addExternalSubtitleTrack(.init(url: url, name: title, language: language, formatHint: "srt"))
+        engine.selectSubtitleTrack(index: info.id)
+        return info.id
+    }
     public func selectAudio(index: Int) { engine.selectAudioTrack(index: index) }
 
     public static func openSourceNotices() -> String {

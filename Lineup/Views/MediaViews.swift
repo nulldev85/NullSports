@@ -5223,6 +5223,9 @@ private struct MediaSourcePicker: View {
                              introLookup: media.introDBEnabled && item.type == "Episode" ? {
                                  await media.introSegment(for: trackedItem)
                              } : nil,
+                             subtitleIdentityLookup: {
+                                 await media.onlineSubtitleIdentity(for: trackedItem)
+                             },
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in

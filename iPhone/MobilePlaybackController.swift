@@ -90,6 +90,9 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var progress: MobilePlaybackProgress?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
+    @Published private(set) var subtitleSessionID = UUID()
+    private var onlineSubtitleFiles: [URL] = []
+    var canAttachOnlineSubtitles: Bool { !isLive && monitor != nil && currentURL != nil && engine != .system && error == nil }
 
     /// How the controller reaches other channels for the game on screen. Left
     /// nil for plain Guide playback, which has no game and therefore no verified
@@ -1363,6 +1366,42 @@ final class MobilePlaybackController: ObservableObject {
 
     // MARK: - Subtitles
 
+    func addOnlineSubtitle(_ data: Data, title: String, language: String, sessionID: UUID) async throws {
+        guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let preparation = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
+            do {
+                try Task.checkCancellation()
+                try data.write(to: file, options: .atomic)
+                try Task.checkCancellation()
+                return file
+            } catch { try? FileManager.default.removeItem(at: file); throw error }
+        }
+        let file = try await withTaskCancellationHandler(operation: { try await preparation.value }, onCancel: { preparation.cancel() })
+        do {
+            try Task.checkCancellation()
+            guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+            switch engine {
+            case .aether:
+                guard let session = aetherSession else { throw MobileSubtitleFailure.unsupported }
+                _ = session.addSubtitle(url: file, title: title, language: language)
+                checkAetherPlayback()
+            case .vlc:
+                guard player.addPlaybackSlave(file, type: .subtitle, enforce: true) == 0 else { throw MobileSubtitleFailure.invalidFile }
+                refreshVLCSubtitleTracks()
+            case .system: throw MobileSubtitleFailure.unsupported
+            }
+            onlineSubtitleFiles.append(file)
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+    }
+
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
         switch engine {
         case .aether: aetherSession?.selectSubtitle(index: track.engineIndex)
@@ -1424,6 +1463,9 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func resetSubtitles() {
+        subtitleSessionID = UUID()
+        for file in onlineSubtitleFiles { try? FileManager.default.removeItem(at: file) }
+        onlineSubtitleFiles.removeAll()
         subtitleTracks = [.off]
         selectedSubtitleID = PlaybackSubtitleTrack.off.id
         systemSubtitleGroup = nil

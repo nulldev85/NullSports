@@ -27,6 +27,7 @@ struct MobilePlayerView: View {
     var synopsis: MobilePlayerSynopsis? = nil
     /// Supplied only by Library episode playback, never by live/preview video.
     var introLookup: (() async -> MobileIntroSegment?)? = nil
+    var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
     @State private var introSegment: MobileIntroSegment?
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
@@ -39,6 +40,8 @@ struct MobilePlayerView: View {
     @State private var isScrubbing = false
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
+    @State private var showingOnlineSubtitles = false
+    @State private var onlineSubtitleSession = UUID()
 
     var body: some View {
         ZStack {
@@ -110,7 +113,7 @@ struct MobilePlayerView: View {
                                 controller.togglePictureInPicture()
                             }
                         }
-                        if !isLive && controller.subtitleTracks.count > 1 {
+                        if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles) {
                             control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
                                     ? "captions.bubble" : "captions.bubble.fill",
                                     label: "Subtitles, \(controller.selectedSubtitleTitle)") {
@@ -222,14 +225,32 @@ struct MobilePlayerView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
-            controller.subtitleTracks.map { track in
+            var items = controller.subtitleTracks.map { track in
                 MobileMenuItem(track.title, id: "\(track.id)",
                                isSelected: track.id == controller.selectedSubtitleID) {
                     controller.selectSubtitle(track)
                     showControls()
                 }
             }
+            if offersOnlineSubtitles {
+                items.append(MobileMenuItem(controller.canAttachOnlineSubtitles ? "Find Subtitles Online" : "Use AetherEngine or VLC for Online Subtitles",
+                    symbol: "magnifyingglass", id: "online-subtitles", isEnabled: controller.canAttachOnlineSubtitles) {
+                    onlineSubtitleSession = controller.subtitleSessionID
+                    showingOnlineSubtitles = true
+                })
+            }
+            return items
         } onCancel: { showControls() }
+        .sheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
+            if let subtitleIdentityLookup {
+                MobileOnlineSubtitlesSheet(name: name, identity: subtitleIdentityLookup,
+                    showsPiPLimitation: controller.engine == .aether) { data, subtitle in
+                    try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
+                        sessionID: onlineSubtitleSession)
+                }
+            }
+        }
+        .onChange(of: controller.subtitleSessionID) { _, _ in showingOnlineSubtitles = false }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
@@ -266,6 +287,10 @@ struct MobilePlayerView: View {
               controller.error == nil, let progress = controller.progress,
               progress.duration > 90 else { return false }
         return progress.duration - progress.position <= 30
+    }
+
+    private var offersOnlineSubtitles: Bool {
+        !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
     }
 
     private var introDestination: Double? {

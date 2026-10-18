@@ -110,6 +110,21 @@ final class AetherPlaybackTests: XCTestCase {
             controller.selectSubtitle(try XCTUnwrap(controller.subtitleTracks.last))
             controller.toggle()
             let paused = try await pausedClock(controller, session: session)
+            let subtitleSession = controller.subtitleSessionID
+            let online = Data("1\n00:00:00,000 --> 00:00:35,000\nOnline fixture caption\n".utf8)
+            try await controller.addOnlineSubtitle(online, title: "Online fixture", language: "en", sessionID: subtitleSession)
+            try await waitUntil("The added sidecar must be a selectable engine track") {
+                controller.subtitleTracks.contains { $0.title.contains("Online fixture") && $0.id == controller.selectedSubtitleID }
+            }
+            XCTAssertTrue(controller.aetherSession === session)
+            XCTAssertTrue(session.surface === surface)
+            XCTAssertEqual(session.position, paused, accuracy: 0.4, "Adding subtitles must not restart or seek video")
+            XCTAssertFalse(controller.isPlaying, "Adding subtitles must preserve pause intent")
+            assertPiPSource(session, expectedOnDevice: route)
+            do {
+                try await controller.addOnlineSubtitle(online, title: "Stale", language: "en", sessionID: UUID())
+                XCTFail("An obsolete source token must not attach a subtitle")
+            } catch { XCTAssertTrue(error is MobileSubtitleFailure) }
             try await Task.sleep(for: .milliseconds(300))
             XCTAssertEqual(session.position, paused, accuracy: 0.4)
             controller.seek(to: 16)
@@ -147,6 +162,49 @@ final class AetherPlaybackTests: XCTestCase {
             attachment.lifetime = .keepAlways
             add(attachment)
         }
+    }
+
+    func testVLCAddsAnOnlineSubtitleWithoutChangingEngineSessionOrPauseIntent() async throws {
+        let ready = expectation(description: "subtitle fixture origin is listening")
+        let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"),
+            contentType: "video/mp4", onReady: { ready.fulfill() })
+        defer { origin.stop() }
+        await fulfillment(of: [ready], timeout: 5)
+        let url = try XCTUnwrap(origin.url(path: "online-subtitle-fixture.mp4"))
+        let (defaults, suite) = try preferences(.vlc)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = MobilePlaybackController(defaults: defaults)
+        let (window, _, previous) = try show(controller)
+        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+        let playing = expectation(description: "VLC publishes playing picture and discovered embedded tracks")
+        let subscription = controller.$loading.combineLatest(controller.$isPlaying, controller.$subtitleTracks)
+            .first { loading, playing, tracks in controller.engine == .vlc && !loading && playing && tracks.count > 1 }
+            .sink { _ in playing.fulfill() }
+        defer { subscription.cancel() }
+        controller.isLive = false
+        controller.start(urls: [url])
+        await fulfillment(of: [playing], timeout: 30)
+        let oldIDs = Set(controller.subtitleTracks.map(\.id))
+        let sessionID = controller.subtitleSessionID
+        let player = controller.player
+        controller.toggle()
+        let added = expectation(description: "VLC selects its actual newly added subtitle track")
+        let chosen = controller.$subtitleTracks.combineLatest(controller.$selectedSubtitleID)
+            .first { tracks, selected in selected != PlaybackSubtitleTrack.off.id && !oldIDs.contains(selected) && tracks.contains { $0.id == selected } }
+            .sink { _ in added.fulfill() }
+        defer { chosen.cancel() }
+        try await controller.addOnlineSubtitle(Data("1\n00:00:00,000 --> 00:00:35,000\nVLC fixture caption\n".utf8),
+            title: "Online fixture", language: "en", sessionID: sessionID)
+        await fulfillment(of: [added], timeout: 5)
+        XCTAssertEqual(controller.engine, .vlc)
+        XCTAssertTrue(controller.player === player)
+        XCTAssertEqual(controller.subtitleSessionID, sessionID)
+        XCTAssertFalse(controller.isPlaying)
+        controller.selectSubtitle(.off)
+        XCTAssertEqual(controller.selectedSubtitleID, PlaybackSubtitleTrack.off.id)
+        controller.stop()
+        XCTAssertNotEqual(controller.subtitleSessionID, sessionID)
+        XCTAssertFalse(controller.canAttachOnlineSubtitles)
     }
 
     func testLiveTransportStreamHasAPiPSourceWithoutAnHLSURL() async throws {
