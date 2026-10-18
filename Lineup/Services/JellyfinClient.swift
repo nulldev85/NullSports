@@ -426,6 +426,23 @@ struct JellyfinClient: Sendable {
         return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
     }
 
+    #if os(iOS)
+    func seekPreview(userID: String, itemID: String, mediaSourceID: String) async throws -> MobileSeekPreviewSource? {
+        guard software == .jellyfin, MobileSeekPreviewSource.versionKey(itemID) != nil,
+              MobileSeekPreviewSource.versionKey(mediaSourceID) != nil else { return nil }
+        let metadata = try request(path: "users/\(userID)/items/\(itemID)",
+            query: [.init(name: "Fields", value: "Trickplay")], timeout: 6)
+        let (data, response) = try await session.data(for: metadata)
+        try Task.checkCancellation()
+        try Self.check(response)
+        guard let (version, info) = MobileSeekPreviewSource.select(data, mediaSourceID: mediaSourceID) else { return nil }
+        var tile = try request(path: "videos/\(itemID)/trickplay/\(info.width)/0.jpg",
+            query: [.init(name: "MediaSourceId", value: version)], timeout: 4)
+        tile.setValue("image/jpeg", forHTTPHeaderField: "Accept")
+        return MobileSeekPreviewSource(info: info, firstTile: tile)
+    }
+    #endif
+
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
                          timeout: TimeInterval = 20) throws -> URLRequest {
         guard var components = URLComponents(url: serverURL.appendingPathComponent(apiPrefix + path),

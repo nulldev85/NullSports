@@ -30,6 +30,9 @@ public final class AetherPlaybackSession {
     private var initialPosition: Double = 0
     private var sourceSeekableAtLoad: Bool?
     private var liveSource = false
+    #if os(iOS)
+    private var subtitleDelay: Double = 0
+    #endif
     public private(set) var isOpen = false
     private var probedVideoSize: CGSize = .zero
     public var videoSize: CGSize {
@@ -115,7 +118,12 @@ public final class AetherPlaybackSession {
                 guard let self, self.isOpen, !self.loading else { return }
                 // Read the current session after the queue hop; queued cues
                 // from a stopped/replaced source must not reappear.
-                self.canvas.display(cues: self.engine.subtitleCues, at: self.engine.sourceTime,
+                #if os(iOS)
+                let subtitleTime = self.engine.sourceTime - self.subtitleDelay
+                #else
+                let subtitleTime = self.engine.sourceTime
+                #endif
+                self.canvas.display(cues: self.engine.subtitleCues, at: subtitleTime,
                                     videoSize: self.videoSize)
             }.store(in: &subscriptions)
     }
@@ -197,7 +205,8 @@ public final class AetherPlaybackSession {
         return title.isEmpty ? "\(fallback) \(track.id)" : title
     }
 
-    public func load(url: URL, startPosition: Double?, isLive: Bool, expectedDuration: Double?, primary: Bool, matchContent: Bool) {
+    public func load(url: URL, startPosition: Double?, isLive: Bool, expectedDuration: Double?, primary: Bool, matchContent: Bool,
+                     preferredSubtitleLanguages: [String] = []) {
         stop()
         let token = generation
         isOpen = true
@@ -220,6 +229,7 @@ public final class AetherPlaybackSession {
         options.preferredDecodePath = .software
         #endif
         options.preferredAudioLanguages = ["en", "eng"]
+        options.preferredSubtitleLanguages = preferredSubtitleLanguages
         options.declaredDurationSeconds = expectedDuration
         options.suppressDisplayCriteria = !matchContent
         options.matchContentEnabled = matchContent
@@ -281,8 +291,12 @@ public final class AetherPlaybackSession {
         engine.stop()
         canvas.display(cues: [], at: 0, videoSize: .zero)
     }
+    /// An already-running seek can accept its final replacement target even
+    /// while the decoder temporarily reports that it is repositioning.
+    public var canAcceptSeek: Bool { canSeek || (isOpen && seekTask != nil) }
+
     public func seek(to seconds: Double) {
-        guard seconds.isFinite, canSeek || (isOpen && seekTask != nil) else { return }
+        guard seconds.isFinite, canAcceptSeek else { return }
         pendingSeek = seconds
         guard seekTask == nil else { return }
         let token = generation
@@ -303,6 +317,26 @@ public final class AetherPlaybackSession {
     }
     public func selectSubtitle(index: Int?) {
         if let index { engine.selectSubtitleTrack(index: index) } else { engine.clearSubtitle() }
+    }
+    #if os(iOS)
+    /// Host text appearance changes in place. Bitmap subtitles retain their art.
+    /// Native PiP renditions keep their original appearance and timing.
+    public func configureSubtitles(scale: Double, background: Bool, delay: Double) {
+        subtitleDelay = delay.isFinite ? min(30, max(-30, delay)) : 0
+        canvas.subtitleScale = CGFloat(scale.isFinite ? min(1.5, max(0.8, scale)) : 1)
+        canvas.subtitleBackground = background
+        engine.setSoftwareSubtitleDelay(subtitleDelay)
+        canvas.display(cues: engine.subtitleCues, at: engine.sourceTime - subtitleDelay, videoSize: videoSize)
+        canvas.setNeedsLayout()
+        canvas.layoutIfNeeded()
+    }
+    #endif
+    /// Mid-session sidecars are foreground tracks in the pinned engine. This
+    /// does not reload the video or change native PiP's subtitle renditions.
+    public func addSubtitle(url: URL, title: String, language: String) -> Int {
+        let info = engine.addExternalSubtitleTrack(.init(url: url, name: title, language: language, formatHint: "srt"))
+        engine.selectSubtitleTrack(index: info.id)
+        return info.id
     }
     public func selectAudio(index: Int) { engine.selectAudioTrack(index: index) }
 
@@ -335,6 +369,10 @@ private final class AetherPlaybackCanvas: UIView {
     let picture = AetherPlayerView(frame: .zero)
     private var cues: [SubtitleCue] = []
     private var videoSize: CGSize = .zero
+    #if os(iOS)
+    var subtitleScale: CGFloat = 1
+    var subtitleBackground = false
+    #endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -422,7 +460,13 @@ private final class AetherPlaybackCanvas: UIView {
         for (cue, view) in zip(cues.reversed(), subviews.dropFirst().reversed()) {
             #if os(iOS)
             if let label = view as? UILabel {
-                label.attributedText = Self.styledText(cue, scale: max(12.0 / 42.0, bounds.width / 1920))
+                let text = NSMutableAttributedString(attributedString:
+                    Self.styledText(cue, scale: max(12.0 / 42.0, bounds.width / 1920) * subtitleScale))
+                if subtitleBackground {
+                    text.addAttribute(.backgroundColor, value: UIColor.black.withAlphaComponent(0.8),
+                                      range: NSRange(location: 0, length: text.length))
+                }
+                label.attributedText = text
             }
             #endif
             if case .image(let image) = cue.body {

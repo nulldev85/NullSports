@@ -44,6 +44,10 @@ struct MediaServersView: View {
     @State private var playing: MediaPlayRequest?
     /// The Library's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
+    #if !os(tvOS)
+    @State private var collectionsOpen = false
+    @State private var newCollectionName = ""
+    #endif
     /// Bumped to take the phone's Library back to its front page: an episode
     /// that ended with nothing after it leads there.
     @State private var frontPage = 0
@@ -56,6 +60,17 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .sheet(item: $media.collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environmentObject(media) }
+            .alert("New Collection", isPresented: $media.creatingCollection) {
+                TextField("Collection name", text: $newCollectionName)
+                Button("Create") {
+                    media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
+                    newCollectionName = ""
+                    media.collectionCreationItem = nil
+                }
+                .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newCollectionName.count > 80)
+                Button("Cancel", role: .cancel) { newCollectionName = ""; media.collectionCreationItem = nil }
+            }
             .mobileTabHome(.library) {
                 optionsOpen = false
                 searchingLibrary = false
@@ -99,7 +114,7 @@ struct MediaServersView: View {
                             .lineupProminentButton()
                     }
                 } else {
-                    MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
+                    MediaCatalogsScreen(catalogs: media.mobileShelfCatalogs, searchPresented: $searchingLibrary)
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
@@ -108,6 +123,7 @@ struct MediaServersView: View {
                                     sections: optionsSections) { setOptions(false) }
             }
             .modifier(ClearLibraryHeader())
+            .navigationDestination(isPresented: $collectionsOpen) { MobileLibraryCollectionsView() }
             .toolbar {
                 LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
@@ -204,6 +220,7 @@ struct MediaServersView: View {
                 MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
                     searchingLibrary = true
                 },
+                MobileMenuItem("Collections", symbol: "folder.fill") { collectionsOpen = true },
                 MobileMenuItem("Add Shelf", symbol: "plus.rectangle.on.rectangle", isEnabled: media.hasAnySource) {
                     choosingShelf = true
                 },
@@ -917,7 +934,7 @@ private struct MediaCatalogsScreen: View {
     @State private var heroPlayableItem: MediaItem?
     @State private var isVisible = false
     #if !os(tvOS)
-    @State private var phoneScrolling = false
+    @State private var phoneScrollActivity = MobileLibraryScrollActivity()
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
@@ -1021,17 +1038,16 @@ private struct MediaCatalogsScreen: View {
                                 // The first panel starts a gap below the
                                 // hero, as each starts a gap below the last.
                                 MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
-                                                 scrollIsActive: phoneScrolling)
+                                                 scrollActivity: phoneScrollActivity)
                             }
                             libraryShelves
                         }
                         .padding(.bottom, 44)
                     }
                     .scrollBounceBehavior(.always, axes: .vertical)
-                    .onScrollPhaseChange { _, phase in phoneScrolling = phase != .idle }
-                    .onDisappear { phoneScrolling = false }
+                    .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
+                    .onDisappear { phoneScrollActivity.isActive = false }
                     .ignoresSafeArea(edges: .top)
-                    .task(id: catalogs.map(\.id)) { await prefetchShelfFronts() }
                     #endif
                 }
             }
@@ -1086,11 +1102,17 @@ private struct MediaCatalogsScreen: View {
 
     /// One of the phone's rows: the device's own, or a shelf.
     private enum PhoneRow: Identifiable {
+        #if !os(tvOS)
+        case collections
+        #endif
         case local(id: String, title: String, items: [MediaItem], opensPages: Bool)
         case catalog(MediaCatalog)
 
         var id: String {
             switch self {
+            #if !os(tvOS)
+            case .collections: LibraryShelfOrder.collections
+            #endif
             case .local(let id, _, _, _): id
             case .catalog(let catalog): catalog.id
             }
@@ -1100,6 +1122,9 @@ private struct MediaCatalogsScreen: View {
     /// Every row, in the order the viewer arranged them.
     private var phoneRows: [PhoneRow] {
         var rows: [PhoneRow] = []
+        #if !os(tvOS)
+        rows.append(.collections)
+        #endif
         if !continueWatching.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continueWatching.map(\.item), opensPages: true))
@@ -1124,6 +1149,10 @@ private struct MediaCatalogsScreen: View {
     private var libraryShelves: some View {
         ForEach(phoneRows) { row in
             switch row {
+            #if !os(tvOS)
+            case .collections:
+                MobileLibraryCollectionsRow()
+            #endif
             case .local(let id, let title, let items, let opensPages):
                 localShelf(id: id, title: title, items: items, opensPages: opensPages)
             case .catalog(let catalog):
@@ -1206,6 +1235,9 @@ private struct MediaCatalogsScreen: View {
                     .padding(.horizontal, horizontalPadding)
             } else {
                 let shape = MediaArtShape.forItems(catalog.items)
+                #if !os(tvOS)
+                MobileLibraryShelf(items: catalog.items, shape: shape, onSelect: openHeroItem)
+                #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: itemSpacing) {
                         ForEach(Array(catalog.items.enumerated()), id: \.element.libraryKey) { index, item in
@@ -1239,6 +1271,7 @@ private struct MediaCatalogsScreen: View {
                 }
                 .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                 .lineupFocusRegion()
+                #endif
             }
         }
         .modifier(PhoneShelfPanel())
@@ -1249,22 +1282,6 @@ private struct MediaCatalogsScreen: View {
         for next in (index + 1)..<min(items.count, index + 7) {
             let art = MediaItemCard.art(for: items[next], shape: shape, in: media)
             LineupArt.prefetch(art.url, pixels: art.pixels)
-        }
-    }
-
-    /// Every shelf's first screenful, fetched as the shelves arrive, so
-    /// scrolling down the Library finds posters already made rather than
-    /// starting each one as its row appears.
-    private func prefetchShelfFronts() async {
-        do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
-        var rows: [[MediaItem]] = [continueWatching.map(\.item), favoriteTitles, favoriteEpisodes]
-        rows += catalogs.map(\.items)
-        for items in rows where !items.isEmpty {
-            let shape = MediaArtShape.forItems(items)
-            for item in items.prefix(6) {
-                let art = MediaItemCard.art(for: item, shape: shape, in: media)
-                LineupArt.prefetch(art.url, pixels: art.pixels)
-            }
         }
     }
 
@@ -1844,6 +1861,12 @@ private struct MediaCatalogsScreen: View {
             PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id)) { EmptyView() }
             #endif
             let shape = MediaArtShape.forItems(items)
+            #if !os(tvOS)
+            MobileLibraryShelf(items: items, shape: shape) { item in
+                if let page = pageItem(for: item, opensPages: opensPages) { pushed = page }
+                else { heroPlayableItem = item }
+            }
+            #else
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
                     ForEach(items, id: \.libraryKey) { trackedItem in
@@ -1878,6 +1901,7 @@ private struct MediaCatalogsScreen: View {
             }
             .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
             .lineupFocusRegion()
+            #endif
         }
         .modifier(PhoneShelfPanel())
     }
@@ -2049,7 +2073,7 @@ private struct MediaCatalogsScreen: View {
 
 /// A run of cards in a grid with a heading of its own: one server's search
 /// results. A section with no title is just the grid.
-private struct MediaGridSection: Identifiable {
+struct MediaGridSection: Identifiable {
     let id: String
     let title: String?
     /// The logo of the server the section is named for.
@@ -2057,7 +2081,7 @@ private struct MediaGridSection: Identifiable {
     let items: [MediaItem]
 }
 
-private struct MediaGridScreen: View {
+struct MediaGridScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let title: String
     let sections: [MediaGridSection]
@@ -2120,8 +2144,8 @@ private struct MediaGridScreen: View {
             }
             .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
             #else
-            NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                .lineupFlatButton()
+            MediaItemCard(item: item, shape: shape)
+                .lineupHoldMenu(item.name, symbol: "film", items: { media.cardMenuItems(for: item) }) { pushed = item }
             #endif
         } else {
             MediaPlayableCard(item: item, shape: shape)
@@ -2136,6 +2160,7 @@ private struct MediaGridScreen: View {
         #else
         grid.navigationTitle(title)
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+            .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #endif
     }
 
@@ -2695,9 +2720,8 @@ private struct MediaDetailScreen: View {
     @State private var chosen: MediaItem?
     /// Set by Start Over, so the stream that opens ignores the saved place.
     @State private var startingOver = false
-    // tvOS media cards push through state instead of NavigationLink. Besides
-    // avoiding the system's oversized focus plate, this lets the Related row
-    // participate in the same focus-region routing as every library shelf.
+    // The native phone row and TV cards hand navigation to the screen so a
+    // recycled/offscreen card never owns the destination's lifetime.
     @State private var pushed: MediaItem?
     @FocusState private var seasonFocused: Bool
     #if os(tvOS)
@@ -2750,6 +2774,15 @@ private struct MediaDetailScreen: View {
         }
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
+        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .toolbar {
+            if ["Movie", "Series"].contains(subject.type) {
+                LineupToolbarItem(placement: .primaryAction) {
+                    Button("Collections", systemImage: "folder.badge.plus") { media.collectionSelectionItem = subject }
+                        .buttonStyle(LineupBarButtonStyle())
+                }
+            }
+        }
         #endif
         #if os(tvOS)
         // Full-screen artwork: the tab bar goes while the page is up.
@@ -2776,7 +2809,11 @@ private struct MediaDetailScreen: View {
             VStack(alignment: .leading, spacing: 20) {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(subject.name).font(titleFont)
+                    GeometryReader { titleArea in
+                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88) {
+                            Text(subject.name).font(titleFont).lineLimit(2).minimumScaleFactor(0.8)
+                        }
+                    }.frame(height: 88)
                     if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
                         MediaRatingChips(ratings: ratings)
                     }
@@ -3271,6 +3308,9 @@ private struct MediaDetailScreen: View {
                 // series.
                 detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
                                    symbol: "square.stack")
+                #if !os(tvOS)
+                MobileLibraryShelf(items: related, shape: .poster) { pushed = $0 }
+                #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
                         ForEach(related, id: \.libraryKey) { title in
@@ -3299,6 +3339,7 @@ private struct MediaDetailScreen: View {
                 // geometrically above that poster. Treating the shelf as one
                 // focus region lets an Up press return to the rows above.
                 .lineupFocusRegion()
+                #endif
             }
             .modifier(PhoneShelfPanel())
         }
@@ -3591,6 +3632,9 @@ private struct TVMediaActionSurface: ViewModifier {
 /// picks by the description rather than by guessing from a still.
 private struct MediaEpisodeCard: View {
     @EnvironmentObject private var media: MediaLibrary
+    #if !os(tvOS)
+    @Environment(\.displayScale) private var displayScale
+    #endif
     #if os(tvOS)
     @State private var artworkFocused = false
     #endif
@@ -3627,7 +3671,7 @@ private struct MediaEpisodeCard: View {
             #if os(tvOS)
             Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
             #else
-            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
+            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
             #endif
             if let overview = episode.overview, !overview.isEmpty {
                 #if os(tvOS)
@@ -3675,11 +3719,11 @@ private struct MediaEpisodeCard: View {
         #if os(tvOS)
         TVMediaArtwork(playback: playback) { picture }
         #else
-        Color.clear.frame(maxWidth: .infinity).overlay {
-            picture.overlay(alignment: .bottom) {
+        Color.clear.frame(maxWidth: .infinity)
+            .overlay { picture }
+            .overlay(alignment: .bottom) {
                 if let playback { MediaArtworkProgress(playback: playback) }
             }
-        }
         #endif
     }
 
@@ -3687,10 +3731,18 @@ private struct MediaEpisodeCard: View {
         ZStack {
             LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                 startPoint: .topLeading, endPoint: .bottomTrailing)
+            #if os(tvOS)
             LineupArtView(url: media.imageURL(for: episode, width: 640), width: 360) { loaded in
                 if let image = loaded { image.resizable().scaledToFill() }
                 else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
             }
+            #else
+            let size = MobileLibraryArtworkSize(width: 265, ratio: 16 / 9, scale: displayScale)
+            MobileLibraryArtView(url: media.imageURL(for: episode, width: size.width), pixels: size.longestEdge) { loaded in
+                if let image = loaded { image.resizable().scaledToFill() }
+                else { Image(systemName: "film.fill").font(.inter(.largeTitle)) }
+            }
+            #endif
         }
     }
 
@@ -3760,6 +3812,7 @@ extension MediaLibrary {
             })
         }
         if item.type == "Episode" { items += episodeMenuItems(for: item) }
+        if let collections = collectionMenu(for: item) { items.append(collections) }
         return items
     }
 
@@ -4139,7 +4192,9 @@ private struct MediaLibraryHero: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
-    var scrollIsActive = false
+    #if !os(tvOS)
+    @ObservedObject var scrollActivity: MobileLibraryScrollActivity
+    #endif
     @State private var index = 0
     @State private var isDragging = false
     @State private var isVisible = false
@@ -4164,7 +4219,7 @@ private struct MediaLibraryHero: View {
                 GeometryReader { viewport in
                     let current = min(index, items.count - 1)
                     let rotates = isVisible && scenePhase == .active && !voiceOver
-                        && !isDragging && !scrollIsActive
+                        && !isDragging && !scrollActivity.isActive
                     let pixels = LineupArt.pixels(for: viewport.size.width)
                     // Two overlapping slides fade together, including last to
                     // first. A page controller otherwise jumps across the list.
@@ -4289,12 +4344,23 @@ private struct MediaLibraryHero: View {
                 VStack(alignment: .leading, spacing: heroSpacing) {
                     Spacer(minLength: 0)
 
+                    #if os(tvOS)
                     Text(item.name)
                         .font(.inter(titleSize, .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .frame(width: readableWidth, alignment: .leading)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+                    #else
+                    MobileFanartTitle(item: item, width: readableWidth, height: min(100, titleSize * 2.2)) {
+                        Text(item.name)
+                            .font(.inter(titleSize, .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .frame(width: readableWidth, alignment: .leading)
+                            .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+                    }
+                    #endif
 
                     if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
                         MediaRatingChips(ratings: shown)
@@ -5169,6 +5235,15 @@ private struct MediaSourcePicker: View {
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
+                             segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
+                                 await media.playbackSegments(for: trackedItem)
+                             } : nil,
+                             subtitleIdentityLookup: {
+                                 await media.onlineSubtitleIdentity(for: trackedItem)
+                             },
+                             seekPreviewLookup: {
+                                 await media.seekPreview(for: trackedItem, source: source)
+                             },
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in
@@ -6066,6 +6141,11 @@ enum MediaArtShape {
 
 struct MediaItemCard: View {
     @EnvironmentObject private var media: MediaLibrary
+    #if !os(tvOS)
+    @Environment(\.displayScale) private var displayScale
+    @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
+    @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
+    #endif
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused
     #endif
@@ -6120,6 +6200,8 @@ struct MediaItemCard: View {
                 #if os(tvOS)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
+                #else
+                .frame(height: titleHeight, alignment: .topLeading)
                 #endif
             #if !os(tvOS)
             // The television shows a poster and its title and nothing more:
@@ -6136,12 +6218,19 @@ struct MediaItemCard: View {
             }
             .font(.inter(.caption2, .medium))
             .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+            .lineLimit(1)
+            .frame(height: metadataHeight, alignment: .topLeading)
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
         .task(id: media.metadataRequestKey(for: originalItem)) {
             await media.resolveMetadata(for: originalItem)
         }
+        #if !os(tvOS)
+        .task(id: media.betterPostersEnabled ? originalItem.libraryKey : "") {
+            await media.resolveBetterPosterIdentity(for: originalItem)
+        }
+        #endif
     }
 
     private var artworkIsFocused: Bool {
@@ -6159,10 +6248,9 @@ struct MediaItemCard: View {
         #else
         Color.clear.frame(maxWidth: .infinity)
             .aspectRatio(shape.ratio, contentMode: .fit)
-            .overlay {
-                picture.overlay(alignment: .bottom) {
-                    if let playback { MediaArtworkProgress(playback: playback) }
-                }
+            .overlay { picture }
+            .overlay(alignment: .bottom) {
+                if let playback { MediaArtworkProgress(playback: playback) }
             }
         #endif
     }
@@ -6174,10 +6262,19 @@ struct MediaItemCard: View {
             } else {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
+                #if os(tvOS)
                 LineupArtView(url: artworkURL, width: artWidth) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                 }
+                #else
+                let art = Self.art(for: item, shape: shape, in: media, scale: displayScale)
+                MobileRatedPoster(url: shape.isPoster ? media.betterPosterURL(for: item) : nil,
+                                  fallback: art.url, pixels: art.pixels) { loaded in
+                    if let image = loaded { image.resizable().scaledToFill() }
+                    else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
+                }
+                #endif
             }
         }
     }
@@ -6201,9 +6298,24 @@ struct MediaItemCard: View {
     /// The card's art, address and size, worked out without a card, so a
     /// shelf can fetch it before the card is drawn and the card finds it
     /// made (`LineupArt.prefetch`).
+    #if os(tvOS)
     static func art(for item: MediaItem, shape: MediaArtShape, in media: MediaLibrary) -> (url: URL?, pixels: Int) {
         (artworkURL(for: item, shape: shape, in: media), LineupArt.pixels(for: artWidth(shape)))
     }
+    #else
+    static func art(for item: MediaItem, shape: MediaArtShape, in media: MediaLibrary,
+                    scale: CGFloat = UITraitCollection.current.displayScale) -> (url: URL?, pixels: Int) {
+        let size = MobileLibraryArtworkSize(width: artWidth(shape), ratio: shape.ratio, scale: scale)
+        let url: URL?
+        if shape.isPoster, item.type == "Episode" {
+            url = media.seriesPosterURL(for: item, width: size.width)
+                ?? media.imageURL(for: item, width: size.width)
+        } else {
+            url = media.imageURL(for: item, width: size.width)
+        }
+        return (url, size.longestEdge)
+    }
+    #endif
 
     private static func artWidth(_ shape: MediaArtShape) -> CGFloat {
         #if os(tvOS)

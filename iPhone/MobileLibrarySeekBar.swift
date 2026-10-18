@@ -5,6 +5,7 @@ import SwiftUI
 struct MobileLibrarySeekBar: View {
     let controller: MobilePlaybackController
     let progress: MobilePlaybackProgress
+    @ObservedObject var preview: MobileSeekPreviewStore
     let onEditingChanged: (Bool) -> Void
     @State private var target: Double?
     @GestureState private var touching = false
@@ -33,6 +34,14 @@ struct MobileLibrarySeekBar: View {
                             finish()
                         }
                 )
+                .overlay(alignment: .topLeading) {
+                    if let target, let info = preview.source?.info {
+                        MobileSeekThumbnail(frame: preview.frame, index: info.index(at: target), seconds: target)
+                            .frame(width: min(160, track.size.width), height: 112)
+                            .offset(x: min(max(0, fraction * track.size.width - 80), max(0, track.size.width - 160)), y: -116)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
             .frame(height: 44)
             HStack {
@@ -47,6 +56,9 @@ struct MobileLibrarySeekBar: View {
         .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .transaction { $0.animation = nil }
         .onChange(of: touching) { _, active in if !active { finish() } }
+        .onChange(of: preview.source?.firstTile.url) { _, _ in
+            if let target { preview.request(at: target) }
+        }
         .onDisappear { finish(resume: false) }
         .accessibilityElement()
         .accessibilityLabel("Playback position")
@@ -54,8 +66,8 @@ struct MobileLibrarySeekBar: View {
         .accessibilityAdjustableAction { direction in
             finish()
             switch direction {
-            case .increment: controller.skip(by: 15)
-            case .decrement: controller.skip(by: -15)
+            case .increment: controller.skip(by: controller.isLive ? CatchUpPolicy.skip : 15)
+            case .decrement: controller.skip(by: controller.isLive ? -CatchUpPolicy.skip : -15)
             @unknown default: break
             }
             onEditingChanged(false)
@@ -71,6 +83,7 @@ struct MobileLibrarySeekBar: View {
         let next = PlaybackSeekPolicy.position(x: Double(x), width: Double(width), duration: progress.duration)
         target = next
         controller.previewScrubbing(at: next)
+        preview.request(at: next)
     }
 
     private func finish(resume: Bool = true) {
@@ -78,6 +91,27 @@ struct MobileLibrarySeekBar: View {
         if resume { controller.endScrubbing(at: target) }
         else { controller.finishScrubbing(resume: false) }
         self.target = nil
+        preview.cancel()
         onEditingChanged(false)
+    }
+}
+
+private struct MobileSeekThumbnail: View {
+    let frame: MobileSeekPreviewFrame?
+    let index: Int?
+    let seconds: Double
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Color.black
+                if let frame, frame.index == index {
+                    Image(uiImage: UIImage(cgImage: frame.image)).resizable().scaledToFit()
+                }
+            }.frame(height: 90).clipped()
+            Text(MobilePlaybackProgress.timecode(seconds)).font(.inter(.caption2, .semibold).monospacedDigit())
+                .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 22).background(Color.black)
+        }.clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+            .accessibilityHidden(true)
     }
 }

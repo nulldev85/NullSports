@@ -1,5 +1,16 @@
 import Foundation
 
+enum MobileRecordingSeekPolicy {
+    /// Provider URLs accept whole-minute starts. A short forward request must
+    /// never round back behind the picture and restart the same minute.
+    static func providerStart(target: Date, current: Date) -> Date? {
+        guard target.timeIntervalSince1970.isFinite, current.timeIntervalSince1970.isFinite else { return nil }
+        let minute = Date(timeIntervalSince1970: floor(target.timeIntervalSince1970 / 60) * 60)
+        if target >= current, minute <= current { return nil }
+        return minute
+    }
+}
+
 enum MobileStreamEngine: String, Hashable {
     case system, aether, vlc
     var title: String {

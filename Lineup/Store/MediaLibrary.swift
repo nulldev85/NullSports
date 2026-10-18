@@ -102,6 +102,40 @@ final class MediaLibrary: ObservableObject {
 
     @Published private(set) var metadataSource: LibraryMetadataSource = .tmdb
     @Published private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
+    #if !os(tvOS)
+    @Published var introDBEnabled = true {
+        didSet { defaults.set(introDBEnabled, forKey: "Lineup.library.introDB.v1") }
+    }
+    @Published var recapSkippingEnabled = true {
+        didSet { defaults.set(recapSkippingEnabled, forKey: "Lineup.library.skipRecaps.v1") }
+    }
+    @Published var creditsPromptEnabled = true {
+        didSet { defaults.set(creditsPromptEnabled, forKey: "Lineup.library.creditsPrompt.v1") }
+    }
+    @Published var postCreditsNoticeEnabled = true {
+        didSet { defaults.set(postCreditsNoticeEnabled, forKey: "Lineup.library.postCreditsNotice.v1") }
+    }
+    @Published var fanartEnabled = true {
+        didSet { defaults.set(fanartEnabled, forKey: "Lineup.library.fanart.v1") }
+    }
+    @Published var betterPostersEnabled = false {
+        didSet { defaults.set(betterPostersEnabled, forKey: "Lineup.library.betterPosters.v1") }
+    }
+    @Published var betterPostersTemplate = MobileBetterPosters.defaultTemplate {
+        didSet { defaults.set(betterPostersTemplate, forKey: "Lineup.library.betterPostersTemplate.v1") }
+    }
+    @Published var personalCollections: [MobileLibraryCollection] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(personalCollections) {
+                defaults.set(data, forKey: "Lineup.library.personalCollections.v1")
+            }
+        }
+    }
+    @Published var creatingCollection = false
+    @Published var collectionSelectionItem: MediaItem?
+    @Published var betterPosterIDs: [String: String] = [:]
+    var collectionCreationItem: MediaItem?
+    #endif
     @Published private var metadataResults: [String: LibraryMetadata] = [:]
     private let metadataResolver: LibraryMetadataResolver
     private let metadataCredentials: LibraryMetadataCredentials
@@ -246,6 +280,21 @@ final class MediaLibrary: ObservableObject {
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
         metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .tmdb
         episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .tvdb
+        #if !os(tvOS)
+        introDBEnabled = defaults.object(forKey: "Lineup.library.introDB.v1") as? Bool ?? true
+        recapSkippingEnabled = defaults.object(forKey: "Lineup.library.skipRecaps.v1") as? Bool ?? true
+        creditsPromptEnabled = defaults.object(forKey: "Lineup.library.creditsPrompt.v1") as? Bool ?? true
+        postCreditsNoticeEnabled = defaults.object(forKey: "Lineup.library.postCreditsNotice.v1") as? Bool ?? true
+        fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
+        betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
+        if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
+            betterPostersTemplate = template
+        }
+        if let data = defaults.data(forKey: "Lineup.library.personalCollections.v1"),
+           let saved = try? JSONDecoder().decode([MobileLibraryCollection].self, from: data) {
+            personalCollections = saved
+        }
+        #endif
         providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
@@ -301,8 +350,18 @@ final class MediaLibrary: ObservableObject {
 
     /// Every shelf: each server's, servers in the order they were added, then
     /// the MDBList shelves that draw on all of them.
+    private var sourceCatalogs: [MediaCatalog] {
+        profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+    }
+
+    #if os(iOS)
+    /// Cards resolve their own metadata. Remapping every title on every image,
+    /// metadata or playback publication needlessly replaces the row's data.
+    var mobileShelfCatalogs: [MediaCatalog] { sourceCatalogs }
+    #endif
+
     var catalogs: [MediaCatalog] {
-        let originals = profiles.flatMap { servers[$0.id]?.catalogs ?? [] } + mdbListShelves + providerShelves
+        let originals = sourceCatalogs
         guard metadataSource != .provider || episodeDataSource != .provider else { return originals }
         return originals.map { MediaCatalog(root: $0.root, items: $0.items.map { displayItem($0) }) }
     }
@@ -773,7 +832,7 @@ final class MediaLibrary: ObservableObject {
         metadataResults[key] = value
     }
 
-    private func metadataParent(for episode: MediaItem) async -> MediaItem? {
+    func metadataParent(for episode: MediaItem) async -> MediaItem? {
         if let packed = LibraryMetadataIdentity.packed(episode),
            let id = AIOStreamsItemID.make(.series, provider: packed.provider, value: packed.value) {
             return MediaItem(id: id, name: episode.seriesName ?? packed.value, type: "Series", overview: nil,
@@ -798,6 +857,21 @@ final class MediaLibrary: ObservableObject {
         if let result { detailCache[parent.libraryKey] = CachedDetail(item: result, storedAt: Date()) }
         return result
     }
+
+    #if !os(tvOS)
+    func libraryExternalIdentity(_ item: MediaItem, requiring provider: String = "imdb") async -> MediaItem {
+        guard ["imdb", "tmdb", "tvdb"].contains(provider) else { return item }
+        let shown = displayItem(item)
+        if LibraryMetadataIdentity.ids(shown)[provider] != nil { return shown }
+        for source in [LibraryMetadataSource.tmdb, .tvdb] where metadataAvailable(source) {
+            if let value = await metadataResolver.resolve(item, source: source, parent: nil) {
+                let matched = item.withMetadata(value)
+                if LibraryMetadataIdentity.ids(matched)[provider] != nil { return matched }
+            }
+        }
+        return item
+    }
+    #endif
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
         if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
@@ -2745,6 +2819,20 @@ final class MediaLibrary: ObservableObject {
             mediaSourceID: source.selectionID, playSessionID: source.playSessionID)
     }
 
+    #if os(iOS)
+    /// Optional server images for exactly the copy selected in the stream list.
+    /// No addon resolution, video inspection, or change to playback startup.
+    func seekPreview(for item: MediaItem, source: MediaPlaybackSource) async -> MobileSeekPreviewSource? {
+        guard !item.isProviderTitle,
+              let profile = source.serverID.flatMap({ id in self.profiles.first { $0.id == id } }) ?? self.profile(for: item),
+              profile.brand == .jellyfin, let client = try? self.client(for: profile) else { return nil }
+        let preview = try? await client.seekPreview(userID: profile.userID,
+            itemID: source.itemID ?? item.id, mediaSourceID: source.selectionID)
+        guard !Task.isCancelled, contains(profile) else { return nil }
+        return preview
+    }
+    #endif
+
     /// An AIOStreams stream's own address: its path, when that is a web
     /// address. A path on any other server is the server's own business --
     /// a file on its disk, or a route of its own.
@@ -3965,6 +4053,10 @@ extension MediaLibrary {
     /// Every row the Library has on it now, in the viewer's order.
     var libraryRows: [LibraryRow] {
         var rows: [LibraryRow] = []
+        #if !os(tvOS)
+        rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
+                               detail: nil, symbol: "folder.fill", brand: nil))
+        #endif
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                    detail: nil, symbol: "play.circle", brand: nil))

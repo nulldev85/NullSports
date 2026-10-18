@@ -65,6 +65,45 @@ struct LibraryMetadataSettingsView: View {
             }
             .lineupSettingsRows()
             Section {
+                Toggle(isOn: $media.introDBEnabled) {
+                    sourceLabel("Skip Intro", symbol: "forward.end.fill")
+                }
+                .tint(LineupStyle.highlight)
+                Toggle(isOn: $media.recapSkippingEnabled) {
+                    sourceLabel("Skip Recap", symbol: "backward.end.fill")
+                }.tint(LineupStyle.highlight)
+                Toggle(isOn: $media.creditsPromptEnabled) {
+                    sourceLabel("Next Episode During Credits", symbol: "play.rectangle.on.rectangle")
+                }.tint(LineupStyle.highlight)
+                Toggle(isOn: $media.postCreditsNoticeEnabled) {
+                    sourceLabel("Post-Credit Scene Notices", symbol: "film.stack")
+                }.tint(LineupStyle.highlight)
+                Link("Timestamps provided by IntroDB", destination: URL(string: "https://introdb.app")!)
+                    .font(.inter(.footnote))
+            } header: { Text("Playback").lineupSettingsHeader() }
+              footer: { Text("Uses matching community timestamps for Library playback. Next Episode keeps Lineup's existing episode choice and Play Now action. Missing credit timestamps keep the normal prompt near the end. Post-credit notices appear only when a movie has matching scene data; nothing skips automatically.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
+                Toggle(isOn: $media.betterPostersEnabled) {
+                    sourceLabel("BetterPosters", symbol: "photo.on.rectangle.angled")
+                }
+                .tint(LineupStyle.highlight)
+                if media.betterPostersEnabled {
+                    NavigationLink("Poster Style") { MobileBetterPostersSettings() }
+                }
+            } header: { Text("Posters").lineupSettingsHeader() }
+              footer: { Text("Uses BetterPosters for movie and show posters with an IMDb match. Your original artwork remains available when a poster cannot load. Episode stills and hero artwork keep their current style.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
+                Toggle(isOn: $media.fanartEnabled) {
+                    sourceLabel("Title Logos", symbol: "textformat")
+                }.tint(LineupStyle.highlight)
+                Link("Artwork provided by Fanart.tv", destination: URL(string: "https://fanart.tv")!)
+                    .font(.inter(.footnote))
+            } header: { Text("Title Artwork").lineupSettingsHeader() }
+              footer: { Text("Shows matching movie and show logos on the Library hero and detail pages. Titles remain readable when a logo isn't available.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
                 availability
                 credits
             } header: {

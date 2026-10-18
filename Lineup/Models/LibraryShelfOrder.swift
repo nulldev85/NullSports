@@ -7,6 +7,7 @@ import Foundation
 /// and laid over whatever rows there are, rather than as positions.
 enum LibraryShelfOrder {
     // The rows kept on the device, which have no catalog of their own.
+    static let collections = "collections"
     static let continueWatching = "continue-watching"
     static let favorites = "favorites"
     static let favoriteEpisodes = "favorite-episodes"

@@ -39,6 +39,10 @@ extern void libvlc_video_set_format_callbacks(libvlc_media_player_t *mp,
                                               libvlc_video_format_cb setup,
                                               libvlc_video_cleanup_cb cleanup);
 
+/* LibVLC's public clock query reads input time even while paused. VLCKit's
+ * cached time relies on events which VLC3 suppresses outside PLAYING_S. */
+extern int64_t libvlc_media_player_get_time(libvlc_media_player_t *mp);
+
 /*
  * VLCKit declares this in PrivateHeaders/VLCMediaPlayer+Internal.h, which is
  * not in the umbrella header and so is invisible to Swift. The selector exists
@@ -56,3 +60,4 @@ extern void libvlc_video_set_format_callbacks(libvlc_media_player_t *mp,
  */
 void *LineupVLCVideoSetCallbacksAddress(void);
 void *LineupVLCVideoSetFormatCallbacksAddress(void);
+int64_t LineupVLCPlaybackTimeMilliseconds(VLCMediaPlayer *player);

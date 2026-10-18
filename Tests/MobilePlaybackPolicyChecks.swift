@@ -7,6 +7,17 @@ struct MobilePlaybackPolicyChecks {
             precondition(condition, message)
         }
 
+        let recordingStart = Date(timeIntervalSince1970: 1200)
+        let sixSeconds = recordingStart.addingTimeInterval(6)
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds.addingTimeInterval(10), current: sixSeconds) == nil,
+              "A ten-second forward skip must never reopen the same minute at its beginning")
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds.addingTimeInterval(70), current: sixSeconds)
+              == recordingStart.addingTimeInterval(60), "An unavailable native seek can reopen a later minute")
+        check(MobileRecordingSeekPolicy.providerStart(target: recordingStart, current: sixSeconds) == recordingStart,
+              "Deliberate rewind to the beginning remains available")
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds, current: sixSeconds) == nil,
+              "An unchanged drag must not restart the open minute")
+
         // Engine selection -------------------------------------------------
         let hls = URL(string: "http://example.com/live/user/pass/1234.m3u8")!
         let ts = URL(string: "http://example.com/live/user/pass/1234.ts")!

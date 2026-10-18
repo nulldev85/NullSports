@@ -415,10 +415,11 @@ private struct MobileChoiceRowsHeight: PreferenceKey {
 /// that hosts it to raise over everything.
 final class MobileHoldMenu: ObservableObject {
     struct Request {
+        let id = UUID()
         let title: String
         let symbol: String
         let message: String?
-        let items: [MobileMenuItem]
+        var items: [MobileMenuItem]
     }
 
     @Published var request: Request?
@@ -426,6 +427,13 @@ final class MobileHoldMenu: ObservableObject {
     func present(_ title: String, symbol: String, message: String?, items: [MobileMenuItem]) {
         guard !items.isEmpty else { return }
         request = Request(title: title, symbol: symbol, message: message, items: items)
+    }
+
+    /// An asynchronous capability lookup belongs to the menu that opened it.
+    /// Closing it or holding another card must retire that lookup's UI update.
+    func updateItems(_ items: [MobileMenuItem], requestID: UUID) {
+        guard request?.id == requestID else { return }
+        request?.items = items
     }
 }
 
@@ -464,9 +472,10 @@ extension View {
     func lineupHoldMenu(_ title: String, symbol: String, message: String? = nil,
                         press: MobileHoldPress = .scale,
                         items: @escaping () -> [MobileMenuItem],
+                        onPresent: ((MobileHoldMenu) -> Void)? = nil,
                         action: @escaping () -> Void) -> some View {
         modifier(MobileHoldButton(title: title, symbol: symbol, message: message,
-                                  press: press, items: items, action: action))
+                                  press: press, items: items, onPresent: onPresent, action: action))
     }
 }
 
@@ -494,6 +503,7 @@ private struct MobileHoldButton: ViewModifier {
     let message: String?
     let press: MobileHoldPress
     let items: () -> [MobileMenuItem]
+    let onPresent: ((MobileHoldMenu) -> Void)?
     let action: () -> Void
 
     @Environment(\.mobileHoldMenu) private var menu
@@ -519,5 +529,6 @@ private struct MobileHoldButton: ViewModifier {
         guard !list.isEmpty, let menu else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         menu.present(title, symbol: symbol, message: message, items: list)
+        onPresent?(menu)
     }
 }
