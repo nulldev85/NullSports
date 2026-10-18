@@ -85,9 +85,15 @@ Five new Apple SDK tests cover actual URLSession request/coalescing/cache,
 movie query semantics, service backoff and independently persisted settings.
 Existing IntroDB, tracking, playback and source-selection coverage stays enabled.
 
+The supplied Fanart.tv project key authenticated real v3.2 TMDB movie, IMDb
+movie and TVDB show requests with exact returned IDs. Selected English/neutral
+title-logo assets downloaded successfully as public PNGs (800x310). The key is
+stored in the repository Actions secret. Tools/verify-fanart.py repeats those
+checks without printing credentials or credentialed URLs.
+
 There is no local Swift/Apple SDK. New Swift checks, full simulator tests and
-device behavior are PENDING. Real Fanart.tv authentication/logo verification is
-PENDING the project key. No build was dispatched for this revision yet.
+device behavior are PENDING the iPhone126 CI run. No success is assumed from
+the API checks.
 
 References: https://introdb.app/docs/api,
 https://introdb.app/docs/movies,
