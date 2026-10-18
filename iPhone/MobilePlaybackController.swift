@@ -338,6 +338,15 @@ final class MobilePlaybackController: ObservableObject {
 
     // MARK: - Position
 
+    /// Query the real input clock rather than VLCKit's event cache. VLC3
+    /// suppresses position/time events while paused, including after a seek.
+    /// A missing input is unknown, not a fabricated zero or requested target.
+    var vlcPlaybackSeconds: Double? {
+        guard engine == .vlc, player.media != nil else { return nil }
+        let milliseconds = LineupVLCPlaybackTimeMilliseconds(player)
+        return milliseconds >= 0 ? Double(milliseconds) / 1000 : nil
+    }
+
     /// Read straight from whichever engine is running. Both report a length of
     /// zero for a live stream, so a title with no end simply has no progress to
     /// publish and the player shows live chrome instead of a scrubber.
@@ -359,7 +368,7 @@ final class MobilePlaybackController: ObservableObject {
         case .vlc:
             let lengthMs = player.media?.length.intValue ?? 0
             let duration = Double(lengthMs) / 1000
-            let position = Double(player.time.intValue) / 1000
+            guard let position = vlcPlaybackSeconds else { return }
             sampled = lengthMs > 0
                 ? MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration) : nil
         }
@@ -1988,7 +1997,9 @@ final class MobilePlaybackController: ObservableObject {
         guard catchUp != nil else { return }
         let played: Double
         switch engine {
-        case .vlc: played = Double(player.time.intValue) / 1000
+        case .vlc:
+            guard let position = vlcPlaybackSeconds else { return }
+            played = position
         case .aether: played = aetherSession?.position ?? 0
         case .system: played = systemPlayer.currentTime().seconds
         }

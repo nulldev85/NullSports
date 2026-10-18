@@ -142,3 +142,38 @@ assertions are introduced.
 
 VLC3 reference for native notifications and pause implementation:
 https://raw.githubusercontent.com/videolan/vlckit/3.0/Sources/VLCMediaPlayer.m
+
+## Native paused-clock repair (iPhone125)
+
+Build124 compiled and ran560 tests, with one existing skip and two failures in
+the replay test (the paused-VLC seek check and the subsequent unexpected teardown
+error). The VLC subtitle/native-pause test now passed, validating124's pause
+intent correction. Aether's replay portion again landed10/16/6seconds. The
+simulator step lasted21m32s, including~1m48s of tests and a600-second diagnostic
+timeout after failure. Release/IPA steps were skipped.
+
+Upstream source explains the remaining clock check: VLC3's INPUT_EVENT_POSITION
+handler returns without sending time/position events unless the input is in
+PLAYING_S. VLCKit's time getter returns only its cached event value. A paused
+seek therefore cannot be verified or sampled reliably through that getter.
+The public libvlc_media_player_get_time query reads the input's current time
+directly, including while paused. The iPhone's existing C bridge now exposes
+that query; both Library and recording progress read it. Missing/retired inputs
+remain unknown and do not overwrite the last good position with a guessed zero
+or commanded target. No seek request, stream, engine version or timeout changes.
+
+The real replay regression reads the native input clock and still requires the
+final recording position and actual paused transport. It then resumes VLC and
+requires new displayed pictures from the requested position without another
+provider recording request. Failure evidence includes native/cached clocks,
+recording time and transport state. Existing native pause callbacks and subtitle
+pause assertions remain. No test/engine is skipped or assertions relaxed.
+
+Local membership5, bundle9, focus and diff checks passed. The full Apple SDK,
+native bridge linkage and device verification for125 are pending; Windows
+cannot run these tests. The teardown exception remains pending verification.
+
+Source evidence:
+- https://github.com/videolan/vlc/blob/3.0.x/lib/media_player.c#L324-L338
+- https://github.com/videolan/vlc/blob/3.0.x/lib/media_player.c#L1250-L1261
+- https://github.com/videolan/vlckit/blob/3.0/Sources/VLCMediaPlayer.m#L732-L735

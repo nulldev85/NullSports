@@ -205,6 +205,7 @@ final class AetherPlaybackTests: XCTestCase {
         let oldIDs = Set(controller.subtitleTracks.map(\.id))
         let sessionID = controller.subtitleSessionID
         let player = controller.player
+        XCTAssertNotNil(controller.vlcPlaybackSeconds, "A playing input exposes its actual native clock")
         await pauseVLCAndAwaitNativeState(controller)
         let added = expectation(description: "VLC selects its actual newly added subtitle track")
         let chosen = controller.$subtitleTracks.combineLatest(controller.$selectedSubtitleID)
@@ -227,6 +228,7 @@ final class AetherPlaybackTests: XCTestCase {
         controller.selectSubtitle(.off)
         XCTAssertEqual(controller.selectedSubtitleID, PlaybackSubtitleTrack.off.id)
         controller.stop()
+        XCTAssertNil(controller.vlcPlaybackSeconds, "A stopped source cannot retain an old native clock")
         XCTAssertEqual(controller.subtitleDelaySeconds, 0, "Timing must not leak into another video/release")
         XCTAssertNotEqual(controller.subtitleSessionID, sessionID)
         XCTAssertFalse(controller.canAttachOnlineSubtitles)
@@ -355,7 +357,7 @@ final class AetherPlaybackTests: XCTestCase {
             let before = controller.recordingElapsed
             controller.skip(by: 10)
             try await waitUntil("A ten-second skip must move forward without reopening the recording") {
-                let actual = preference == .vlc ? Double(controller.player.time.intValue) / 1000
+                let actual = preference == .vlc ? controller.vlcPlaybackSeconds ?? -1
                     : controller.aetherSession?.position ?? 0
                 return actual >= before + 9 && controller.recordingElapsed >= before + 9
             }
@@ -377,8 +379,13 @@ final class AetherPlaybackTests: XCTestCase {
             controller.beginScrubbing()
             controller.previewScrubbing(at: 22)
             controller.endScrubbing(at: 6)
-            try await waitUntil("Dragging a paused replay must seek while preserving pause") {
-                let actual = preference == .vlc ? Double(controller.player.time.intValue) / 1000
+            try await waitUntil("Dragging a paused replay must seek while preserving pause", diagnostics: {
+                "engine=\(controller.engineTitle), UI-playing=\(controller.isPlaying), native-playing=\(controller.player.isPlaying), "
+                    + "native-time=\(String(describing: controller.vlcPlaybackSeconds)), cached-time=\(controller.player.time.intValue), "
+                    + "recording-time=\(controller.recordingElapsed), state=\(String(describing: controller.player.state)), "
+                    + "Aether-phase=\(String(describing: controller.aetherSession?.phase))"
+            }) {
+                let actual = preference == .vlc ? controller.vlcPlaybackSeconds ?? -1
                     : controller.aetherSession?.position ?? 0
                 let nativePaused = preference == .vlc ? !controller.player.isPlaying
                     : controller.aetherSession?.phase == .paused
@@ -389,6 +396,16 @@ final class AetherPlaybackTests: XCTestCase {
             XCTAssertEqual(controller.subtitleSessionID, sessionID)
             if let session { XCTAssertTrue(controller.aetherSession === session) }
             XCTAssertFalse(controller.finished)
+            if preference == .vlc {
+                let pictures = controller.player.media?.numberOfDisplayedPictures ?? 0
+                controller.toggle()
+                try await waitUntil("Resuming VLC after the paused seek must render new pictures from the final destination") {
+                    guard let seconds = controller.vlcPlaybackSeconds else { return false }
+                    return controller.isPlaying && controller.player.isPlaying && seconds >= 6 && seconds < 12
+                        && (controller.player.media?.numberOfDisplayedPictures ?? 0) > pictures
+                }
+                XCTAssertEqual(addresses, 1, "Resuming a paused seek must not reopen the provider recording")
+            }
         }
     }
 
@@ -453,11 +470,14 @@ final class AetherPlaybackTests: XCTestCase {
         return ready
     }
 
-    private func waitUntil(_ message: String, timeout: TimeInterval = 30, condition: () -> Bool) async throws {
+    private func waitUntil(_ message: String, timeout: TimeInterval = 30,
+                           diagnostics: (() -> String)? = nil, condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
-        XCTAssertTrue(condition(), message)
-        if !condition() { throw NSError(domain: "AetherPlaybackTests", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+        let passed = condition()
+        let detail = passed ? message : message + (diagnostics.map { "\n" + $0() } ?? "")
+        XCTAssertTrue(passed, detail)
+        if !passed { throw NSError(domain: "AetherPlaybackTests", code: 1, userInfo: [NSLocalizedDescriptionKey: detail]) }
     }
 
     /// isPlaying reflects pause intent immediately, while Aether's published
