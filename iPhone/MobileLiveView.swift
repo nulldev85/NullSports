@@ -10,6 +10,8 @@ struct MobileLiveView: View {
     @State private var league: SportsLeague?
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
+    @StateObject private var gameReplays = MobileGameReplayStore()
+    @State private var selectedGameReplay: MobileGameReplaySelection?
     @State private var choosingChannel: SportsGame?
     @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
@@ -266,6 +268,9 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .fullScreenCover(item: $selectedGameReplay) { selection in
+                MobileGameReplayPlayer(selection: selection).environmentObject(library)
+            }
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
@@ -529,6 +534,15 @@ struct MobileLiveView: View {
                         systemImage: "sportscourt",
                         description: Text("Pull down to refresh, or find your channels in Guide."))
                         .padding(.top, 40)
+                }
+                if MobileGameReplayPolicy.isVisible(myTeams: onlyFollowed, league: league) {
+                    MobileGameReplaysSection(library: library, store: gameReplays, enabled: isActive) { selection in
+                        cancelQualityCheck()
+                        closePreview()
+                        selectedGameReplay = selection
+                    }
+                    .padding(.horizontal, Self.inset)
+                    .padding(.top, LineupPanelStyle.gap)
                 }
             }
             .padding(.bottom, 16)

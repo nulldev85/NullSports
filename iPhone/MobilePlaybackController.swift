@@ -1600,7 +1600,8 @@ final class MobilePlaybackController: ObservableObject {
     /// it opening meanwhile, and a viewer who moves on in that time -- another
     /// channel, or closing the player -- is not overruled when the answer
     /// comes.
-    func openRecording(of stream: XtreamStream, programme: CatchUpProgramme?, from library: SportsLibrary) async {
+    func openRecording(of stream: XtreamStream, programme: CatchUpProgramme?, from library: SportsLibrary,
+                       requiresRecording: Bool = false) async {
         let liveURLs = library.playbackURLs(for: stream)
         // Whatever was open is closed now rather than left playing under the
         // wait; `start` below or the next channel opens the next thing.
@@ -1615,6 +1616,11 @@ final class MobilePlaybackController: ObservableObject {
         if source != nil {
             if let programme, playRecording(of: programme) { return }
             if programme == nil, startOver() { return }
+        }
+        if requiresRecording {
+            loading = false
+            error = "This replay is no longer available. Refresh Game Replays and try again."
+            return
         }
         start(urls: liveURLs, channelID: stream.id)
     }

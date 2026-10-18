@@ -2659,6 +2659,16 @@ final class SportsLibrary: ObservableObject {
 
     // MARK: - Catch-up
 
+    /// On-demand NFL replay browsing, scoped to the account that requested it.
+    /// The regular Guide keeps its existing, more permissive catch-up behavior.
+    func gameReplayProgrammes(for stream: XtreamStream, profileID: UUID) async throws -> [CatchUpProgramme] {
+        guard let profile = activeProfile, profile.id == profileID, !profile.isPlaylist,
+              stream.hasCatchUp, let secret = password(for: profile) else { throw XtreamClient.XtreamError.invalidResponse }
+        let table = try await XtreamClient(profile: profile, password: secret).catchUpTable(streamID: stream.id)
+        guard !Task.isCancelled, activeProfile?.id == profileID else { throw CancellationError() }
+        return table.confirmedGameRecordings(for: stream)
+    }
+
     /// The server's time zone for the active provider, found once a session.
     private var catchUpZoneCache: (profileID: UUID, zone: TimeZone)?
 
