@@ -33,7 +33,10 @@ jobs:
           LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
           LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
           LINEUP_OPENSUBTITLES_API_KEY: ${{ secrets.LINEUP_OPENSUBTITLES_API_KEY }}
-        run: python3 -B Tools/configure-metadata.py
+          LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
+        run: |
+          python3 -B Tools/configure-metadata.py
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -42,6 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
+          python3 -B Tests/MetadataBundleChecks.py
           find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
       - name: Check shared sports logic
         run: |
@@ -62,6 +66,10 @@ jobs:
           /tmp/mobile-playback-policy-checks
           swiftc iPhone/MobileSubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
           /tmp/mobile-subtitle-preference-checks
+          swiftc iPhone/MobilePlaybackSegments.swift Tests/MobilePlaybackSegmentChecks.swift -o /tmp/mobile-playback-segment-checks
+          /tmp/mobile-playback-segment-checks
+          swiftc iPhone/MobileFanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
+          /tmp/mobile-fanart-policy-checks
           swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks
           /tmp/playback-diagnostics-checks
           swiftc Lineup/Services/TeamChannelPreferences.swift Tests/TeamChannelPreferenceChecks.swift -o /tmp/team-preference-checks
@@ -150,7 +158,7 @@ jobs:
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
-          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then

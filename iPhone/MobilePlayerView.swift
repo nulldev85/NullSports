@@ -25,16 +25,20 @@ struct MobilePlayerView: View {
     var sourceQuality: String? = nil
     /// What is playing, shown beside the controls while they are up.
     var synopsis: MobilePlayerSynopsis? = nil
-    /// Supplied only by Library episode playback, never by live/preview video.
-    var introLookup: (() async -> MobileIntroSegment?)? = nil
+    /// Supplied by Library episode/movie playback, never live/preview video.
+    var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
     var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
     var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
     @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
     private var seekPreview: MobileSeekPreviewStore { seekPreviewSession.store }
-    @State private var introSegment: MobileIntroSegment?
+    @State private var segments: MobilePlaybackSegments?
+    @AppStorage("Lineup.library.introDB.v1") private var introEnabled = true
+    @AppStorage("Lineup.library.skipRecaps.v1") private var recapEnabled = true
+    @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
+    @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
-    /// The episode after this one, offered in the last half minute.
+    /// Lineup chooses the episode; verified credits can show the offer earlier.
     var nextEpisode: MobileNextEpisodeOffer? = nil
     /// Told when the title plays to its end, before the player closes.
     var onReachedEnd: (() -> Void)? = nil
@@ -174,8 +178,10 @@ struct MobilePlayerView: View {
                     GeometryReader { frame in
                         VStack(alignment: .leading, spacing: 10) {
                             Spacer()
-                            if introDestination != nil {
-                                HStack { Spacer(); skipIntroButton }
+                            if skipAction != nil {
+                                HStack { Spacer(); skipSegmentButton }
+                            } else if showsPostCreditsNotice {
+                                HStack { Spacer(); postCreditsNotice }
                             }
                             if let synopsis, !synopsis.isEmpty {
                                 synopsisPanel(synopsis, within: frame.size.width)
@@ -202,18 +208,19 @@ struct MobilePlayerView: View {
                                       decline: { nextEpisodeDeclined = true })
                     .padding(.trailing, 16).padding(.bottom, 24)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if !controlsVisible, skipAction != nil {
+                skipSegmentButton.padding(.trailing, 16).padding(.bottom, 24)
+            } else if !controlsVisible, showsPostCreditsNotice {
+                postCreditsNotice.padding(.trailing, 16).padding(.bottom, 24)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if !controlsVisible, introDestination != nil {
-                skipIntroButton.padding(.trailing, 16).padding(.bottom, 24)
-            }
-        }
-        .task {
-            guard !isLive, let introLookup else { return }
-            let segment = await introLookup()
+        .task(id: urls) {
+            segments = nil
+            nextEpisodeDeclined = false
+            guard !isLive, let segmentsLookup else { return }
+            let result = await segmentsLookup()
             guard !Task.isCancelled else { return }
-            introSegment = segment
+            segments = result
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: showsNextEpisode)
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -299,39 +306,62 @@ struct MobilePlayerView: View {
         }
     }
 
-    /// In an episode's last thirty seconds, with the controls away and
-    /// nothing wrong: long enough into a real episode that a short clip does
-    /// not offer one at once.
+    /// Keep the existing manual offer, with a credits cue when available and
+    /// the original final-thirty-seconds fallback otherwise.
     private var showsNextEpisode: Bool {
         guard nextEpisode != nil, !isLive, !nextEpisodeDeclined, !controlsVisible,
+              !controller.loading, !controller.pictureInPictureActive, !isScrubbing, !controller.isScrubbing,
               controller.error == nil, let progress = controller.progress,
               progress.duration > 90 else { return false }
-        return progress.duration - progress.position <= 30
+        return (segments ?? MobilePlaybackSegments()).offersNext(at: progress.position, duration: progress.duration,
+                                                               creditsEnabled: creditsEnabled)
     }
 
     private var offersOnlineSubtitles: Bool {
         !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
     }
 
-    private var introDestination: Double? {
-        guard !isLive, introLookup != nil, !isScrubbing, !controller.isScrubbing,
+    private var skipAction: (title: String, destination: Double)? {
+        guard !isLive, segmentsLookup != nil, !isScrubbing, !controller.isScrubbing,
               !controller.loading, controller.error == nil, !showsNextEpisode,
               !controller.pictureInPictureActive, let progress = controller.progress else { return nil }
-        return introSegment?.destination(at: progress.position, duration: progress.duration)
+        if recapEnabled, let destination = segments?.recap?.destination(at: progress.position, duration: progress.duration) {
+            return ("Skip Recap", destination)
+        }
+        if introEnabled, let destination = segments?.intro?.destination(at: progress.position, duration: progress.duration) {
+            return ("Skip Intro", destination)
+        }
+        return nil
     }
 
-    private var skipIntroButton: some View {
+    private var skipSegmentButton: some View {
         Button {
-            guard let destination = introDestination else { return }
-            controller.seek(to: destination)
+            guard let action = skipAction else { return }
+            controller.seek(to: action.destination)
             showControls()
         } label: {
-            Label("Skip Intro", systemImage: "forward.end.fill")
+            Label(skipAction?.title ?? "Skip Intro", systemImage: "forward.end.fill")
                 .font(.inter(.subheadline, .bold))
                 .padding(.horizontal, 18).frame(minHeight: 48)
                 .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
         }.buttonStyle(.plain)
+    }
+
+    private var showsPostCreditsNotice: Bool {
+        guard postCreditsEnabled, !isLive, !isScrubbing, !controller.isScrubbing,
+              !controller.loading, controller.error == nil, !controller.pictureInPictureActive,
+              let progress = controller.progress else { return false }
+        return segments?.hasPostCreditsAhead(at: progress.position, duration: progress.duration) == true
+    }
+
+    private var postCreditsNotice: some View {
+        Label("Post-credit scene ahead", systemImage: "film.stack")
+            .font(.inter(.subheadline, .semibold)).padding(.horizontal, 14).padding(.vertical, 12)
+            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LineupStyle.line, lineWidth: 1))
+            .accessibilityAddTraits(.updatesFrequently)
+            .allowsHitTesting(false)
     }
 
     private func playNext(_ offer: MobileNextEpisodeOffer) {

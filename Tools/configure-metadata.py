@@ -14,6 +14,7 @@ values = {
     "tmdb": os.environ.get("LINEUP_TMDB_TOKEN", "").strip(),
     "tvdb": os.environ.get("LINEUP_TVDB_API_KEY", "").strip(),
     "opensubtitles": os.environ.get("LINEUP_OPENSUBTITLES_API_KEY", "").strip(),
+    "fanart": os.environ.get("LINEUP_FANART_API_KEY", "").strip(),
 }
 destination.parent.mkdir(parents=True, exist_ok=True)
 destination.write_text(json.dumps(values), encoding="utf-8")

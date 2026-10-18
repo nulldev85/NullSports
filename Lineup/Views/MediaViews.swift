@@ -2809,7 +2809,11 @@ private struct MediaDetailScreen: View {
             VStack(alignment: .leading, spacing: 20) {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(subject.name).font(titleFont)
+                    GeometryReader { titleArea in
+                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88) {
+                            Text(subject.name).font(titleFont).lineLimit(2).minimumScaleFactor(0.8)
+                        }
+                    }.frame(height: 88)
                     if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
                         MediaRatingChips(ratings: ratings)
                     }
@@ -4340,12 +4344,23 @@ private struct MediaLibraryHero: View {
                 VStack(alignment: .leading, spacing: heroSpacing) {
                     Spacer(minLength: 0)
 
+                    #if os(tvOS)
                     Text(item.name)
                         .font(.inter(titleSize, .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .frame(width: readableWidth, alignment: .leading)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+                    #else
+                    MobileFanartTitle(item: item, width: readableWidth, height: min(100, titleSize * 2.2)) {
+                        Text(item.name)
+                            .font(.inter(titleSize, .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .frame(width: readableWidth, alignment: .leading)
+                            .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+                    }
+                    #endif
 
                     if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
                         MediaRatingChips(ratings: shown)
@@ -5220,8 +5235,8 @@ private struct MediaSourcePicker: View {
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
-                             introLookup: media.introDBEnabled && item.type == "Episode" ? {
-                                 await media.introSegment(for: trackedItem)
+                             segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
+                                 await media.playbackSegments(for: trackedItem)
                              } : nil,
                              subtitleIdentityLookup: {
                                  await media.onlineSubtitleIdentity(for: trackedItem)

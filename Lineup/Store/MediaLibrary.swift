@@ -106,6 +106,18 @@ final class MediaLibrary: ObservableObject {
     @Published var introDBEnabled = true {
         didSet { defaults.set(introDBEnabled, forKey: "Lineup.library.introDB.v1") }
     }
+    @Published var recapSkippingEnabled = true {
+        didSet { defaults.set(recapSkippingEnabled, forKey: "Lineup.library.skipRecaps.v1") }
+    }
+    @Published var creditsPromptEnabled = true {
+        didSet { defaults.set(creditsPromptEnabled, forKey: "Lineup.library.creditsPrompt.v1") }
+    }
+    @Published var postCreditsNoticeEnabled = true {
+        didSet { defaults.set(postCreditsNoticeEnabled, forKey: "Lineup.library.postCreditsNotice.v1") }
+    }
+    @Published var fanartEnabled = true {
+        didSet { defaults.set(fanartEnabled, forKey: "Lineup.library.fanart.v1") }
+    }
     @Published var betterPostersEnabled = false {
         didSet { defaults.set(betterPostersEnabled, forKey: "Lineup.library.betterPosters.v1") }
     }
@@ -270,6 +282,10 @@ final class MediaLibrary: ObservableObject {
         episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .tvdb
         #if !os(tvOS)
         introDBEnabled = defaults.object(forKey: "Lineup.library.introDB.v1") as? Bool ?? true
+        recapSkippingEnabled = defaults.object(forKey: "Lineup.library.skipRecaps.v1") as? Bool ?? true
+        creditsPromptEnabled = defaults.object(forKey: "Lineup.library.creditsPrompt.v1") as? Bool ?? true
+        postCreditsNoticeEnabled = defaults.object(forKey: "Lineup.library.postCreditsNotice.v1") as? Bool ?? true
+        fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
         betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
         if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
             betterPostersTemplate = template
@@ -843,13 +859,14 @@ final class MediaLibrary: ObservableObject {
     }
 
     #if !os(tvOS)
-    func libraryExternalIdentity(_ item: MediaItem) async -> MediaItem {
+    func libraryExternalIdentity(_ item: MediaItem, requiring provider: String = "imdb") async -> MediaItem {
+        guard ["imdb", "tmdb", "tvdb"].contains(provider) else { return item }
         let shown = displayItem(item)
-        if LibraryMetadataIdentity.ids(shown)["imdb"] != nil { return shown }
+        if LibraryMetadataIdentity.ids(shown)[provider] != nil { return shown }
         for source in [LibraryMetadataSource.tmdb, .tvdb] where metadataAvailable(source) {
             if let value = await metadataResolver.resolve(item, source: source, parent: nil) {
                 let matched = item.withMetadata(value)
-                if LibraryMetadataIdentity.ids(matched)["imdb"] != nil { return matched }
+                if LibraryMetadataIdentity.ids(matched)[provider] != nil { return matched }
             }
         }
         return item
