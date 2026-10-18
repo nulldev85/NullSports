@@ -44,7 +44,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplayPolicy.swift",
                        "iPhone/MobileGameReplayStore.swift", "iPhone/MobileGameReplaysView.swift",
                        "iPhone/MobileSportsCatchUp.swift", "iPhone/MobileOpenSubtitles.swift",
-                       "iPhone/MobileOnlineSubtitlesSheet.swift"):
+                       "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
+                       "iPhone/MobileSeekPreview.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))
@@ -53,6 +54,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileGameReplayTests.swift"))
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileSportsCatchUpTests.swift"))
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileOpenSubtitlesTests.swift"))
+        self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobilePlayerPolishTests.swift"))
 
     def test_shared_compatibility_sources_belong_to_both_apps(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")

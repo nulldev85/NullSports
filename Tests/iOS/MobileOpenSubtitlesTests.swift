@@ -159,7 +159,7 @@ final class MobileOpenSubtitlesTests: XCTestCase {
 
     @MainActor private func findField(_ view: UIView) -> UITextField? {
         if let field = view as? UITextField { return field }
-        return view.subviews.lazy.compactMap { findField($0) }.first
+        return view.subviews.lazy.compactMap { self.findField($0) }.first
     }
 }
 

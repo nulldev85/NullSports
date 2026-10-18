@@ -5226,6 +5226,9 @@ private struct MediaSourcePicker: View {
                              subtitleIdentityLookup: {
                                  await media.onlineSubtitleIdentity(for: trackedItem)
                              },
+                             seekPreviewLookup: {
+                                 await media.seekPreview(for: trackedItem, source: source)
+                             },
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in

@@ -116,6 +116,24 @@ final class AetherPlaybackTests: XCTestCase {
             try await waitUntil("The added sidecar must be a selectable engine track") {
                 controller.subtitleTracks.contains { $0.title.contains("Online fixture") && $0.id == controller.selectedSubtitleID }
             }
+            let caption = {
+                surface.subviews.compactMap { $0 as? UILabel }.first {
+                    $0.attributedText?.string.contains("Online fixture caption") == true
+                }
+            }
+            try await waitUntil("The selected sidecar must actually render its caption while paused") { caption() != nil }
+            surface.layoutIfNeeded()
+            let originalFont = try XCTUnwrap(caption()?.attributedText?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+            var appearance = controller.subtitlePreferences
+            appearance.scale = 1.5; appearance.background = true
+            controller.setSubtitlePreferences(appearance)
+            let larger = try XCTUnwrap(caption()?.attributedText?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+            XCTAssertEqual(larger.pointSize, originalFont.pointSize * 1.5, accuracy: 0.1)
+            XCTAssertNotNil(caption()?.attributedText?.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+            controller.setSubtitleDelay(30)
+            XCTAssertNil(caption(), "A delayed cue outside its interval must disappear without seeking the video")
+            controller.setSubtitleDelay(0)
+            XCTAssertNotNil(caption())
             XCTAssertTrue(controller.aetherSession === session)
             XCTAssertTrue(session.surface === surface)
             XCTAssertEqual(session.position, paused, accuracy: 0.4, "Adding subtitles must not restart or seek video")
@@ -196,6 +214,11 @@ final class AetherPlaybackTests: XCTestCase {
         try await controller.addOnlineSubtitle(Data("1\n00:00:00,000 --> 00:00:35,000\nVLC fixture caption\n".utf8),
             title: "Online fixture", language: "en", sessionID: sessionID)
         await fulfillment(of: [added], timeout: 5)
+        controller.setSubtitleDelay(0.75)
+        XCTAssertEqual(player.currentVideoSubTitleDelay, 750_000, "VLC uses microseconds; positive values show captions later")
+        var appearance = controller.subtitlePreferences
+        appearance.scale = 1.25; appearance.background = true
+        controller.setSubtitlePreferences(appearance)
         XCTAssertEqual(controller.engine, .vlc)
         XCTAssertTrue(controller.player === player)
         XCTAssertEqual(controller.subtitleSessionID, sessionID)
@@ -203,6 +226,7 @@ final class AetherPlaybackTests: XCTestCase {
         controller.selectSubtitle(.off)
         XCTAssertEqual(controller.selectedSubtitleID, PlaybackSubtitleTrack.off.id)
         controller.stop()
+        XCTAssertEqual(controller.subtitleDelaySeconds, 0, "Timing must not leak into another video/release")
         XCTAssertNotEqual(controller.subtitleSessionID, sessionID)
         XCTAssertFalse(controller.canAttachOnlineSubtitles)
     }

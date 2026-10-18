@@ -2802,6 +2802,20 @@ final class MediaLibrary: ObservableObject {
             mediaSourceID: source.selectionID, playSessionID: source.playSessionID)
     }
 
+    #if os(iOS)
+    /// Optional server images for exactly the copy selected in the stream list.
+    /// No addon resolution, video inspection, or change to playback startup.
+    func seekPreview(for item: MediaItem, source: MediaPlaybackSource) async -> MobileSeekPreviewSource? {
+        guard !item.isProviderTitle,
+              let profile = source.serverID.flatMap({ id in self.profiles.first { $0.id == id } }) ?? self.profile(for: item),
+              profile.brand == .jellyfin, let client = try? self.client(for: profile) else { return nil }
+        let preview = try? await client.seekPreview(userID: profile.userID,
+            itemID: source.itemID ?? item.id, mediaSourceID: source.selectionID)
+        guard !Task.isCancelled, contains(profile) else { return nil }
+        return preview
+    }
+    #endif
+
     /// An AIOStreams stream's own address: its path, when that is a web
     /// address. A path on any other server is the server's own business --
     /// a file on its disk, or a route of its own.

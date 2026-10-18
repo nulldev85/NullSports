@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVKit
+import CoreMedia
 import VLCKitSPM
 import LineupAetherPlayback
 
@@ -91,6 +92,9 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
     @Published private(set) var subtitleSessionID = UUID()
+    @Published private(set) var subtitlePreferences: MobileSubtitlePreferences
+    @Published private(set) var subtitleDelaySeconds: Double = 0
+    private var explicitSubtitleChoice = false
     private var onlineSubtitleFiles: [URL] = []
     var canAttachOnlineSubtitles: Bool { !isLive && monitor != nil && currentURL != nil && engine != .system && error == nil }
 
@@ -284,6 +288,7 @@ final class MobilePlaybackController: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        subtitlePreferences = MobileSubtitlePreferences(defaults: defaults)
         pipDelegate.controller = self
         // An AVPlayerLayer that still holds its player suspends decoding once
         // the window leaves the screen, which would silence background audio.
@@ -984,7 +989,9 @@ final class MobilePlaybackController: ObservableObject {
             }
             session.load(url: url, startPosition: isLive ? nil : openingPlace,
                          isLive: isLive && !sourceIsRecording, expectedDuration: nil,
-                         primary: true, matchContent: false)
+                         primary: true, matchContent: false,
+                         preferredSubtitleLanguages: isLive || subtitlePreferences.language.isEmpty ? [] : [subtitlePreferences.language])
+            applySubtitleAppearance()
             closeStartGate()
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
@@ -1099,6 +1106,15 @@ final class MobilePlaybackController: ObservableObject {
             if let place = openingPlace { media.addOption(":start-time=\(place)") }
         }
         media.addOption(":http-reconnect=true")
+        if !isLive {
+            if !subtitlePreferences.language.isEmpty {
+                let language = subtitlePreferences.language
+                media.addOption(":sub-language=\(language),\(language.prefix(2))")
+            }
+            media.addOption(":freetype-rel-fontsize=\(Int((16 / subtitlePreferences.scale).rounded()))")
+            media.addOption(":freetype-background-opacity=\(subtitlePreferences.background ? 204 : 0)")
+            media.addOption(":freetype-background-color=0")
+        }
         player.media = media
         waitingForVideo = true
         waitingSince = Date()
@@ -1109,6 +1125,7 @@ final class MobilePlaybackController: ObservableObject {
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         let item = AVPlayerItem(url: url)
         systemPlayer.replaceCurrentItem(with: item)
+        applySubtitleAppearance()
 
         systemObservers.append(item.observe(\.status, options: [.new]) { [weak self] item, _ in
             let status = item.status
@@ -1366,6 +1383,40 @@ final class MobilePlaybackController: ObservableObject {
 
     // MARK: - Subtitles
 
+    func setSubtitlePreferences(_ value: MobileSubtitlePreferences) {
+        guard value != subtitlePreferences else { return }
+        subtitlePreferences = value
+        value.save(to: defaults)
+        applySubtitleAppearance()
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        guard engine != .system else { return }
+        let delay = MobileSubtitlePreferences.delay(seconds)
+        guard delay != subtitleDelaySeconds else { return }
+        subtitleDelaySeconds = delay
+        applySubtitleAppearance()
+    }
+
+    private func applySubtitleAppearance() {
+        guard !isLive else { return }
+        switch engine {
+        case .aether:
+            aetherSession?.configureSubtitles(scale: subtitlePreferences.scale,
+                background: subtitlePreferences.background, delay: subtitleDelaySeconds)
+        case .vlc:
+            player.currentVideoSubTitleDelay = Int((subtitleDelaySeconds * 1_000_000).rounded())
+        case .system:
+            let attributes: [String: Any] = [
+                kCMTextMarkupAttribute_RelativeFontSize as String: subtitlePreferences.scale * 100,
+                kCMTextMarkupAttribute_BackgroundColorARGB as String: [subtitlePreferences.background ? 0.8 : 0, 0, 0, 0]
+            ]
+            if let rule = AVTextStyleRule(textMarkupAttributes: attributes) {
+                systemPlayer.currentItem?.textStyleRules = [rule]
+            }
+        }
+    }
+
     func addOnlineSubtitle(_ data: Data, title: String, language: String, sessionID: UUID) async throws {
         guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
         let preparation = Task.detached(priority: .userInitiated) {
@@ -1403,6 +1454,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+        explicitSubtitleChoice = true
         switch engine {
         case .aether: aetherSession?.selectSubtitle(index: track.engineIndex)
         case .vlc:
@@ -1454,6 +1506,14 @@ final class MobilePlaybackController: ObservableObject {
                 } else {
                     self.selectedSubtitleID = PlaybackSubtitleTrack.off.id
                 }
+                if !self.explicitSubtitleChoice, !self.subtitlePreferences.language.isEmpty,
+                   let option = group.options.first(where: {
+                       MobileSubtitlePreferences.matches($0.extendedLanguageTag ?? $0.locale?.identifier,
+                                                         preferred: self.subtitlePreferences.language)
+                   }), let id = options.first(where: { $0.value === option })?.key,
+                   let track = tracks.first(where: { $0.id == id }) {
+                    self.selectSubtitle(track)
+                }
             } catch {
                 // No legible group is a normal answer for a title with no
                 // captions. Playback remains untouched and the button stays
@@ -1464,6 +1524,9 @@ final class MobilePlaybackController: ObservableObject {
 
     private func resetSubtitles() {
         subtitleSessionID = UUID()
+        explicitSubtitleChoice = false
+        subtitleDelaySeconds = 0
+        player.currentVideoSubTitleDelay = 0
         for file in onlineSubtitleFiles { try? FileManager.default.removeItem(at: file) }
         onlineSubtitleFiles.removeAll()
         subtitleTracks = [.off]

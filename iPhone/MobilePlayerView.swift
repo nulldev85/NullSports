@@ -28,6 +28,9 @@ struct MobilePlayerView: View {
     /// Supplied only by Library episode playback, never by live/preview video.
     var introLookup: (() async -> MobileIntroSegment?)? = nil
     var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
+    var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
+    private var seekPreview: MobileSeekPreviewStore { seekPreviewSession.store }
     @State private var introSegment: MobileIntroSegment?
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
@@ -41,6 +44,7 @@ struct MobilePlayerView: View {
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
     @State private var showingOnlineSubtitles = false
+    @State private var showingSubtitleSettings = false
     @State private var onlineSubtitleSession = UUID()
 
     var body: some View {
@@ -113,7 +117,7 @@ struct MobilePlayerView: View {
                                 controller.togglePictureInPicture()
                             }
                         }
-                        if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles) {
+                        if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil) {
                             control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
                                     ? "captions.bubble" : "captions.bubble.fill",
                                     label: "Subtitles, \(controller.selectedSubtitleTitle)") {
@@ -176,7 +180,7 @@ struct MobilePlayerView: View {
                             if let synopsis, !synopsis.isEmpty {
                                 synopsisPanel(synopsis, within: frame.size.width)
                             }
-                            MobileLibrarySeekBar(controller: controller, progress: progress) { editing in
+                            MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview) { editing in
                                 isScrubbing = editing
                                 if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
                             }
@@ -239,6 +243,11 @@ struct MobilePlayerView: View {
                     showingOnlineSubtitles = true
                 })
             }
+            if !isLive && subtitleIdentityLookup != nil {
+                items.append(MobileMenuItem("Subtitle Settings", symbol: "textformat.size", id: "subtitle-settings") {
+                    showingSubtitleSettings = true
+                })
+            }
             return items
         } onCancel: { showControls() }
         .sheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
@@ -251,11 +260,22 @@ struct MobilePlayerView: View {
             }
         }
         .onChange(of: controller.subtitleSessionID) { _, _ in showingOnlineSubtitles = false }
+        .task(id: urls) {
+            seekPreview.configure(nil)
+            guard !isLive, let seekPreviewLookup else { return }
+            let source = await seekPreviewLookup()
+            guard !Task.isCancelled else { return }
+            seekPreview.configure(source)
+        }
+        .sheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
+            MobileSubtitleSettingsSheet(controller: controller)
+        }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
         .onDisappear {
+            seekPreview.cancel()
             controller.finishScrubbing(resume: false)
             reportProgress(force: true)
             controller.shutdown()
