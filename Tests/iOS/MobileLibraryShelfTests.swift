@@ -96,6 +96,25 @@ final class MobileLibraryShelfTests: XCTestCase {
         XCTAssertEqual(still.longestEdge, 900)
     }
 
+    func testNativePosterMenuOpensCollectionsForTheCurrentRecycledTitle() throws {
+        let fixture = try ShelfFixture(items: titles(30))
+        defer { fixture.close() }
+        let cell = try XCTUnwrap(fixture.collection.cellForItem(at: IndexPath(item: 0, section: 0)))
+        let more = try XCTUnwrap(cell.accessibilityCustomActions?.first)
+        XCTAssertTrue(more.actionHandler?(more) == true)
+        let choice = try XCTUnwrap(fixture.holdMenu.request?.items.first { $0.title == "Collections" })
+        choice.action()
+        XCTAssertEqual(fixture.media.collectionSelectionItem?.libraryKey, fixture.items[0].libraryKey)
+        fixture.update(items: Array(fixture.items.reversed()))
+        let path = try XCTUnwrap(fixture.collection.indexPathsForVisibleItems.first)
+        let current = try XCTUnwrap(fixture.collection.cellForItem(at: path))
+        let currentMore = try XCTUnwrap(current.accessibilityCustomActions?.first)
+        XCTAssertTrue(currentMore.actionHandler?(currentMore) == true)
+        let changed = try XCTUnwrap(fixture.holdMenu.request?.items.first { $0.title == "Collections" })
+        changed.action()
+        XCTAssertEqual(fixture.media.collectionSelectionItem?.libraryKey, fixture.items[path.item].libraryKey)
+    }
+
     func testLateImageCannotReplaceANewerPosterAndSizeChangesAreSeparateRequests() async throws {
         let model = MobileLibraryArtwork()
         let first = MobileLibraryArtworkRequest(url: URL(string: "https://art.invalid/a.jpg"), pixels: 300)

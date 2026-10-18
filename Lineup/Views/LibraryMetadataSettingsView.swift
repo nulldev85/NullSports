@@ -65,6 +65,25 @@ struct LibraryMetadataSettingsView: View {
             }
             .lineupSettingsRows()
             Section {
+                Toggle(isOn: $media.introDBEnabled) {
+                    sourceLabel("Skip Intro", symbol: "forward.end.fill")
+                }
+                Link("Intro timestamps provided by IntroDB", destination: URL(string: "https://introdb.app")!)
+                    .font(.inter(.footnote))
+            } header: { Text("Playback").lineupSettingsHeader() }
+              footer: { Text("Offers Skip Intro during a matched Library episode's intro. Availability and timing depend on IntroDB's community data; playback starts without waiting for it.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
+                Toggle(isOn: $media.betterPostersEnabled) {
+                    sourceLabel("BetterPosters", symbol: "photo.on.rectangle.angled")
+                }
+                if media.betterPostersEnabled {
+                    NavigationLink("Poster Style") { MobileBetterPostersSettings() }
+                }
+            } header: { Text("Posters").lineupSettingsHeader() }
+              footer: { Text("Uses BetterPosters for movie and show posters with an IMDb match. Your original artwork remains available when a poster cannot load. Episode stills and hero artwork keep their current style.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
                 availability
                 credits
             } header: {

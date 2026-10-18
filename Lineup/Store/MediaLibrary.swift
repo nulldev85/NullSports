@@ -102,6 +102,28 @@ final class MediaLibrary: ObservableObject {
 
     @Published private(set) var metadataSource: LibraryMetadataSource = .tmdb
     @Published private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
+    #if !os(tvOS)
+    @Published var introDBEnabled = true {
+        didSet { defaults.set(introDBEnabled, forKey: "Lineup.library.introDB.v1") }
+    }
+    @Published var betterPostersEnabled = false {
+        didSet { defaults.set(betterPostersEnabled, forKey: "Lineup.library.betterPosters.v1") }
+    }
+    @Published var betterPostersTemplate = MobileBetterPosters.defaultTemplate {
+        didSet { defaults.set(betterPostersTemplate, forKey: "Lineup.library.betterPostersTemplate.v1") }
+    }
+    @Published var personalCollections: [MobileLibraryCollection] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(personalCollections) {
+                defaults.set(data, forKey: "Lineup.library.personalCollections.v1")
+            }
+        }
+    }
+    @Published var creatingCollection = false
+    @Published var collectionSelectionItem: MediaItem?
+    @Published var betterPosterIDs: [String: String] = [:]
+    var collectionCreationItem: MediaItem?
+    #endif
     @Published private var metadataResults: [String: LibraryMetadata] = [:]
     private let metadataResolver: LibraryMetadataResolver
     private let metadataCredentials: LibraryMetadataCredentials
@@ -246,6 +268,17 @@ final class MediaLibrary: ObservableObject {
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
         metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .tmdb
         episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .tvdb
+        #if !os(tvOS)
+        introDBEnabled = defaults.object(forKey: "Lineup.library.introDB.v1") as? Bool ?? true
+        betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
+        if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
+            betterPostersTemplate = template
+        }
+        if let data = defaults.data(forKey: "Lineup.library.personalCollections.v1"),
+           let saved = try? JSONDecoder().decode([MobileLibraryCollection].self, from: data) {
+            personalCollections = saved
+        }
+        #endif
         providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         if let data = defaults.data(forKey: profilesKey),
@@ -783,7 +816,7 @@ final class MediaLibrary: ObservableObject {
         metadataResults[key] = value
     }
 
-    private func metadataParent(for episode: MediaItem) async -> MediaItem? {
+    func metadataParent(for episode: MediaItem) async -> MediaItem? {
         if let packed = LibraryMetadataIdentity.packed(episode),
            let id = AIOStreamsItemID.make(.series, provider: packed.provider, value: packed.value) {
             return MediaItem(id: id, name: episode.seriesName ?? packed.value, type: "Series", overview: nil,
@@ -808,6 +841,20 @@ final class MediaLibrary: ObservableObject {
         if let result { detailCache[parent.libraryKey] = CachedDetail(item: result, storedAt: Date()) }
         return result
     }
+
+    #if !os(tvOS)
+    func libraryExternalIdentity(_ item: MediaItem) async -> MediaItem {
+        let shown = displayItem(item)
+        if LibraryMetadataIdentity.ids(shown)["imdb"] != nil { return shown }
+        for source in [LibraryMetadataSource.tmdb, .tvdb] where metadataAvailable(source) {
+            if let value = await metadataResolver.resolve(item, source: source, parent: nil) {
+                let matched = item.withMetadata(value)
+                if LibraryMetadataIdentity.ids(matched)["imdb"] != nil { return matched }
+            }
+        }
+        return item
+    }
+    #endif
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
         if let place = ProviderItem(id: parent.id), let provider = parent.serverID {

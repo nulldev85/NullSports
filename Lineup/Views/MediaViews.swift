@@ -44,6 +44,10 @@ struct MediaServersView: View {
     @State private var playing: MediaPlayRequest?
     /// The Library's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
+    #if !os(tvOS)
+    @State private var collectionsOpen = false
+    @State private var newCollectionName = ""
+    #endif
     /// Bumped to take the phone's Library back to its front page: an episode
     /// that ended with nothing after it leads there.
     @State private var frontPage = 0
@@ -56,6 +60,17 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .sheet(item: $media.collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environmentObject(media) }
+            .alert("New Collection", isPresented: $media.creatingCollection) {
+                TextField("Collection name", text: $newCollectionName)
+                Button("Create") {
+                    media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
+                    newCollectionName = ""
+                    media.collectionCreationItem = nil
+                }
+                .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newCollectionName.count > 80)
+                Button("Cancel", role: .cancel) { newCollectionName = ""; media.collectionCreationItem = nil }
+            }
             .mobileTabHome(.library) {
                 optionsOpen = false
                 searchingLibrary = false
@@ -108,6 +123,7 @@ struct MediaServersView: View {
                                     sections: optionsSections) { setOptions(false) }
             }
             .modifier(ClearLibraryHeader())
+            .navigationDestination(isPresented: $collectionsOpen) { MobileLibraryCollectionsView() }
             .toolbar {
                 LineupToolbarItem(placement: .primaryAction) {
                     MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
@@ -204,6 +220,7 @@ struct MediaServersView: View {
                 MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
                     searchingLibrary = true
                 },
+                MobileMenuItem("Collections", symbol: "folder.fill") { collectionsOpen = true },
                 MobileMenuItem("Add Shelf", symbol: "plus.rectangle.on.rectangle", isEnabled: media.hasAnySource) {
                     choosingShelf = true
                 },
@@ -1121,6 +1138,9 @@ private struct MediaCatalogsScreen: View {
 
     @ViewBuilder
     private var libraryShelves: some View {
+        #if !os(tvOS)
+        MobileLibraryCollectionsRow()
+        #endif
         ForEach(phoneRows) { row in
             switch row {
             case .local(let id, let title, let items, let opensPages):
@@ -2043,7 +2063,7 @@ private struct MediaCatalogsScreen: View {
 
 /// A run of cards in a grid with a heading of its own: one server's search
 /// results. A section with no title is just the grid.
-private struct MediaGridSection: Identifiable {
+struct MediaGridSection: Identifiable {
     let id: String
     let title: String?
     /// The logo of the server the section is named for.
@@ -2051,7 +2071,7 @@ private struct MediaGridSection: Identifiable {
     let items: [MediaItem]
 }
 
-private struct MediaGridScreen: View {
+struct MediaGridScreen: View {
     @EnvironmentObject private var media: MediaLibrary
     let title: String
     let sections: [MediaGridSection]
@@ -2114,8 +2134,8 @@ private struct MediaGridScreen: View {
             }
             .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
             #else
-            NavigationLink(value: item) { MediaItemCard(item: item, shape: shape) }
-                .lineupFlatButton()
+            MediaItemCard(item: item, shape: shape)
+                .lineupHoldMenu(item.name, symbol: "film", items: { media.cardMenuItems(for: item) }) { pushed = item }
             #endif
         } else {
             MediaPlayableCard(item: item, shape: shape)
@@ -2130,6 +2150,7 @@ private struct MediaGridScreen: View {
         #else
         grid.navigationTitle(title)
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+            .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #endif
     }
 
@@ -2744,6 +2765,14 @@ private struct MediaDetailScreen: View {
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .toolbar {
+            if ["Movie", "Series"].contains(subject.type) {
+                LineupToolbarItem(placement: .primaryAction) {
+                    Button("Collections", systemImage: "folder.badge.plus") { media.collectionSelectionItem = subject }
+                        .buttonStyle(LineupBarButtonStyle())
+                }
+            }
+        }
         #endif
         #if os(tvOS)
         // Full-screen artwork: the tab bar goes while the page is up.
@@ -3769,6 +3798,7 @@ extension MediaLibrary {
             })
         }
         if item.type == "Episode" { items += episodeMenuItems(for: item) }
+        if let collections = collectionMenu(for: item) { items.append(collections) }
         return items
     }
 
@@ -5180,6 +5210,9 @@ private struct MediaSourcePicker: View {
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
+                             introLookup: media.introDBEnabled && item.type == "Episode" ? {
+                                 await media.introSegment(for: trackedItem)
+                             } : nil,
                              // Start Over starts over here too; it resumed.
                              initialPosition: startsOver ? nil : media.resumePosition(for: item),
                              onProgress: { position, duration in
@@ -6162,6 +6195,11 @@ struct MediaItemCard: View {
         .task(id: media.metadataRequestKey(for: originalItem)) {
             await media.resolveMetadata(for: originalItem)
         }
+        #if !os(tvOS)
+        .task(id: media.betterPostersEnabled ? originalItem.libraryKey : "") {
+            await media.resolveBetterPosterIdentity(for: originalItem)
+        }
+        #endif
     }
 
     private var artworkIsFocused: Bool {
@@ -6200,7 +6238,8 @@ struct MediaItemCard: View {
                 }
                 #else
                 let art = Self.art(for: item, shape: shape, in: media, scale: displayScale)
-                MobileLibraryArtView(url: art.url, pixels: art.pixels) { loaded in
+                MobileRatedPoster(url: shape.isPoster ? media.betterPosterURL(for: item) : nil,
+                                  fallback: art.url, pixels: art.pixels) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                 }

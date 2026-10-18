@@ -25,6 +25,9 @@ struct MobilePlayerView: View {
     var sourceQuality: String? = nil
     /// What is playing, shown beside the controls while they are up.
     var synopsis: MobilePlayerSynopsis? = nil
+    /// Supplied only by Library episode playback, never by live/preview video.
+    var introLookup: (() async -> MobileIntroSegment?)? = nil
+    @State private var introSegment: MobileIntroSegment?
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     /// The episode after this one, offered in the last half minute.
@@ -164,6 +167,9 @@ struct MobilePlayerView: View {
                     GeometryReader { frame in
                         VStack(alignment: .leading, spacing: 10) {
                             Spacer()
+                            if introDestination != nil {
+                                HStack { Spacer(); skipIntroButton }
+                            }
                             if let synopsis, !synopsis.isEmpty {
                                 synopsisPanel(synopsis, within: frame.size.width)
                             }
@@ -190,6 +196,17 @@ struct MobilePlayerView: View {
                     .padding(.trailing, 16).padding(.bottom, 24)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !controlsVisible, introDestination != nil {
+                skipIntroButton.padding(.trailing, 16).padding(.bottom, 24)
+            }
+        }
+        .task {
+            guard !isLive, let introLookup else { return }
+            let segment = await introLookup()
+            guard !Task.isCancelled else { return }
+            introSegment = segment
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: showsNextEpisode)
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -249,6 +266,27 @@ struct MobilePlayerView: View {
               controller.error == nil, let progress = controller.progress,
               progress.duration > 90 else { return false }
         return progress.duration - progress.position <= 30
+    }
+
+    private var introDestination: Double? {
+        guard !isLive, introLookup != nil, !isScrubbing, !controller.isScrubbing,
+              !controller.loading, controller.error == nil, !showsNextEpisode,
+              !controller.pictureInPictureActive, let progress = controller.progress else { return nil }
+        return introSegment?.destination(at: progress.position, duration: progress.duration)
+    }
+
+    private var skipIntroButton: some View {
+        Button {
+            guard let destination = introDestination else { return }
+            controller.seek(to: destination)
+            showControls()
+        } label: {
+            Label("Skip Intro", systemImage: "forward.end.fill")
+                .font(.inter(.subheadline, .bold))
+                .padding(.horizontal, 18).frame(minHeight: 48)
+                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+        }.buttonStyle(.plain)
     }
 
     private func playNext(_ offer: MobileNextEpisodeOffer) {
