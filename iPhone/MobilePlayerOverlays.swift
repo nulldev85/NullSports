@@ -170,7 +170,9 @@ struct MobileCatchUpBar: View {
     /// Inline, under the guide: Start Over as an icon, and nothing behind it
     /// that the badge already says.
     let compact: Bool
+    var onEditingChanged: (Bool) -> Void = { _ in }
     let onStartOver: () -> Void
+    @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { clock in
@@ -178,16 +180,25 @@ struct MobileCatchUpBar: View {
         }
     }
 
+    @ViewBuilder
     private func content(now: Date) -> some View {
-        HStack(spacing: 10) {
-            if controller.canStartOver {
-                startOverButton
+        if !compact, controller.recordingEndsWithProgramme, let progress = controller.recordingProgress {
+            VStack(alignment: .leading, spacing: 8) {
+                if controller.canStartOver { startOverButton }
+                MobileLibrarySeekBar(controller: controller, progress: progress,
+                                     preview: seekPreviewSession.store, onEditingChanged: onEditingChanged)
             }
-            timeline(now: now)
+        } else {
+            HStack(spacing: 10) {
+                if controller.canStartOver {
+                    startOverButton
+                }
+                timeline(now: now)
+            }
+            .padding(.leading, controller.canStartOver ? 6 : 12).padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.6))
         }
-        .padding(.leading, controller.canStartOver ? 6 : 12).padding(.trailing, 12)
-        .padding(.vertical, 6)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.6))
     }
 
     @ViewBuilder

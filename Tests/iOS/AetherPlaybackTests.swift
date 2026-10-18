@@ -314,6 +314,77 @@ final class AetherPlaybackTests: XCTestCase {
         #endif
     }
 
+    func testReplayTenSecondSkipsAndDraggingSeekInPlaceOnAetherAndVLC() async throws {
+        let listening = expectation(description: "replay fixture origin is listening")
+        let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4",
+                                               onReady: { listening.fulfill() })
+        defer { origin.stop() }
+        await fulfillment(of: [listening], timeout: 5)
+        let url = try XCTUnwrap(origin.url(path: "recorded-game.mp4"))
+        for preference in [MobilePlaybackPreference.aether, .vlc] {
+            let (defaults, suite) = try preferences(preference)
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let controller = MobilePlaybackController(defaults: defaults)
+            let (window, _, previous) = try show(controller)
+            defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+            let start = CatchUpPolicy.minute(Date().addingTimeInterval(-7200))
+            let stream = XtreamStream(num: nil, name: "Replay fixture", streamType: "live", streamID: 7,
+                streamIcon: nil, epgChannelID: nil, categoryID: nil, tvArchive: true, archiveDays: 7)
+            var addresses = 0
+            controller.catchUpSource = CatchUpSource(stream: stream, liveURLs: [url], addresses: { _, _ in
+                addresses += 1
+                return [url]
+            }, programme: { _ in nil })
+            let ready = expectation(description: "\(preference.rawValue) renders the recorded game")
+            let expectedEngine: MobileStreamEngine = preference == .vlc ? .vlc : .aether
+            let subscription = controller.$loading.combineLatest(controller.$isPlaying)
+                .first { loading, playing in controller.engine == expectedEngine && !loading && playing }
+                .sink { _ in ready.fulfill() }
+            defer { subscription.cancel() }
+            XCTAssertTrue(controller.playRecording(of: .init(streamID: 7, title: "Replay", detail: "",
+                start: start, end: start.addingTimeInterval(36))))
+            await fulfillment(of: [ready], timeout: 30)
+            guard controller.engine == expectedEngine, controller.isPlaying, !controller.loading else { return }
+            try await waitUntil("The recording must expose its actual seekable runtime") {
+                (controller.progress?.duration ?? 0) > 30
+                    && (preference == .vlc ? controller.player.isSeekable : controller.aetherSession?.canAcceptSeek == true)
+            }
+            let session = controller.aetherSession
+            let sessionID = controller.subtitleSessionID
+            let before = controller.recordingElapsed
+            controller.skip(by: 10)
+            try await waitUntil("A ten-second skip must move forward without reopening the recording") {
+                let actual = preference == .vlc ? Double(controller.player.time.intValue) / 1000
+                    : controller.aetherSession?.position ?? 0
+                return actual >= before + 9 && controller.recordingElapsed >= before + 9
+            }
+            XCTAssertEqual(addresses, 1)
+            controller.beginScrubbing()
+            XCTAssertTrue(controller.isScrubbing)
+            controller.previewScrubbing(at: 26)
+            controller.previewScrubbing(at: 8)
+            controller.endScrubbing(at: 16)
+            try await waitUntil("The replay drag must land at its final destination and resume") {
+                abs(controller.recordingElapsed - 16) < 2 && controller.isPlaying
+            }
+            controller.toggle()
+            if let session { _ = try await pausedClock(controller, session: session) }
+            else { try await waitUntil("VLC pause must settle") { !controller.player.isPlaying } }
+            controller.beginScrubbing()
+            controller.previewScrubbing(at: 22)
+            controller.endScrubbing(at: 6)
+            try await waitUntil("Dragging a paused replay must seek while preserving pause") {
+                let actual = preference == .vlc ? Double(controller.player.time.intValue) / 1000
+                    : controller.aetherSession?.position ?? 0
+                return abs(actual - 6) < 2 && abs(controller.recordingElapsed - 6) < 2 && !controller.isPlaying
+            }
+            XCTAssertEqual(addresses, 1, "Native replay seeking must retain the same provider connection")
+            XCTAssertEqual(controller.subtitleSessionID, sessionID)
+            if let session { XCTAssertTrue(controller.aetherSession === session) }
+            XCTAssertFalse(controller.finished)
+        }
+    }
+
     private func fixture(_ name: String, _ ext: String) throws -> URL {
         try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
     }

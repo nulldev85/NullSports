@@ -75,3 +75,34 @@ unrelated archived feeds rejected by the real NFL/NBA/soccer event matcher,
 account/program routing including ongoing programs, and menu request isolation
 while keeping the original actions. These additions require iPhone120 SDK and
 device validation; local source-membership, focus and diff checks passed.
+
+## Replay seeking repair (iPhone123)
+
+Completed fullscreen recordings use the same44-point drag control, thumb,
+elapsed/remaining labels, seek coalescing and release commit as Library videos.
+The player keeps controls visible during a drag and excludes gestures beginning
+on the timeline from channel switching. Inline/live Guide chrome stays compact.
+Replay seeking does not request Library Trickplay metadata or scan the video.
+
+Previously only VLC had an in-place recording skip. Aether/native AVPlayer
+reopened a minute-addressed provider URL for a ten-second tap; at0:06, seeking
+to0:16 reopened0:00. All three engines now use their confirmed seeking capability
+within the open recording. Program-relative UI destinations are translated into
+open-stream offsets. Aether accepts the final target even during a running seek;
+VLC uses its native position/time and AVPlayer its actual seekable time ranges.
+Draft finger positions do not publish as playback progress. The landing guard
+rejects stale clock samples, and pause intent survives release.
+
+If an engine/provider cannot seek within its stream, drag previews never reopen
+the provider URL. Release opens its supported whole-minute destination once;
+rapid skip taps remain coalesced. A forward request that would round behind the
+current picture is refused with an explanation instead of restarting the same
+minute. The UI reports the actual provider minute, not an unattainable draft.
+This limit is not presented as exact ten-second provider seeking.
+
+Two SDK regressions cover the real provider fallback, final-only reopening,
+minute padding, cancellation and retired gestures. A real HTTP media fixture
+exercises ten-second skipping, drag release and paused dragging through both
+Aether and VLC, retaining the source/session. The standalone playback-policy
+check covers the0:06→0:16 rounding regression. Full tests remain enabled;
+Apple SDK/device validation for this repair is pending.

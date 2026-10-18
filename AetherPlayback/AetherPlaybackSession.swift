@@ -291,8 +291,12 @@ public final class AetherPlaybackSession {
         engine.stop()
         canvas.display(cues: [], at: 0, videoSize: .zero)
     }
+    /// An already-running seek can accept its final replacement target even
+    /// while the decoder temporarily reports that it is repositioning.
+    public var canAcceptSeek: Bool { canSeek || (isOpen && seekTask != nil) }
+
     public func seek(to seconds: Double) {
-        guard seconds.isFinite, canSeek || (isOpen && seekTask != nil) else { return }
+        guard seconds.isFinite, canAcceptSeek else { return }
         pendingSeek = seconds
         guard seekTask == nil else { return }
         let token = generation

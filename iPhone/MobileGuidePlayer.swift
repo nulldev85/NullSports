@@ -47,6 +47,8 @@ struct MobileGuidePlayer: View {
     /// screen has no way to, and alerts are not shown.
     var onWatchGame: ((SportsGame) -> Void)? = nil
     @State private var controlsVisible = true
+    @State private var editingTimeline = false
+    @State private var timelineBounds = CGRect.zero
     @State private var measuredHeaderHeight: CGFloat = 76
     @ScaledMetric(relativeTo: .caption2) private var previewInfoHeight: CGFloat = 32
     @State private var hideControlsTask: Task<Void, Never>?
@@ -139,6 +141,7 @@ struct MobileGuidePlayer: View {
             // the screen's downward pull to close, which `MobileChannelSwipe`
             // keeps clear of: each drag is one or the other or neither. Off
             // inline, where the picture is a preview over the guide.
+            .coordinateSpace(name: "GuidePlayer")
             .simultaneousGesture(channelSwipe, including: canSwipe ? .all : .subviews)
             if !expanded && controller.catchUpSource != nil && controller.error == nil {
                 MobileCatchUpBar(controller: controller, compact: true) {
@@ -325,11 +328,17 @@ struct MobileGuidePlayer: View {
 
     /// The recorded channel's timeline and Start Over, along the bottom.
     private var catchUpControls: some View {
-        MobileCatchUpBar(controller: controller, compact: !expanded) {
+        MobileCatchUpBar(controller: controller, compact: !expanded, onEditingChanged: { editing in
+            editingTimeline = editing
+            controlsVisible = true
+            if editing { hideControlsTask?.cancel() }
+            else { scheduleAutoHide() }
+        }) {
             showControls()
             controller.startOver()
         }
         .frame(maxWidth: expanded ? CGFloat(520) : CGFloat.infinity)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("GuidePlayer")) }) { timelineBounds = $0 }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .padding(.horizontal, expanded ? 24 : 10)
         .padding(.bottom, expanded ? 20 : 10)
@@ -379,9 +388,10 @@ struct MobileGuidePlayer: View {
     private var canSwipe: Bool { expanded && onStepChannel != nil }
 
     private var channelSwipe: some Gesture {
-        DragGesture(minimumDistance: 18)
+        DragGesture(minimumDistance: 18, coordinateSpace: .named("GuidePlayer"))
             .onEnded { value in
-                guard let onStepChannel,
+                guard !timelineBounds.contains(value.startLocation),
+                      !editingTimeline, !controller.isScrubbing, let onStepChannel,
                       let swipe = MobileChannelSwipe.direction(width: Double(value.translation.width),
                                                                height: Double(value.translation.height))
                 else { return }
@@ -409,10 +419,10 @@ struct MobileGuidePlayer: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying else { return }
+        guard controller.isPlaying, !editingTimeline else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !editingTimeline else { return }
             controlsVisible = false
         }
     }

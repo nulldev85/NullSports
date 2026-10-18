@@ -59,6 +59,15 @@ image request before dragging, or unrelated-version image fallback.
 
 ## Validation
 
+Build122 also stopped in app compilation, before any simulator tests or IPA
+packaging. Its simulator step took8m38s. MobileSubtitlePreferences.matches
+unwrapped its actual argument and then redeclared a local with the same name.
+The normalized values now have distinct names. The Foundation-only preferences
+helper is compiled and exercised by an early standalone Swift check before
+dependency resolution, in addition to the existing full SDK regressions.
+Local membership5, bundle9, focus, workflow lint and diff checks passed for
+build123. Apple SDK tests and device playback remain pending.
+
 Build121 failed before tests ran: the new native-input test helper omitted
 explicit self in a lazy escaping compactMap closure. Fixed that exact compiler
 error, retaining its real editor callbacks and full assertions. Its simulator

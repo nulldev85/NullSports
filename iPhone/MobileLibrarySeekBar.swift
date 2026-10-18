@@ -66,8 +66,8 @@ struct MobileLibrarySeekBar: View {
         .accessibilityAdjustableAction { direction in
             finish()
             switch direction {
-            case .increment: controller.skip(by: 15)
-            case .decrement: controller.skip(by: -15)
+            case .increment: controller.skip(by: controller.isLive ? CatchUpPolicy.skip : 15)
+            case .decrement: controller.skip(by: controller.isLive ? -CatchUpPolicy.skip : -15)
             @unknown default: break
             }
             onEditingChanged(false)

@@ -422,32 +422,61 @@ final class MobilePlaybackController: ObservableObject {
     /// Hold the sampled position still while a finger is on the scrubber, so
     /// the thumb does not fight the engine's own reports on the way past.
     func beginScrubbing() {
-        guard !isLive, !isScrubbing, let progress, progress.duration.isFinite, progress.duration > 0 else { return }
+        guard !isScrubbing, let progress = isLive ? recordingProgress : self.progress,
+              progress.duration.isFinite, progress.duration > 0 else { return }
         isScrubbing = true
         scrubDestination = progress.position
+        skipTask?.cancel()
+        skipTask = nil
+        skipTarget = nil
         scrubSeeks.cancel()
         resumeAfterScrubbing = !pausedByUser
         if resumeAfterScrubbing { toggle() }
     }
 
     func previewScrubbing(at seconds: Double) {
-        guard isScrubbing, seconds.isFinite, let progress else { return }
+        guard isScrubbing, seconds.isFinite, let progress = isLive ? recordingProgress : self.progress else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: progress.duration)
         scrubDestination = target
+        if isLive, let catchUp {
+            let offset = catchUp.programmeStart.addingTimeInterval(target).timeIntervalSince(catchUp.streamStart)
+            // A provider-only seek reopens once on release, never for every
+            // finger update. Engines that can seek preview through the same
+            // coalescer as Library playback.
+            if canSeekRecording(to: offset) {
+                scrubSeeks.preview(offset) { [weak self] in self?.performRecordingSeek(to: $0) }
+            }
+            return
+        }
         scrubSeeks.preview(target) { [weak self] in self?.performSeek(to: $0) }
     }
 
     func endScrubbing(at seconds: Double) {
         guard isScrubbing else { return }
+        let resume = resumeAfterScrubbing
+        if isLive, let catchUp, seconds.isFinite {
+            seekRecording(to: catchUp.programmeStart.addingTimeInterval(seconds), immediately: true)
+        } else {
+            seek(to: seconds)
+        }
         isScrubbing = false
         scrubDestination = nil
-        seek(to: seconds)
-        if resumeAfterScrubbing { toggle() }
+        // A provider reopen clears pause intent. Restore it in either
+        // direction, including a drag that began while already paused.
+        if resume == pausedByUser { toggle() }
         resumeAfterScrubbing = false
     }
 
     func finishScrubbing(resume: Bool = true) {
         guard isScrubbing else { return }
+        if isLive, !resume {
+            // A disappearing/retuned replay must not commit an obsolete drag.
+            scrubSeeks.cancel()
+            isScrubbing = false
+            scrubDestination = nil
+            resumeAfterScrubbing = false
+            return
+        }
         if !resume { resumeAfterScrubbing = false }
         endScrubbing(at: scrubDestination ?? progress?.position ?? 0)
     }
@@ -1676,6 +1705,16 @@ final class MobilePlaybackController: ObservableObject {
         return skipTarget ?? catchUp.position(playedSeconds: recordingElapsed)
     }
 
+    /// Replay UI uses program-relative time; engines seek relative to the
+    /// minute-addressed open stream. These origins can differ after a reopen.
+    var recordingProgress: MobilePlaybackProgress? {
+        guard isLive, let catchUp, let position = catchUpPosition else { return nil }
+        let duration = catchUp.programmeEnd.timeIntervalSince(catchUp.programmeStart)
+        guard duration.isFinite, duration > 0 else { return nil }
+        return MobilePlaybackProgress(position: min(duration, max(0, position.timeIntervalSince(catchUp.programmeStart))),
+                                      duration: duration)
+    }
+
     /// The programme from its start -- the one a recording is playing, or
     /// the one on now when the provider records the channel and the guide
     /// knows what is on.
@@ -1758,39 +1797,109 @@ final class MobilePlaybackController: ObservableObject {
 
     /// The live half of `skip(by:)`.
     private func skipRecording(by seconds: Double) {
-        guard catchUpSource != nil else { return }
+        guard seconds.isFinite, catchUpSource != nil, !isScrubbing else { return }
         let now = Date()
-        guard let catchUp else {
+        guard catchUp != nil else {
             // Already live: only back means anything.
             guard seconds < 0 else { return }
             rewindFromLive(to: now.addingTimeInterval(seconds - CatchUpPolicy.liveLatency))
             return
         }
-        var target = (catchUpPosition ?? now).addingTimeInterval(seconds)
+        let target = (catchUpPosition ?? now).addingTimeInterval(seconds)
+        seekRecording(to: target, immediately: false)
+    }
+
+    private func seekRecording(to requested: Date, immediately: Bool) {
+        guard let catchUp, requested.timeIntervalSince1970.isFinite else { return }
+        let now = Date()
+        var target = requested
         if recordingEndsWithProgramme {
-            target = min(max(target, catchUp.programmeStart), catchUp.programmeEnd.addingTimeInterval(-5))
+            let last = max(catchUp.programmeStart, catchUp.programmeEnd.addingTimeInterval(-5))
+            target = min(max(target, catchUp.programmeStart), last)
         } else if now.timeIntervalSince(target) < CatchUpPolicy.liveTolerance {
             goLive()
             return
         }
-        // Within the open stream, when the server lets it be moved through:
-        // no reconnect at all.
+        target = min(target, now)
         let offset = target.timeIntervalSince(catchUp.streamStart)
-        if skipTarget == nil, engine == .vlc, player.isSeekable, offset >= 0, offset <= max(recordingElapsed, 0) + 60 {
-            player.time = VLCTime(int: Int32(offset * 1000))
+        if canSeekRecording(to: offset) {
+            skipTask?.cancel()
+            skipTask = nil
+            skipTarget = nil
+            seekLanding.expect(offset, now: ProcessInfo.processInfo.systemUptime)
+            scrubSeeks.commit(offset) { [weak self] in self?.performRecordingSeek(to: $0) }
             recordingElapsed = offset
-            diag.record("catch-up: moved \(Int(seconds))s within the open recording")
+            diag.record("catch-up: seek within open recording via \(engine.rawValue)")
             return
         }
+        scrubSeeks.cancel()
         skipTarget = target
         skipTask?.cancel()
+        if immediately {
+            reopenRecording(at: target)
+            return
+        }
         skipTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
-            guard let self, !Task.isCancelled, let target = self.skipTarget, let catchUp = self.catchUp else { return }
-            self.skipTarget = nil
-            self.playRecording(from: target, programmeStart: catchUp.programmeStart,
-                               programmeEnd: catchUp.programmeEnd, title: catchUp.title,
-                               endsWithProgramme: self.recordingEndsWithProgramme)
+            guard let self, !Task.isCancelled, let target = self.skipTarget else { return }
+            self.reopenRecording(at: target)
+        }
+    }
+
+    private func canSeekRecording(to offset: Double) -> Bool {
+        guard offset.isFinite, offset >= 0, let catchUp else { return false }
+        let end = recordingEndsWithProgramme ? catchUp.programmeEnd : Date()
+        guard offset <= end.timeIntervalSince(catchUp.streamStart) else { return false }
+        switch engine {
+        case .aether:
+            guard let session = aetherSession, session.canAcceptSeek else { return false }
+            return session.duration <= 0 || offset <= session.duration
+        case .vlc:
+            guard player.isSeekable else { return false }
+            let duration = Double(player.media?.length.intValue ?? 0) / 1000
+            return duration <= 0 || offset <= duration
+        case .system:
+            return systemPlayer.currentItem?.seekableTimeRanges.contains {
+                let range = $0.timeRangeValue
+                return CMTimeRangeContainsTime(range, time: CMTime(seconds: offset, preferredTimescale: 600))
+            } == true
+        }
+    }
+
+    private func performRecordingSeek(to offset: Double) {
+        guard catchUp != nil, canSeekRecording(to: offset) else { return }
+        switch engine {
+        case .aether: aetherSession?.seek(to: offset)
+        case .system:
+            let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+            systemPlayer.seek(to: CMTime(seconds: offset, preferredTimescale: 600),
+                              toleranceBefore: tolerance, toleranceAfter: tolerance)
+        case .vlc:
+            let duration = Double(player.media?.length.intValue ?? 0) / 1000
+            if duration > 0 { player.position = Float(offset / duration) }
+            else { player.time = VLCTime(int: Int32(clamping: Int64((offset * 1000).rounded()))) }
+        }
+    }
+
+    private func reopenRecording(at target: Date) {
+        guard let catchUp else { return }
+        let current = catchUp.position(playedSeconds: recordingElapsed)
+        skipTarget = nil
+        skipTask = nil
+        guard let begin = MobileRecordingSeekPolicy.providerStart(target: target, current: current) else {
+            show(notice: "This provider supports whole-minute jumps only. Drag the timeline to another minute.")
+            return
+        }
+        let wasPaused = pausedByUser
+        if playRecording(from: begin, programmeStart: catchUp.programmeStart,
+                         programmeEnd: catchUp.programmeEnd, title: catchUp.title,
+                         endsWithProgramme: recordingEndsWithProgramme) {
+            if wasPaused { toggle() }
+            if abs(begin.timeIntervalSince(target)) > 1 {
+                show(notice: "This provider supports whole-minute jumps only.")
+            }
+        } else {
+            show(notice: "This replay could not be opened at that position.")
         }
     }
 
@@ -1879,6 +1988,7 @@ final class MobilePlaybackController: ObservableObject {
         case .system: played = systemPlayer.currentTime().seconds
         }
         guard played.isFinite else { return }
+        guard seekLanding.accepts(played, now: ProcessInfo.processInfo.systemUptime) else { return }
         if played <= 0, !activeEngineIsPlaying, recordingElapsed > 0 { return }
         let seconds = max(0, played)
         if Int(seconds) != Int(recordingElapsed) { recordingElapsed = seconds }
