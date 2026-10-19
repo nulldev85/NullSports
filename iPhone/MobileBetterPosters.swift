@@ -68,7 +68,7 @@ extension MediaLibrary {
 }
 
 struct MobileBetterPostersSettings: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var template = ""
 

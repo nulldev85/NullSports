@@ -28,6 +28,9 @@ struct MobilePlayerView: View {
     /// Supplied by Library episode/movie playback, never live/preview video.
     var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
     var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
+    /// An episode's show, whose sound and subtitles are kept from one
+    /// episode to the next (`MobileTrackMemory.showKey`).
+    var trackMemoryShow: String? = nil
     var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
     @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
     private var seekPreview: MobileSeekPreviewStore { seekPreviewSession.store }
@@ -47,6 +50,7 @@ struct MobilePlayerView: View {
     @State private var isScrubbing = false
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
+    @State private var showingAudio = false
     @State private var showingOnlineSubtitles = false
     @State private var showingSubtitleSettings = false
     @State private var onlineSubtitleSession = UUID()
@@ -119,6 +123,12 @@ struct MobilePlayerView: View {
                             control("pip.enter", label: "Picture in Picture") {
                                 showControls()
                                 controller.togglePictureInPicture()
+                            }
+                        }
+                        if !isLive && controller.audioTracks.count > 1 {
+                            control("waveform", label: "Audio, \(controller.selectedAudioTitle)") {
+                                showControls()
+                                showingAudio = true
                             }
                         }
                         if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil) {
@@ -235,7 +245,16 @@ struct MobilePlayerView: View {
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+        .lineupChoices("Audio", symbol: "waveform", isPresented: $showingAudio, message: trackMemoryMessage) {
+            controller.audioTracks.map { track in
+                MobileMenuItem(track.title, id: track.id, isSelected: track.id == controller.selectedAudioID) {
+                    controller.selectAudioTrack(track)
+                    showControls()
+                }
+            }
+        } onCancel: { showControls() }
+        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles,
+                       message: trackMemoryMessage) {
             var items = controller.subtitleTracks.map { track in
                 MobileMenuItem(track.title, id: "\(track.id)",
                                isSelected: track.id == controller.selectedSubtitleID) {
@@ -280,6 +299,7 @@ struct MobilePlayerView: View {
         }
         .onAppear {
             controller.isLive = isLive
+            controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
         .onDisappear {
@@ -320,6 +340,11 @@ struct MobilePlayerView: View {
 
     private var offersOnlineSubtitles: Bool {
         !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
+    }
+
+    /// Said where a choice will outlast the episode.
+    private var trackMemoryMessage: String? {
+        controller.remembersShowTracks ? "Kept for every episode of this show." : nil
     }
 
     private var skipAction: (title: String, destination: Double)? {

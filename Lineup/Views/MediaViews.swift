@@ -35,7 +35,7 @@ extension EnvironmentValues {
 }
 
 struct MediaServersView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @State private var addingServer = false
     @State private var choosingShelf = false
     @State private var reorderingShelves = false
@@ -60,8 +60,8 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
-            .sheet(item: $media.collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environmentObject(media) }
-            .alert("New Collection", isPresented: $media.creatingCollection) {
+            .sheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
+            .alert("New Collection", isPresented: Bindable(media).creatingCollection) {
                 TextField("Collection name", text: $newCollectionName)
                 Button("Create") {
                     media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
@@ -135,14 +135,14 @@ struct MediaServersView: View {
             }
             .sheet(isPresented: $addingServer) {
                 MediaServerSetupView()
-                    .environmentObject(media)
+                    .environment(media)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $choosingShelf) {
-                MediaShelfPicker().environmentObject(media)
+                MediaShelfPicker().environment(media)
             }
             .sheet(isPresented: $reorderingShelves) {
-                LibraryShelfOrderSheet().environmentObject(media)
+                LibraryShelfOrderSheet().environment(media)
                     .preferredColorScheme(.dark)
             }
             // Not `.task`. A task belongs to the view, and this work does not:
@@ -404,7 +404,7 @@ struct LineupAccountCard<Actions: View>: View {
 /// Shared, because the phone and the television show the same two cards and
 /// there is no version of this that should differ between them.
 struct ProviderAccountCard: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let profile: XtreamProfile
     let openGuide: () -> Void
 
@@ -445,7 +445,7 @@ struct ProviderAccountCard: View {
 /// together. Counts come from the servers' total-record queries, never from
 /// the first page of shelf cards.
 struct MediaServerAccountCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let browse: () -> Void
 
     var body: some View {
@@ -556,7 +556,7 @@ struct LineupStatusDot: View {
 
 #if os(tvOS)
 private struct TVMediaServersHome: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.tvTabBar) private var tabBar
     @Binding var addingServer: Bool
     @Binding var choosingShelf: Bool
@@ -910,7 +910,7 @@ private struct LibraryHeroRotationKey: Equatable {
 }
 
 private struct MediaCatalogsScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -2082,7 +2082,7 @@ struct MediaGridSection: Identifiable {
 }
 
 struct MediaGridScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let title: String
     let sections: [MediaGridSection]
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
@@ -2240,7 +2240,7 @@ struct MediaBrowseDestination: View {
 
 /// A trending row's See All: every title it holds, in the chart's order.
 private struct TrendingRowScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let id: String
     let title: String
 
@@ -2260,7 +2260,7 @@ private struct TrendingRowScreen: View {
 }
 
 private struct MediaFolderScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let folder: MediaItem
     @State private var items: [MediaItem] = []
     @State private var loading = true
@@ -2341,7 +2341,7 @@ private struct FullBleedHeader: ViewModifier {
 /// number of them could put one in front of the viewer. The second
 /// group is the part that was missing.
 private struct MediaShelfPicker: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var adding: Set<String> = []
 
@@ -2696,7 +2696,7 @@ private struct MediaShelfRow: View {
 /// description, no year, no running time, no rating. It gets this page too now,
 /// minus the parts a film has no answer for.
 private struct MediaDetailScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let item: MediaItem
@@ -3631,7 +3631,7 @@ private struct TVMediaActionSurface: ViewModifier {
 /// An episode card says which episode it is and what happens in it, so a viewer
 /// picks by the description rather than by guessing from a still.
 private struct MediaEpisodeCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if !os(tvOS)
     @Environment(\.displayScale) private var displayScale
     #endif
@@ -3765,7 +3765,7 @@ private struct MediaEpisodeCard: View {
 }
 
 private struct MediaPlayableCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.playMedia) private var playMedia
     let item: MediaItem
     var shape: MediaArtShape = .poster
@@ -3989,7 +3989,7 @@ private struct TVLibraryShelf: Identifiable {
 /// It is fixed while shelves move, so focus changes the room rather than
 /// repainting a rectangle behind one row.
 private struct TVMediaCinematicBackdrop: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
 
@@ -4039,7 +4039,7 @@ private struct TVMediaCinematicBackdrop: View {
 /// show what they have immediately; the detail fetch enriches the same view
 /// with logo, cast and metadata without changing its geometry.
 private struct TVMediaLibraryPreview: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let originalItem: MediaItem?
     private var item: MediaItem? { originalItem.map { media.displayItem($0) } }
@@ -4186,7 +4186,7 @@ private struct TVMediaLibraryPreview: View {
 /// four-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -4549,7 +4549,7 @@ private struct MediaHeroButton: View {
 /// Keeping the choice here also gives it enough room to explain how many of a
 /// shelf's titles will be used instead of putting a settings icon over art.
 struct LibraryHeroSettingsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
 
     /// Something the hero can feature: a shelf already on the Library, or
     /// any list the Library could add as one.
@@ -4902,7 +4902,7 @@ extension Notification.Name {
 }
 
 private struct MediaSourcePicker: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     /// The title the streams are for. An episode's end can move it on to the
     /// next one, so the list follows the viewer from one to the next.
@@ -5244,6 +5244,8 @@ private struct MediaSourcePicker: View {
                              subtitleIdentityLookup: {
                                  await media.onlineSubtitleIdentity(for: trackedItem)
                              },
+                             trackMemoryShow: item.type == "Episode"
+                                 ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                              seekPreviewLookup: {
                                  await media.seekPreview(for: trackedItem, source: source)
                              },
@@ -6060,47 +6062,103 @@ private struct BadgeFlow: Layout {
     }
 }
 
-/// IMDb, TMDB and Rotten Tomatoes as dark chips, each source named in its
-/// own colour the way the sites' own badges are.
+/// IMDb, TMDB and Rotten Tomatoes as dark chips -- and on the iPhone
+/// Metacritic and Letterboxd too -- each source named in its own colour the
+/// way the sites' own badges are.
 struct MediaRatingChips: View {
     let ratings: MediaRatings
 
     private typealias Metrics = MediaRatingMetrics
 
     var body: some View {
-        HStack(spacing: Metrics.gap) {
-            if let imdb = ratings.imdb {
-                chip("Rating-IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb))
-            }
-            if let tmdb = ratings.tmdb {
-                chip("Rating-TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb))
-            }
-            if let tomatoes = ratings.rottenTomatoes {
-                chip("Rating-RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%")
+        #if os(iOS)
+        // Five sources can be wider than a phone: the chips tighten before
+        // they take a second line.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Metrics.gap) { chips(tight: false) }.fixedSize()
+            HStack(spacing: Metrics.tightGap) { chips(tight: true) }.fixedSize()
+            BadgeFlow(spacing: Metrics.tightGap) { chips(tight: true) }
+        }
+        #else
+        HStack(spacing: Metrics.gap) { chips(tight: false) }
+            .fixedSize()
+        #endif
+    }
+
+    @ViewBuilder
+    private func chips(tight: Bool) -> some View {
+        if let imdb = ratings.imdb {
+            let shown = String(format: "%.1f", imdb)
+            chip("Rating-IMDb", spoken: "IMDb", spokenValue: shown, tight: tight) { value(shown, tight: tight) }
+        }
+        if let tmdb = ratings.tmdb {
+            let shown = String(format: "%.1f", tmdb)
+            chip("Rating-TMDB", spoken: "TMDB", spokenValue: shown, tight: tight) { value(shown, tight: tight) }
+        }
+        if let tomatoes = ratings.rottenTomatoes {
+            chip("Rating-RT", spoken: "Rotten Tomatoes", spokenValue: "\(tomatoes)%", tight: tight) {
+                value("\(tomatoes)%", tight: tight)
             }
         }
-        .fixedSize()
+        #if os(iOS)
+        if let metascore = ratings.metacritic {
+            chip("Rating-Metacritic", spoken: "Metacritic", spokenValue: "\(metascore)", tight: tight) {
+                metascoreBox(metascore, tight: tight)
+            }
+        }
+        if let stars = ratings.letterboxd {
+            // Three dots side by side: as wide as IMDb's badge at a little
+            // over half the height.
+            chip("Rating-Letterboxd", spoken: "Letterboxd", spokenValue: String(format: "%.1f out of 5", stars),
+                 logoScale: 0.62, tight: tight) {
+                value(String(format: "%.1f", stars), tight: tight)
+            }
+        }
+        #endif
     }
+
+    private func value(_ text: String, tight: Bool) -> some View {
+        Text(text)
+            .font(.interDigits(tight ? Metrics.tightValueSize : Metrics.valueSize, .bold))
+            .foregroundStyle(Color.white)
+    }
+
+    #if os(iOS)
+    /// The Metascore in the box Metacritic draws it in: green from 61,
+    /// yellow from 40, red below.
+    private func metascoreBox(_ score: Int, tight: Bool) -> some View {
+        let fill = score >= 61 ? Color(red: 0, green: 0.808, blue: 0.478)
+            : score >= 40 ? Color(red: 1, green: 0.741, blue: 0.247) : Color(red: 1, green: 0.408, blue: 0.455)
+        let size = tight ? Metrics.tightValueSize : Metrics.valueSize
+        return Text("\(score)")
+            .font(.interDigits(size, .bold))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 4)
+            .frame(minWidth: size * 1.7, minHeight: size * 1.35)
+            .background(fill, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+    #endif
 
     /// Each site by its own mark rather than its name in letters: IMDb's
     /// yellow badge, TMDB's square mark and the Tomatometer's tomato, all
     /// the same height.
-    private func chip(_ logo: String, spoken: String, value: String) -> some View {
-        HStack(spacing: Metrics.inner) {
+    private func chip<Value: View>(_ logo: String, spoken: String, spokenValue: String,
+                                   logoScale: CGFloat = 1, tight: Bool,
+                                   @ViewBuilder value: () -> Value) -> some View {
+        let content = value()
+        return HStack(spacing: tight ? Metrics.tightInner : Metrics.inner) {
             Image(logo)
                 .resizable()
                 .scaledToFit()
-                .frame(height: Metrics.logo)
+                .frame(height: (tight ? Metrics.tightLogo : Metrics.logo) * logoScale)
                 .accessibilityHidden(true)
-            Text(value)
-                .font(.interDigits(Metrics.valueSize, .bold))
-                .foregroundStyle(Color.white)
+            content
         }
-        .padding(.horizontal, Metrics.padding)
+        .padding(.horizontal, tight ? Metrics.tightPadding : Metrics.padding)
         .frame(height: Metrics.height)
         .background(Metrics.fill, in: RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(spoken) \(value)")
+        .accessibilityLabel("\(spoken) \(spokenValue)")
     }
 }
 
@@ -6114,6 +6172,12 @@ private enum MediaRatingMetrics {
     static let logo: CGFloat = 26
     static let valueSize: CGFloat = 22
     static let radius: CGFloat = 10
+    // One row always fits a television.
+    static let tightPadding = padding
+    static let tightGap = gap
+    static let tightInner = inner
+    static let tightLogo = logo
+    static let tightValueSize = valueSize
     #else
     static let height: CGFloat = 30
     static let padding: CGFloat = 9
@@ -6122,6 +6186,12 @@ private enum MediaRatingMetrics {
     static let logo: CGFloat = 18
     static let valueSize: CGFloat = 15
     static let radius: CGFloat = 8
+    /// The same chips a little closer, for a row that would not fit.
+    static let tightPadding: CGFloat = 6
+    static let tightGap: CGFloat = 6
+    static let tightInner: CGFloat = 5
+    static let tightLogo: CGFloat = 15
+    static let tightValueSize: CGFloat = 13
     #endif
 }
 
@@ -6143,7 +6213,7 @@ enum MediaArtShape {
 }
 
 struct MediaItemCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if !os(tvOS)
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
@@ -6489,7 +6559,7 @@ private struct MediaProgressTrack: View {
 /// ever shown and hidden after that. Building one afresh on every move, text
 /// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var software: MediaServerBrand = .jellyfin
     /// What has been typed for each kind, kept apart, so moving across to
@@ -6848,7 +6918,7 @@ private struct MediaServerPanel<Content: View>: View {
 
 /// Jellyfin's or Emby's sign-in: where the server is, and whose account.
 private struct MediaServerSignInPanel: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let brand: MediaServerBrand
     @Binding var form: MediaServerSignIn
     let connect: (MediaServerSignIn) -> Void
@@ -6974,7 +7044,7 @@ private struct MediaServerField: View {
 /// No password passes through Lineup. The account's token comes back to the
 /// device that asked for the code, and each server's own token with it.
 private struct PlexLinkPanel: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.openURL) private var openURL
     let onAdded: () -> Void
 
@@ -7117,7 +7187,7 @@ private struct PlexLinkPanel: View {
 }
 
 struct MDBListIntegrationView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey = ""
     @State private var disconnecting = false

@@ -43,6 +43,14 @@ extern void libvlc_video_set_format_callbacks(libvlc_media_player_t *mp,
  * cached time relies on events which VLC3 suppresses outside PLAYING_S. */
 extern int64_t libvlc_media_player_get_time(libvlc_media_player_t *mp);
 
+/* Writes the picture on screen to a PNG at psz_filepath, from libvlc 3.0's
+ * libvlc_media_player.h. Auto Sync reads the broadcast's scoreboard from it.
+ * VLCKit's own snapshot method wraps the same call. num is the video output,
+ * 0 for the only one; a width with a height of 0 keeps the aspect. */
+extern int libvlc_video_take_snapshot(libvlc_media_player_t *p_mi, unsigned num,
+                                      const char *psz_filepath,
+                                      unsigned int i_width, unsigned int i_height);
+
 /*
  * VLCKit declares this in PrivateHeaders/VLCMediaPlayer+Internal.h, which is
  * not in the umbrella header and so is invisible to Swift. The selector exists

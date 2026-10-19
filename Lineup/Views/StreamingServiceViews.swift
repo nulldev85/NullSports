@@ -85,7 +85,7 @@ struct StreamingServicePoster: View {
 /// one at a time, in the order the viewer chooses. Each title is the same
 /// card, and opens the same page, as anywhere else in the Library.
 struct StreamingServiceScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let service: StreamingService
 
     @State private var kind: StreamingTitle.Kind = .movie
@@ -278,7 +278,7 @@ struct StreamingServiceScreen: View {
 
 /// The whole row, from its See All: every service with something to play.
 struct StreamingServicesScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if os(tvOS)
     @State private var pushed: MediaItem?
     #endif

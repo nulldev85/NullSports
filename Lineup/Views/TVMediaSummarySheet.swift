@@ -38,7 +38,7 @@ struct TVMediaSummaryPreview: View {
 /// UITextView supplies tvOS's native remote scrolling for very long summaries.
 struct TVMediaSummarySheet: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     private let originalItem: MediaItem
     private var item: MediaItem { media.displayItem(originalItem) }
 

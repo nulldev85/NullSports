@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MobileLiveView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -21,6 +21,7 @@ struct MobileLiveView: View {
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
     @State private var racingDetails: SportsGame?
+    @State private var teamPage: MobileTeamPageTarget?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var expanded = false
@@ -41,6 +42,7 @@ struct MobileLiveView: View {
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// The watched game's stats, held behind the picture.
     @StateObject private var gameStats = MobileGameStats()
+    @StateObject private var autoSync = MobileAutoSync()
     /// The stats are open: under the picture upright, beside it on its side.
     @State private var showsStats = false
     @State private var syncingStats = false
@@ -183,7 +185,7 @@ struct MobileLiveView: View {
                             if statsOpen, let statsGame {
                                 // Upright, the stats take the room under the
                                 // picture that the games had.
-                                MobileGameStatsPanel(stats: gameStats, game: statsGame,
+                                MobileGameStatsPanel(stats: gameStats, game: statsGame, autoSync: autoSync.status,
                                                      onSync: { syncingStats = true },
                                                      onClose: { toggleStats() })
                                     .clipShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
@@ -254,7 +256,7 @@ struct MobileLiveView: View {
                     }
 
                     if statsBeside, let statsGame {
-                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true,
+                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true, autoSync: autoSync.status,
                                              onSync: { syncingStats = true },
                                              onClose: { toggleStats() })
                             .padding(.top, viewport.safeAreaInsets.top)
@@ -322,8 +324,9 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
             .fullScreenCover(item: $multiview) { session in
-                MobileMultiviewView(session: session).environmentObject(library)
+                MobileMultiviewView(session: session).environment(library)
             }
             .sheet(item: $multiviewPicking, onDismiss: {
                 // Opened once the picker has gone: one full-screen cover
@@ -338,7 +341,19 @@ struct MobileLiveView: View {
                 }
             }
             .sheet(isPresented: $syncingStats) {
-                if let statsGame { MobileStatsSyncSheet(stats: gameStats, game: statsGame) }
+                if let statsGame {
+                    MobileStatsSyncSheet(stats: gameStats, game: statsGame,
+                                         autoSync: gameStats.autoSyncSport == nil ? nil : autoSync)
+                }
+            }
+            // Auto Sync reads the scoreboard while the stats are open on a
+            // live game, from whichever player is showing it.
+            .task(id: "\(statsOpen)|\(watching?.isLive == true)|\(previewStream?.id ?? -1)|\(autoSync.isEnabled)") {
+                guard statsOpen, autoSync.isEnabled else { autoSync.stop(); return }
+                let slot = playbackSlot
+                autoSync.run(for: gameStats, channel: previewStream?.id,
+                             frames: { [weak slot] in await slot?.controller.captureFrame() },
+                             release: { [weak slot] in slot?.controller.releaseFrameOutput() })
             }
             // The stats follow the game on screen from the moment it opens,
             // shown or not, so what the picture needs is there when they are.
@@ -349,7 +364,7 @@ struct MobileLiveView: View {
                 if previewGame == nil { showsStats = false }
             }
             .fullScreenCover(item: $selectedGameReplay) { selection in
-                MobileGameReplayPlayer(selection: selection).environmentObject(library)
+                MobileGameReplayPlayer(selection: selection).environment(library)
             }
             .sheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
                 sportsCatchUpSheet(channel)
@@ -357,7 +372,7 @@ struct MobileLiveView: View {
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
-            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel(); autoSync.stop() }
             .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
                 MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
                     pendingStream = stream
@@ -683,6 +698,12 @@ struct MobileLiveView: View {
         items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
             choosingChannel = game
         })
+        // Each side's page: its schedule, standing, roster, injuries, news.
+        for side in library.followableSides(of: game) {
+            if let target = MobileTeamPageTarget(side: side, competition: game.competition?.id) {
+                items.append(MobileMenuItem(side.name, symbol: "person.2", id: "team-\(side.id)") { teamPage = target })
+            }
+        }
         for side in library.followableSides(of: game) {
             let following = library.isFollowing(side.key)
             items.append(MobileMenuItem(following ? "Remove \(side.name) from My Teams" : "Add \(side.name) to My Teams",
@@ -738,7 +759,7 @@ struct MobileLiveView: View {
             pendingCatchUp = channel.selection(for: program)
             catchUpChannel = nil
         }
-        .environmentObject(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
+        .environment(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
     }
 
     private func finishCatchUpSelection() {

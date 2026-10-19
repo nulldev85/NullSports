@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Observation
 
 /// What one connected server has put in the Library, and how its last load
 /// went. Every server keeps its own, so one that is slow or offline costs the
@@ -42,7 +43,8 @@ struct MediaServerState {
 }
 
 @MainActor
-final class MediaLibrary: ObservableObject {
+@Observable
+final class MediaLibrary {
     /// Every connected server, in the order they were added.
     ///
     /// All of them feed the Library at once: shelves, search and the streams
@@ -50,104 +52,146 @@ final class MediaLibrary: ObservableObject {
     /// marked with the server it came from (`MediaItem.serverID`), so whatever
     /// is done with it later -- its page, its artwork, playing it -- goes back
     /// to that server.
-    @Published private(set) var profiles: [MediaServerProfile] = []
-    @Published private(set) var servers: [UUID: MediaServerState] = [:]
+    private(set) var profiles: [MediaServerProfile] = []
+    private(set) var servers: [UUID: MediaServerState] = [:]
     /// MDBList shelves belong to the Library rather than to any one server:
     /// each list is matched against every server's titles together.
-    @Published private(set) var mdbListShelves: [MediaCatalog] = []
+    private(set) var mdbListShelves: [MediaCatalog] = []
     /// Shelves of the IPTV provider's categories, as chosen.
-    @Published private(set) var providerShelves: [MediaCatalog] = []
+    private(set) var providerShelves: [MediaCatalog] = []
     /// What each streaming service has on that the viewer can play, by the
     /// service's id. Built once a day; see `refreshStreamingServicesIfNeeded`.
-    @Published private(set) var streamingServices: [String: StreamingServiceTitles] = [:] {
+    private(set) var streamingServices: [String: StreamingServiceTitles] = [:] {
         didSet { streamingVersion &+= 1 }
     }
     /// Whether the Streaming Services row is in the Library.
-    @Published private(set) var showsStreamingServices = true
+    private(set) var showsStreamingServices = true
     /// The trending rows' titles that play, by row id; built with the
     /// Streaming Services row.
-    @Published private(set) var trendingTitles: [String: [MediaItem]] = [:] {
+    private(set) var trendingTitles: [String: [MediaItem]] = [:] {
         didSet { streamingVersion &+= 1 }
     }
     /// Trending rows the viewer has taken away.
-    @Published private(set) var hiddenTrendingRows: Set<String> = []
+    private(set) var hiddenTrendingRows: Set<String> = []
     /// The Library's rows in the order the viewer arranged them, by row id;
     /// see `LibraryShelfOrder`. Empty until they first move one.
-    @Published private(set) var shelfOrder: [String] = []
+    private(set) var shelfOrder: [String] = []
     /// Names the viewer gave rows, by row id, in place of their own.
-    @Published private(set) var shelfNames: [String: String] = [:]
+    private(set) var shelfNames: [String: String] = [:]
     /// The shelf driving the large Library feature card.
-    @Published private(set) var selectedHeroCatalogID: String? = nil
+    private(set) var selectedHeroCatalogID: String? = nil
     /// The hero's own list, when what was chosen for it is not a shelf.
-    @Published private(set) var heroListCatalog: MediaCatalog?
+    private(set) var heroListCatalog: MediaCatalog?
     /// The list being read for the hero, while it is.
-    @Published private(set) var loadingHeroSource: String?
+    private(set) var loadingHeroSource: String?
     /// Catalogs switched on and waiting for their server to finish importing,
     /// by server and catalog.
-    @Published private(set) var importing: Set<String> = []
-    @Published private(set) var isAddingServer = false
-    private var importTasks: [String: Task<Void, Never>] = [:]
+    private(set) var importing: Set<String> = []
+    private(set) var isAddingServer = false
+    @ObservationIgnored private var importTasks: [String: Task<Void, Never>] = [:]
 
     /// MDBList is an account-level discovery integration. Lists are offered in
     /// Add Shelf, then matched to titles that the connected media servers can
     /// actually play.
-    @Published private(set) var mdbListAccount: MDBListAccount?
-    @Published private(set) var mdbListCatalogs: [MDBListCatalog] = []
-    @Published private(set) var isMDBListConnected = false
-    @Published private(set) var isMDBListLoading = false
-    private var hasLoadedMDBListIntegration = false
-    private var mdbListLoad: Task<Void, Never>?
+    private(set) var mdbListAccount: MDBListAccount?
+    private(set) var mdbListCatalogs: [MDBListCatalog] = []
+    private(set) var isMDBListConnected = false
+    private(set) var isMDBListLoading = false
+    @ObservationIgnored private var hasLoadedMDBListIntegration = false
+    @ObservationIgnored private var mdbListLoad: Task<Void, Never>?
 
-    @Published var errorMessage: String?
+    var errorMessage: String?
 
-    @Published private(set) var metadataSource: LibraryMetadataSource = .tmdb
-    @Published private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
+    private(set) var metadataSource: LibraryMetadataSource = .tmdb
+    private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
     // IntroDB's prompts play on both: Skip Intro, Skip Recap, Next Episode at
     // the credits and the post-credits notice.
-    @Published var introDBEnabled = true {
+    var introDBEnabled = true {
         didSet { defaults.set(introDBEnabled, forKey: "Lineup.library.introDB.v1") }
     }
-    @Published var recapSkippingEnabled = true {
+    var recapSkippingEnabled = true {
         didSet { defaults.set(recapSkippingEnabled, forKey: "Lineup.library.skipRecaps.v1") }
     }
-    @Published var creditsPromptEnabled = true {
+    var creditsPromptEnabled = true {
         didSet { defaults.set(creditsPromptEnabled, forKey: "Lineup.library.creditsPrompt.v1") }
     }
-    @Published var postCreditsNoticeEnabled = true {
+    var postCreditsNoticeEnabled = true {
         didSet { defaults.set(postCreditsNoticeEnabled, forKey: "Lineup.library.postCreditsNotice.v1") }
     }
     #if !os(tvOS)
-    @Published var fanartEnabled = true {
-        didSet { defaults.set(fanartEnabled, forKey: "Lineup.library.fanart.v1") }
+    // Observed by hand rather than by @Observable, which need not reach into
+    // an #if: each says when it is read and when it changes, as the rest do.
+    @ObservationIgnored private var _fanartEnabled: Bool = true
+    var fanartEnabled: Bool {
+        get { access(keyPath: \.fanartEnabled); return _fanartEnabled }
+        set {
+            withMutation(keyPath: \.fanartEnabled) { _fanartEnabled = newValue }
+            defaults.set(newValue, forKey: "Lineup.library.fanart.v1")
+        }
     }
-    @Published var betterPostersEnabled = false {
-        didSet { defaults.set(betterPostersEnabled, forKey: "Lineup.library.betterPosters.v1") }
+    @ObservationIgnored private var _betterPostersEnabled: Bool = false
+    var betterPostersEnabled: Bool {
+        get { access(keyPath: \.betterPostersEnabled); return _betterPostersEnabled }
+        set {
+            withMutation(keyPath: \.betterPostersEnabled) { _betterPostersEnabled = newValue }
+            defaults.set(newValue, forKey: "Lineup.library.betterPosters.v1")
+        }
     }
-    @Published var betterPostersTemplate = MobileBetterPosters.defaultTemplate {
-        didSet { defaults.set(betterPostersTemplate, forKey: "Lineup.library.betterPostersTemplate.v1") }
+    @ObservationIgnored private var _betterPostersTemplate: String = MobileBetterPosters.defaultTemplate
+    var betterPostersTemplate: String {
+        get { access(keyPath: \.betterPostersTemplate); return _betterPostersTemplate }
+        set {
+            withMutation(keyPath: \.betterPostersTemplate) { _betterPostersTemplate = newValue }
+            defaults.set(newValue, forKey: "Lineup.library.betterPostersTemplate.v1")
+        }
     }
-    @Published var personalCollections: [MobileLibraryCollection] = [] {
-        didSet {
-            if let data = try? JSONEncoder().encode(personalCollections) {
+    @ObservationIgnored private var _personalCollections: [MobileLibraryCollection] = []
+    var personalCollections: [MobileLibraryCollection] {
+        get { access(keyPath: \.personalCollections); return _personalCollections }
+        set {
+            withMutation(keyPath: \.personalCollections) { _personalCollections = newValue }
+            if let data = try? JSONEncoder().encode(newValue) {
                 defaults.set(data, forKey: "Lineup.library.personalCollections.v1")
             }
         }
     }
-    @Published var creatingCollection = false
-    @Published var collectionSelectionItem: MediaItem?
-    @Published var betterPosterIDs: [String: String] = [:]
-    var collectionCreationItem: MediaItem?
+    @ObservationIgnored private var _creatingCollection: Bool = false
+    var creatingCollection: Bool {
+        get { access(keyPath: \.creatingCollection); return _creatingCollection }
+        set {
+            withMutation(keyPath: \.creatingCollection) { _creatingCollection = newValue }
+        }
+    }
+    @ObservationIgnored private var _collectionSelectionItem: MediaItem? = nil
+    var collectionSelectionItem: MediaItem? {
+        get { access(keyPath: \.collectionSelectionItem); return _collectionSelectionItem }
+        set {
+            withMutation(keyPath: \.collectionSelectionItem) { _collectionSelectionItem = newValue }
+        }
+    }
+    @ObservationIgnored private var _betterPosterIDs: [String: String] = [:]
+    var betterPosterIDs: [String: String] {
+        get { access(keyPath: \.betterPosterIDs); return _betterPosterIDs }
+        set {
+            withMutation(keyPath: \.betterPosterIDs) { _betterPosterIDs = newValue }
+        }
+    }
+    @ObservationIgnored var collectionCreationItem: MediaItem?
     #endif
-    @Published private var metadataResults: [String: LibraryMetadata] = [:]
+    private var metadataResults: [String: LibraryMetadata] = [:]
+    /// The provider's list lives in `ProviderVOD`, which nothing observes:
+    /// this moves each time it comes in, so what is drawn from it -- the
+    /// shelf picker's categories, an episode's show cover -- is drawn again.
+    private var providerCatalogRevision = 0
     private let metadataResolver: LibraryMetadataResolver
     private let metadataCredentials: LibraryMetadataCredentials
-    private var metadataParentLoads: [String: Task<MediaItem?, Never>] = [:]
+    @ObservationIgnored private var metadataParentLoads: [String: Task<MediaItem?, Never>] = [:]
 
     /// Playback state owned by this device. It deliberately does not travel
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
-    @Published private(set) var localPlayback: [LocalMediaPlayback] = []
-    @Published private var continueWatchingDismissals: [LocalContinueWatchingDismissal] = []
+    private(set) var localPlayback: [LocalMediaPlayback] = []
+    private var continueWatchingDismissals: [LocalContinueWatchingDismissal] = []
     /// Only an actual new viewing session can restore a hidden title. A
     /// closing player's final samples and server Up Next refreshes cannot.
     private struct PlaybackSession {
@@ -157,24 +201,24 @@ final class MediaLibrary: ObservableObject {
         let dismissalIDs: Set<UUID>
         var hasAdvanced = false
     }
-    private var playbackSessions: [UUID: PlaybackSession] = [:]
+    @ObservationIgnored private var playbackSessions: [UUID: PlaybackSession] = [:]
     /// Where each episode falls in its show, counted through every season,
     /// keyed by server and show: what "8 of 16" on a poster is read from.
-    @Published private(set) var episodeOrders: [String: SeriesEpisodeOrder] = [:]
-    private var episodeOrderLoads: Set<String> = []
+    private(set) var episodeOrders: [String: SeriesEpisodeOrder] = [:]
+    @ObservationIgnored private var episodeOrderLoads: Set<String> = []
     /// Keep the complete episode metadata, not only ordinal numbers, so
     /// watched changes can immediately replace Up Next and its artwork.
     private var seriesEpisodes: [String: [MediaItem]] = [:]
-    private var playbackGeneration = UUID()
+    @ObservationIgnored private var playbackGeneration = UUID()
     /// The title playing now, as it last reported. Held here rather than in
     /// the published list, which redrew the whole Library behind the player
     /// every five seconds and wrote every record to disk as often; it joins
     /// the list on a change that matters, every half minute, and when the
     /// player closes or the app leaves the screen.
-    private var heldPlayback: LocalMediaPlayback?
-    private var lastPlaybackCommit = Date.distantPast
-    private var lifecycleObservers: [NSObjectProtocol] = []
-    @Published private(set) var localFavorites: [LocalMediaFavorite] = []
+    @ObservationIgnored private var heldPlayback: LocalMediaPlayback?
+    @ObservationIgnored private var lastPlaybackCommit = Date.distantPast
+    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
+    private(set) var localFavorites: [LocalMediaFavorite] = []
 
     private let defaults: UserDefaults
     // Named for the app's old name on purpose: this is where existing installs
@@ -203,37 +247,37 @@ final class MediaLibrary: ObservableObject {
     private static let retiredKeys = ["Lineup.stremioAddons", "Lineup.stremioShelves"]
     /// The newest load of each server. An older one that finishes late leaves
     /// the newer one's answer alone.
-    private var loadIDs: [UUID: UUID] = [:]
+    @ObservationIgnored private var loadIDs: [UUID: UUID] = [:]
     /// The load the Library asked for. It belongs to the store rather than to
     /// the tab: a load owned by a view's task is cancelled the moment the
     /// viewer looks at another tab, which is most of a slow one.
-    private var libraryLoad: Task<Void, Never>?
-    private var heroListRefresh: Task<Void, Never>?
+    @ObservationIgnored private var libraryLoad: Task<Void, Never>?
+    @ObservationIgnored private var heroListRefresh: Task<Void, Never>?
     /// The Streaming Services row's build, when one is running.
-    private var streamingLoad: Task<Void, Never>?
-    private var streamingBuiltAt: Date?
-    private var streamingSources: [String] = []
+    @ObservationIgnored private var streamingLoad: Task<Void, Never>?
+    @ObservationIgnored private var streamingBuiltAt: Date?
+    @ObservationIgnored private var streamingSources: [String] = []
     /// When the last build came back with nothing, so a Library opened again
     /// a minute later does not ask every list again.
-    private var streamingFailedAt: Date?
+    @ObservationIgnored private var streamingFailedAt: Date?
     /// The last build, read from the device at launch off the main thread.
-    private var streamingRestore: Task<StreamingServicesSnapshot?, Never>?
+    @ObservationIgnored private var streamingRestore: Task<StreamingServicesSnapshot?, Never>?
     /// Counts changes to `streamingServices`, for the memos below.
-    private var streamingVersion = 0
+    @ObservationIgnored private var streamingVersion = 0
     /// The row and each service's titles as last worked out, so a redraw --
     /// and on the television every move of the remote redraws the shelves --
     /// costs a comparison rather than a pass over every title.
-    private var streamingShelfMemo: (key: String, shelf: MediaCatalog?)?
-    private var trendingShelvesMemo: (key: String, shelves: [MediaCatalog])?
-    private var streamingTitlesMemo: (key: String, titles: [String: StreamingServiceTitles]) = ("", [:])
+    @ObservationIgnored private var streamingShelfMemo: (key: String, shelf: MediaCatalog?)?
+    @ObservationIgnored private var trendingShelvesMemo: (key: String, shelves: [MediaCatalog])?
+    @ObservationIgnored private var streamingTitlesMemo: (key: String, titles: [String: StreamingServiceTitles]) = ("", [:])
     /// Every server's films and shows, as last fetched, kept a few minutes so
     /// the MDBList shelves and the Streaming Services row share one fetch.
-    private var inventoryMemo: (sources: [UUID], at: Date, items: [MediaItem])?
-    private var reconciledSeriesServers: Set<UUID> = []
-    private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var inventoryMemo: (sources: [UUID], at: Date, items: [MediaItem])?
+    @ObservationIgnored private var reconciledSeriesServers: Set<UUID> = []
+    @ObservationIgnored private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
     /// and every poster on screen asks for one.
-    private var clients: [UUID: any MediaServerClient] = [:]
+    @ObservationIgnored private var clients: [UUID: any MediaServerClient] = [:]
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -264,9 +308,9 @@ final class MediaLibrary: ObservableObject {
         let ratings: MediaRatings
         let foundAt: Date
     }
-    private var ratingsCache: [String: StoredRatings]?
-    private var ratingsLookups: [String: Task<MediaRatings, Never>] = [:]
-    private var ratingsSave: Task<Void, Never>?
+    @ObservationIgnored private var ratingsCache: [String: StoredRatings]?
+    @ObservationIgnored private var ratingsLookups: [String: Task<MediaRatings, Never>] = [:]
+    @ObservationIgnored private var ratingsSave: Task<Void, Never>?
     /// Which kind of server each one is, as it said when first asked.
     private var serverKinds: [UUID: MediaServerKind] = [:]
     private var serverExtensions: [UUID: MediaServerPublicInfo.Extensions] = [:]
@@ -287,14 +331,14 @@ final class MediaLibrary: ObservableObject {
         creditsPromptEnabled = defaults.object(forKey: "Lineup.library.creditsPrompt.v1") as? Bool ?? true
         postCreditsNoticeEnabled = defaults.object(forKey: "Lineup.library.postCreditsNotice.v1") as? Bool ?? true
         #if !os(tvOS)
-        fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
-        betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
+        _fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
+        _betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
         if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
-            betterPostersTemplate = template
+            _betterPostersTemplate = template
         }
         if let data = defaults.data(forKey: "Lineup.library.personalCollections.v1"),
            let saved = try? JSONDecoder().decode([MobileLibraryCollection].self, from: data) {
-            personalCollections = saved
+            _personalCollections = saved
         }
         #endif
         providerVOD = ProviderVOD(defaults: defaults)
@@ -965,10 +1009,10 @@ final class MediaLibrary: ObservableObject {
 
     // MARK: - Ratings
 
-    /// IMDb, TMDB and Rotten Tomatoes for a film or show. The server's own
-    /// per-source scores come first, where it keeps them; MDBList fills in
-    /// what they leave out when the viewer has connected it; what the title
-    /// carries itself fills in the rest.
+    /// IMDb, TMDB, Rotten Tomatoes, Metacritic and Letterboxd for a film or
+    /// show. The server's own per-source scores come first, where it keeps
+    /// them; MDBList fills in what they leave out when the viewer has
+    /// connected it; what the title carries itself fills in the rest.
     func ratings(for item: MediaItem) async -> MediaRatings {
         let key = item.libraryKey
         if let stored = storedRatings[key],
@@ -993,8 +1037,10 @@ final class MediaLibrary: ObservableObject {
 
     private func lookUpRatings(for item: MediaItem) async -> MediaRatings {
         var found = item.isProviderTitle ? MediaRatings() : MediaRatings(metrics: await metrics(for: item))
-        // MDBList knows films and shows, not seasons or episodes.
-        if !found.isComplete, item.type == "Movie" || item.type == "Series",
+        // MDBList knows films and shows, not seasons or episodes. It is asked
+        // even when the server has the first three: Metacritic and
+        // Letterboxd come from nowhere else.
+        if !found.isComplete || found.lacksListScores, item.type == "Movie" || item.type == "Series",
            let apiKey = MDBListKeychainStore.apiKey() {
             let ids = MediaTitleMatch.providerIDs(of: item)
             if let listed = try? await MDBListClient(apiKey: apiKey)
@@ -1016,6 +1062,8 @@ final class MediaLibrary: ObservableObject {
             if let ratingsCache { return ratingsCache }
             let read = (try? Data(contentsOf: Self.ratingsURL))
                 .flatMap { try? JSONDecoder().decode([String: StoredRatings].self, from: $0) } ?? [:]
+            try? FileManager.default.removeItem(at: Self.ratingsURL.deletingLastPathComponent()
+                .appendingPathComponent("Lineup-ratings.json"))
             ratingsCache = read
             return read
         }
@@ -1040,9 +1088,12 @@ final class MediaLibrary: ObservableObject {
         }
     }
 
+    /// The second file: the first was written before Metacritic and
+    /// Letterboxd were asked for, and a title it holds would go days without
+    /// them.
     nonisolated private static var ratingsURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Lineup-ratings.json")
+            .appendingPathComponent("Lineup-ratings-v2.json")
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
@@ -2711,6 +2762,7 @@ final class MediaLibrary: ObservableObject {
     func seriesPosterURL(for episode: MediaItem, width: Int = 600) -> URL? {
         // A provider's episode gets its show's cover, from the list in hand.
         if case .episode(let seriesID, _)? = ProviderItem(id: episode.id) {
+            _ = providerCatalogRevision
             guard let ready = providerVOD.ready,
                   let cover = ready.index.show(seriesID: seriesID, in: ready.catalog)?.cover else { return nil }
             return URL(string: cover)
@@ -3275,6 +3327,7 @@ final class MediaLibrary: ObservableObject {
         // Read even with nothing chosen, so what is drawn from the list -- an
         // episode's show cover -- is drawn again once it is in hand.
         guard let loaded = try? await providerVOD.catalog() else { return }
+        providerCatalogRevision &+= 1
         let (catalog, index) = loaded
         providerShelves = chosen.compactMap { id in
             providerShelf(id, catalog: catalog, index: index, provider: profile.id)
@@ -3306,6 +3359,7 @@ final class MediaLibrary: ObservableObject {
     /// The provider's categories not yet on a shelf, films first, each with
     /// how many titles it holds. Empty until the provider's list is in hand.
     var availableProviderShelves: (films: [MediaItem], shows: [MediaItem]) {
+        _ = providerCatalogRevision
         guard let profile = providerVOD.profile, let ready = providerVOD.ready else { return ([], []) }
         let (catalog, index) = ready
         let shelved = Set(providerShelves.map(\.root.id))
@@ -3327,7 +3381,7 @@ final class MediaLibrary: ObservableObject {
     func loadProviderCatalog() async {
         guard providerVOD.profile != nil, providerVOD.ready == nil else { return }
         _ = try? await providerVOD.catalog()
-        objectWillChange.send()
+        providerCatalogRevision &+= 1
     }
 
     func addProviderShelf(_ root: MediaItem) async {

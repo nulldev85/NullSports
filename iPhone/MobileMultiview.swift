@@ -32,7 +32,7 @@ enum MobileMultiviewLayout: String {
 /// Tap a picture to hear it. Double-tap it to make it the large one. The
 /// controls along the top -- close, layout, swap -- come and go with a tap.
 struct MobileMultiviewView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -55,6 +55,9 @@ struct MobileMultiviewView: View {
     /// The quiet tile, stopped while the app is away and opened again on its
     /// return: no sense decoding a picture nobody can see or hear.
     @State private var restInBackground = false
+    /// The phone is running hot: the muted picture is held down where its
+    /// stream allows. The heard one never is.
+    @State private var runningHot = MobileMultiviewView.isHot
 
     init(session: MobileMultiviewSession) {
         self.session = session
@@ -75,8 +78,10 @@ struct MobileMultiviewView: View {
                     Color.black
                     ForEach(0..<2, id: \.self) { index in
                         let frame = tileFrame(index, in: size, sideways: sideways)
+                        let game = session.tiles[index].game
                         MobileMultiviewTile(controller: players.tiles[index],
-                                            stream: streams[index], game: session.tiles[index].game,
+                                            title: game.map { library.sharedCoverageTitle(for: $0, on: streams[index])
+                                                ?? $0.matchupLine } ?? streams[index].name,
                                             audible: audible == index,
                                             compact: frame.width < size.width * 0.4,
                                             onTap: { listen(to: index) },
@@ -106,6 +111,11 @@ struct MobileMultiviewView: View {
         .onAppear(perform: begin)
         .onDisappear(perform: end)
         .onChange(of: scenePhase) { _, phase in sceneChanged(active: phase == .active) }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
+            .receive(on: RunLoop.main)) { _ in
+            runningHot = Self.isHot
+            holdQuietTileDown()
+        }
         // The screen stays on while the pictures play; either player
         // stopping or reconnecting would otherwise let it sleep.
         .task {
@@ -204,6 +214,17 @@ struct MobileMultiviewView: View {
         guard audible != index else { return }
         audible = index
         for (tile, controller) in players.tiles.enumerated() { controller.audioMuted = tile != index }
+        holdQuietTileDown()
+    }
+
+    private static var isHot: Bool {
+        ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+    }
+
+    private func holdQuietTileDown() {
+        for (tile, controller) in players.tiles.enumerated() {
+            controller.holdsQualityDown = runningHot && tile != audible
+        }
     }
 
     /// The tapped picture becomes the large one, and the one heard.
@@ -243,6 +264,7 @@ struct MobileMultiviewView: View {
             controller.audioMuted = index != audible
             if let game = session.tiles[index].game { controller.failover = failover(for: game, tile: index) }
         }
+        holdQuietTileDown()
         // One after the other, a moment apart: the preview has only just
         // let its connection go, and a provider counts a closing stream
         // until it has closed.
@@ -295,8 +317,9 @@ struct MobileMultiviewView: View {
 /// what to do when it won't play.
 private struct MobileMultiviewTile: View {
     @ObservedObject var controller: MobilePlaybackController
-    let stream: XtreamStream
-    let game: SportsGame?
+    /// The game by its teams, an event by its name, or the channel; a
+    /// tournament on a channel it shares, by what the channel is showing.
+    let title: String
     let audible: Bool
     let compact: Bool
     let onTap: () -> Void
@@ -349,7 +372,7 @@ private struct MobileMultiviewTile: View {
                 HStack {
                     // The channel, and the game by its teams -- never its
                     // score, which is ahead of the picture.
-                    Text(game?.matchupLine ?? stream.name)
+                    Text(title)
                         .font(.inter(compact ? 10 : 12, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.mediaText)
                         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -364,7 +387,7 @@ private struct MobileMultiviewTile: View {
         .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
             .strokeBorder(audible ? LineupStyle.highlight : Color.clear, lineWidth: 2))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel((game?.matchupLine ?? stream.name) + (audible ? ", sound on" : ", muted"))
+        .accessibilityLabel(title + (audible ? ", sound on" : ", muted"))
         .accessibilityAction(named: "Listen") { onTap() }
         .accessibilityAction(named: "Make large") { onDoubleTap() }
     }
