@@ -5965,9 +5965,12 @@ private struct MultiviewView: View {
         let frame = tileFrame(index, screen: screen)
         let shown = fullScreenTile == nil || fullScreenTile == index
         let controller = players.tiles[index]
+        let game = currentGame(index)
         return MultiviewTile(controller: controller,
-                             game: currentGame(index),
+                             game: game,
                              fallbackTitle: chosenTitles[index] ?? stream(index).name,
+                             sharedTitle: chosenTitles[index] == nil
+                                ? game.flatMap { library.sharedCoverageTitle(for: $0, on: stream(index)) } : nil,
                              size: frame.size,
                              audible: audibleTile == index,
                              fullScreen: fullScreenTile == index,
@@ -6258,6 +6261,9 @@ private struct MultiviewTile: View {
     @ObservedObject var controller: TVPlaybackController
     let game: SportsGame?
     let fallbackTitle: String
+    /// A tournament on the channel it shares, by what the channel is
+    /// showing (`SportsLibrary.sharedCoverageTitle`).
+    let sharedTitle: String?
     let size: CGSize
     let audible: Bool
     let fullScreen: Bool
@@ -6285,6 +6291,8 @@ private struct MultiviewTile: View {
 
     private var title: String {
         guard let game else { return controller.activeChannelName ?? fallbackTitle }
+        // Until failover moves it to another channel.
+        if controller.activeChannelName == nil, let sharedTitle { return sharedTitle }
         return liveHeadline(game)
     }
 

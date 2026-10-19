@@ -78,8 +78,10 @@ struct MobileMultiviewView: View {
                     Color.black
                     ForEach(0..<2, id: \.self) { index in
                         let frame = tileFrame(index, in: size, sideways: sideways)
+                        let game = session.tiles[index].game
                         MobileMultiviewTile(controller: players.tiles[index],
-                                            stream: streams[index], game: session.tiles[index].game,
+                                            title: game.map { library.sharedCoverageTitle(for: $0, on: streams[index])
+                                                ?? $0.matchupLine } ?? streams[index].name,
                                             audible: audible == index,
                                             compact: frame.width < size.width * 0.4,
                                             onTap: { listen(to: index) },
@@ -315,8 +317,9 @@ struct MobileMultiviewView: View {
 /// what to do when it won't play.
 private struct MobileMultiviewTile: View {
     @ObservedObject var controller: MobilePlaybackController
-    let stream: XtreamStream
-    let game: SportsGame?
+    /// The game by its teams, an event by its name, or the channel; a
+    /// tournament on a channel it shares, by what the channel is showing.
+    let title: String
     let audible: Bool
     let compact: Bool
     let onTap: () -> Void
@@ -369,7 +372,7 @@ private struct MobileMultiviewTile: View {
                 HStack {
                     // The channel, and the game by its teams -- never its
                     // score, which is ahead of the picture.
-                    Text(game?.matchupLine ?? stream.name)
+                    Text(title)
                         .font(.inter(compact ? 10 : 12, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.mediaText)
                         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -384,7 +387,7 @@ private struct MobileMultiviewTile: View {
         .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
             .strokeBorder(audible ? LineupStyle.highlight : Color.clear, lineWidth: 2))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel((game?.matchupLine ?? stream.name) + (audible ? ", sound on" : ", muted"))
+        .accessibilityLabel(title + (audible ? ", sound on" : ", muted"))
         .accessibilityAction(named: "Listen") { onTap() }
         .accessibilityAction(named: "Make large") { onDoubleTap() }
     }

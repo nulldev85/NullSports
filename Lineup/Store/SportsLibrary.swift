@@ -1377,9 +1377,11 @@ final class SportsLibrary {
         }
         #endif
         let programs = programsByChannel, groups = categories
+        let board = current.league.isTennis && current.isEvent
+            ? Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }) : []
         let work = Task.detached(priority: .userInitiated) {
             Self.matchingEventChannels(for: current, candidates: candidates, programs: programs,
-                categories: groups, now: Date(), deadline: deadline)
+                categories: groups, board: board, now: Date(), deadline: deadline)
         }
         let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
         guard !Task.isCancelled, activeProfile?.id == profile, indexGeneration == generation,
@@ -1404,14 +1406,22 @@ final class SportsLibrary {
         let profileID = activeProfile?.id
         let generation = indexGeneration
         let identity = Self.matchIdentity(game)
-        let channels = await eventChannels(for: game, deadline: deadline)
+        let found = await eventChannels(for: game, deadline: deadline)
         guard !Task.isCancelled, activeProfile?.id == profileID else { return nil }
+        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
+        func foreign(_ channel: LiveEventChannel) -> Bool {
+            ChannelLanguage.isForeign(name: channel.stream.name, category: groups[channel.stream.categoryID ?? ""] ?? "")
+        }
+        // A tournament's own channel is measured, not one it shares, which
+        // may be on another court -- in the order `ranksAhead` gives them.
+        let channels = found.filter { channel in
+            !channel.sharedCoverage || !found.contains { !$0.sharedCoverage && (!foreign($0) || foreign(channel)) }
+        }
         #if os(iOS)
         StartupTrace.shared.note("quality discovery", "\(channels.count) verified channels; \(String(format: "%.2f", max(0, deadline - ProcessInfo.processInfo.systemUptime)))s probe budget remaining")
         #endif
         let context = ([profileID?.uuidString ?? ""] + identity).joined(separator: "|")
         let now = Date()
-        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
         let candidates = channels.map { channel in
             LiveQualityVerifier.Candidate(id: channel.stream.id, urls: sourcePlaybackURLs(for: channel.stream),
                 context: context + "|" + programs(for: channel.stream).filter { $0.start <= now && $0.end > now }
@@ -1728,13 +1738,7 @@ final class SportsLibrary {
                                         game: SportsGame, now: Date) -> Int? {
         // Replays, highlights, radio and whip-around feeds are never a match.
         guard channel.eligible else { return nil }
-        let point = game.isLive ? now : max(now, game.start)
-        // What is on at that moment, less anything from the archive: a
-        // classic final names the same players and the same tournament.
-        let year = Calendar.current.component(.year, from: game.start)
-        let current = channel.listings.filter {
-            $0.start <= point && point < $0.end && !isArchive($0, season: year, start: game.start)
-        }
+        let current = currentTennisListings(channel.listings, game: game, now: now)
         // A tournament's card is played on the channel showing the
         // tournament; a match, only on one that names it.
         if game.isEvent {
@@ -1758,18 +1762,103 @@ final class SportsLibrary {
         return listingConfirms ? 300 : nil
     }
 
+    /// What is on a channel when a tennis card plays, less anything from the
+    /// archive: a classic final names the same players and the same
+    /// tournament.
+    nonisolated private static func currentTennisListings(_ listings: [ProfessionalChannelMatcher.PreparedListing],
+                                                          game: SportsGame, now: Date) -> [ProfessionalChannelMatcher.PreparedListing] {
+        let point = game.isLive ? now : max(now, game.start)
+        let year = Calendar.current.component(.year, from: game.start)
+        return listings.filter {
+            $0.start <= point && point < $0.end && !isArchive($0, season: year, start: game.start)
+        }
+    }
+
+    /// A tournament by the words a listing would use for it, padded for a
+    /// word search: its own ("Shanghai"), or its city, for one whose name a
+    /// guide does not use -- the Internazionali BNL d'Italia is "Rome" in a
+    /// listing.
+    nonisolated static func paddedTournament(_ name: String?, city: String?) -> [String] {
+        (tournamentWords(name) + tournamentWords(city))
+            .map { ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize($0)) }
+            .filter { $0.count > 2 }
+    }
+
+    /// Every tournament with a card, as `paddedTournament` gives it: what a
+    /// listing can name besides the one a card is for.
+    nonisolated static func tournamentBoard(_ games: [SportsGame]) -> [[String]] {
+        var board: [[String]] = []
+        for game in games where game.league.isTennis && game.isEvent {
+            let words = paddedTournament(game.tennisTournament, city: game.tennisCity)
+            if !words.isEmpty, !board.contains(words) { board.append(words) }
+        }
+        return board
+    }
+
+    /// Whether a listing takes turns between tournaments: it names another
+    /// one on the board, or three tours' tags at once -- "Center Court Live:
+    /// Brussels-ATP, Lyon-ATP, Almaty-ATP, Osaka-WTA & Ningbo-WTA Early
+    /// Rounds". The picture is on any one of them at a time.
+    nonisolated private static func takesTurns(_ listing: ProfessionalChannelMatcher.PreparedListing,
+                                               others: [[String]]) -> Bool {
+        let tags = listing.title.split(separator: " ").filter { $0 == "atp" || $0 == "wta" }.count
+        return tags >= 3 || others.contains { $0.contains(where: listing.text.contains) }
+    }
+
+    /// Whether a tournament's card has this channel only shared with other
+    /// tournaments: every listing on now that names it names others too.
+    /// A channel on the tournament alone is the surer place for it -- the
+    /// shared one may be on another tournament's court -- so it is offered
+    /// first (see `ranksAhead`).
+    nonisolated static func sharesCoverage(_ channel: ProfessionalChannelMatcher.PreparedChannel,
+                                           game: SportsGame, board: [[String]], now: Date) -> Bool {
+        guard game.league.isTennis, game.isEvent else { return false }
+        let own = paddedTournament(game.tennisTournament, city: game.tennisCity)
+        guard !own.isEmpty else { return false }
+        // The same tournament on the other tour's board is not another one.
+        let others = board.filter { Set($0).isDisjoint(with: own) }
+        let naming = currentTennisListings(channel.listings, game: game, now: now)
+            .filter { listing in own.contains(where: listing.text.contains) }
+        return !naming.isEmpty && naming.allSatisfy { takesTurns($0, others: others) }
+    }
+
+    /// What a tournament's card is showing on a channel it shares: the
+    /// show, and how many tournaments take turns on it -- "Center Court
+    /// Live · 5 tournaments" -- rather than one tournament's name over
+    /// another's match. A listing whose own title names them is used as it
+    /// stands. Nil for a channel on the tournament alone, and for every
+    /// other card.
+    nonisolated static func sharedCoverageTitle(channel: String, listings: [CurrentProgram], game: SportsGame,
+                                                board: [[String]], now: Date) -> String? {
+        let prepared = ProfessionalChannelMatcher.prepare(listings.map {
+            .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+        })
+        guard sharesCoverage(ProfessionalChannelMatcher.prepare(channel: channel, listings: prepared),
+                             game: game, board: board, now: now) else { return nil }
+        let own = paddedTournament(game.tennisTournament, city: game.tennisCity)
+        guard let index = prepared.indices.first(where: { index in
+            own.contains(where: prepared[index].text.contains)
+                && !currentTennisListings([prepared[index]], game: game, now: now).isEmpty
+        }) else { return nil }
+        let listing = prepared[index]
+        let title = listings[index].title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let show = title.split(separator: ":", maxSplits: 1).first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        let showPadded = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(show))
+        if !show.isEmpty, own.contains(where: showPadded.contains) { return title }
+        let tags = listing.title.split(separator: " ").filter { $0 == "atp" || $0 == "wta" }.count
+        let named = board.filter { Set($0).isDisjoint(with: own) && $0.contains(where: listing.text.contains) }.count + 1
+        let count = "\(max(tags, named, 2)) tournaments"
+        return show.isEmpty ? count : "\(show) \u{00B7} \(count)"
+    }
+
     /// A tournament on now: its tennis, named in the listing's title (220)
     /// or only in its detail (200), and a little less where the listing is
     /// both tours' coverage shared.
     nonisolated private static func tournamentScore(_ current: [ProfessionalChannelMatcher.PreparedListing],
                                                     channel: ProfessionalChannelMatcher.PreparedChannel,
                                                     tournament name: String?, city: String?) -> Int? {
-        // The tournament, by the words a listing would use for it: its own
-        // ("Shanghai"), or its city, for one whose name a guide does not use
-        // -- the Internazionali BNL d'Italia is "Rome" in a listing.
-        let tournament = (tournamentWords(name) + tournamentWords(city))
-            .map { ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize($0)) }
-            .filter { $0.count > 2 }
+        let tournament = paddedTournament(name, city: city)
         guard !tournament.isEmpty else { return nil }
         let tennisChannel = channel.padded.contains(" tennis ")
         var best: Int?
@@ -1792,16 +1881,19 @@ final class SportsLibrary {
                                                   preparedGame: ProfessionalChannelMatcher.PreparedGame,
                                                   foreign: Set<Int> = [],
                                                   qualities: [Int: LiveChannelQuality] = [:],
+                                                  board: [[String]] = [],
                                                   now: Date) -> XtreamStream? {
         var best: (stream: XtreamStream, score: Int)?
+        var shared: Set<Int> = []
         for candidate in candidates {
             guard let prepared = channels[candidate.id] else { continue }
             guard let score = professionalScore(candidate, game: game, preparedGame: preparedGame,
                 channel: prepared, listings: programs[candidate.epgChannelID ?? ""] ?? [],
                 now: now) else { continue }
+            if sharesCoverage(prepared, game: game, board: board, now: now) { shared.insert(candidate.id) }
             if let current = best {
                 guard Self.ranksAhead((candidate.id, score), of: (current.stream.id, current.score),
-                                      foreign: foreign, qualities: qualities) else { continue }
+                                      foreign: foreign, qualities: qualities, shared: shared) else { continue }
             }
             best = (candidate, score)
         }
@@ -1809,12 +1901,18 @@ final class SportsLibrary {
     }
 
     /// Which of two channels carrying a game is offered first: one in English
-    /// before one in another language, then advertised resolution/frame rate,
-    /// evidence strength, and stable provider order. Only verified feeds enter.
+    /// before one in another language, then a tennis tournament's channel to
+    /// itself before one it shares (`shared`, see `sharesCoverage`), then
+    /// advertised resolution/frame rate, evidence strength, and stable
+    /// provider order. Only verified feeds enter.
     nonisolated static func ranksAhead(_ channel: (id: Int, score: Int), of other: (id: Int, score: Int),
-                                       foreign: Set<Int>, qualities: [Int: LiveChannelQuality] = [:]) -> Bool {
+                                       foreign: Set<Int>, qualities: [Int: LiveChannelQuality] = [:],
+                                       shared: Set<Int> = []) -> Bool {
         let english = !foreign.contains(channel.id), otherEnglish = !foreign.contains(other.id)
         if english != otherEnglish { return english }
+        // Whatever either's picture: a shared one may be on another court.
+        let alone = !shared.contains(channel.id), otherAlone = !shared.contains(other.id)
+        if alone != otherAlone { return alone }
         let quality = qualities[channel.id] ?? .unknown, otherQuality = qualities[other.id] ?? .unknown
         if quality != otherQuality { return quality > otherQuality }
         if channel.score != other.score { return channel.score > other.score }
@@ -1894,6 +1992,7 @@ final class SportsLibrary {
 
     nonisolated static func matchingEventChannels(for game: SportsGame, candidates: [XtreamStream],
                                                   programs: [String: [CurrentProgram]], categories: [XtreamCategory],
+                                                  board: [[String]] = [],
                                                   now: Date, deadline: TimeInterval? = nil) -> [LiveEventChannel] {
         let prepared = Self.prepared(game)
         let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
@@ -1922,12 +2021,19 @@ final class SportsLibrary {
                 listings: listings, category: groups[stream.categoryID ?? ""] ?? "", now: now) else { continue }
             let point = game.isLive ? now : game.start
             let program = listings.first { $0.start <= point && point < $0.end }
-            result.append(.init(stream: stream, program: program, evidence: score, quality: .init(name: stream.name)))
+            let shared = game.league.isTennis && game.isEvent && sharesCoverage(
+                ProfessionalChannelMatcher.prepare(channel: stream.name, listings: ProfessionalChannelMatcher.prepare(
+                    listings.map { .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) })),
+                game: game, board: board, now: now)
+            result.append(.init(stream: stream, program: program, evidence: score, quality: .init(name: stream.name),
+                                sharedCoverage: shared))
         }
         let foreign = Set(result.filter { ChannelLanguage.isForeign(name: $0.stream.name,
             category: groups[$0.stream.categoryID ?? ""] ?? "") }.map(\.id))
         let qualities = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0.quality) })
-        return result.sorted { ranksAhead(($0.id, $0.evidence), of: ($1.id, $1.evidence), foreign: foreign, qualities: qualities) }
+        let shared = Set(result.filter(\.sharedCoverage).map(\.id))
+        return result.sorted { ranksAhead(($0.id, $0.evidence), of: ($1.id, $1.evidence), foreign: foreign,
+                                          qualities: qualities, shared: shared) }
     }
 
     /// Match today's games to channels.
@@ -2068,6 +2174,8 @@ final class SportsLibrary {
             }.map(\.id))
             let qualities = Dictionary(currentStreams.map { ($0.id, LiveChannelQuality(name: $0.name)) },
                                       uniquingKeysWith: { first, _ in first })
+            // The tournaments with a card, for telling a channel one shares.
+            let board = Self.tournamentBoard(games)
             let activeIDs = Set(games.map(\.id))
             var matches = previousMatches.filter { activeIDs.contains($0.key) }
             var signatures = previousSignatures.filter { activeIDs.contains($0.key) }
@@ -2141,7 +2249,12 @@ final class SportsLibrary {
                 // A match in another language is not kept as it stands: it is
                 // looked for again, in case an English channel carries the game.
                 let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
-                let reused: (stream: XtreamStream, evidence: Int)? = !keptForeign
+                // So is a tournament's channel it shares, in case one starts
+                // showing that tournament alone.
+                let keptShared = matches[game.id].map { cached in
+                    preparedChannels[cached.id].map { Self.sharesCoverage($0, game: game, board: board, now: now) } ?? false
+                } ?? false
+                let reused: (stream: XtreamStream, evidence: Int)? = !keptForeign && !keptShared
                     && DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
                     currentSignature: signature, hasMatch: matches[game.id] != nil)
                     ? matches[game.id].flatMap { cached in
@@ -2167,7 +2280,8 @@ final class SportsLibrary {
                     #endif
                     if let stream = Self.matchedStream(for: game, candidates: candidates,
                                                        programs: programs, channels: preparedChannels,
-                                                       preparedGame: preparedGame, foreign: foreign, qualities: qualities, now: now) {
+                                                       preparedGame: preparedGame, foreign: foreign, qualities: qualities,
+                                                       board: board, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
                         let key = stream.epgChannelID ?? ""
@@ -2642,7 +2756,10 @@ final class SportsLibrary {
         }.map(\.id))
         let qualities = Dictionary(streams(for: game.league).map { ($0.id, LiveChannelQuality(name: $0.name)) },
                                   uniquingKeysWith: { first, _ in first })
-        let alternates = streams(for: game.league)
+        let board = game.league.isTennis && game.isEvent
+            ? Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }) : []
+        var shared: Set<Int> = []
+        let scored = streams(for: game.league)
             .filter { $0.id != verified?.id && $0.id != preferred?.streamID }
             .compactMap { stream -> (stream: XtreamStream, score: Int)? in
                 let programs = stream.epgChannelID.flatMap { listings[$0] } ?? []
@@ -2651,11 +2768,14 @@ final class SportsLibrary {
                 })
                 let channel = ProfessionalChannelMatcher.prepare(channel: stream.name,
                                                                   listings: preparedListings)
-                return Self.professionalScore(stream, game: game, preparedGame: preparedGame,
-                                              channel: channel, listings: programs, now: now)
-                    .map { (stream, $0) }
+                guard let score = Self.professionalScore(stream, game: game, preparedGame: preparedGame,
+                                                         channel: channel, listings: programs, now: now) else { return nil }
+                if Self.sharesCoverage(channel, game: game, board: board, now: now) { shared.insert(stream.id) }
+                return (stream, score)
             }
-            .sorted { Self.ranksAhead(($0.stream.id, $0.score), of: ($1.stream.id, $1.score), foreign: foreign, qualities: qualities) }
+        let alternates = scored
+            .sorted { Self.ranksAhead(($0.stream.id, $0.score), of: ($1.stream.id, $1.score), foreign: foreign,
+                                      qualities: qualities, shared: shared) }
             .prefix(limit)
             .map { FailoverChannel(streamID: $0.stream.id, name: $0.stream.name, reason: .alternate) }
         return FailoverPlanner.plan(
@@ -2711,6 +2831,14 @@ final class SportsLibrary {
         gameChannelSelections = saved
         // Put the pruned value back so finished games do not collect forever.
         if saved != unpruned { persistGameChannelSelections() }
+    }
+
+    /// A tournament's card on a channel it shares, as a picture of it is
+    /// labeled -- see `sharedCoverageTitle(channel:listings:game:board:now:)`.
+    func sharedCoverageTitle(for game: SportsGame, on stream: XtreamStream, now: Date = Date()) -> String? {
+        guard game.league.isTennis, game.isEvent else { return nil }
+        return Self.sharedCoverageTitle(channel: stream.name, listings: programs(for: stream), game: game,
+            board: Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }), now: now)
     }
 
     private func programs(for stream: XtreamStream) -> [CurrentProgram] {
