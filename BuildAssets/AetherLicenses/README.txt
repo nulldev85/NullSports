@@ -22,3 +22,10 @@ Source: https://github.com/superuser404notfound/LibDovi/tree/2.1.0
 
 The optional AetherEngineSMB product is not linked into Lineup.
 Lineup's existing VLC engine is retained alongside these independently linked libraries.
+
+Engine logos
+The AetherEngine logo is AetherEngine's own, from its repository, under the
+license above. The VLC cone is a trademark of VideoLAN, taken from VLC's own
+icons (https://code.videolan.org/videolan/vlc, share/icons). Each logo marks
+only the engine it names, where Lineup names it; neither suggests its
+project endorses Lineup.

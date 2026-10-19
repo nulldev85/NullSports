@@ -757,8 +757,16 @@ private struct MobileAccountView: View {
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
                     NavigationLink { MobilePlaybackSettingsView() } label: {
-                        SettingsRow("Playback Engine", symbol: "play.rectangle",
-                                    value: (MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title)
+                        let engine = MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic
+                        SettingsRow(title: "Playback Engine", symbol: "play.rectangle") {
+                            HStack(spacing: 6) {
+                                if let logo = engine.logo { PlaybackEngineLogo(asset: logo, size: 20) }
+                                Text(engine.title)
+                                    .font(.inter(17))
+                                    .foregroundStyle(LineupPanelStyle.listValue)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
                     NavigationLink {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
@@ -801,7 +809,12 @@ private struct MobilePlaybackSettingsView: View {
             Section {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
-                        HStack {
+                        HStack(spacing: 14) {
+                            if let logo = choice.logo {
+                                PlaybackEngineLogo(asset: logo, size: 30)
+                            } else {
+                                LineupIconTile(symbol: "play.rectangle", size: 30)
+                            }
                             Text(choice.title).foregroundStyle(LineupStyle.text)
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
@@ -827,9 +840,17 @@ private struct MobilePlaybackSettingsView: View {
 private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
-            Text(AetherPlaybackSession.openSourceNotices())
-                .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    PlaybackEngineLogo(asset: "Engine-aether", size: 44)
+                    Text("AetherEngine 7.40.1 and its decoder libraries")
+                        .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
+                }
+                Text(AetherPlaybackSession.openSourceNotices())
+                    .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding(20)
         }
         .background(LineupStyle.background)
         .navigationTitle("Acknowledgements")

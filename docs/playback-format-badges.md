@@ -57,3 +57,12 @@ pause and switch back to ordinary SDR/stereo. Compare preview/fullscreen and
 retune between channels. Verify preview autohide, PiP, subtitles and that the
 compact strip remains separate from transport controls. Source signaling must
 be present for an advanced label to appear.
+
+## Engine logos
+
+The engine badge carries the engine's own logo beside its name: AetherEngine's
+mark and VLC's cone, from `Engine-aether` and `Engine-vlc` in each app's asset
+catalog (`PlaybackEngineLogo`). The same logos sit beside the engine's name in
+Settings, the Playback Engine picker and the acknowledgements. Apple's player
+has no logo the app may show, so AVPlayer stays a plain label. Credits are in
+`BuildAssets/AetherLicenses/README.txt`.

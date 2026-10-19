@@ -22,6 +22,19 @@ struct PlaybackFormatBadge: View {
     }
 }
 
+/// A playback engine's own logo, from the asset catalog, beside its name
+/// wherever the app names the engine.
+struct PlaybackEngineLogo: View {
+    let asset: String
+    var size: CGFloat
+    var body: some View {
+        Image(asset)
+            .resizable().interpolation(.high).scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Pack whole labels onto as many rows as needed, without truncating them
 /// or squeezing buttons into the metadata row.
 struct PlaybackBadgeFlow: Layout {

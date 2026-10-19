@@ -18,13 +18,17 @@ struct MobilePlayerHeader<Actions: View, Details: View>: View {
 struct MobilePlaybackEngineBadge: View {
     let engine: MobileStreamEngine
     var body: some View {
-        Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-            .foregroundStyle(.white).allowsHitTesting(false)
-            .accessibilityLabel("Playback engine: " + engine.title)
-            .accessibilityIdentifier("lineup.playback.activeEngine")
+        HStack(spacing: 4) {
+            if let logo = engine.logo { PlaybackEngineLogo(asset: logo, size: 14) }
+            Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
+        }
+        .fixedSize()
+        .padding(.leading, engine.logo == nil ? 8 : 5).padding(.trailing, 8).padding(.vertical, 5)
+        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+        .foregroundStyle(.white).allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback engine: " + engine.title)
+        .accessibilityIdentifier("lineup.playback.activeEngine")
     }
 }
 
