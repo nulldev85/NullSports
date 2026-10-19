@@ -7,7 +7,7 @@ struct TVPlaybackLicensesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Playback acknowledgements").font(.inter(36, .bold))
-            Text("AetherEngine 7.36.0 and its decoder libraries")
+            PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", size: 21)
                 .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
             TVPlaybackLicenseText(text: AetherPlaybackSession.openSourceNotices())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

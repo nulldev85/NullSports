@@ -19,9 +19,13 @@ engines. Engine adapters supply native playback, clocks, and stream information.
 Movie and episode tracking continues through the existing local tracking policy;
 a dropped stream is not counted as a completed title.
 
-The Aether integration uses the unmodified **7.36.0** tag, revision
-`c6365cc3c8850bdb670654ca26dcd21f73670875`, and pins FFmpegBuild 3.7.1,
-LibDovi 2.1.0, LibTrueHD 2.3.0, and LibDTSX 1.0.1. It uses the fast-zap live
+The Aether integration uses the unmodified **7.40.1** tag, revision
+`93d54e5067ca0ad856259c0ebc1693aeafa20677`, and pins FFmpegBuild 3.7.1 and
+LibDovi 2.1.0. It is built with Aether's default package traits, so the
+optional TrueHD and DTS:X object audio and Dolby Vision components are not
+compiled, and LibTrueHD and LibDTSX are not linked. Lineup never requests
+object audio rendering or the dual-layer route. XcodeGen cannot set package
+traits. It uses the fast-zap live
 profile, automatic source video selection, audio-track selection, and host-rendered
 text, styled text, and bitmap subtitles. Provider catch-up remains Lineup's own
 recording timeline. Aether's separate DVR buffer is not enabled.
@@ -77,7 +81,7 @@ The result bundle exports decoder-labelled screenshots as the
 decoded frame; the tests also require the backend's picture-ready signal.
 
 Release compilation and the packaged-runtime checks passed in run 38658173076.
-The bridge retains measured seekability across Aether 7.36's software audio-track
+The bridge retains measured seekability across Aether's software audio-track
 rebuild, which clears the engine's source flag without probing it again. Live and
 forward-only sources remain ineligible. Simulator sessions request software
 decoding; physical hardware-decoder coverage is still required.

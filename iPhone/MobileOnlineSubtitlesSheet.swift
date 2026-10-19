@@ -105,7 +105,7 @@ struct MobileOnlineSubtitlesSheet: View {
                     .lineupChip(true)
             }.buttonStyle(.plain).disabled(downloading != nil)
             if let error {
-                Text(error).font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
+                PlaybackEngineText(error, style: .caption).font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
                 Button("Try Again") { retry += 1 }.lineupFlatButton().disabled(downloading != nil)
             }
             if loading {

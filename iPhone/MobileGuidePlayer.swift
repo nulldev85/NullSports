@@ -88,7 +88,7 @@ struct MobileGuidePlayer: View {
                 if let notice = controller.failoverNotice {
                     VStack {
                         Spacer()
-                        Text(notice)
+                        PlaybackEngineText(notice, style: .caption)
                             .font(.inter(.caption, .semibold))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 12).padding(.vertical, 8)

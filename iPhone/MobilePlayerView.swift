@@ -87,7 +87,7 @@ struct MobilePlayerView: View {
             if let notice = controller.failoverNotice {
                 VStack {
                     Spacer()
-                    Text(notice)
+                    PlaybackEngineText(notice, style: .subheadline)
                         .font(.inter(.subheadline, .semibold))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -245,7 +245,8 @@ struct MobilePlayerView: View {
             }
             if offersOnlineSubtitles {
                 items.append(MobileMenuItem(controller.canAttachOnlineSubtitles ? "Find Subtitles Online" : "Use AetherEngine or VLC for Online Subtitles",
-                    symbol: "magnifyingglass", id: "online-subtitles", isEnabled: controller.canAttachOnlineSubtitles) {
+                    symbol: "magnifyingglass", id: "online-subtitles", isEnabled: controller.canAttachOnlineSubtitles,
+                    namesEngine: !controller.canAttachOnlineSubtitles) {
                     onlineSubtitleSession = controller.subtitleSessionID
                     showingOnlineSubtitles = true
                 })

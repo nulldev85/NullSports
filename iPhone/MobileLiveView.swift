@@ -258,10 +258,18 @@ struct MobileLiveView: View {
                                              onSync: { syncingStats = true },
                                              onClose: { toggleStats() })
                             .padding(.top, viewport.safeAreaInsets.top)
+                            // Clear of the home indicator, so the last row can
+                            // be scrolled to and read.
+                            .padding(.bottom, viewport.safeAreaInsets.bottom)
                             .frame(width: Self.statsWidth(viewport))
                             .padding(.trailing, viewport.safeAreaInsets.trailing)
                             .background(LineupPanelStyle.fill)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                            // The screen's height, as the picture beside it
+                            // has. Left to grow, it took the height of the page
+                            // behind the picture, taller than the screen, and
+                            // the end of a long list sat off the bottom.
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(height: fullHeight, alignment: .top)
                             .ignoresSafeArea()
                             .transition(.move(edge: .trailing))
                     }
