@@ -128,7 +128,8 @@ struct MobileGameStatsPanel: View {
     private func syncText(_ reveal: GameStatsReveal) -> String {
         let seconds = Int(stats.totalDelay.rounded())
         if reveal.catchingUp { return "Catching up to your stream · \(seconds)s" }
-        return stats.calibrated ? "In sync with your stream · \(seconds)s behind" : "Held \(seconds)s behind · tap to sync"
+        return stats.calibrated ? "In sync · your stream is \(seconds)s behind live"
+                                : "Held \(seconds)s behind live · tap to sync"
     }
 
     // MARK: Sections
@@ -142,6 +143,16 @@ struct MobileGameStatsPanel: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(reveal.plays.prefix(120)) { play in
                     PlayRow(play: play, reveal: reveal, game: game)
+                        // Hold a play the moment it shows on screen: the
+                        // stats sync to it.
+                        .lineupHoldMenu(play.text, symbol: "timer",
+                                        message: "Sync the stats to this play.", press: .well,
+                                        items: {
+                                            guard play.wallclock != nil else { return [] }
+                                            return [MobileMenuItem("It Just Happened on My Screen", symbol: "checkmark.circle") {
+                                                stats.sync(to: play)
+                                            }]
+                                        }) {}
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, 16)
                 }
             }
@@ -298,100 +309,234 @@ enum MobileTeamColor {
     }
 }
 
-/// Matching the stats to the picture: the game clock as the stats have it,
-/// to be lined up with the one on screen, or one tap the moment a score
-/// appears.
+/// Matching the stats to the picture, one play at a time.
+///
+/// It shows the latest play the stats have shown and asks whether it is on
+/// the viewer's screen. "It Just Happened" syncs to that moment exactly.
+/// "Not Yet" holds it back and waits for the viewer to say when it plays.
+/// "Already Saw It" steps on to the next play and asks again. A few taps
+/// at most, and nothing to line up by eye.
 struct MobileStatsSyncSheet: View {
     @ObservedObject var stats: MobileGameStats
     let game: SportsGame
     @Environment(\.dismiss) private var dismiss
-    @State private var note: String?
+
+    private enum Step: Equatable {
+        /// Is this play on the viewer's screen?
+        case asking(GameStatsPlay)
+        /// Held back; tap when it plays.
+        case waiting(GameStatsPlay)
+        /// Synced to this play.
+        case synced(GameStatsPlay)
+        /// ESPN has nothing later: the stream is as far on as the feed.
+        case caughtUp(GameStatsPlay)
+    }
+    @State private var step: Step?
+    @State private var started = false
+    @State private var showsFineTune = false
+    @State private var syncs = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                LineupIconTile(symbol: "timer", size: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Sync With Your Stream").font(.inter(19, .bold))
-                    Text("Every score, play and stat waits until your picture shows it.")
-                        .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+        ScrollView {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    LineupIconTile(symbol: "timer", size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sync Stats to Your Stream").font(.inter(19, .bold))
+                        Text("Every score, play and stat waits until your picture shows it.")
+                            .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 20).padding(.top, 22)
+                .padding(.top, 22)
 
-            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                VStack(spacing: 4) {
-                    Text(stats.clockText ?? stats.reveal?.status ?? "—")
-                        .font(.interDigits(44, .bold))
-                        .contentTransition(.numericText())
-                    if let reveal = stats.reveal {
-                        Text("\(reveal.away.abbreviation) \(reveal.awayScore) – \(reveal.homeScore) \(reveal.home.abbreviation)  ·  \(reveal.status)")
-                            .font(.interDigits(14, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                        if let last = reveal.plays.first {
-                            Text(last.text).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
-                                .lineLimit(2).multilineTextAlignment(.center)
-                        }
+                Group {
+                    switch step {
+                    case .asking(let play)?: asking(play)
+                    case .waiting(let play)?: waiting(play)
+                    case .synced(let play)?: synced(play, caughtUp: false)
+                    case .caughtUp(let play)?: synced(play, caughtUp: true)
+                    case nil: noPlays
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18).padding(.horizontal, 16)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            .padding(.horizontal, 20).padding(.top, 18)
+                .padding(.top, 18)
+                .animation(.easeInOut(duration: 0.2), value: step)
 
-            Text("Match this to the game clock on your screen. If the stats are ahead of your picture, hold them back.")
-                .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
-                .padding(.horizontal, 28).padding(.top, 12)
+                fineTune.padding(.top, 20)
 
-            HStack(spacing: 10) {
-                nudge("−5", by: -5)
-                nudge("−1", by: -1)
-                VStack(spacing: 1) {
-                    Text("\(Int(stats.delay.rounded()))s").font(.interDigits(22, .bold)).contentTransition(.numericText())
-                    Text("HELD BACK").font(.inter(10, .heavy)).tracking(0.8).foregroundStyle(LineupPanelStyle.quiet)
+                HStack {
+                    Button("Start Over") { stats.resetDelay(); begin() }.buttonStyle(LineupBarButtonStyle())
+                    Spacer()
+                    Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true))
                 }
-                .frame(minWidth: 84)
-                nudge("+1", by: 1)
-                nudge("+5", by: 5)
+                .padding(.top, 18).padding(.bottom, 20)
             }
-            .padding(.top, 16)
-
-            Button {
-                note = stats.syncToLatestScore()
-                    ? "Synced to the latest score."
-                    : "No score in the last few minutes. Match the clock instead."
-            } label: {
-                Label("I Just Saw a Score", systemImage: "sportscourt.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .lineupProminentButton()
-            .padding(.horizontal, 20).padding(.top, 18)
-            if let note {
-                Text(note).font(.inter(12)).foregroundStyle(LineupPanelStyle.quiet).padding(.top, 8)
-            }
-
-            HStack {
-                Button("Reset") { stats.resetDelay(); note = nil }.buttonStyle(LineupBarButtonStyle())
-                Spacer()
-                Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true))
-            }
-            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 20)
+            .padding(.horizontal, 20)
         }
+        .scrollIndicators(.hidden)
         .foregroundStyle(LineupStyle.text)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(LineupPanelStyle.fill.ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(LineupPanelStyle.fill)
-        // The picture stays live above the sheet, to be matched against.
+        // The picture stays live above the sheet, to be watched against.
         .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        .sensoryFeedback(.success, trigger: syncs)
+        .onAppear { if !started { started = true; begin() } }
+        // A sheet opened before the first play has one to ask about once
+        // ESPN times one.
+        .onChange(of: stats.reveal?.plays.first?.id) { _, _ in if step == nil { begin() } }
+    }
+
+    private func begin() {
+        step = stats.latestShownPlay.map(Step.asking)
+    }
+
+    // MARK: Steps
+
+    private func asking(_ play: GameStatsPlay) -> some View {
+        VStack(spacing: 12) {
+            playCard(play, caption: "LATEST PLAY IN YOUR STATS")
+            Text("Is this on your screen yet?").font(.inter(16, .semibold))
+            Button {
+                stats.sync(to: play)
+                syncs += 1
+                step = .synced(play)
+            } label: {
+                Label("It Just Happened", systemImage: "checkmark").frame(maxWidth: .infinity)
+            }
+            .lineupProminentButton()
+            HStack(spacing: 10) {
+                choice("Not Yet", symbol: "hourglass") {
+                    stats.hold(before: play)
+                    step = .waiting(play)
+                }
+                choice("Already Saw It", symbol: "forward.fill") {
+                    if let next = stats.play(after: play) {
+                        // Shown now, so it can be asked about.
+                        stats.sync(to: next)
+                        step = .asking(next)
+                    } else {
+                        stats.sync(to: play)
+                        syncs += 1
+                        step = .caughtUp(play)
+                    }
+                }
+            }
+        }
+    }
+
+    private func waiting(_ play: GameStatsPlay) -> some View {
+        VStack(spacing: 12) {
+            playCard(play, caption: "WAITING FOR THIS PLAY")
+            Text("Tap the moment it happens on your screen. Stats are held back until then.")
+                .font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
+            Button {
+                stats.sync(to: play)
+                syncs += 1
+                step = .synced(play)
+            } label: {
+                Label("It's Happening Now", systemImage: "hand.tap.fill").frame(maxWidth: .infinity)
+            }
+            .lineupProminentButton()
+        }
+    }
+
+    private func synced(_ play: GameStatsPlay, caughtUp: Bool) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(LineupIconTile.green)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("In sync").font(.inter(18, .bold))
+                    Text(caughtUp
+                         ? "Your stream is as current as ESPN's feed. Stats show the moment ESPN has them."
+                         : "Your stream is \(Self.duration(stats.delay)) behind live. Lineup remembers this for the channel.")
+                        .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Text("Synced to: \(play.text)").font(.inter(12)).foregroundStyle(LineupPanelStyle.quiet)
+                .lineLimit(2).multilineTextAlignment(.center)
+        }
+    }
+
+    private var noPlays: some View {
+        VStack(spacing: 10) {
+            LineupIconTile(symbol: "list.bullet", size: 34)
+            Text("Syncing works once the game's plays start.").font(.inter(15, .semibold))
+            Text("Until then, stats are held \(Self.duration(stats.delay)) behind live.")
+                .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func playCard(_ play: GameStatsPlay, caption: String) -> some View {
+        VStack(spacing: 6) {
+            Text(caption).font(.inter(10, .heavy)).tracking(0.8).foregroundStyle(LineupPanelStyle.quiet)
+            Text([play.period, play.clock].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.interDigits(15, .heavy)).foregroundStyle(LineupStyle.highlight)
+            Text(play.text).font(.inter(17, .semibold)).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let reveal = stats.reveal {
+                Text("\(reveal.away.abbreviation) \(play.awayScore) – \(play.homeScore) \(reveal.home.abbreviation)")
+                    .font(.interDigits(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16).padding(.horizontal, 14)
+        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func choice(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol).font(.inter(15, .semibold))
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(LineupPanelStyle.well, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Fine-tune
+
+    private var fineTune: some View {
+        VStack(spacing: 10) {
+            Button { withAnimation(.easeInOut(duration: 0.2)) { showsFineTune.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Text("Fine-tune").font(.inter(13, .semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                        .rotationEffect(.degrees(showsFineTune ? 180 : 0))
+                }
+                .foregroundStyle(LineupPanelStyle.quiet)
+            }
+            .buttonStyle(.plain)
+            if showsFineTune {
+                HStack(spacing: 10) {
+                    nudge("−5", by: -5)
+                    nudge("−1", by: -1)
+                    VStack(spacing: 1) {
+                        Text("\(Int(stats.delay.rounded()))s").font(.interDigits(22, .bold)).contentTransition(.numericText())
+                        Text("BEHIND LIVE").font(.inter(10, .heavy)).tracking(0.8).foregroundStyle(LineupPanelStyle.quiet)
+                    }
+                    .frame(minWidth: 96)
+                    nudge("+1", by: 1)
+                    nudge("+5", by: 5)
+                }
+                Text("More seconds hold the stats back longer. Fewer show them sooner.")
+                    .font(.inter(12)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
+            }
+        }
         .animation(.easeInOut(duration: 0.2), value: stats.delay)
     }
 
     private func nudge(_ title: String, by seconds: TimeInterval) -> some View {
-        Button { stats.nudge(by: seconds); note = nil } label: {
+        Button { stats.nudge(by: seconds) } label: {
             Text(title).font(.interDigits(16, .bold)).frame(width: 48, height: 40)
                 .background(LineupPanelStyle.well, in: Capsule())
                 .contentShape(Capsule())
@@ -399,5 +544,10 @@ struct MobileStatsSyncSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel(seconds < 0 ? "Show stats \(Int(-seconds)) seconds sooner"
                                         : "Hold stats \(Int(seconds)) seconds longer")
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let whole = Int(seconds.rounded())
+        return whole >= 60 ? "\(whole / 60)m \(whole % 60)s" : "\(whole)s"
     }
 }

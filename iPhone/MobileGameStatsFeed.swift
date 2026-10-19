@@ -68,8 +68,7 @@ struct GameStatsLeader: Equatable, Sendable {
 
 /// The game as one fetch found it: its score, its clock and its totals.
 struct GameStatsSnapshot: Equatable, Sendable {
-    /// When the fetch came back. The totals are as of then, so this is the
-    /// time they are held against.
+    /// When the fetch came back.
     let receivedAt: Date
     /// "pre", "in" or "post".
     let state: String
@@ -81,6 +80,11 @@ struct GameStatsSnapshot: Equatable, Sendable {
     let homeScore: Int
     let lines: [GameStatsLine]
     let leaders: [GameStatsLeader]
+    /// The moment on the field these totals stand for: the latest play the
+    /// same fetch carried. Set as the fetch is taken in.
+    var eventTime: Date? = nil
+    /// When these totals may be shown, at a stream with no delay.
+    var moment: Date { eventTime ?? receivedAt }
 }
 
 /// One fetch, parsed.
@@ -309,23 +313,25 @@ struct GameStatsReveal: Equatable, Sendable {
     var lines: [GameStatsLine]
     var leaders: [GameStatsLeader]
     var homeWinProbability: Double?
-    /// No totals old enough to show yet: the feed was opened less than the
-    /// stream's delay ago, and every total so far is still ahead of the
-    /// picture.
+    /// No totals the picture has reached yet: every one fetched so far is
+    /// still ahead of it.
     var catchingUp: Bool
 }
 
-/// Everything the feed has said, each with when it may be shown.
+/// Everything the feed has said, each held to the moment on the field it
+/// describes.
 ///
-/// Totals and the score are held by when they arrived: a fetch received at
-/// R shows the game no later than R, so shown at R plus the stream's lead
-/// over ESPN it is never ahead of the picture. Plays are held the same way,
-/// or by the moment they happened plus a margin for ESPN's own lag,
-/// whichever comes first -- so a play ESPN sent late is not held twice over,
-/// and a game opened midway shows its earlier plays at once.
+/// A play happened when ESPN says it did. The viewer's picture shows it
+/// that long after, by however far the stream is behind live; so a play is
+/// shown once now, less that delay, has passed the moment it happened.
+/// Totals go with the plays they arrived with: a fetch's box score stands
+/// for the moment of the latest play in the same fetch, and is shown when
+/// that play is.
+///
+/// One delay for everything, in real seconds behind live, is what makes
+/// syncing a single tap: the viewer says which play is on their screen
+/// now, and the delay is how long ago that play happened.
 struct GameStatsTimeline: Sendable {
-    /// More than ESPN's scoreboard ever trails the field.
-    static let feedLagAllowance: TimeInterval = 30
     /// Long enough to reach back across a long pause.
     static let retention: TimeInterval = 3 * 60 * 60
 
@@ -344,7 +350,12 @@ struct GameStatsTimeline: Sendable {
         if let last = snapshots.last, last.receivedAt >= received {
             // Out of order: a slow reply overtaken by a faster one.
         } else {
-            snapshots.append(report.snapshot)
+            var snapshot = report.snapshot
+            let latest = report.plays.compactMap(\.wallclock).filter { $0 <= received }.max()
+            // Never earlier than the totals before it: the plays it carried
+            // can't take the game backwards.
+            snapshot.eventTime = max(latest ?? received, snapshots.last?.moment ?? .distantPast)
+            snapshots.append(snapshot)
         }
         for play in report.plays {
             if let known = plays[play.id] {
@@ -362,19 +373,19 @@ struct GameStatsTimeline: Sendable {
         }
     }
 
-    /// When a play may be shown, at the stream's lead over ESPN of zero.
-    static func revealTime(firstSeen: Date, wallclock: Date?) -> Date {
-        guard let wallclock else { return firstSeen }
-        return min(firstSeen, wallclock.addingTimeInterval(feedLagAllowance))
+    /// When a play happened: ESPN's own time for it, or when it first came,
+    /// which is never before it happened.
+    static func moment(of play: GameStatsPlay, firstSeen: Date) -> Date {
+        play.wallclock ?? firstSeen
     }
 
     /// The game as of `cutoff`: now, less however far the picture is behind
-    /// ESPN.
+    /// live.
     func reveal(at cutoff: Date) -> GameStatsReveal? {
         guard let away, let home else { return nil }
-        let snapshot = snapshots.last { $0.receivedAt <= cutoff }
+        let snapshot = snapshots.last { $0.moment <= cutoff }
         let shown = plays.values
-            .filter { Self.revealTime(firstSeen: $0.firstSeen, wallclock: $0.play.wallclock) <= cutoff }
+            .filter { Self.moment(of: $0.play, firstSeen: $0.firstSeen) <= cutoff }
             .map { $0.play }
             .sorted { $0.sequence > $1.sequence }
         let lastPlay = shown.first
@@ -396,60 +407,42 @@ struct GameStatsTimeline: Sendable {
             catchingUp: snapshot == nil)
     }
 
-    /// The game clock as of `cutoff`, run on between the fetches either side
-    /// of it, so it can be matched to the clock on the viewer's screen.
-    func clock(at cutoff: Date) -> String? {
-        guard let index = snapshots.lastIndex(where: { $0.receivedAt <= cutoff }) else { return nil }
-        let before = snapshots[index]
-        guard let clock = before.clock, let start = Self.seconds(clock) else { return before.clock }
-        guard before.state == "in", index + 1 < snapshots.count else { return clock }
-        let after = snapshots[index + 1]
-        guard after.period == before.period, let clockAfter = after.clock, let end = Self.seconds(clockAfter),
-              after.receivedAt > before.receivedAt else { return clock }
-        let fraction = min(1, max(0, cutoff.timeIntervalSince(before.receivedAt)
-                                         / after.receivedAt.timeIntervalSince(before.receivedAt)))
-        return Self.format(start + (end - start) * fraction)
+    /// Plays ESPN gives a moment for, oldest first: what syncing steps
+    /// through.
+    var timedPlays: [GameStatsPlay] {
+        plays.values.map { $0.play }.filter { $0.wallclock != nil }
+            .sorted { ($0.wallclock!, $0.sequence) < ($1.wallclock!, $1.sequence) }
     }
 
-    /// When the latest change of score reached Lineup, at its earliest: the
-    /// fetch before the one that carried it. A viewer who sees that score on
-    /// their screen now is behind ESPN by at most now less this, so a delay
-    /// set from it is never short.
-    func lastScoreChange(within window: TimeInterval, now: Date) -> Date? {
-        guard snapshots.count >= 2 else { return nil }
-        for index in stride(from: snapshots.count - 1, through: 1, by: -1) {
-            let current = snapshots[index], previous = snapshots[index - 1]
-            guard current.receivedAt >= now.addingTimeInterval(-window) else { return nil }
-            if current.awayScore != previous.awayScore || current.homeScore != previous.homeScore {
-                return previous.receivedAt
-            }
-        }
-        return nil
+    /// The latest play the picture has reached.
+    func latestTimedPlay(at cutoff: Date) -> GameStatsPlay? {
+        timedPlays.last { $0.wallclock! <= cutoff }
     }
 
-    static func seconds(_ clock: String) -> Double? {
-        let parts = clock.split(separator: ":")
-        if parts.count == 2, let minutes = Double(parts[0]), let seconds = Double(parts[1]) { return minutes * 60 + seconds }
-        if parts.count == 1, let seconds = Double(parts[0]) { return seconds }
-        return nil
+    /// The play after this one, if ESPN has it yet.
+    func timedPlay(after play: GameStatsPlay) -> GameStatsPlay? {
+        let all = timedPlays
+        guard let index = all.firstIndex(where: { $0.id == play.id }), index + 1 < all.count else { return nil }
+        return all[index + 1]
     }
 
-    static func format(_ seconds: Double) -> String {
-        let value = max(0, seconds)
-        if value < 60, value != value.rounded() { return String(format: "%.1f", value) }
-        let whole = Int(value.rounded(.down))
-        return String(format: "%d:%02d", whole / 60, whole % 60)
+    /// The delay that puts the picture at this play now: how long ago it
+    /// happened. Nil for a play ESPN gives no moment for.
+    static func delay(syncingTo play: GameStatsPlay, now: Date) -> TimeInterval? {
+        play.wallclock.map { max(0, now.timeIntervalSince($0)) }
     }
 }
 
-/// How far the viewer's picture is behind ESPN, as the viewer has set it,
+/// How far the viewer's picture is behind live, as the viewer has set it,
 /// for each channel: providers differ, and a channel's lag stays put.
 struct GameStatsDelayStore {
-    static let key = "Lineup.stats.streamDelay.v1"
-    static let lastKey = "Lineup.stats.streamDelay.last.v1"
+    // Version 2 counts from the moment on the field; version 1 counted from
+    // when ESPN sent it, and its values mean something else.
+    static let key = "Lineup.stats.streamDelay.v2"
+    static let lastKey = "Lineup.stats.streamDelay.last.v2"
     /// Unset: long enough that a typical provider's stream is not overtaken.
-    static let defaultDelay: TimeInterval = 45
-    static let range: ClosedRange<TimeInterval> = 0...300
+    static let defaultDelay: TimeInterval = 60
+    static let range: ClosedRange<TimeInterval> = 0...600
 
     let defaults: UserDefaults
 

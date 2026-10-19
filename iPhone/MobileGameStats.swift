@@ -110,19 +110,26 @@ final class MobileGameStats: ObservableObject {
         refreshReveal()
     }
 
-    /// The viewer has just seen a score on their screen: the delay is how
-    /// long ago the feed first had it, less their own pauses. False when no
-    /// score has changed in the last few minutes to go by.
-    @discardableResult
-    func syncToLatestScore() -> Bool {
-        let now = Date()
-        guard let change = timeline.lastScoreChange(within: 300, now: now) else { return false }
-        setDelay(now.timeIntervalSince(change) - max(0, playerLag()))
-        return true
+    /// The latest play the picture has reached: the one to ask the viewer
+    /// about. Nil before ESPN has timed any play.
+    var latestShownPlay: GameStatsPlay? { timeline.latestTimedPlay(at: cutoff) }
+
+    /// The play after this one, if ESPN has it yet.
+    func play(after play: GameStatsPlay) -> GameStatsPlay? { timeline.timedPlay(after: play) }
+
+    /// This play is on the viewer's screen now: the delay is how long ago it
+    /// happened, less their own pauses. Exact to the second.
+    func sync(to play: GameStatsPlay) {
+        guard let seconds = GameStatsTimeline.delay(syncingTo: play, now: Date()) else { return }
+        setDelay(seconds - max(0, playerLag()))
     }
 
-    /// The game clock as the picture has it, for matching by eye.
-    var clockText: String? { timeline.clock(at: cutoff) }
+    /// This play isn't on the viewer's screen yet: held back until a moment
+    /// after it, so it waits for them to say it is.
+    func hold(before play: GameStatsPlay) {
+        guard let seconds = GameStatsTimeline.delay(syncingTo: play, now: Date()) else { return }
+        setDelay(seconds - max(0, playerLag()) + 3)
+    }
 
     // MARK: Feed
 

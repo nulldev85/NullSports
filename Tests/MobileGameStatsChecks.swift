@@ -49,56 +49,58 @@ struct MobileGameStatsChecks {
         check(GameStatsParser.periodLabel(sport: "hockey", number: 4, half: nil) == "OT", "Hockey overtime")
         check(GameStatsParser.periodLabel(sport: "football", number: 5, half: nil) == "OT", "Football overtime")
 
-        // Holding back.
+        // Holding back: everything waits for the moment it happened, plus
+        // how far the picture is behind live.
         var timeline = GameStatsTimeline()
         timeline.ingest(first)
         let delay: TimeInterval = 40
-        // Opened just now: the totals are as of now, ahead of a picture 40 s
-        // behind, so none can be shown yet.
+        // The box score in a fetch stands for its latest play, 20 s ago:
+        // ahead of a picture 40 s behind, so it waits.
         let opening = timeline.reveal(at: t0.addingTimeInterval(-delay))!
-        check(opening.catchingUp && opening.lines.isEmpty, "Totals newer than the picture are held")
+        check(opening.catchingUp && opening.lines.isEmpty, "Totals the picture hasn't reached are held")
         check(opening.plays.map(\.id) == ["p1"], "An old play shows at once; one from 20 s ago is held")
         check(opening.awayScore == 48 && opening.homeScore == 48, "The score is the last shown play's, not the feed's")
         check(opening.homeWinProbability == nil, "Win probability waits for its play")
-
-        // Twenty seconds on: the second play happened 40 s before the
-        // picture's moment now, plus ESPN's allowance of 30 s -- still held.
-        check(timeline.reveal(at: t0.addingTimeInterval(20 - delay))!.plays.count == 1,
-              "A play stays held for ESPN's lag on top of the picture's")
-        // Once the picture has reached the fetch, all of it shows.
-        let reached = timeline.reveal(at: t0)!
-        check(!reached.catchingUp && reached.lines.count == 2, "Totals show once the picture reaches their fetch")
+        check(timeline.reveal(at: t0.addingTimeInterval(-21))!.plays.count == 1,
+              "A play is held to the second it happened")
+        // The picture reaches the second play: it, and the totals that came
+        // with it, show together.
+        let reached = timeline.reveal(at: t0.addingTimeInterval(-20))!
+        check(!reached.catchingUp && reached.lines.count == 2, "Totals show with the play they came with")
         check(reached.plays.map(\.id) == ["p2", "p1"], "Plays show newest first")
         check(reached.awayScore == 50 && reached.homeWinProbability == 0.62, "Score and odds follow")
 
-        // A score arrives ten seconds later in the next fetch.
+        // A score, five seconds after the first fetch, in the next one.
         let second = basketball(away: 53, home: 48, clock: "4:32",
                                 plays: [("p1", 1, t0.addingTimeInterval(-600), 48, 48, false),
                                         ("p2", 2, t0.addingTimeInterval(-20), 50, 48, true),
                                         ("p3", 3, t0.addingTimeInterval(5), 53, 48, true)],
                                 received: t0.addingTimeInterval(10))!
         timeline.ingest(second)
-        let before = timeline.reveal(at: t0.addingTimeInterval(9))!
+        let before = timeline.reveal(at: t0.addingTimeInterval(4))!
         check(before.awayScore == 50 && !before.plays.contains { $0.id == "p3" },
               "A score is not shown a moment before the picture reaches it")
-        let after = timeline.reveal(at: t0.addingTimeInterval(10))!
+        let after = timeline.reveal(at: t0.addingTimeInterval(5))!
         check(after.awayScore == 53 && after.plays.first?.id == "p3", "It shows the moment the picture does")
 
-        // The clock runs between fetches, for matching by eye.
-        check(timeline.clock(at: t0) == "4:52", "The clock at a fetch is the fetch's")
-        check(timeline.clock(at: t0.addingTimeInterval(5)) == "4:42", "Between fetches it runs on")
-        check(timeline.clock(at: t0.addingTimeInterval(-1)) == nil, "Before any fetch there is none")
-
-        // Calibrating from a score the viewer has just seen.
-        let change = timeline.lastScoreChange(within: 300, now: t0.addingTimeInterval(50))
-        check(change == t0, "A seen score sets the delay from the fetch before it, never short")
-        check(timeline.lastScoreChange(within: 30, now: t0.addingTimeInterval(50)) == nil,
-              "An old score is no guide")
+        // Syncing steps through the plays by the moment they happened.
+        check(timeline.timedPlays.map(\.id) == ["p1", "p2", "p3"], "Plays to sync by, oldest first")
+        check(timeline.latestTimedPlay(at: t0)?.id == "p2", "The play to ask about is the latest one shown")
+        check(timeline.timedPlay(after: timeline.timedPlays[1])?.id == "p3", "Already seen steps to the next")
+        check(timeline.timedPlay(after: timeline.timedPlays[2]) == nil, "No play after the latest")
+        check(GameStatsTimeline.delay(syncingTo: timeline.timedPlays[1], now: t0.addingTimeInterval(40)) == 60,
+              "Seen now, a play from a minute ago means a stream a minute behind")
+        let synced = timeline.reveal(at: t0.addingTimeInterval(40 - 60))!
+        check(synced.plays.first?.id == "p2", "Synced to a play, that play is the latest shown")
 
         // A late, out-of-order reply is not taken as newer.
         let stale = basketball(away: 50, home: 48, clock: "4:52", plays: [], received: t0.addingTimeInterval(5))!
         timeline.ingest(stale)
         check(timeline.snapshots.count == 2, "An overtaken reply is dropped")
+        // A reply without plays stands for when it came, never earlier.
+        let bare = basketball(away: 53, home: 48, clock: "4:12", plays: [], received: t0.addingTimeInterval(20))!
+        timeline.ingest(bare)
+        check(timeline.snapshots.last?.moment == t0.addingTimeInterval(20), "Totals without plays wait for their fetch")
 
         // The delay a viewer sets is kept for the channel.
         let defaults = UserDefaults(suiteName: "MobileGameStatsChecks")!
@@ -109,7 +111,7 @@ struct MobileGameStatsChecks {
         check(store.delay(forChannel: 7) == (32, true), "A set delay is kept for its channel")
         check(store.delay(forChannel: 8) == (32, false), "Another channel starts from the last one set")
         store.set(900, forChannel: 7)
-        check(store.delay(forChannel: 7).seconds == 300, "Delays are kept in range")
+        check(store.delay(forChannel: 7).seconds == 600, "Delays are kept in range")
         print("MobileGameStatsChecks passed")
     }
 }
