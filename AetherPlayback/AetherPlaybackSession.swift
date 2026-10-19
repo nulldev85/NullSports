@@ -71,6 +71,11 @@ public final class AetherPlaybackSession {
         return nil
     }
     public func togglePictureInPicture() { pip.toggle() }
+    /// Whether leaving the app hands this picture to the system window.
+    public var startsPictureInPictureAutomatically: Bool {
+        get { pip.automatic }
+        set { pip.automatic = newValue }
+    }
     public func refreshPictureInPicture() { pip.refresh() }
     public func stopPictureInPicture() { pip.stop() }
     func pictureInPictureTransportChanged(playing: Bool) {

@@ -5226,7 +5226,10 @@ private struct MediaSourcePicker: View {
                        onReachedEnd: {
                            media.completePlayback(of: trackedItem, sessionID: sessionID)
                            if advance == nil { advance = .reachedEnd }
-                       })
+                       },
+                       segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
+                           await media.playbackSegments(for: trackedItem)
+                       } : nil)
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }

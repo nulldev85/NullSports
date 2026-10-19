@@ -39,6 +39,18 @@ struct MobileLiveView: View {
     /// A channel was just chosen for this game; ask how long it should apply.
     @State private var scopingSelection: PendingSelection?
     @StateObject private var playbackSlot = MobilePlaybackSlot()
+    /// The watched game's stats, held behind the picture.
+    @StateObject private var gameStats = MobileGameStats()
+    /// The stats are open: under the picture upright, beside it on its side.
+    @State private var showsStats = false
+    @State private var syncingStats = false
+    /// Two games at once, full screen.
+    @State private var multiview: MobileMultiviewSession?
+    /// The game on screen, kept while a channel is chosen for the one to
+    /// watch beside it.
+    @State private var multiviewFirst: MobileMultiviewSession.Tile?
+    @State private var multiviewPicking: SportsGame?
+    @State private var multiviewSecond: MobileMultiviewSession.Tile?
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
     private var playback: MobilePlaybackController {
         get { playbackSlot.controller }
@@ -68,7 +80,7 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league).filter {
+        let all = library.games(for: league).map(gameStats.shield).filter {
             (!onlyFollowed || library.isFollowing($0))
                 && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
         }
@@ -102,7 +114,7 @@ struct MobileLiveView: View {
     /// Everything on now in every league, for the scoreboard under the
     /// preview, whichever league or teams the list below it is showing.
     private func liveEverywhere() -> [SportsGame] {
-        library.games(for: nil).filter(\.isLive)
+        library.games(for: nil).map(gameStats.shield).filter(\.isLive)
             .map { (game: $0, followed: library.isFollowing($0)) }
             .sorted { left, right in
                 if left.followed != right.followed { return left.followed }
@@ -142,9 +154,13 @@ struct MobileLiveView: View {
             slate.all.first { $0.id == game.id }
                 // Narrowed to a league or to followed teams, the list may not
                 // hold the game being watched; the schedule still does.
-                ?? library.gamesByLeague[game.league]?.first { $0.id == game.id }
-                ?? game
+                ?? library.gamesByLeague[game.league]?.first { $0.id == game.id }.map(gameStats.shield)
+                ?? gameStats.shield(game)
         }
+        // The game the stats panel can follow: on ESPN's play-by-play.
+        let statsGame = MobileGameStats.supports(watching) ? watching : nil
+        let statsOpen = showsStats && statsGame != nil && previewStream != nil
+        let statsBeside = statsOpen && fillsScreen
         return NavigationStack {
             GeometryReader { viewport in
                 // The preview sits in the same margins as the cards, under the
@@ -164,13 +180,22 @@ struct MobileLiveView: View {
                         leagueBar
                         if previewStream != nil {
                             Color.clear.frame(height: 4 + videoHeight + metadataHeight + timelineHeight)
-                            if let watching {
+                            if statsOpen, let statsGame {
+                                // Upright, the stats take the room under the
+                                // picture that the games had.
+                                MobileGameStatsPanel(stats: gameStats, game: statsGame,
+                                                     onSync: { syncingStats = true },
+                                                     onClose: { toggleStats() })
+                                    .clipShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+                                    .padding(.horizontal, Self.inset).padding(.top, 10).padding(.bottom, 8)
+                                    .transition(.opacity)
+                            } else if let watching {
                                 MobileLiveScoreboard(watching: watching, live: liveEverywhere()) { open($0) }
                                     .padding(.horizontal, Self.inset).padding(.top, 10)
                                     .padding(.bottom, 4)
                             }
                         }
-                        slateList(slate)
+                        if !statsOpen { slateList(slate) }
                     }
                     .allowsHitTesting(!fillsScreen)
                     .accessibilityHidden(fillsScreen)
@@ -202,10 +227,15 @@ struct MobileLiveView: View {
                                 onLastChannel: { if let last = lastChannel { tune(last) } },
                                 channelBanner: channelBanner,
                                 watchingGameID: previewGame?.id,
-                                onWatchGame: { watchGame($0) }
+                                onWatchGame: { watchGame($0) },
+                                onToggleStats: statsGame == nil ? nil : { toggleStats() },
+                                statsShown: statsOpen
                             )
                             .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight,
                                    alignment: .top)
+                            // On its side, the picture makes room for the
+                            // stats beside it rather than going under them.
+                            .padding(.trailing, statsBeside ? Self.statsWidth(viewport) + viewport.safeAreaInsets.trailing : 0)
                             .background(LineupStyle.background)
                             // Squared off like the Guide's own cells until it
                             // fills the screen.
@@ -221,6 +251,19 @@ struct MobileLiveView: View {
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    if statsBeside, let statsGame {
+                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true,
+                                             onSync: { syncingStats = true },
+                                             onClose: { toggleStats() })
+                            .padding(.top, viewport.safeAreaInsets.top)
+                            .frame(width: Self.statsWidth(viewport))
+                            .padding(.trailing, viewport.safeAreaInsets.trailing)
+                            .background(LineupPanelStyle.fill)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                            .ignoresSafeArea()
+                            .transition(.move(edge: .trailing))
                     }
 
                     if leagueMenuOpen && !fillsScreen {
@@ -271,6 +314,32 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .fullScreenCover(item: $multiview) { session in
+                MobileMultiviewView(session: session).environmentObject(library)
+            }
+            .sheet(item: $multiviewPicking, onDismiss: {
+                // Opened once the picker has gone: one full-screen cover
+                // can't come up while a sheet is still leaving.
+                if let first = multiviewFirst, let second = multiviewSecond { launchMultiview([first, second]) }
+                multiviewFirst = nil
+                multiviewSecond = nil
+            }) { game in
+                MobileChannelPicker(library: library, game: game) { stream in
+                    multiviewSecond = MobileMultiviewSession.Tile(stream: stream, game: game)
+                    multiviewPicking = nil
+                }
+            }
+            .sheet(isPresented: $syncingStats) {
+                if let statsGame { MobileStatsSyncSheet(stats: gameStats, game: statsGame) }
+            }
+            // The stats follow the game on screen from the moment it opens,
+            // shown or not, so what the picture needs is there when they are.
+            .task(id: "\(previewGame?.id ?? "")|\(previewStream?.id ?? -1)") {
+                let slot = playbackSlot
+                gameStats.playerLag = { [weak slot] in slot?.controller.secondsBehindLive ?? 0 }
+                gameStats.follow(previewStream == nil ? nil : previewGame, channelID: previewStream?.id)
+                if previewGame == nil { showsStats = false }
+            }
             .fullScreenCover(item: $selectedGameReplay) { selection in
                 MobileGameReplayPlayer(selection: selection).environmentObject(library)
             }
@@ -591,6 +660,12 @@ struct MobileLiveView: View {
             items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
                                         isEnabled: !watching) { open(game) })
             items.append(MobileMenuItem("Channels", symbol: "tv") { showingEventChannels = game })
+            // Beside the game already playing, rather than instead of it.
+            if previewStream != nil && !watching {
+                items.append(MobileMenuItem("Watch Side by Side", symbol: "rectangle.split.2x1") {
+                    watchSideBySide(game)
+                })
+            }
         } else {
             let on = reminders.reminds(game)
             items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -820,6 +895,46 @@ struct MobileLiveView: View {
         playback.shutdown()
         previewStream = nil
         previewGame = nil
+        showsStats = false
+        gameStats.stop()
+    }
+
+    /// The game playing now and this one, side by side. This one's channel
+    /// is the one it would play on its own; without one, it is chosen.
+    private func watchSideBySide(_ game: SportsGame) {
+        guard let current = previewStream else { return }
+        let first = MobileMultiviewSession.Tile(stream: current, game: previewGame)
+        switch library.preferredChannel(for: game) {
+        case .syncing:
+            showsChannelSyncMessage = true
+        case let .play(streamID, _):
+            if let stream = library.stream(withID: streamID) {
+                launchMultiview([first, MobileMultiviewSession.Tile(stream: stream, game: game)])
+            } else {
+                multiviewFirst = first
+                multiviewPicking = game
+            }
+        case .chooseFeed, .pick:
+            multiviewFirst = first
+            multiviewPicking = game
+        }
+    }
+
+    private func launchMultiview(_ tiles: [MobileMultiviewSession.Tile]) {
+        cancelQualityCheck()
+        // Its connection goes before multiview opens two of its own.
+        closePreview()
+        multiview = MobileMultiviewSession(tiles: tiles)
+    }
+
+    private func toggleStats() {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showsStats.toggle() }
+    }
+
+    /// The stats beside a full-screen picture: room for a box score, and
+    /// the picture still the larger part.
+    private static func statsWidth(_ viewport: GeometryProxy) -> CGFloat {
+        min(380, max(300, (viewport.size.width + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing) * 0.38))
     }
 
     /// Full screen is a layout state of the existing preview, not a new player.

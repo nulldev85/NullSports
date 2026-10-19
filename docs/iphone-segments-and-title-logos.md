@@ -28,6 +28,11 @@ existing reporting paths.
 
 Movies with both usable credits and a later post-credit scene show a small
 noninteractive notice during credits. It disappears when the scene begins.
+
+The IntroDB client and segment model live in Lineup/Services and are shared by
+both apps. The Apple TV Library player offers the same Skip Intro and Skip
+Recap prompts, the same credits timing for Next Episode and the same
+post-credits notice, under the same four settings.
 Missing scene data never promises a scene. No automatic credits skip or seek is
 introduced. Timestamp coverage and cut-specific accuracy depend on community
 data; matching IMDb identity does not guarantee every release has the same edit.
@@ -70,7 +75,7 @@ required for the implemented API route.
 
 iPhone configuration checks require the key before dependency resolution and
 again in the packaged app. tvOS keeps an intentionally empty Fanart field and
-does not reference the new iPhone services or UI.
+does not reference the iPhone's Fanart service or UI.
 
 ## Validation
 

@@ -20,16 +20,23 @@ private func onMain(_ body: @escaping @MainActor () -> Void) {
 /// still queued, so the two can never land out of order.
 enum MobileAudioSession {
     private static let queue = DispatchQueue(label: "lineup.audio-session", qos: .userInitiated)
+    /// The players holding the session. With two on screen, one stopping
+    /// mustn't switch the sound off under the other.
+    @MainActor private static var holders = Set<ObjectIdentifier>()
 
-    static func activate() throws {
+    @MainActor
+    static func activate(for holder: AnyObject) throws {
         try queue.sync {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .moviePlayback)
             try session.setActive(true)
         }
+        holders.insert(ObjectIdentifier(holder))
     }
 
-    static func deactivate() {
+    @MainActor
+    static func deactivate(for holder: AnyObject) {
+        guard holders.remove(ObjectIdentifier(holder)) != nil, holders.isEmpty else { return }
         queue.async {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
@@ -162,6 +169,29 @@ final class MobilePlaybackController: ObservableObject {
     private(set) var recordingEndsWithProgramme = false
     /// When a live channel the provider records was paused, to pick up from.
     private var pausedAt: Date?
+    /// This player's sound is off: a picture sharing the screen with
+    /// another, whose sound is on. Held through reconnects and engine
+    /// changes, and through the start gate, which used to switch every
+    /// player's sound back on as its picture came up.
+    var audioMuted = false {
+        didSet { if audioMuted != oldValue { applyMute() } }
+    }
+    /// Leaving the app hands this picture to the system window. Off for a
+    /// picture sharing the screen with another.
+    var allowsPictureInPicture = true {
+        didSet {
+            pipController?.canStartPictureInPictureAutomaticallyFromInline = allowsPictureInPicture
+            aetherSession?.startsPictureInPictureAutomatically = allowsPictureInPicture
+        }
+    }
+    /// The player that owns the system's Now Playing and display. A second
+    /// picture on screen does not.
+    var isPrimaryOutput = true
+    /// Pauses on a channel playing live since it was last opened: the
+    /// picture falls behind the broadcast by each one, however the engine
+    /// then catches up, and nothing shown beside it may run ahead.
+    private var liveHoldSince: Date?
+    private var liveHeldSeconds: TimeInterval = 0
     private var skipTask: Task<Void, Never>?
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
@@ -605,7 +635,7 @@ final class MobilePlaybackController: ObservableObject {
             // Backgrounding an inline player hands it to the system window
             // instead of stopping it. This is what "entering PiP preserves the
             // stream" means in practice: no new item, no new connection.
-            pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+            pipController?.canStartPictureInPictureAutomaticallyFromInline = allowsPictureInPicture
             observePictureInPicturePossible()
         }
     }
@@ -723,14 +753,22 @@ final class MobilePlaybackController: ObservableObject {
         heldSoundSince = nil
         releaseGateOutput()
         switch engine {
-        case .aether: aetherSession?.isMuted = false
+        case .aether: aetherSession?.isMuted = audioMuted
         case .system:
-            systemPlayer.isMuted = false
+            systemPlayer.isMuted = audioMuted
             if systemPlayer.currentItem?.status == .readyToPlay { loading = false }
         case .vlc:
-            player.audio?.isMuted = false
+            player.audio?.isMuted = audioMuted
         }
         videoView?.holdPicture(false)
+    }
+
+    /// The sound as the viewer has it, once the start gate has let it out.
+    private func applyMute() {
+        guard startGateOpen else { return }
+        systemPlayer.isMuted = audioMuted
+        player.audio?.isMuted = audioMuted
+        aetherSession?.isMuted = audioMuted
     }
 
     /// The gate goes with the stream it held: nothing left muted or hidden.
@@ -740,9 +778,9 @@ final class MobilePlaybackController: ObservableObject {
         releaseGateOutput()
         heldSoundSince = nil
         startGateOpen = true
-        systemPlayer.isMuted = false
-        player.audio?.isMuted = false
-        aetherSession?.isMuted = false
+        systemPlayer.isMuted = audioMuted
+        player.audio?.isMuted = audioMuted
+        aetherSession?.isMuted = audioMuted
         videoView?.holdPicture(false)
     }
 
@@ -832,7 +870,7 @@ final class MobilePlaybackController: ObservableObject {
         // transport stream stays queued behind it. Apple TV keeps its own order.
         candidates = MobileEngineSelection.ordered(urls)
         do {
-            try MobileAudioSession.activate()
+            try MobileAudioSession.activate(for: self)
         } catch {
             self.error = "Audio could not start. Please try again."
             loading = false
@@ -863,6 +901,10 @@ final class MobilePlaybackController: ObservableObject {
                     self.confirmWorkingChannel()
                 }
                 if self.engine == .vlc { self.refreshVLCSubtitleTracks() }
+                // VLC can bring its sound output back up unmuted as it
+                // reconnects; a quiet picture stays quiet.
+                if self.audioMuted, self.startGateOpen, self.engine == .vlc,
+                   self.player.audio?.isMuted == false { self.player.audio?.isMuted = true }
                 if self.engine == .aether { self.checkAetherPlayback() }
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
@@ -1007,7 +1049,10 @@ final class MobilePlaybackController: ObservableObject {
         do {
             let session: AetherPlaybackSession
             if let existing = aetherSession { session = existing }
-            else { session = try AetherPlaybackSession(); aetherSession = session }
+            else {
+                session = try AetherPlaybackSession(); aetherSession = session
+                session.startsPictureInPictureAutomatically = allowsPictureInPicture
+            }
             session.onPictureInPictureChange = { [weak self] active in
                 guard let self, self.engine == .aether else { return }
                 self.pictureInPictureChanged(active: active)
@@ -1027,7 +1072,7 @@ final class MobilePlaybackController: ObservableObject {
             }
             session.load(url: url, startPosition: isLive ? nil : openingPlace,
                          isLive: isLive && !sourceIsRecording, expectedDuration: nil,
-                         primary: true, matchContent: false,
+                         primary: isPrimaryOutput, matchContent: false,
                          preferredSubtitleLanguages: isLive || subtitlePreferences.language.isEmpty ? [] : [subtitlePreferences.language])
             applySubtitleAppearance()
             closeStartGate()
@@ -1277,6 +1322,12 @@ final class MobilePlaybackController: ObservableObject {
 
     func toggle() {
         pausedByUser.toggle()
+        if pausedByUser, isLive, catchUp == nil {
+            liveHoldSince = Date()
+        } else if !pausedByUser, let since = liveHoldSince {
+            liveHeldSeconds += Date().timeIntervalSince(since)
+            liveHoldSince = nil
+        }
         if pausedByUser {
             switch engine {
             case .aether: aetherSession?.pause()
@@ -1712,6 +1763,20 @@ final class MobilePlaybackController: ObservableObject {
 
     // MARK: - Catch-up
 
+    /// How far the picture is behind the live broadcast by the viewer's own
+    /// doing: a channel's recording played behind live, or pauses on a
+    /// channel playing live. The stream's own lag behind the broadcast is
+    /// not counted here; the viewer sets that against what they see.
+    var secondsBehindLive: TimeInterval {
+        guard isLive else { return 0 }
+        if let position = catchUpPosition {
+            return max(0, Date().timeIntervalSince(position) - CatchUpPolicy.liveLatency)
+        }
+        var held = liveHeldSeconds
+        if let liveHoldSince { held += Date().timeIntervalSince(liveHoldSince) }
+        return held
+    }
+
     /// What is on screen while a recording plays: a skip's destination while
     /// it waits, else where the stream has got to. Nil while live.
     var catchUpPosition: Date? {
@@ -2060,9 +2125,11 @@ final class MobilePlaybackController: ObservableObject {
         skipTarget = nil
         catchUp = nil
         pausedAt = nil
+        liveHoldSince = nil
+        liveHeldSeconds = 0
         recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        MobileAudioSession.deactivate()
+        MobileAudioSession.deactivate(for: self)
     }
 
     func shutdown() {

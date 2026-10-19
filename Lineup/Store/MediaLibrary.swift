@@ -102,7 +102,8 @@ final class MediaLibrary: ObservableObject {
 
     @Published private(set) var metadataSource: LibraryMetadataSource = .tmdb
     @Published private(set) var episodeDataSource: LibraryMetadataSource = .tvdb
-    #if !os(tvOS)
+    // IntroDB's prompts play on both: Skip Intro, Skip Recap, Next Episode at
+    // the credits and the post-credits notice.
     @Published var introDBEnabled = true {
         didSet { defaults.set(introDBEnabled, forKey: "Lineup.library.introDB.v1") }
     }
@@ -115,6 +116,7 @@ final class MediaLibrary: ObservableObject {
     @Published var postCreditsNoticeEnabled = true {
         didSet { defaults.set(postCreditsNoticeEnabled, forKey: "Lineup.library.postCreditsNotice.v1") }
     }
+    #if !os(tvOS)
     @Published var fanartEnabled = true {
         didSet { defaults.set(fanartEnabled, forKey: "Lineup.library.fanart.v1") }
     }
@@ -280,11 +282,11 @@ final class MediaLibrary: ObservableObject {
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
         metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .tmdb
         episodeDataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.episodesKey) ?? "") ?? .tvdb
-        #if !os(tvOS)
         introDBEnabled = defaults.object(forKey: "Lineup.library.introDB.v1") as? Bool ?? true
         recapSkippingEnabled = defaults.object(forKey: "Lineup.library.skipRecaps.v1") as? Bool ?? true
         creditsPromptEnabled = defaults.object(forKey: "Lineup.library.creditsPrompt.v1") as? Bool ?? true
         postCreditsNoticeEnabled = defaults.object(forKey: "Lineup.library.postCreditsNotice.v1") as? Bool ?? true
+        #if !os(tvOS)
         fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
         betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
         if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
@@ -858,7 +860,6 @@ final class MediaLibrary: ObservableObject {
         return result
     }
 
-    #if !os(tvOS)
     func libraryExternalIdentity(_ item: MediaItem, requiring provider: String = "imdb") async -> MediaItem {
         guard ["imdb", "tmdb", "tvdb"].contains(provider) else { return item }
         let shown = displayItem(item)
@@ -871,7 +872,6 @@ final class MediaLibrary: ObservableObject {
         }
         return item
     }
-    #endif
 
     func items(in parent: MediaItem) async throws -> [MediaItem] {
         if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
