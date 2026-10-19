@@ -12,13 +12,15 @@ struct MobileMenuItem: Identifiable {
     var isSelected = false
     var isEnabled = true
     var isDestructive = false
+    /// The title names playback engines, each led by its logo.
+    var namesEngine = false
     /// Opens in the same panel, in place of the list it is in, with the way
     /// back in its header.
     var children: [MobileMenuSection]?
     var action: () -> Void = {}
 
     init(_ title: String, symbol: String? = nil, id: String? = nil,
-         isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false,
+         isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false, namesEngine: Bool = false,
          children: [MobileMenuSection]? = nil, action: @escaping () -> Void = {}) {
         self.id = id ?? title
         self.title = title
@@ -26,6 +28,7 @@ struct MobileMenuItem: Identifiable {
         self.isSelected = isSelected
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
+        self.namesEngine = namesEngine
         self.children = children
         self.action = action
     }
@@ -163,7 +166,7 @@ struct MobileMenuRow: View {
                 if let symbol = item.symbol {
                     LineupIconTile(symbol: symbol, size: 28)
                 }
-                Text(item.title)
+                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))
                     .font(.inter(16, .semibold))
                     .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
                     .lineLimit(2)

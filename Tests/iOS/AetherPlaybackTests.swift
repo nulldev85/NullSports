@@ -35,7 +35,7 @@ final class AetherPlaybackTests: XCTestCase {
         let quality = try await AetherSourceProbe.quality(url: url, timeout: 5)
         XCTAssertEqual(quality.width, 320)
         XCTAssertEqual(quality.height, 180)
-        // Aether 7.36.0 SourceProbe.videoFrameRate is display-normalized:
+        // Aether 7.40.1 SourceProbe.videoFrameRate is display-normalized:
         // FrameRateSnap maps even an exact 24 fps source to 23.976.
         XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
     }

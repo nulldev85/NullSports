@@ -18,7 +18,7 @@ packages:
     exactVersion: 3.6.0
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
-    exactVersion: 7.36.0
+    exactVersion: 7.40.1
   # Pin binary dependencies too: the license notices and link checks refer to
   # these exact builds, not a future patch selected on a fresh CI runner.
   FFmpegBuild:
@@ -27,12 +27,9 @@ packages:
   LibDovi:
     url: https://github.com/superuser404notfound/LibDovi
     exactVersion: 2.1.0
-  LibTrueHD:
-    url: https://github.com/superuser404notfound/LibTrueHD
-    exactVersion: 2.3.0
-  LibDTSX:
-    url: https://github.com/superuser404notfound/LibDTSX
-    exactVersion: 1.0.1
+  # LibTrueHD and LibDTSX are not pinned: since 7.39 Aether links them only
+  # behind its TrueHDObjectAudio / DTSXObjectAudio package traits, which are off
+  # (Lineup never asks for object audio rendering), so they are not in the app.
 targets:
   # Keep Aether's static engine in a separate dylib, where its FFmpeg symbol
   # references bind to AetherLib* rather than TVVLCKit's embedded FFmpeg.

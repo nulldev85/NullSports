@@ -54,12 +54,12 @@ struct MobileSubtitleSettingsSheet: View {
                             .font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
                     }.padding(14).background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 18))
                         .disabled(controller.engine == .system)
-                    Text(controller.engine == .vlc
+                    PlaybackEngineText(controller.engine == .vlc
                          ? "VLC applies text appearance to the next video. Timing updates immediately."
-                         : "Text appearance applies in this player. Image-based captions and Picture in Picture can use their own appearance.")
+                         : "Text appearance applies in this player. Image-based captions and Picture in Picture can use their own appearance.", style: .caption)
                         .font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
                     if controller.engine == .system {
-                        Text("Subtitle timing requires AetherEngine or VLC.").font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
+                        PlaybackEngineText("Subtitle timing requires AetherEngine or VLC.", style: .caption).font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
                     } else if controller.engine == .aether {
                         Text("Timing adjustments apply in the main player; native Picture in Picture uses the original timing.")
                             .font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)

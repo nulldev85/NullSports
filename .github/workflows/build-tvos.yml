@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    # AetherEngine 7.36.0 is built and tested with Swift 6.4 / Xcode 27.
+    # AetherEngine 7.40.1 is built and tested with Swift 6.4 / Xcode 27.
     runs-on: xcode-27
     timeout-minutes: 45
     steps:

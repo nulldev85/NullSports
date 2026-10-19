@@ -10,11 +10,11 @@ headphones, tone mapping, passthrough or spatial rendering. A 4K/HEVC/10-bit
 picture does not establish HDR. E-AC-3, surround channel count, release names
 and channel names do not establish Atmos.
 
-AetherEngine 7.36.0 supplies `sourceVideoFormat`, `sourceVideoCodecName` and
+AetherEngine 7.40.1 supplies `sourceVideoFormat`, `sourceVideoCodecName` and
 `sourceVideoFrameRate`. Audio follows the selected track ID, using its codec,
 layout, JOC confirmation and decoder profile. Its `isAtmos` covers E-AC-3 JOC;
 TrueHD Atmos and DTS:X use their explicit decoder profiles. See the pinned
-[TrackInfo API](https://github.com/superuser404notfound/AetherEngine/blob/7.36.0/Sources/AetherEngine/PlayerState.swift)
+[TrackInfo API](https://github.com/superuser404notfound/AetherEngine/blob/7.40.1/Sources/AetherEngine/PlayerState.swift)
 and [FFmpeg profile names](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/profiles.c).
 The source format is kept separate from Aether's display-dependent output format.
 
@@ -57,3 +57,20 @@ pause and switch back to ordinary SDR/stereo. Compare preview/fullscreen and
 retune between channels. Verify preview autohide, PiP, subtitles and that the
 compact strip remains separate from transport controls. Source signaling must
 be present for an advanced label to appear.
+
+## Engine logos
+
+Wherever the app names AetherEngine or VLC, the engine's own logo stands in
+front of the name: on the player badges (previews, Multiview, full screen,
+the iPhone player and guide player), in Settings, the Playback Engine picker,
+the player's notices and menus, the subtitle settings and the
+acknowledgements. Apple's player has no logo the app may show, so AVPlayer
+stays a plain label. The playback log and diagnostics are plain text.
+
+`PlaybackEngineMark.text` finds the names in a string and puts each logo
+inline, 1.2 times the font's point size and centred on the capitals, so it
+reads at a glance and wraps with its name. `PlaybackEngineText` does the
+same for a font of a text style, keeping pace with the reader's text size.
+The logos are `Engine-aether` and `Engine-vlc` in each app's asset catalog,
+from each project's own artwork; credits are in
+`BuildAssets/AetherLicenses/README.txt`.

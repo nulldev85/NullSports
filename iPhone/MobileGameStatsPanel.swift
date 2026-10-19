@@ -13,9 +13,24 @@ struct MobileGameStatsPanel: View {
 
     enum StatsSection: String, CaseIterable, Identifiable {
         case plays = "Plays", box = "Box Score", leaders = "Leaders"
+        case courts = "Courts", card = "Fight Card", positions = "Positions"
         var id: String { rawValue }
     }
-    @State private var section: StatsSection = .plays
+    /// Nil until chosen: the first of the game's own.
+    @State private var section: StatsSection?
+
+    /// What a game of this kind has to show, the one to open on first.
+    /// Tennis has the scoreboard and the courts and nothing more: ESPN gives
+    /// a game at a time and no points, too little for a list of plays. The
+    /// games still sync it, from the sync sheet.
+    private var sections: [StatsSection] {
+        switch game.statsSource {
+        case .tennis?: [.courts]
+        case .card?: [.card, .plays]
+        case .race?: [.positions, .plays]
+        default: [.plays, .box, .leaders]
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,27 +53,60 @@ struct MobileGameStatsPanel: View {
             .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
             if let reveal = stats.reveal {
-                scoreboard(reveal)
+                let options = sections
+                let shown = section.flatMap { options.contains($0) ? $0 : nil } ?? options[0]
+                headline(reveal)
                 syncChip(reveal).padding(.horizontal, 16).padding(.top, 10)
                 if let home = reveal.homeWinProbability {
                     WinProbabilityBar(reveal: reveal, home: home).padding(.horizontal, 16).padding(.top, 14)
                 }
-                HStack(spacing: 8) {
-                    ForEach(StatsSection.allCases) { option in
-                        Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
-                            Text(option.rawValue).lineupChip(section == option)
+                // One section needs no tabs to choose it.
+                if options.count > 1 {
+                    HStack(spacing: 8) {
+                        ForEach(options) { option in
+                            Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
+                                Text(option.rawValue).lineupChip(shown == option)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+                } else {
+                    Color.clear.frame(height: 12)
                 }
-                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
                 Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
                 ScrollView {
-                    switch section {
+                    switch shown {
                     case .plays: plays(reveal)
                     case .box: box(reveal)
                     case .leaders: leaders(reveal)
+                    case .courts:
+                        // The newest draw, at once: only the match on
+                        // screen waits for the picture.
+                        if let latest = reveal.latestBoard?.tennis {
+                            let onScreen = latest.focus ?? stats.focus
+                            // A tournament asks which match is on screen; a
+                            // match's own panel already knows.
+                            let pick: ((String) -> Void)? = latest.focus == nil ? { (id: String) in stats.focus = id } : nil
+                            MobileTennisCourts(courts: GameStatsTennisBoard.courts(latest: latest, shown: reveal.board?.tennis,
+                                                                                   onScreen: onScreen),
+                                               onScreen: onScreen, onPick: pick)
+                        } else {
+                            message("No courts yet.", symbol: "sportscourt")
+                        }
+                    case .card:
+                        if let card = reveal.board?.card {
+                            MobileFightCardList(card: card)
+                        } else {
+                            message("The card appears once your stream reaches it.", symbol: "list.bullet")
+                        }
+                    case .positions:
+                        if let race = reveal.board?.race {
+                            MobileRacePositions(race: race, earlier: reveal.earlierBoard?.race)
+                        } else {
+                            message("The order appears once your stream reaches it.", symbol: "list.bullet")
+                        }
                     }
                 }
                 .scrollIndicators(.hidden)
@@ -77,6 +125,41 @@ struct MobileGameStatsPanel: View {
     }
 
     // MARK: Score
+
+    /// The top of the panel: a team game's score, or the board's own.
+    @ViewBuilder
+    private func headline(_ reveal: GameStatsReveal) -> some View {
+        switch reveal.board {
+        case .tennis(let draw)?:
+            MobileTennisHeader(draw: draw, match: draw.focused ?? stats.focus.flatMap { id in
+                draw.matches.first { $0.id == id }
+            })
+        case .card(let card)?: MobileFightHeader(card: card)
+        case .race(let race)?: MobileRaceHeader(race: race)
+        case nil:
+            if let latest = reveal.latestBoard?.tennis {
+                // Not reached yet: who is playing, and nothing of the score.
+                let match = latest.focused ?? stats.focus.flatMap { id in latest.matches.first { $0.id == id } }
+                MobileTennisHeader(draw: latest, match: match?.withheld, catchingUp: true)
+            } else if game.statsSource?.isBoard == true {
+                waitingHeader
+            } else {
+                scoreboard(reveal)
+            }
+        }
+    }
+
+    /// A board not yet reached: what it is, and nothing of how it stands.
+    private var waitingHeader: some View {
+        let title = game.isEvent ? [game.eventName, game.race?.title].compactMap { $0 }.joined(separator: " · ")
+                                 : "\(game.awayTeam) vs \(game.homeTeam)"
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.inter(17, .bold)).lineLimit(2)
+            Text("Held until your stream gets here").font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+    }
 
     private func scoreboard(_ reveal: GameStatsReveal) -> some View {
         HStack(spacing: 10) {
@@ -127,7 +210,8 @@ struct MobileGameStatsPanel: View {
 
     private func syncText(_ reveal: GameStatsReveal) -> String {
         let seconds = Int(stats.totalDelay.rounded())
-        if reveal.catchingUp { return "Catching up to your stream · \(seconds)s" }
+        if reveal.catchingUp { return "Catching up to your stream · \(reveal.catchingUpFor ?? seconds)s" }
+        if stats.needsFocus { return "Pick the match on your screen to sync" }
         return stats.calibrated ? "In sync · your stream is \(seconds)s behind live"
                                 : "Held \(seconds)s behind live · tap to sync"
     }
@@ -136,19 +220,21 @@ struct MobileGameStatsPanel: View {
 
     @ViewBuilder
     private func plays(_ reveal: GameStatsReveal) -> some View {
-        if reveal.plays.isEmpty {
-            message(reveal.state == "pre" ? "Plays appear here once the game starts." : "No plays yet.",
+        let shown = reveal.plays
+        if shown.isEmpty {
+            message(reveal.state == "pre" ? "Plays appear here once it starts."
+                    : (reveal.board == nil ? "No plays yet." : "Plays appear here as they happen."),
                     symbol: "list.bullet")
         } else {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(reveal.plays.prefix(120)) { play in
+                ForEach(shown.prefix(120)) { play in
                     PlayRow(play: play, reveal: reveal, game: game)
                         // Hold a play the moment it shows on screen: the
                         // stats sync to it.
                         .lineupHoldMenu(play.text, symbol: "timer",
                                         message: "Sync the stats to this play.", press: .well,
                                         items: {
-                                            guard play.wallclock != nil else { return [] }
+                                            guard play.timedMoment != nil else { return [] }
                                             return [MobileMenuItem("It Just Happened on My Screen", symbol: "checkmark.circle") {
                                                 stats.sync(to: play)
                                             }]
@@ -235,12 +321,20 @@ private struct PlayRow: View {
         let home = play.teamID == reveal.home.id
         let color = MobileTeamColor.readable(home ? reveal.home.color : (play.teamID == reveal.away.id ? reveal.away.color : nil))
         HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 2).fill(color ?? LineupPanelStyle.divider).frame(width: 3)
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color ?? (play.scoring && play.seen != nil ? LineupStyle.highlight : LineupPanelStyle.divider))
+                .frame(width: 3)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text([play.period, play.clock].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.interDigits(11, .heavy)).foregroundStyle(LineupPanelStyle.quiet)
-                    if play.scoring {
+                    if let badge = play.badge {
+                        Text(badge)
+                            .font(.interDigits(11, .heavy))
+                            .foregroundStyle(play.scoring ? LineupStyle.onHighlight : LineupStyle.text)
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(play.scoring ? LineupStyle.highlight : LineupPanelStyle.well, in: Capsule())
+                    } else if play.scoring {
                         Text("\(SportsGame.code(reveal.away.abbreviation, game.awayTeam)) \(play.awayScore) – \(play.homeScore) \(SportsGame.code(reveal.home.abbreviation, game.homeTeam))")
                             .font(.interDigits(11, .heavy))
                             .foregroundStyle(LineupStyle.onHighlight)
@@ -251,6 +345,10 @@ private struct PlayRow: View {
                 Text(play.text).font(.inter(14, play.scoring ? .semibold : .regular))
                     .foregroundStyle(LineupStyle.text)
                     .fixedSize(horizontal: false, vertical: true)
+                // On a board of several matches or fights, which one.
+                if play.seen != nil, let context = play.drive {
+                    Text(context).font(.inter(12)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -351,12 +449,16 @@ struct MobileStatsSyncSheet: View {
                 .padding(.top, 22)
 
                 Group {
-                    switch step {
-                    case .asking(let play)?: asking(play)
-                    case .waiting(let play)?: waiting(play)
-                    case .synced(let play)?: synced(play, caughtUp: false)
-                    case .caughtUp(let play)?: synced(play, caughtUp: true)
-                    case nil: noPlays
+                    if stats.needsFocus {
+                        pickMatch
+                    } else {
+                        switch step {
+                        case .asking(let play)?: asking(play)
+                        case .waiting(let play)?: waiting(play)
+                        case .synced(let play)?: synced(play, caughtUp: false)
+                        case .caughtUp(let play)?: synced(play, caughtUp: true)
+                        case nil: noPlays
+                        }
                     }
                 }
                 .padding(.top, 18)
@@ -417,7 +519,7 @@ struct MobileStatsSyncSheet: View {
                         stats.sync(to: next)
                         step = .asking(next)
                     } else {
-                        stats.sync(to: play)
+                        stats.caughtUp(past: play)
                         syncs += 1
                         step = .caughtUp(play)
                     }
@@ -449,7 +551,7 @@ struct MobileStatsSyncSheet: View {
                     .foregroundStyle(LineupIconTile.green)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("In sync").font(.inter(18, .bold))
-                    Text(caughtUp
+                    Text(caughtUp || stats.delay == 0
                          ? "Your stream is as current as ESPN's feed. Stats show the moment ESPN has them."
                          : "Your stream is \(Self.duration(stats.delay)) behind live. Lineup remembers this for the channel.")
                         .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
@@ -464,11 +566,42 @@ struct MobileStatsSyncSheet: View {
         }
     }
 
+    /// A tournament with several matches on: which one is on screen.
+    private var pickMatch: some View {
+        VStack(spacing: 10) {
+            Text("Which match is on your screen?").font(.inter(16, .semibold))
+            // Every match that could be on screen, each as the picture has
+            // it or withheld: the one on screen is among them.
+            if let latest = stats.reveal?.latestBoard?.tennis {
+                ForEach(GameStatsTennisBoard.courts(latest: latest, shown: stats.reveal?.board?.tennis, onScreen: nil)
+                    .map(\.match).filter { $0.state == "in" }) { match in
+                    Button {
+                        stats.focus = match.id
+                        begin()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text([match.round, match.court ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.inter(11, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                            MobileTennisMatchBoard(match: match, compact: true)
+                        }
+                        .padding(14)
+                        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private var noPlays: some View {
         VStack(spacing: 10) {
             LineupIconTile(symbol: "list.bullet", size: 34)
-            Text("Syncing works once the game's plays start.").font(.inter(15, .semibold))
-            Text("Until then, stats are held \(Self.duration(stats.delay)) behind live.")
+            Text(stats.reveal?.board == nil ? "Syncing works once the game's plays start."
+                 : "Syncing works once something happens: a game, a round, a lap.")
+                .font(.inter(15, .semibold)).multilineTextAlignment(.center)
+            Text(stats.delay > 0 ? "Until then, stats are held \(Self.duration(stats.delay)) behind live."
+                 : "Until then, stats show the moment ESPN has them.")
                 .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -483,7 +616,12 @@ struct MobileStatsSyncSheet: View {
                 .font(.interDigits(15, .heavy)).foregroundStyle(LineupStyle.highlight)
             Text(play.text).font(.inter(17, .semibold)).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            if let reveal = stats.reveal {
+            if play.seen != nil {
+                // A board's play: what it made, and which match or fight.
+                Text([play.badge, play.drive].compactMap { $0 }.joined(separator: " · "))
+                    .font(.interDigits(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    .multilineTextAlignment(.center)
+            } else if let reveal = stats.reveal {
                 Text("\(reveal.away.abbreviation) \(play.awayScore) – \(play.homeScore) \(reveal.home.abbreviation)")
                     .font(.interDigits(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
             }

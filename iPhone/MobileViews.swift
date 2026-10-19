@@ -757,8 +757,12 @@ private struct MobileAccountView: View {
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
                     NavigationLink { MobilePlaybackSettingsView() } label: {
-                        SettingsRow("Playback Engine", symbol: "play.rectangle",
-                                    value: (MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title)
+                        SettingsRow(title: "Playback Engine", symbol: "play.rectangle") {
+                            PlaybackEngineText((MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title, size: 17)
+                                .font(.inter(17))
+                                .foregroundStyle(LineupPanelStyle.listValue)
+                                .lineLimit(1)
+                        }
                     }
                     NavigationLink {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
@@ -802,7 +806,7 @@ private struct MobilePlaybackSettingsView: View {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
                         HStack {
-                            Text(choice.title).foregroundStyle(LineupStyle.text)
+                            PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
@@ -813,7 +817,7 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                Text("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.")
+                PlaybackEngineText("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -827,9 +831,14 @@ private struct MobilePlaybackSettingsView: View {
 private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
-            Text(AetherPlaybackSession.openSourceNotices())
-                .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 16) {
+                PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", style: .subheadline)
+                    .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(AetherPlaybackSession.openSourceNotices())
+                    .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding(20)
         }
         .background(LineupStyle.background)
         .navigationTitle("Acknowledgements")
