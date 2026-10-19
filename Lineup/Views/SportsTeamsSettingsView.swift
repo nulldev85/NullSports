@@ -3,7 +3,7 @@ import SwiftUI
 /// Settings and game menus share SportsLibrary's provider-scoped follows.
 /// This directory is independent of today's schedule and network state.
 struct SportsTeamsSettingsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var selectedLeague: SportsLeague? = .nfl
@@ -235,7 +235,7 @@ private struct SportsTeamLeagueLogo: View {
 }
 
 private struct SportsTeamFollowButton: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let team: FollowedTeam
     var showsLeague = false
     private var following: Bool { library.isFollowing(team.key) }

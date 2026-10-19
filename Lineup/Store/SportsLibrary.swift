@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Observation
 
 /// The one-file cache every install before this one wrote. Still read, once,
 /// so an upgrade does not cost a viewer their channel list and a cold fetch;
@@ -85,31 +86,43 @@ private struct RestoredLibrary: Sendable {
 }
 
 @MainActor
-final class SportsLibrary: ObservableObject {
+@Observable
+final class SportsLibrary {
     /// The fields a cached channel list was read with: 2 since channels
     /// carried catch-up. See `LibraryState.channelFormat`.
     nonisolated static let channelFormat = 2
-    @Published private(set) var isSwitchingProfile = false
+    private(set) var isSwitchingProfile = false
     private let profileDefaults: UserDefaults
-    @Published private(set) var profiles: [XtreamProfile] = []
-    @Published var activeProfile: XtreamProfile?
-    @Published private(set) var categories: [XtreamCategory] = []
-    @Published private(set) var streams: [XtreamStream] = [] {
-        didSet { streamIndexCache = nil }
+    private(set) var profiles: [XtreamProfile] = []
+    var activeProfile: XtreamProfile?
+    private(set) var categories: [XtreamCategory] = []
+    private(set) var streams: [XtreamStream] = [] {
+        didSet { streamIndexCache = nil; streamsRevision &+= 1 }
     }
-    @Published private(set) var professionalStreams: [XtreamStream] = []
-    @Published private(set) var programsByChannel: [String: [CurrentProgram]] = [:]
-    @Published private(set) var favoriteStreamOrder: [Int] = []
-    @Published private(set) var teamPreferences = TeamChannelPreferences()
-    @Published private(set) var gameChannelSelections = GameChannelSelections()
-    @Published private(set) var recentStreamOrder: [Int] = []
-    @Published private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:]
-    @Published private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
-    @Published private(set) var scheduleErrorMessage: String?
-    @Published private(set) var isScheduleLoading = false
-    @Published private(set) var isLoading = false
-    @Published private(set) var isGuideLoading = false
-    @Published var errorMessage: String?
+    /// Moves with every new channel list, for what is worked out from one.
+    private(set) var streamsRevision = 0
+    private(set) var professionalStreams: [XtreamStream] = []
+    private(set) var programsByChannel: [String: [CurrentProgram]] = [:] {
+        didSet { guideRevision &+= 1 }
+    }
+    /// Moves with every new guide.
+    private(set) var guideRevision = 0
+    private(set) var favoriteStreamOrder: [Int] = []
+    private(set) var teamPreferences = TeamChannelPreferences()
+    private(set) var gameChannelSelections = GameChannelSelections()
+    private(set) var recentStreamOrder: [Int] = []
+    private(set) var gamesByLeague: [SportsLeague: [SportsGame]] = [:] {
+        didSet { gamesRevision &+= 1 }
+    }
+    /// Moves with every new schedule, for what looks at each one as it
+    /// comes: game alerts and reminders.
+    private(set) var gamesRevision = 0
+    private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
+    private(set) var scheduleErrorMessage: String?
+    private(set) var isScheduleLoading = false
+    private(set) var isLoading = false
+    private(set) var isGuideLoading = false
+    var errorMessage: String?
     /// How far a refresh of the channel list, the guide and the matches has
     /// got, for the "Refreshing Data" pop-up. Watched by the pop-up alone.
     let refreshProgress = DataRefreshProgress()
@@ -136,36 +149,36 @@ final class SportsLibrary: ObservableObject {
     private let recentsKey = "NullSports.recentChannels"
     private let scheduleKey = "NullSports.lastGoodSchedule"
     private var leagueStreamCache: [SportsLeague: [XtreamStream]] = [:]
-    @Published private var sportsIndexReady = false
-    @Published private var channelsValidatedThisSession = false
-    @Published private var guideValidatedThisSession = false
-    @Published private var scheduleValidatedLeagues: Set<SportsLeague> = []
-    @Published private var gameStreamCache: [String: XtreamStream] = [:]
-    private var measuredPlaybackURLs: [String: (url: URL, expires: Date)] = [:]
-    private var eventChannelCache: [String: (channels: [LiveEventChannel], expires: Date)] = [:]
-    @Published private var matchEvidenceScores: [String: Int] = [:]
-    @Published private var didCompleteMatching = false
+    private var sportsIndexReady = false
+    private var channelsValidatedThisSession = false
+    private var guideValidatedThisSession = false
+    private var scheduleValidatedLeagues: Set<SportsLeague> = []
+    private var gameStreamCache: [String: XtreamStream] = [:]
+    @ObservationIgnored private var measuredPlaybackURLs: [String: (url: URL, expires: Date)] = [:]
+    @ObservationIgnored private var eventChannelCache: [String: (channels: [LiveEventChannel], expires: Date)] = [:]
+    private var matchEvidenceScores: [String: Int] = [:]
+    private var didCompleteMatching = false
     // Same-day matches can be released before the large XMLTV download finishes,
     // after the fresh schedule and channel list confirm their inputs.
-    @Published private var fastValidatedGameIDs: Set<String> = []
-    private var restoredMatchGameIDs: Set<String> = []
-    private var lastUnmatchedProviderRefresh: Date?
-    private var gameMatchSignatures: [String: String] = [:]
+    private var fastValidatedGameIDs: Set<String> = []
+    @ObservationIgnored private var restoredMatchGameIDs: Set<String> = []
+    @ObservationIgnored private var lastUnmatchedProviderRefresh: Date?
+    @ObservationIgnored private var gameMatchSignatures: [String: String] = [:]
     private var matchedGameIdentities: [String: [String]] = [:]
     private var indexGeneration = UUID()
-    private var matchGeneration = UUID()
+    @ObservationIgnored private var matchGeneration = UUID()
     #if os(iOS)
     private let mobileSportsWork = MobileSportsWork()
     private let mobileIndexFacts = SportsIndexFacts()
     private var mobileEventCandidates: (generation: UUID, identities: [String: [String]],
         games: [String: Set<Int>], collegePool: Set<Int>)?
     #endif
-    private var guideListCache: (category: String?, favorites: Bool, recents: Bool, query: String, streams: [XtreamStream])?
-    private var didRestoreSchedule = false
-    private var scheduleDay: Date?
+    @ObservationIgnored private var guideListCache: (category: String?, favorites: Bool, recents: Bool, query: String, streams: [XtreamStream])?
+    @ObservationIgnored private var didRestoreSchedule = false
+    @ObservationIgnored private var scheduleDay: Date?
     private var bootstrapInFlight = false
     private var libraryRefreshInFlight = false
-    @Published private var channelMatchingWorkCount = 0 {
+    private var channelMatchingWorkCount = 0 {
         didSet {
             #if !os(iOS)
             // Matching a refresh sets off is part of it. Matching on its own
@@ -175,37 +188,37 @@ final class SportsLibrary: ObservableObject {
             #endif
         }
     }
-    private var cacheWriteTask: Task<Void, Never>?
-    private var guideRefresh: Task<Void, Never>?
+    @ObservationIgnored private var cacheWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var guideRefresh: Task<Void, Never>?
     /// Discards the answer from a promote pass that a newer one has overtaken.
-    private var promoteGeneration = UUID()
+    @ObservationIgnored private var promoteGeneration = UUID()
     /// Digests of what the server last sent for each list, carried across
     /// launches in the state file. A refresh that gets the same bytes back
     /// stops at the digest: nothing is decoded, compared, or written.
-    private var categoriesDigest: String?
-    private var streamsDigest: String?
-    private var guideDigest: String?
+    @ObservationIgnored private var categoriesDigest: String?
+    @ObservationIgnored private var streamsDigest: String?
+    @ObservationIgnored private var guideDigest: String?
     /// What is already on disk, so a write can be skipped when it would put
     /// back exactly what is there. Set when a file is read and when one is
     /// written; nil means "unknown", which writes.
-    private var savedChannelsDigest: String?
-    private var savedGuideDigest: String?
+    @ObservationIgnored private var savedChannelsDigest: String?
+    @ObservationIgnored private var savedGuideDigest: String?
     /// Set when a one-file cache was read, cleared once the three files that
     /// replace it have been written.
-    private var legacyCacheNeedsRetiring = false
+    @ObservationIgnored private var legacyCacheNeedsRetiring = false
     /// Held while a provider refresh is running *behind* restored cache, so a
     /// second one cannot start on top of it. The screen stays usable
     /// throughout, which is why nothing here feeds `channelsAreSyncing`.
-    private var backgroundRefresh: Task<Void, Never>?
-    private var scheduleWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var backgroundRefresh: Task<Void, Never>?
+    @ObservationIgnored private var scheduleWriteTask: Task<Void, Never>?
     /// When matching last ran, for the rematch a score-only refresh waits on.
-    private var lastMatchingPass = Date.distantPast
+    @ObservationIgnored private var lastMatchingPass = Date.distantPast
     private var scheduleRefreshInFlight = false
-    private var lastSavedMatchIdentities: [String: [String]] = [:]
-    private var lastSavedMatchDay: Date?
+    @ObservationIgnored private var lastSavedMatchIdentities: [String: [String]] = [:]
+    @ObservationIgnored private var lastSavedMatchDay: Date?
     private var guideUpdatedAt: Date?
     private var libraryUpdatedAt: Date?
-    private var tomorrowScheduleUpdatedAt: Date?
+    @ObservationIgnored private var tomorrowScheduleUpdatedAt: Date?
     private let guideLifetime: TimeInterval = 3 * 60 * 60
     private let libraryLifetime: TimeInterval = 6 * 60 * 60
     private let tomorrowScheduleLifetime: TimeInterval = 3 * 60 * 60
@@ -738,8 +751,12 @@ final class SportsLibrary: ObservableObject {
             fastValidatedGameIDs = []
         }
         if forceGuide && invalidatesSession { guideValidatedThisSession = false }
-        isLoading = refreshChannels && streams.isEmpty
-        errorMessage = nil
+        // Set only when they change: a refresh for a game still looking for
+        // its channel runs every two minutes around its start, and each
+        // change redraws whatever watches the library.
+        let loading = refreshChannels && streams.isEmpty
+        if isLoading != loading { isLoading = loading }
+        if errorMessage != nil { errorMessage = nil }
         let client = XtreamClient(profile: profile, password: password)
         if forceGuide { refreshGuide(client: client, profileID: profile.id) }
         guard refreshChannels else { return }
@@ -829,16 +846,16 @@ final class SportsLibrary: ObservableObject {
                                     { await rebuildProfessionalStreams() })
             }
             guard activeProfile?.id == profile.id else { return }
-            channelsValidatedThisSession = true
+            if !channelsValidatedThisSession { channelsValidatedThisSession = true }
             await promoteCachedMatchesIfSafe()
-            isLoading = false
+            if isLoading { isLoading = false }
             saveCache(profileID: profile.id)
         } catch {
             #if os(iOS)
             progress.fail(channelWork)
             #endif
             guard activeProfile?.id == profile.id else { return }
-            isLoading = false
+            if isLoading { isLoading = false }
             if streams.isEmpty { errorMessage = error.localizedDescription }
         }
     }
@@ -936,7 +953,7 @@ final class SportsLibrary: ObservableObject {
                                     { await self.rebuildProfessionalStreams() })
             }
             guard self.activeProfile?.id == profileID else { return }
-            self.guideValidatedThisSession = true
+            if !self.guideValidatedThisSession { self.guideValidatedThisSession = true }
             self.saveCache(profileID: profileID)
         }
         guideRefresh = task
@@ -1284,11 +1301,10 @@ final class SportsLibrary: ObservableObject {
                     await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
                 }
                 guard self.activeProfile?.id == profileID else { return }
-                // Only when it adds one: every change to it redraws whatever
-                // watches the library.
-                if !snapshot.loadedLeagues.isSubset(of: self.scheduleValidatedLeagues) {
-                    self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
-                }
+                // Set on every refresh, even unchanged: the rows that read it are
+                // redrawn by it, which is what moves a game to live as its start
+                // time passes when nothing in the schedule did.
+                self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
                 await self.promoteCachedMatchesIfSafe()
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
                 if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
@@ -1309,6 +1325,14 @@ final class SportsLibrary: ObservableObject {
     func scheduleAvailable(for league: SportsLeague?) -> Bool {
         if let league { return scheduleLoadedLeagues.contains(league) }
         return Set(SportsLeague.allCases).isSubset(of: scheduleLoadedLeagues)
+    }
+
+    /// What `eventChannels(for:)` is worked out from, for a view showing its
+    /// answer that should ask again when any of it moves.
+    var eventChannelsInputs: [AnyHashable] {
+        [activeProfile?.id, indexGeneration, streamsRevision, guideRevision, gamesRevision,
+         scheduleValidatedLeagues, didCompleteMatching, channelsValidatedThisSession,
+         guideValidatedThisSession, sportsIndexReady, fastValidatedGameIDs, channelsAreSyncing]
     }
 
     func stream(for game: SportsGame) -> XtreamStream? {
@@ -2194,7 +2218,9 @@ final class SportsLibrary: ObservableObject {
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
         if matchEvidenceScores != result.3 { matchEvidenceScores = result.3 }
-        if !didCompleteMatching { didCompleteMatching = true }
+        // Every pass, changed or not: what reads it also reads the match
+        // identities a pass rewrites.
+        didCompleteMatching = true
         #if os(iOS)
         mobileEventCandidates = (sourceGeneration,
             Dictionary(games.map { ($0.id, Self.matchIdentity($0)) }, uniquingKeysWith: { first, _ in first }),
@@ -2381,7 +2407,7 @@ final class SportsLibrary: ObservableObject {
 
     /// Whose games these are. Read by the Live tab to decide what goes at the
     /// top, and by reminders to decide what is worth saying.
-    @Published private(set) var followedTeams = FollowedTeams()
+    private(set) var followedTeams = FollowedTeams()
 
     func isFollowing(_ game: SportsGame) -> Bool {
         if let racing = game.racingFollow { return followedTeams.contains(racing.key) }
@@ -2497,7 +2523,7 @@ final class SportsLibrary: ObservableObject {
     /// the list changes. A provider can have tens of thousands of channels,
     /// and finding one used to mean reading through all of them -- on the
     /// main thread, while screens drew.
-    private var streamIndexCache: [Int: XtreamStream]?
+    @ObservationIgnored private var streamIndexCache: [Int: XtreamStream]?
     private var streamIndex: [Int: XtreamStream] {
         if let streamIndexCache { return streamIndexCache }
         let built = Dictionary(streams.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -2720,7 +2746,7 @@ final class SportsLibrary: ObservableObject {
     }
 
     /// The server's time zone for the active provider, found once a session.
-    private var catchUpZoneCache: (profileID: UUID, zone: TimeZone)?
+    @ObservationIgnored private var catchUpZoneCache: (profileID: UUID, zone: TimeZone)?
 
     /// The server's time zone, which catch-up addresses are written in: as
     /// the account's own details state it, else as a channel's catch-up
@@ -2802,7 +2828,7 @@ final class SportsLibrary: ObservableObject {
     /// every call. Stream addresses are built while screens draw -- the Live
     /// tab's preview builds one on every redraw -- and each keychain read is
     /// a round trip to another process on the main thread.
-    private var passwordCache: (profileID: UUID, password: String)?
+    @ObservationIgnored private var passwordCache: (profileID: UUID, password: String)?
 
     private func password(for profile: XtreamProfile) -> String? {
         if let passwordCache, passwordCache.profileID == profile.id { return passwordCache.password }

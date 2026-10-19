@@ -43,7 +43,7 @@ final class PlaybackEngineTests: XCTestCase {
                     if position == 615, !didReport { didReport = true; reported.fulfill() }
                     if position == 617, !didClose { didClose = true; closed.fulfill() }
                 }, playbackController: controller)
-                .environmentObject(SportsLibrary(profileDefaults: fixture.defaults))
+                .environment(SportsLibrary(profileDefaults: fixture.defaults))
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let previous = scene.windows.first(where: \.isKeyWindow)
             let window = UIWindow(windowScene: scene)

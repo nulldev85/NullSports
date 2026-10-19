@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MobileLiveView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -323,7 +323,7 @@ struct MobileLiveView: View {
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
             .fullScreenCover(item: $multiview) { session in
-                MobileMultiviewView(session: session).environmentObject(library)
+                MobileMultiviewView(session: session).environment(library)
             }
             .sheet(item: $multiviewPicking, onDismiss: {
                 // Opened once the picker has gone: one full-screen cover
@@ -349,7 +349,7 @@ struct MobileLiveView: View {
                 if previewGame == nil { showsStats = false }
             }
             .fullScreenCover(item: $selectedGameReplay) { selection in
-                MobileGameReplayPlayer(selection: selection).environmentObject(library)
+                MobileGameReplayPlayer(selection: selection).environment(library)
             }
             .sheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
                 sportsCatchUpSheet(channel)
@@ -738,7 +738,7 @@ struct MobileLiveView: View {
             pendingCatchUp = channel.selection(for: program)
             catchUpChannel = nil
         }
-        .environmentObject(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
+        .environment(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
     }
 
     private func finishCatchUpSelection() {

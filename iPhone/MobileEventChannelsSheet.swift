@@ -37,7 +37,7 @@ struct MobileEventChannelsSheet: View {
             .presentationBackground(LineupStyle.background)
             .presentationDragIndicator(.visible)
             .onAppear { reload() }
-            .onReceive(library.objectWillChange) { _ in reload() }
+            .onChange(of: library.eventChannelsInputs) { reload() }
             .onDisappear { reloadTask?.cancel() }
     }
 

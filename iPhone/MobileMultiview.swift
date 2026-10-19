@@ -32,7 +32,7 @@ enum MobileMultiviewLayout: String {
 /// Tap a picture to hear it. Double-tap it to make it the large one. The
 /// controls along the top -- close, layout, swap -- come and go with a tap.
 struct MobileMultiviewView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -55,6 +55,9 @@ struct MobileMultiviewView: View {
     /// The quiet tile, stopped while the app is away and opened again on its
     /// return: no sense decoding a picture nobody can see or hear.
     @State private var restInBackground = false
+    /// The phone is running hot: the muted picture is held down where its
+    /// stream allows. The heard one never is.
+    @State private var runningHot = MobileMultiviewView.isHot
 
     init(session: MobileMultiviewSession) {
         self.session = session
@@ -106,6 +109,11 @@ struct MobileMultiviewView: View {
         .onAppear(perform: begin)
         .onDisappear(perform: end)
         .onChange(of: scenePhase) { _, phase in sceneChanged(active: phase == .active) }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
+            .receive(on: RunLoop.main)) { _ in
+            runningHot = Self.isHot
+            holdQuietTileDown()
+        }
         // The screen stays on while the pictures play; either player
         // stopping or reconnecting would otherwise let it sleep.
         .task {
@@ -204,6 +212,17 @@ struct MobileMultiviewView: View {
         guard audible != index else { return }
         audible = index
         for (tile, controller) in players.tiles.enumerated() { controller.audioMuted = tile != index }
+        holdQuietTileDown()
+    }
+
+    private static var isHot: Bool {
+        ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+    }
+
+    private func holdQuietTileDown() {
+        for (tile, controller) in players.tiles.enumerated() {
+            controller.holdsQualityDown = runningHot && tile != audible
+        }
     }
 
     /// The tapped picture becomes the large one, and the one heard.
@@ -243,6 +262,7 @@ struct MobileMultiviewView: View {
             controller.audioMuted = index != audible
             if let game = session.tiles[index].game { controller.failover = failover(for: game, tile: index) }
         }
+        holdQuietTileDown()
         // One after the other, a moment apart: the preview has only just
         // let its connection go, and a provider counts a closing stream
         // until it has closed.

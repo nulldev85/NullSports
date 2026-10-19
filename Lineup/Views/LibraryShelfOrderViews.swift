@@ -8,7 +8,7 @@ import SwiftUI
 /// carried with up and down, and set down with Select again; holding Select
 /// renames it.
 struct LibraryShelfOrderSheet: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MediaLibrary.LibraryRow] = []
     /// The row being renamed, and the name being typed for it.

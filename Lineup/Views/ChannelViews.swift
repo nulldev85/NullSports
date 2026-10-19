@@ -3,7 +3,7 @@ import UIKit
 import LineupAetherPlayback
 
 struct LiveView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.scenePhase) private var scenePhase
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
@@ -333,7 +333,7 @@ private struct TVPickedChannel: Identifiable {
 /// always for either team -- the iPhone's question, asked wherever a channel
 /// is chosen on the television.
 private struct TVChannelScopePrompt: ViewModifier {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Binding var picked: TVPickedChannel?
 
     func body(content: Content) -> some View {
@@ -386,7 +386,7 @@ extension EnvironmentValues {
 /// match and the channels saved for either team -- and the chosen list
 /// across the rest, each channel with what it is showing now.
 private struct ManualGameChannelPicker: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     /// Nil until one is chosen: Suggested when there is anything to
@@ -617,7 +617,7 @@ private struct ManualGameChannelPicker: View {
 /// rather than a rail of their own, so there is nothing for a sideways press
 /// to land on by accident and change what is listed.
 private struct TVCatchUpScreen: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let stream: XtreamStream
     let onSelect: (CatchUpProgramme) -> Void
     @State private var programmes: [CatchUpProgramme] = []
@@ -1132,7 +1132,7 @@ private final class LiveSpotlight: ObservableObject {
 /// reads like a broadcast while the remote moves. Select cuts the monitor to
 /// that game's feed; select again takes it full screen.
 private struct LiveScreen: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     @Binding var soccerCompetition: String?
@@ -1252,7 +1252,7 @@ private struct LiveCanvas: View {
 
 /// The monitor. A slate while nothing is playing, the feed while one is.
 private struct LiveMonitor: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var spotlight: LiveSpotlight
     let events: [SportsGame]
@@ -1717,7 +1717,7 @@ private struct LiveTallyChip: View {
 /// following happens, because a hold-Select menu is not something anyone finds
 /// by accident.
 private struct LiveMyTeams: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let events: [SportsGame]
     let spotlight: LiveSpotlight
     let previewGameID: String?
@@ -2023,7 +2023,7 @@ private struct LiveTag: View {
 /// wherever a game is -- the rail is empty until somebody is followed, so a
 /// follow that lived only there could never be reached on a fresh install.
 private struct LiveGameMenu: ViewModifier {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
     @State private var showingRaceDetails = false
@@ -2071,7 +2071,7 @@ private struct LiveGameMenu: ViewModifier {
 /// the focus tree rather than being built on demand, because a row that does
 /// not exist yet is a row Up cannot find.
 private struct LiveMatchupBoard: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     let spotlight: LiveSpotlight
@@ -2366,7 +2366,7 @@ private struct LiveMatchupGrid: View {
 
 /// One matchup on the board.
 private struct LiveMatchupCard: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @FocusState private var focused: Bool
     let game: SportsGame
     let isOnScreen: Bool
@@ -2597,7 +2597,7 @@ private func liveAccessibilityLabel(_ game: SportsGame) -> String {
 }
 
 private struct LiveSelectedPreview: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @StateObject private var controller = TVPlaybackController()
     @State private var choosingGame: SportsGame?
     @State private var pickedChannel: TVPickedChannel?
@@ -2968,7 +2968,7 @@ private struct EmptySchedule: View {
 }
 
 private struct GameEventCard: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
     @FocusState private var isFocused: Bool
@@ -3173,7 +3173,7 @@ private enum GuidePalette {
 }
 
 struct GuideView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     var isActive = true
     @FocusState private var gridFocus: GuideGridFocus?
     @FocusState private var sidebarFocus: String?
@@ -3960,7 +3960,7 @@ private struct MultiviewSession: Identifiable {
 }
 
 private struct GuideSidebar: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
     let focus: FocusState<String?>.Binding
@@ -4203,7 +4203,7 @@ private struct GuideLeftBoundary: ViewModifier {
 
 private struct GuideChannelRow: View {
     @Environment(\.guideLayout) private var layout
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let stream: XtreamStream
     let favoritesMode: Bool
     let now: Date
@@ -4346,7 +4346,7 @@ private struct GuideChannelArtwork: View {
 /// Remote-friendly freeform ordering: select a channel to pick it up, focus any
 /// destination, then select again to drop it at that position.
 private struct TVFavoritesOrderView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var pickedStreamID: Int?
     @FocusState private var focusedStreamID: Int?
@@ -4695,8 +4695,8 @@ private struct GuideProgressBar: View {
 /// every edge on the screen lines up with another.
 struct AccountView: View {
     @Binding var selectedTab: Int
-    @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
     @State private var choosingProvider = false
@@ -4761,19 +4761,19 @@ struct AccountView: View {
                 } + [TVChoice("Add TV Source", symbol: "plus", id: "add-provider") { addingProvider = true }]
             }
             .sheet(isPresented: $addingProvider) {
-                ProfileSetupView().environmentObject(library)
+                ProfileSetupView().environment(library)
             }
             .sheet(isPresented: $addingMediaServer) {
-                MediaServerSetupView().environmentObject(media)
+                MediaServerSetupView().environment(media)
             }
             .sheet(isPresented: $configuringMDBList) {
-                MDBListIntegrationView().environmentObject(media)
+                MDBListIntegrationView().environment(media)
             }
             .sheet(isPresented: $managingTeamChannels) {
-                TVPreferredChannelsView().environmentObject(library)
+                TVPreferredChannelsView().environment(library)
             }
             .fullScreenCover(isPresented: $managingTeams) {
-                SportsTeamsSettingsView().environmentObject(library)
+                SportsTeamsSettingsView().environment(library)
             }
             .fullScreenCover(isPresented: $choosingAccent, onDismiss: {
                 if let hex = pendingAccent {
@@ -5007,7 +5007,7 @@ struct AccountView: View {
                     action: "Choose Catalog",
                     actionSymbol: "slider.horizontal.3"
                 ) {
-                    LibraryHeroSettingsView().environmentObject(media)
+                    LibraryHeroSettingsView().environment(media)
                 }
                 .disabled(!media.hasAnySource)
                 catalogs
@@ -5018,7 +5018,7 @@ struct AccountView: View {
                 detail: "Movie and show metadata: \(media.metadataSource.title) · Episode data: \(media.episodeDataSource.title)",
                 action: "Choose Sources", actionSymbol: "slider.horizontal.3"
             ) {
-                LibraryMetadataSettingsView().environmentObject(media)
+                LibraryMetadataSettingsView().environment(media)
             }
         }
     }
@@ -5361,7 +5361,7 @@ private struct AccountGlyph: View {
 /// is doing -- whether it answers and what it holds -- rather than offering a
 /// choice between them.
 private struct AccountServerRow: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let profile: MediaServerProfile
 
     var body: some View {
@@ -5444,7 +5444,7 @@ private struct AccountTile<Destination: View>: View {
 /// and a press to forget it. The iPhone's Preferred Channels, on the
 /// television.
 private struct TVPreferredChannelsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var forgetting: TeamChannelEntry?
     @State private var clearingAll = false
@@ -5734,7 +5734,7 @@ private struct TVPlaybackJournalRow: View {
 /// Why each game matched the channel it did. A game that opens the wrong feed
 /// should be able to name the rule that chose it, without a device log.
 private struct MatchDiagnosticsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
 
     private var games: [SportsGame] {
         library.games(for: nil).filter { $0.isLive || $0.isUpcoming }
@@ -5764,7 +5764,7 @@ private struct MatchDiagnosticsView: View {
 }
 
 private struct MatchDiagnosticsRow: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @FocusState private var focused: Bool
     let game: SportsGame
 
@@ -5877,7 +5877,7 @@ private struct MultiviewChannelChoice: Identifiable {
 /// sheet -- the sound stays where it was rather than going quiet.
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @StateObject private var players = MultiviewPlayers()
     @AppStorage("Lineup.multiviewLayout") private var storedLayout = MultiviewLayout.sideBySide.rawValue
     @FocusState private var focusedTile: Int?
@@ -6517,7 +6517,7 @@ private struct TVPostCreditsNotice: View {
 
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let urls: [URL]
     var title: String = "Live TV"
     var program: CurrentProgram? = nil

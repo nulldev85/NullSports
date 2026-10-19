@@ -30,8 +30,9 @@ channel and name it in the guide, and every five minutes after.
 Setting a published value redraws whatever watches it, even when the value
 is the same. These are now set only when they change:
 
-- the leagues the schedule has confirmed, set on every refresh;
-- the evidence for each match and the matching-done flag, set on every pass;
+- the evidence for each match, set on every pass;
+- the loading flags, the error and the "validated" flags a provider refresh
+  sets, every two minutes around a game still looking for its channel;
 - the iCloud sync status, set every 90 seconds by the app's root view,
   including in builds that can't sync at all.
 
@@ -51,6 +52,77 @@ playing sound alone, with nothing showing the stats. It now waits until
 the app is back, then asks at once. What changed meanwhile is placed
 between the two answers as always, so nothing shows early.
 
+## Screens redraw only for what they show (both apps)
+
+`SportsLibrary` and `MediaLibrary` were `ObservableObject`s: any change to
+either redrew every screen that held it, the app's root included, whatever
+the screen read. They are `@Observable` now, so a screen is redrawn only
+when something it read changes. A score no longer redraws the Library, a
+Library load no longer redraws the Sports tab, and neither redraws the
+app's root.
+
+What was observed before is observed now, and a little more:
+
+- Every `@Published` property is an observed property.
+- Other stored state stays unobserved (`@ObservationIgnored`) when it is
+  internal: tasks, generations, digests, and caches filled while a screen
+  reads them. Writing to an observed property while a screen draws would
+  draw it again.
+- State a screen shows but that never announced itself is observed now,
+  where before a screen saw it only when something else happened to
+  change: whether a refresh is under way (which feeds "syncing"), when the
+  channels and guide were last fetched, the match identities playback
+  checks against, a show's episodes, title details and counterparts on
+  other servers.
+- The provider's VOD list lives in `ProviderVOD`, which nothing observes.
+  `providerCatalogRevision` moves each time it comes in, so the shelf
+  picker and a provider episode's show cover are drawn again, as they were
+  when the whole library announced every change.
+- The schedule's confirmed leagues and the matching-done flag are still
+  set on every refresh and every pass, changed or not. Under Observation
+  that is exactly what redraws a game's row when its start time passes and
+  nothing in the schedule moved.
+
+Where something listened to every change it now listens to what it needs:
+`gamesRevision` (game alerts, reminders), `streamsRevision` and favorites
+(the channel picker), and `eventChannelsInputs`, everything the event
+channel list is worked out from.
+
+## The guide download (both apps)
+
+An unchanged guide was already not parsed again, and its cache not
+rewritten. It was still downloaded whole every refresh: about 100 MB for
+the user's provider, and every two minutes around the start of a game
+still looking for its channel. The guide is too big for the shared URL
+cache, so `GuideValidators` keeps the server's `ETag` and `Last-Modified`
+for the guide the app holds and asks whether it changed. A server that
+keeps them answers 304 with nothing; one that doesn't sends the guide as
+before. Validators are stored by a digest of the address, which carries
+the account's password.
+
+## Multiview when the phone runs hot (iPhone)
+
+At a serious thermal state the muted picture is held to about 540p and
+2.5 Mbps; the heard one never is. Only Apple's player can lower a stream,
+and only one that offers more than one quality, so a single-quality
+stream, or one on AetherEngine or VLC, plays as before. The playback log
+records it when diagnostics are on.
+
+## Device reports (iPhone)
+
+Settings > Diagnostics > Device Reports shows Apple's MetricKit reports:
+launch time, return from background, hangs, scroll hitches, CPU, data,
+memory and storage written, one a day at most. The last fourteen are kept
+on the phone. This is how the effect of these changes shows on a device.
+
+## Faster builds (CI)
+
+The iPhone workflow ran the simulator tests and then the release build,
+about 24 and 6 minutes, one after the other. They now run side by side as
+two jobs. The release build is uploaded as a candidate and published as
+`Lineup-iPhone-unsigned-IPA` only when the tests pass, by a short job that
+renames it, so a red run still publishes nothing. Every test still runs.
+
 ## Checked and left as they are
 
 Already throttled or cheap, so not changed:
@@ -61,6 +133,10 @@ Already throttled or cheap, so not changed:
   change and 5 minutes otherwise.
 - The provider is downloaded again for an unmatched game only around its
   start (`ProviderRefreshPolicy`).
+- Tennis is fetched by both the Sports tab and the live stats, but they are
+  different requests (a day's schedule and the current scoreboard), two
+  small ones every 30 seconds, and joining them would tie the Sports tab
+  to the stats.
 
 ## Not measured here
 

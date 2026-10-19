@@ -3,8 +3,8 @@ import UIKit
 
 @main
 struct LineupApp: App {
-    @StateObject private var library = SportsLibrary()
-    @StateObject private var media = MediaLibrary()
+    @State private var library = SportsLibrary()
+    @State private var media = MediaLibrary()
     @StateObject private var cloud = CloudSettingsSync.shared
     @StateObject private var reminders = GameReminders.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -18,6 +18,8 @@ struct LineupApp: App {
         applyLineupTabBarTheme()
         PlaybackJournal.shared.note("Lineup opened")
         #else
+        // Apple's daily report on how the app ran, for Diagnostics.
+        MobileDeviceReports.shared.start()
         // Navigation titles are drawn by UIKit: set in the app's rounded face.
         UINavigationBar.appearance().titleTextAttributes = [.font: roundedUIFont(17, .heavy)]
         UINavigationBar.appearance().largeTitleTextAttributes = [.font: roundedUIFont(34, .heavy)]
@@ -43,11 +45,11 @@ struct LineupApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environmentObject(library)
-                .environmentObject(media)
+                .environment(library)
+                .environment(media)
                 .environmentObject(reminders)
                 .environmentObject(cloud)
-                .environmentObject(library.refreshProgress)
+                .environment(library.refreshProgress)
                 // Inter for everything that never asked for a font of its own
                 // -- form rows, field text, a progress view's label. Without
                 // this they keep the system font and the app reads in two
@@ -73,8 +75,8 @@ struct LineupApp: App {
                         reminders.restore()
                     }
                 }
-                .onReceive(library.$gamesByLeague) { games in
-                    reminders.updateGames(games.values.flatMap { $0 })
+                .onChange(of: library.gamesRevision, initial: true) {
+                    reminders.updateGames(library.gamesByLeague.values.flatMap { $0 })
                 }
                 .task { await media.prepareProviderVOD() }
                 #if os(tvOS)

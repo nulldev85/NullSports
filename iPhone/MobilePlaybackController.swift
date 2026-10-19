@@ -187,6 +187,16 @@ final class MobilePlaybackController: ObservableObject {
     /// The player that owns the system's Now Playing and display. A second
     /// picture on screen does not.
     var isPrimaryOutput = true
+    /// Held to about 540p for a muted picture sharing the screen while the
+    /// phone runs hot. Only Apple's player can lower a stream, and only one
+    /// that offers more than one quality: anything else plays as it is.
+    var holdsQualityDown = false {
+        didSet {
+            guard holdsQualityDown != oldValue else { return }
+            applyQualityCeiling(to: systemPlayer.currentItem)
+            diag.record(holdsQualityDown ? "running hot: quality held down while muted" : "quality ceiling lifted")
+        }
+    }
     /// Pauses on a channel playing live since it was last opened: the
     /// picture falls behind the broadcast by each one, however the engine
     /// then catches up, and nothing shown beside it may run ahead.
@@ -1204,9 +1214,16 @@ final class MobilePlaybackController: ObservableObject {
         startWhenVideoIsReady()
     }
 
+    private func applyQualityCeiling(to item: AVPlayerItem?) {
+        guard let item else { return }
+        item.preferredPeakBitRate = holdsQualityDown ? 2_500_000 : 0
+        item.preferredMaximumResolution = holdsQualityDown ? CGSize(width: 960, height: 540) : .zero
+    }
+
     private func openSystem(_ url: URL) {
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         let item = AVPlayerItem(url: url)
+        applyQualityCeiling(to: item)
         systemPlayer.replaceCurrentItem(with: item)
         applySubtitleAppearance()
 

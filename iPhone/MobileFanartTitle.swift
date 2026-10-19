@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MobileFanartTitle<Fallback: View>: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.displayScale) private var scale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem

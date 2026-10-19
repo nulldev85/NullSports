@@ -31,7 +31,7 @@ extension MediaLibrary {
 }
 
 struct MobileAddToCollectionView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     let item: MediaItem
@@ -74,7 +74,7 @@ struct MobileAddToCollectionView: View {
 /// Server collections keep their original parent IDs and routes. Personal
 /// collections keep original source-scoped items and never mutate a server.
 struct MobileLibraryCollectionsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
 
     var body: some View {
         List {
@@ -122,7 +122,7 @@ struct MobileLibraryCollectionsView: View {
 }
 
 struct MobilePersonalCollectionView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var renaming = false
@@ -173,7 +173,7 @@ struct MobilePersonalCollectionView: View {
 /// Compact collection cards lead into a collection instead of another catalog
 /// row. No eager fetching of every collection's members on Library startup.
 struct MobileLibraryCollectionsRow: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {

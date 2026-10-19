@@ -89,6 +89,42 @@ struct PlaybackDiagnosticsReportView: View {
 ///
 /// Always recorded, because the question it answers -- which part of a slow
 /// start is actually slow -- has been guessed at twice and measured never.
+/// Apple's daily reports of how the app ran on this phone.
+struct DeviceReportsView: View {
+    @ObservedObject private var device = MobileDeviceReports.shared
+
+    var body: some View {
+        List {
+            if device.reports.isEmpty {
+                Section {
+                    Text("No report yet. iOS sends one a day at most, so the first comes a day or so after this version is installed.")
+                        .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+                }
+                .lineupSettingsRows()
+            }
+            ForEach(device.reports) { report in
+                Section {
+                    ForEach(report.lines, id: \.label) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(line.label).font(.inter(15, .medium)).foregroundStyle(LineupStyle.text)
+                            Spacer(minLength: 8)
+                            Text(line.value).font(.interDigits(15)).foregroundStyle(LineupPanelStyle.listValue)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                } header: {
+                    Text("\(report.begin.formatted(date: .abbreviated, time: .omitted)) · version \(report.version)")
+                        .lineupSettingsHeader()
+                }
+                .lineupSettingsRows()
+            }
+        }
+        .lineupSettingsList()
+        .navigationTitle("Device Reports")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct StartupTraceReportView: View {
     @ObservedObject private var trace = StartupTrace.shared
     @State private var copied = false

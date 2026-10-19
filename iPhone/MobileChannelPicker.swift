@@ -32,8 +32,8 @@ struct MobileChannelPicker: View {
             .presentationDetents([.large])
             .presentationBackground(LineupStyle.background)
             .task { reloadChannels() }
-            .onReceive(library.$streams.dropFirst()) { _ in scheduleReload() }
-            .onReceive(library.$favoriteStreamOrder.dropFirst()) { _ in scheduleReload() }
+            .onChange(of: library.streamsRevision) { scheduleReload() }
+            .onChange(of: library.favoriteStreamOrder) { scheduleReload() }
             .onDisappear { reloadTask?.cancel(); search.cancel() }
     }
 }
