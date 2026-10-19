@@ -60,9 +60,17 @@ be present for an advanced label to appear.
 
 ## Engine logos
 
-The engine badge carries the engine's own logo beside its name: AetherEngine's
-mark and VLC's cone, from `Engine-aether` and `Engine-vlc` in each app's asset
-catalog (`PlaybackEngineLogo`). The same logos sit beside the engine's name in
-Settings, the Playback Engine picker and the acknowledgements. Apple's player
-has no logo the app may show, so AVPlayer stays a plain label. Credits are in
+Wherever the app names AetherEngine or VLC, the engine's own logo stands in
+front of the name: on the player badges (previews, Multiview, full screen,
+the iPhone player and guide player), in Settings, the Playback Engine picker,
+the player's notices and menus, the subtitle settings and the
+acknowledgements. Apple's player has no logo the app may show, so AVPlayer
+stays a plain label. The playback log and diagnostics are plain text.
+
+`PlaybackEngineMark.text` finds the names in a string and puts each logo
+inline, 1.2 times the font's point size and centred on the capitals, so it
+reads at a glance and wraps with its name. `PlaybackEngineText` does the
+same for a font of a text style, keeping pace with the reader's text size.
+The logos are `Engine-aether` and `Engine-vlc` in each app's asset catalog,
+from each project's own artwork; credits are in
 `BuildAssets/AetherLicenses/README.txt`.

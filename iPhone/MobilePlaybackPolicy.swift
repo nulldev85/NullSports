@@ -16,11 +16,6 @@ enum MobileStreamEngine: String, Hashable {
     var title: String {
         switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC" }
     }
-    /// The engine's own logo in the asset catalog. Apple's player has none
-    /// the app may show.
-    var logo: String? {
-        switch self { case .system: nil; case .aether: "Engine-aether"; case .vlc: "Engine-vlc" }
-    }
     var supportsPictureInPicture: Bool { self != .vlc }
 }
 
@@ -30,9 +25,6 @@ enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC" }
-    }
-    var logo: String? {
-        switch self { case .automatic: nil; case .aether: "Engine-aether"; case .vlc: "Engine-vlc" }
     }
     static func selected(in defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic

@@ -757,15 +757,11 @@ private struct MobileAccountView: View {
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
                     NavigationLink { MobilePlaybackSettingsView() } label: {
-                        let engine = MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic
                         SettingsRow(title: "Playback Engine", symbol: "play.rectangle") {
-                            HStack(spacing: 6) {
-                                if let logo = engine.logo { PlaybackEngineLogo(asset: logo, size: 20) }
-                                Text(engine.title)
-                                    .font(.inter(17))
-                                    .foregroundStyle(LineupPanelStyle.listValue)
-                                    .lineLimit(1)
-                            }
+                            PlaybackEngineText((MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title, size: 17)
+                                .font(.inter(17))
+                                .foregroundStyle(LineupPanelStyle.listValue)
+                                .lineLimit(1)
                         }
                     }
                     NavigationLink {
@@ -809,13 +805,8 @@ private struct MobilePlaybackSettingsView: View {
             Section {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
-                        HStack(spacing: 14) {
-                            if let logo = choice.logo {
-                                PlaybackEngineLogo(asset: logo, size: 30)
-                            } else {
-                                LineupIconTile(symbol: "play.rectangle", size: 30)
-                            }
-                            Text(choice.title).foregroundStyle(LineupStyle.text)
+                        HStack {
+                            PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
@@ -826,7 +817,7 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                Text("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.")
+                PlaybackEngineText("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -841,11 +832,8 @@ private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    PlaybackEngineLogo(asset: "Engine-aether", size: 44)
-                    Text("AetherEngine 7.40.1 and its decoder libraries")
-                        .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
-                }
+                PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", style: .subheadline)
+                    .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
                 Text(AetherPlaybackSession.openSourceNotices())
                     .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)

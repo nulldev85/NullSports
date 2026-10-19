@@ -6,14 +6,9 @@ import LineupAetherPlayback
 struct TVPlaybackLicensesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 24) {
-                PlaybackEngineLogo(asset: TVPlaybackEngine.aether.logo, size: 80)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Playback acknowledgements").font(.inter(36, .bold))
-                    Text("AetherEngine 7.40.1 and its decoder libraries")
-                        .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
-                }
-            }
+            Text("Playback acknowledgements").font(.inter(36, .bold))
+            PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", size: 21)
+                .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
             TVPlaybackLicenseText(text: AetherPlaybackSession.openSourceNotices())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -4746,7 +4746,7 @@ struct AccountView: View {
             .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
                        message: "Used for the next stream you open, including previews and Multiview.") {
                 TVPlaybackEngine.allCases.map { engine in
-                    TVChoice(engine.title, logo: engine.logo, isSelected: playbackEngine == engine.rawValue) {
+                    TVChoice(engine.title, namesEngine: true, isSelected: playbackEngine == engine.rawValue) {
                         playbackEngine = engine.rawValue
                     }
                 }
@@ -5092,9 +5092,7 @@ struct AccountView: View {
                             .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
                     }
                     Spacer()
-                    let engine = TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc
-                    PlaybackEngineLogo(asset: engine.logo, size: 30)
-                    Text(engine.title)
+                    PlaybackEngineText((TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc).title, size: 21)
                         .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
                     Image(systemName: "chevron.right").font(.inter(20, .semibold))
                 }
@@ -5414,7 +5412,7 @@ private struct AccountTile<Destination: View>: View {
                 AccountGlyph(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
-                    Text(detail).font(.inter(17)).lineLimit(2)
+                    PlaybackEngineMark.text(detail, pointSize: 17).font(.inter(17)).lineLimit(2)
                         .foregroundStyle(LineupStyle.secondary)
                         .multilineTextAlignment(.leading)
                 }
@@ -8726,19 +8724,14 @@ private struct TVPlaybackEngineBadge: View {
     /// Full screen, read from across the room.
     var large = false
     var body: some View {
-        HStack(spacing: large ? 8 : 5) {
-            PlaybackEngineLogo(asset: engine.logo, size: large ? 26 : 16)
-            Text(engine.title)
-                .font(.inter(large ? 21 : 13, .semibold))
-        }
-        .foregroundStyle(.white)
-        .padding(.leading, large ? 9 : 6).padding(.trailing, large ? 12 : 8)
-        .padding(.vertical, large ? 7 : 4)
-        .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: large ? 9 : 6))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Playback engine: \(engine.title)")
-        .accessibilityIdentifier("lineup.playback.activeEngine")
-        .allowsHitTesting(false)
+        PlaybackEngineText(engine.title, size: large ? 21 : 13)
+            .font(.inter(large ? 21 : 13, .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, large ? 12 : 8).padding(.vertical, large ? 7 : 4)
+            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: large ? 9 : 6))
+            .accessibilityLabel("Playback engine: \(engine.title)")
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+            .allowsHitTesting(false)
     }
 }
 

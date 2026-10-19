@@ -9,20 +9,19 @@ struct TVChoice: Identifiable {
     /// The row's coloured tile. Nil for a plain choice in a long list, such
     /// as a subtitle track or a season.
     var symbol: String?
-    /// An image from the asset catalog in place of the tile, such as a
-    /// playback engine's own logo.
-    var logo: String?
+    /// The title names playback engines, each led by its logo.
+    var namesEngine = false
     var isSelected = false
     var isDestructive = false
     var isEnabled = true
     let action: () -> Void
 
-    init(_ title: String, symbol: String? = nil, logo: String? = nil, id: String? = nil, isSelected: Bool = false,
+    init(_ title: String, symbol: String? = nil, namesEngine: Bool = false, id: String? = nil, isSelected: Bool = false,
          isDestructive: Bool = false, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
-        self.logo = logo
+        self.namesEngine = namesEngine
         self.isSelected = isSelected
         self.isDestructive = isDestructive
         self.isEnabled = isEnabled
@@ -280,12 +279,10 @@ private struct TVChoiceSheet: View {
         TVSelectable(scale: 1.02, fillRadius: 18, action: { choose(item) },
                      requestInitialFocus: focusedFirst) {
             HStack(spacing: 18) {
-                if let logo = item.logo {
-                    PlaybackEngineLogo(asset: logo, size: 42)
-                } else if let symbol = item.symbol {
+                if let symbol = item.symbol {
                     LineupIconTile(symbol: symbol, size: 42)
                 }
-                Text(item.title)
+                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
                     .font(.inter(24, .semibold))
                     .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
                     .lineLimit(2)
