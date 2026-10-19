@@ -631,9 +631,11 @@ final class SportsLibrary {
                 matchedGameIdentities = saved.identities.filter { gameStreamCache[$0.key] != nil }
                 lastSavedMatchIdentities = saved.identities
                 lastSavedMatchDay = saved.savedAt
-                // Preserve the existing professional matching policy's signatures.
-                for game in gamesByLeague.values.flatMap({ $0 }) where game.league != .ncaaf && gameStreamCache[game.id] != nil {
-                    gameMatchSignatures[game.id] = "\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+                // Restored matches are kept as a pass keeps its own: in the
+                // form a pass writes, or the first pass after a launch would
+                // look for every one of them again.
+                for game in gamesByLeague.values.flatMap({ $0 }) where gameStreamCache[game.id] != nil {
+                    gameMatchSignatures[game.id] = Self.matchSignature(game)
                 }
             }
             #if os(iOS)
@@ -1520,6 +1522,17 @@ final class SportsLibrary {
         return inputs
     }
 
+    /// What a kept match is kept for: change any of it and the game is
+    /// looked for again. A college game's also says whether it is delayed,
+    /// which widens what its matcher accepts.
+    nonisolated private static func matchSignature(_ game: SportsGame) -> String {
+        if game.league == .ncaaf {
+            return (["college-v1"] + matchIdentity(game)
+                    + [collegeMatchup(game).isDelayed ? "delayed" : ""]).joined(separator: "|")
+        }
+        return "quality-v1|\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
+    }
+
     nonisolated private static func matchIdentity(_ game: SportsGame) -> [String] {
         ["quality-v1", game.league.rawValue, game.awayTeam, game.homeTeam,
          game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
@@ -1654,21 +1667,6 @@ final class SportsLibrary {
                                                   broadcast: game.broadcast)
         }
         return score
-    }
-
-    /// Every candidate channel prepared once for the pass: its name normalized
-    /// and padded, its listings likewise, and whether it is a replay or a
-    /// whip-around feed already decided.
-    nonisolated private static func preparedChannels(
-        _ candidates: [XtreamStream],
-        listings: [String: [ProfessionalChannelMatcher.PreparedListing]]
-    ) -> [Int: ProfessionalChannelMatcher.PreparedChannel] {
-        var prepared: [Int: ProfessionalChannelMatcher.PreparedChannel] = [:]
-        for candidate in candidates where prepared[candidate.id] == nil {
-            prepared[candidate.id] = ProfessionalChannelMatcher.prepare(
-                channel: candidate.name, listings: listings[candidate.epgChannelID ?? ""] ?? [])
-        }
-        return prepared
     }
 
     nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
@@ -2061,33 +2059,8 @@ final class SportsLibrary {
         let sourceGeneration = indexGeneration
         #endif
         let leagues = leagueStreamCache
-        // Listings that have already finished are kept now, because the Guide
-        // draws an hour of history and cannot show what was thrown away. The
-        // matchers were never given them: the parser used to drop them before
-        // anything saw them, and a matcher handed a listing that ended an hour
-        // ago can credit a channel for a game that is no longer on it. Matching
-        // sees exactly what it always saw.
-        let matchNow = Date()
         let trace = StartupTrace.shared
-        // Every listing of every channel, copied and filtered, before the
-        // matching has started. Measured on its own because "rematch games"
-        // as one number cannot say whether the cost is this or the matching.
         let listings = programsByChannel
-        let preparation = Task.detached(priority: .utility) {
-            try listings.mapValues { entries in
-                try Task.checkCancellation()
-                return entries.filter { $0.end > matchNow }
-            }
-        }
-        #if os(iOS)
-        let preparationID = mobileSportsWork.replace(.matching, cancel: { preparation.cancel() })
-        defer { mobileSportsWork.finish(.matching, id: preparationID) }
-        #endif
-        guard let programs = try? await trace.measure("prepare listings for matching", {
-            try await preparation.value
-        }) else { return }
-        guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
-            resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         // College event channels may have neither a league token nor a network
         // name. Let the college policy inspect them without changing other indexes.
         let currentStreams = streams
@@ -2099,6 +2072,16 @@ final class SportsLibrary {
         // rematches against a newly installed channel index.
         if force { gameMatchSignatures = [:] }
         let previousSignatures = gameMatchSignatures
+        #if os(iOS)
+        // The candidate shortlists the last pass worked out, while the channel
+        // list and guide they came from are still the ones in use. A game
+        // whose identity has not changed gets the same shortlist -- or one a
+        // little longer, as listings end -- so it is carried, rather than
+        // every guide the provider has being read again to rebuild it.
+        let carriedShortlists = mobileEventCandidates.flatMap { snapshot in
+            snapshot.generation == sourceGeneration ? (identities: snapshot.identities, games: snapshot.games) : nil
+        }
+        #endif
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             // Timed in two halves. The detail above counts only the league
@@ -2108,6 +2091,46 @@ final class SportsLibrary {
             var collegeSeconds = 0.0
             var professionalSeconds = 0.0
             func clock() -> Double { ProcessInfo.processInfo.systemUptime }
+
+            // Everything below is read for a channel the first time the pass
+            // needs it, and once. A pass that keeps every match reads the
+            // kept channels' guides and no others; the first pass for a
+            // channel list and guide still reads them all, building the
+            // shortlists.
+            //
+            // Listings that have already finished are kept now, because the
+            // Guide draws an hour of history and cannot show what was thrown
+            // away. The matchers were never given them: the parser used to
+            // drop them before anything saw them, and a matcher handed a
+            // listing that ended an hour ago can credit a channel for a game
+            // that is no longer on it. Matching sees exactly what it always saw.
+            var currentGuides: [String: [CurrentProgram]] = [:]
+            func guide(_ key: String) -> [CurrentProgram] {
+                if let known = currentGuides[key] { return known }
+                let entries = (listings[key] ?? []).filter { $0.end > now }
+                currentGuides[key] = entries
+                return entries
+            }
+            var preparedGuides: [String: [ProfessionalChannelMatcher.PreparedListing]] = [:]
+            func preparedGuide(_ key: String) -> [ProfessionalChannelMatcher.PreparedListing] {
+                if let known = preparedGuides[key] { return known }
+                let prepared = ProfessionalChannelMatcher.prepare(guide(key).map {
+                    .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+                })
+                preparedGuides[key] = prepared
+                return prepared
+            }
+            // A channel's name and listings normalized once for the pass
+            // rather than once for each of sixty-six games.
+            var preparedChannels: [Int: ProfessionalChannelMatcher.PreparedChannel] = [:]
+            func preparedChannel(_ stream: XtreamStream) -> ProfessionalChannelMatcher.PreparedChannel {
+                if let known = preparedChannels[stream.id] { return known }
+                let prepared = ProfessionalChannelMatcher.prepare(channel: stream.name,
+                                                                  listings: preparedGuide(stream.epgChannelID ?? ""))
+                preparedChannels[stream.id] = prepared
+                return prepared
+            }
+
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
@@ -2115,55 +2138,70 @@ final class SportsLibrary {
                 return !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "")
                     && !["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) })
             }
-            // Normalize each guide channel once, including duplicate stream qualities.
-            var collegePrograms: [String: [CollegeChannelMatcher.Listing]] = [:]
-            let collegeCandidates = try collegeStreams.map { stream in
-                try Task.checkCancellation()
+            let collegeStreamsByID = Dictionary(grouping: collegeStreams, by: \.id)
+            // Each guide channel normalized once, including duplicate stream qualities.
+            var collegeGuides: [String: [CollegeChannelMatcher.Listing]] = [:]
+            func collegeCandidate(_ stream: XtreamStream) -> CollegeChannelMatcher.Candidate {
                 let key = stream.epgChannelID ?? ""
-                if collegePrograms[key] == nil { collegePrograms[key] = Self.collegeListings(programs[key] ?? []) }
-                return CollegeChannelMatcher.Candidate(id: stream.id, name: stream.name, listings: collegePrograms[key] ?? [])
+                if collegeGuides[key] == nil { collegeGuides[key] = Self.collegeListings(guide(key)) }
+                return CollegeChannelMatcher.Candidate(id: stream.id, name: stream.name, listings: collegeGuides[key] ?? [])
             }
-            // Built once for the whole pass, rather than rebuilt inside every
-            // one of three hundred thousand scores.
+            // The whole college pool, built the first time a game needs it.
+            var collegePool: [CollegeChannelMatcher.Candidate]?
+            func allCollegeCandidates() throws -> [CollegeChannelMatcher.Candidate] {
+                if let collegePool { return collegePool }
+                let pool = try collegeStreams.map { stream in
+                    try Task.checkCancellation()
+                    return collegeCandidate(stream)
+                }
+                collegePool = pool
+                return pool
+            }
             #if os(iOS)
-            let professionalCandidates = leagues.values.flatMap { $0 }
-            // A guide for a channel outside these pools cannot be read by a
-            // professional score. Keep all raw listings for the Guide/college.
-            let professionalGuideIDs = Set((professionalCandidates + Array(previousMatches.values))
-                .map { $0.epgChannelID ?? "" })
-            var preparedListings: [String: [ProfessionalChannelMatcher.PreparedListing]] = [:]
-            for (key, entries) in programs where professionalGuideIDs.contains(key) {
-                try Task.checkCancellation()
-                preparedListings[key] = ProfessionalChannelMatcher.prepare(entries.map {
-                    .init(title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
-                })
+            func carried(_ game: SportsGame) -> Set<Int>?? {
+                guard let carriedShortlists, carriedShortlists.identities[game.id] == Self.matchIdentity(game) else { return nil }
+                return .some(carriedShortlists.games[game.id])
             }
-            let professionalAliases = games.filter { $0.league != .ncaaf }.flatMap { game in
-                let prepared = Self.prepared(game)
-                return prepared.away + prepared.home
+            // The indexes are built only when a game has no shortlist carried:
+            // the first pass for a channel list and guide, or a game new to it.
+            var collegeIndex: MobileSportsCandidateIndex?
+            func collegeShortlist(_ game: SportsGame, _ matchup: CollegeChannelMatcher.Matchup) throws -> Set<Int>? {
+                if let shortlist = carried(game) { return shortlist }
+                if collegeIndex == nil {
+                    let pool = try allCollegeCandidates()
+                    collegeIndex = try MobileSportsCandidateIndex(channels: zip(collegeStreams, pool).map {
+                        .init(id: $0.1.id, name: $0.1.normalizedName, guideID: $0.0.epgChannelID ?? "")
+                    }, aliases: collegeSlate.flatMap { $0.awayAliases + $0.homeAliases }, listings: {
+                        (collegeGuides[$0] ?? []).map(\.text)
+                    })
+                }
+                return collegeIndex?.candidates(for: matchup.awayAliases + matchup.homeAliases)
             }
-            let collegeIndex = try MobileSportsCandidateIndex(channels: zip(collegeStreams, collegeCandidates).map {
-                .init(id: $0.1.id, name: $0.1.normalizedName, guideID: $0.0.epgChannelID ?? "")
-            }, aliases: collegeSlate.flatMap { $0.awayAliases + $0.homeAliases }, listings: {
-                (collegePrograms[$0] ?? []).map(\.text)
-            })
-            let collegeCandidatesByID = Dictionary(grouping: collegeCandidates, by: \.id)
-            #else
-            let preparedListings = Self.matcherListings(programs)
-            #endif
-            // Every candidate channel's name, normalized once for the pass
-            // rather than once for each of sixty-six games.
-            let preparedChannels = Self.preparedChannels(leagues.values.flatMap { $0 },
-                                                         listings: preparedListings)
-            #if os(iOS)
-            let professionalIndex = try MobileSportsCandidateIndex(channels: professionalCandidates.compactMap {
-                guard let channel = preparedChannels[$0.id] else { return nil }
-                return .init(id: $0.id, name: channel.padded, guideID: $0.epgChannelID ?? "")
-            }, aliases: professionalAliases, listings: {
-                (preparedListings[$0] ?? []).map(\.text)
-            })
+            var professionalIndex: MobileSportsCandidateIndex?
+            func professionalShortlist(_ game: SportsGame,
+                                       _ preparedGame: ProfessionalChannelMatcher.PreparedGame) throws -> Set<Int>? {
+                if let shortlist = carried(game) { return shortlist }
+                if professionalIndex == nil {
+                    // A guide for a channel outside these pools cannot be read
+                    // by a professional score. Keep all raw listings for the
+                    // Guide/college.
+                    let channels = try leagues.values.flatMap { $0 }.map { stream -> MobileSportsCandidateIndex.Channel in
+                        try Task.checkCancellation()
+                        return .init(id: stream.id, name: preparedChannel(stream).padded, guideID: stream.epgChannelID ?? "")
+                    }
+                    let aliases = games.filter { $0.league != .ncaaf }.flatMap { game in
+                        let prepared = Self.prepared(game)
+                        return prepared.away + prepared.home
+                    }
+                    professionalIndex = try MobileSportsCandidateIndex(channels: channels, aliases: aliases, listings: {
+                        (preparedGuides[$0] ?? []).map(\.text)
+                    })
+                }
+                return professionalIndex?.candidates(for: preparedGame.away + preparedGame.home)
+            }
             var collegeScores = 0
             var professionalCandidatesScored = 0
+            var collegeKept = 0
             var eventCandidates: [String: Set<Int>] = [:]
             #endif
             try Task.checkCancellation()
@@ -2196,19 +2234,42 @@ final class SportsLibrary {
                 }
                 processedGames += 1
                 #endif
+                // What the match, if one is kept, was made for.
+                let signature = Self.matchSignature(game)
+                let mayKeep = DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
+                    currentSignature: signature, hasMatch: matches[game.id] != nil)
+                // A match in another language is not kept as it stands: it is
+                // looked for again, in case an English channel carries the game.
+                let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
                 if game.league == .ncaaf {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
                     let collegeStart = clock()
                     defer { collegeSeconds += clock() - collegeStart }
                     let matchup = Self.collegeMatchup(game)
                     #if os(iOS)
-                    let possibleIDs = collegeIndex.candidates(for: matchup.awayAliases + matchup.homeAliases)
+                    let possibleIDs = try collegeShortlist(game, matchup)
                     eventCandidates[game.id] = possibleIDs
-                    let scoringPool = possibleIDs.map { ids in
-                        ids.sorted().flatMap { collegeCandidatesByID[$0] ?? [] }
-                    } ?? collegeCandidates
+                    #endif
+                    // Kept the way every other league keeps its matches: a
+                    // channel still showing the game is not looked past for
+                    // another.
+                    if mayKeep, !keptForeign, let kept = matches[game.id], collegeStreamsByID[kept.id] != nil,
+                       let evidence = CollegeChannelMatcher.score(candidate: collegeCandidate(kept), game: matchup,
+                                                                  now: now, allowNetworkFallback: false) {
+                        #if os(iOS)
+                        collegeKept += 1
+                        #endif
+                        evidenceByGame[game.id] = evidence
+                        let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(kept.id) evidence=\(evidence) policy=college-reused"
+                        Logger(subsystem: "com.nulldev85.NullSports", category: "ChannelMatch").info("\(diagnostic, privacy: .public)")
+                        continue
+                    }
+                    #if os(iOS)
+                    let scoringPool = try possibleIDs.map { ids in
+                        ids.sorted().flatMap { (collegeStreamsByID[$0] ?? []).map(collegeCandidate) }
+                    } ?? allCollegeCandidates()
                     #else
-                    let scoringPool = collegeCandidates
+                    let scoringPool = try allCollegeCandidates()
                     #endif
                     var best: (id: Int, score: Int)?
                     for candidate in scoringPool {
@@ -2222,14 +2283,14 @@ final class SportsLibrary {
                             foreign: foreign, qualities: qualities) { continue }
                         best = (candidate.id, score)
                     }
-                    let selected = best.flatMap { match in collegeStreams.first { $0.id == match.id } }
+                    let selected = best.flatMap { match in collegeStreamsByID[match.id]?.first }
                     matches[game.id] = selected
+                    signatures[game.id] = selected == nil ? nil : signature
                     // The evidence tier that authorized the match: a wrong game names
                     // the rule that approved it without reading the matcher's source.
                     let evidence = selected.flatMap {
-                        CollegeChannelMatcher.score(channel: $0.name,
-                            listings: collegePrograms[$0.epgChannelID ?? ""] ?? [],
-                            game: matchup, now: now, allowNetworkFallback: false)
+                        CollegeChannelMatcher.score(candidate: collegeCandidate($0), game: matchup,
+                                                    now: now, allowNetworkFallback: false)
                     }
                     evidenceByGame[game.id] = evidence
                     let diagnostic = "game=\(game.id) network=\(game.broadcast) selectedID=\(selected?.id.description ?? "none") evidence=\(evidence?.description ?? "none") policy=college-ranked-evidence"
@@ -2242,28 +2303,19 @@ final class SportsLibrary {
                 let preparedGame = Self.prepared(game)
                 #if os(iOS)
                 let canIndex = [SportsLeague.nfl, .nba, .nhl, .mlb, .soccer].contains(game.league) && !game.isNFLRedZone
-                let possibleIDs = canIndex ? professionalIndex.candidates(for: preparedGame.away + preparedGame.home) : nil
+                let possibleIDs = try canIndex ? professionalShortlist(game, preparedGame) : nil
                 eventCandidates[game.id] = possibleIDs
                 #endif
-                let signature = "quality-v1|\(game.league.rawValue)|\(game.awayTeam)|\(game.homeTeam)|\(game.broadcast)"
-                // A match in another language is not kept as it stands: it is
-                // looked for again, in case an English channel carries the game.
-                let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
                 // So is a tournament's channel it shares, in case one starts
                 // showing that tournament alone.
-                let keptShared = matches[game.id].map { cached in
-                    preparedChannels[cached.id].map { Self.sharesCoverage($0, game: game, board: board, now: now) } ?? false
-                } ?? false
-                let reused: (stream: XtreamStream, evidence: Int)? = !keptForeign && !keptShared
-                    && DailyCachePolicy.canReuseMatch(savedSignature: signatures[game.id],
-                    currentSignature: signature, hasMatch: matches[game.id] != nil)
+                let keptShared = game.league.isTennis && game.isEvent && (matches[game.id].map { cached in
+                    Self.sharesCoverage(preparedChannel(cached), game: game, board: board, now: now)
+                } ?? false)
+                let reused: (stream: XtreamStream, evidence: Int)? = mayKeep && !keptForeign && !keptShared
                     ? matches[game.id].flatMap { cached in
-                        let key = cached.epgChannelID ?? ""
-                        let channel = preparedChannels[cached.id] ?? ProfessionalChannelMatcher.prepare(
-                            channel: cached.name, listings: preparedListings[key] ?? [])
-                        return Self.professionalScore(cached, game: game, preparedGame: preparedGame,
-                                                      channel: channel, listings: programs[key] ?? [],
-                                                      now: now)
+                        Self.professionalScore(cached, game: game, preparedGame: preparedGame,
+                                               channel: preparedChannel(cached),
+                                               listings: guide(cached.epgChannelID ?? ""), now: now)
                             .map { (cached, $0) }
                     }
                     : nil
@@ -2278,18 +2330,22 @@ final class SportsLibrary {
                     }
                     professionalCandidatesScored += candidates.count
                     #endif
+                    var candidateGuides: [String: [CurrentProgram]] = [:]
+                    for candidate in candidates {
+                        try Task.checkCancellation()
+                        _ = preparedChannel(candidate)
+                        let key = candidate.epgChannelID ?? ""
+                        if candidateGuides[key] == nil { candidateGuides[key] = guide(key) }
+                    }
                     if let stream = Self.matchedStream(for: game, candidates: candidates,
-                                                       programs: programs, channels: preparedChannels,
+                                                       programs: candidateGuides, channels: preparedChannels,
                                                        preparedGame: preparedGame, foreign: foreign, qualities: qualities,
                                                        board: board, now: now) {
                         matches[game.id] = stream
                         signatures[game.id] = signature
-                        let key = stream.epgChannelID ?? ""
-                        let chosen = preparedChannels[stream.id] ?? ProfessionalChannelMatcher.prepare(
-                            channel: stream.name, listings: preparedListings[key] ?? [])
                         evidence = Self.professionalScore(stream, game: game, preparedGame: preparedGame,
-                                                          channel: chosen, listings: programs[key] ?? [],
-                                                          now: now)
+                                                          channel: preparedChannel(stream),
+                                                          listings: guide(stream.epgChannelID ?? ""), now: now)
                     } else {
                         matches.removeValue(forKey: game.id)
                         signatures.removeValue(forKey: game.id)
@@ -2304,13 +2360,13 @@ final class SportsLibrary {
             }
             #if os(iOS)
             await progress.advance(matchingWork, completed: games.count, total: games.count)
-            await trace.note("candidate scores", "college \(collegeScores), professional \(professionalCandidatesScored); full evidence checks retained")
+            await trace.note("candidate scores", "college \(collegeScores) (\(collegeKept) kept), professional \(professionalCandidatesScored); \(preparedChannels.count) channels and \(currentGuides.count) guides read; shortlists \(professionalIndex == nil && collegeIndex == nil ? "carried" : "rebuilt"); full evidence checks retained")
             return (matches, signatures, matches != previousMatches, evidenceByGame,
-                    collegeSlate.count, collegeCandidates.count, collegeSeconds, professionalSeconds,
+                    collegeSlate.count, collegeStreams.count, collegeSeconds, professionalSeconds,
                     (eventCandidates, Set(collegeStreams.map(\.id))))
             #else
             return (matches, signatures, matches != previousMatches, evidenceByGame,
-                    collegeSlate.count, collegeCandidates.count, collegeSeconds, professionalSeconds)
+                    collegeSlate.count, collegeStreams.count, collegeSeconds, professionalSeconds)
             #endif
         }
         #if os(iOS)
