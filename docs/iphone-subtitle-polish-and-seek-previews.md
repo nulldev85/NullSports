@@ -101,5 +101,5 @@ Official references inspected:
 - https://videolan.videolan.me/VLCKit/interface_v_l_c_media_player.html
 - https://raw.githubusercontent.com/videolan/vlc/3.0.x/modules/text_renderer/freetype/freetype.c
 - https://developer.apple.com/documentation/avfoundation/avtextstylerule
-- Pinned AetherEngine7.36.0 source, including setSoftwareSubtitleDelay and
+- Pinned AetherEngine 7.40.1 source, including setSoftwareSubtitleDelay and
   LoadOptions.preferredSubtitleLanguages, inspected locally.

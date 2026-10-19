@@ -43,7 +43,7 @@ entry explaining that AetherEngine or VLC is required. No forced engine switch
 or video restart is performed. Live Sports/Guide previews and fullscreen live
 playback do not request this Library-only integration.
 
-The pinned AetherEngine7.36.0 documents mid-session sidecars as foreground-only:
+The pinned AetherEngine 7.40.1 documents mid-session sidecars as foreground-only:
 they cannot join native PiP subtitle renditions without reloading the media.
 The sheet explicitly explains that downloaded captions are unavailable in PiP
 for this playback. Existing PiP video/embedded subtitle paths remain intact; no
@@ -83,5 +83,5 @@ Official references:
 - https://opensubtitles.tawk.help/article/pro-packages
 - https://github.com/opensubtitles-dev/opensubs-cli
 - https://videolan.videolan.me/VLCKit/interface_v_l_c_media_player.html
-- The pinned AetherEngine7.36.0 ExternalSubtitleTrack / addExternalSubtitleTrack
+- The pinned AetherEngine 7.40.1 ExternalSubtitleTrack / addExternalSubtitleTrack
   API source was inspected locally before using the engine bridge.

@@ -171,7 +171,7 @@ public final class AetherPlaybackSession {
     }
     public var canSeek: Bool {
         if engine.canSeek { return true }
-        // Aether 7.36's software audio-track rebuild clears isSourceSeekable
+        // Aether's software audio-track rebuild (still so in 7.40.1) clears isSourceSeekable
         // without probing the same source again. Retain the measured capability
         // for this load, while honoring readiness, failures and forward-only/live
         // sources. The engine's seek implementation accepts the retained source.
