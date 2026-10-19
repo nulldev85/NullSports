@@ -96,15 +96,22 @@ struct TeamPageArticle: Identifiable, Equatable, Sendable {
 enum TeamPageParser {
     // MARK: Team
 
-    static func info(_ data: Data) -> TeamPageInfo? {
+    /// The team, its record and where it stands. Where it stands only while
+    /// its season is on -- its next game within a couple of weeks: between
+    /// seasons ESPN's line already belongs to the next one, where every team
+    /// is level, and called a 65-97 side "1st in NL West".
+    static func info(_ data: Data, now: Date = Date()) -> TeamPageInfo? {
         guard let team = object(data)?["team"] as? [String: Any],
               let name = string(team["displayName"]) else { return nil }
         let items = (team["record"] as? [String: Any])?["items"] as? [[String: Any]] ?? []
         let overall = items.first { string($0["type"]) == "total" } ?? items.first
+        let next = (team["nextEvent"] as? [[String: Any]])?.first.flatMap { date($0["date"]) }
+        let inSeason = next.map { $0 > now.addingTimeInterval(-24 * 60 * 60)
+            && $0 < now.addingTimeInterval(14 * 24 * 60 * 60) } ?? false
         return TeamPageInfo(name: name, abbreviation: string(team["abbreviation"]) ?? "",
                             logo: logo(team), color: string(team["color"]),
                             record: overall.flatMap { string($0["summary"]) },
-                            standing: string(team["standingSummary"]))
+                            standing: inSeason ? string(team["standingSummary"]) : nil)
     }
 
     // MARK: Schedule

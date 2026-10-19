@@ -20,11 +20,18 @@ struct MobileTeamPageChecks {
          "logos":[{"href":"https://a.espncdn.com/i/teamlogos/nba/500/bos.png"}],
          "record":{"items":[{"description":"Overall Record","type":"total","summary":"4-0"},
                             {"description":"Home Record","type":"home","summary":"2-0"}]},
-         "standingSummary":"1st in Atlantic Division"}}
-        """))
+         "standingSummary":"1st in Atlantic Division","nextEvent":[{"date":"2026-10-20T19:00Z"}]}}
+        """), now: TeamPageParser.date("2026-10-19T17:00Z")!)
         precondition(info == TeamPageInfo(name: "Boston Celtics", abbreviation: "BOS",
                                           logo: "https://a.espncdn.com/i/teamlogos/nba/500/bos.png", color: "008348",
                                           record: "4-0", standing: "1st in Atlantic Division"))
+        // Between seasons ESPN's standing is already the next season's.
+        let offSeason = TeamPageParser.info(data("""
+        {"team":{"id":"26","displayName":"San Francisco Giants","abbreviation":"SF",
+         "record":{"items":[{"type":"total","summary":"65-97"}]},"standingSummary":"1st in NL West",
+         "nextEvent":[{"date":"2027-02-19T05:00Z"}]}}
+        """), now: TeamPageParser.date("2026-10-19T17:00Z")!)
+        precondition(offSeason?.record == "65-97" && offSeason?.standing == nil)
 
         let schedule = TeamPageParser.schedule([data("""
         {"events":[
