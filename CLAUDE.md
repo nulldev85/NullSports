@@ -26,3 +26,10 @@ Every merge round into `main` ends with updating that page:
 - Update by hand the eyebrow's date range and the footer's date. The filter
   and ledger counts recount themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
+
+The page's Download panel offers the newest official IPA of each app, from the
+site repo's releases. Once the official builds on `main` pass, run that repo's
+"Publish official builds" workflow (`publish-builds.yml`, workflow_dispatch) so
+the new IPAs go up straight away; it also runs hourly. It reads this repo's
+builds with the `NULLSPORTS_ACTIONS_TOKEN` secret in the site repo, a
+read-only Actions token the owner made.
