@@ -49,7 +49,7 @@ struct LineupApp: App {
                 .environment(media)
                 .environmentObject(reminders)
                 .environmentObject(cloud)
-                .environment(library.refreshProgress)
+                .environmentObject(library.refreshProgress)
                 // Inter for everything that never asked for a font of its own
                 // -- form rows, field text, a progress view's label. Without
                 // this they keep the system font and the app reads in two
