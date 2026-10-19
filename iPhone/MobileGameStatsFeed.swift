@@ -31,6 +31,9 @@ struct GameStatsTeam: Equatable, Sendable {
     let name: String
     let logo: String?
     let color: String?
+
+    /// The sides of a feed that has none: a race is not two teams.
+    static let nobody = GameStatsTeam(id: "", abbreviation: "", name: "", logo: nil, color: nil)
 }
 
 /// One play, with the moment it happened on the field.
@@ -48,8 +51,21 @@ struct GameStatsPlay: Identifiable, Equatable, Sendable {
     let homeScore: Int
     /// The team it belongs to, for its colour.
     let teamID: String?
-    /// Football: the drive it was part of, "8 plays, 75 yards, 4:12".
+    /// Football: the drive it was part of, "8 plays, 75 yards, 4:12". A
+    /// tennis tournament or a fight card: which match or fight it was.
     let drive: String?
+    /// For a play worked out by comparing two fetches rather than read from
+    /// the feed: it happened after the first came, and by the time the
+    /// second did.
+    var seen: ClosedRange<Date>? = nil
+    /// What its highlight says, where that is not a score: "5–4", "KO/TKO".
+    var badge: String? = nil
+    /// The match or fight it belongs to, on a board of several.
+    var group: String? = nil
+
+    /// When it happened, where that is known without the timeline: ESPN's
+    /// own time, or the end of the window it was found in.
+    var timedMoment: Date? { wallclock ?? seen?.upperBound }
 }
 
 /// A team total, the away side's and the home side's.
@@ -83,6 +99,8 @@ struct GameStatsSnapshot: Equatable, Sendable {
     /// The moment on the field these totals stand for: the latest play the
     /// same fetch carried. Set as the fetch is taken in.
     var eventTime: Date? = nil
+    /// A scoreboard-only feed's whole account: a draw, a card, a race.
+    var board: GameStatsBoard? = nil
     /// When these totals may be shown, at a stream with no delay.
     var moment: Date { eventTime ?? receivedAt }
 }
@@ -95,6 +113,41 @@ struct GameStatsReport: Sendable {
     let plays: [GameStatsPlay]
     /// Home's chance of winning after a play, by play.
     let winProbability: [String: Double]
+}
+
+extension GameStatsReport {
+    /// A board as a report: its plays are worked out as it is taken in,
+    /// against the board before it.
+    init(board: GameStatsBoard, receivedAt: Date) {
+        var away = GameStatsTeam.nobody, home = GameStatsTeam.nobody
+        var scores = (away: 0, home: 0)
+        let state: String, status: String
+        switch board {
+        case .tennis(let draw):
+            if let match = draw.focused {
+                away = match.away; home = match.home
+                scores = (match.awaySets, match.homeSets)
+                state = match.state; status = match.status
+            } else {
+                let live = draw.live.count
+                state = live > 0 ? "in" : (draw.matches.contains { $0.state == "pre" } ? "pre" : "post")
+                status = live == 0 ? "" : (live == 1 ? "1 match live" : "\(live) matches live")
+            }
+        case .card(let card):
+            if let headline = card.headline { away = headline.away; home = headline.home }
+            state = card.live != nil ? "in"
+                : (card.bouts.allSatisfy { $0.state == "post" } ? "post"
+                   : (card.bouts.contains { $0.state == "post" } ? "in" : "pre"))
+            status = card.status
+        case .race(let race):
+            state = race.state; status = race.status
+        }
+        self.init(away: away, home: home,
+                  snapshot: GameStatsSnapshot(receivedAt: receivedAt, state: state, period: 0, status: status,
+                                              clock: nil, awayScore: scores.away, homeScore: scores.home,
+                                              lines: [], leaders: [], board: board),
+                  plays: [], winProbability: [:])
+    }
 }
 
 // MARK: - Reading ESPN's summary
@@ -171,8 +224,9 @@ enum GameStatsParser {
             probability[play] = value
         }
 
+        let plays = sport == "soccer" ? soccerPlays(root, away: away.team, home: home.team) : plays(root, sport: sport)
         return GameStatsReport(away: away.team, home: home.team, snapshot: snapshot,
-                               plays: plays(root, sport: sport), winProbability: probability)
+                               plays: plays, winProbability: probability)
     }
 
     /// Team totals, side by side. Baseball files its totals in groups with
@@ -182,6 +236,23 @@ enum GameStatsParser {
         func totals(_ id: String) -> [(label: String, value: String)] {
             guard let entry = teams.first(where: { string(($0["team"] as? [String: Any])?["id"]) == id }),
                   let statistics = entry["statistics"] as? [[String: Any]] else { return [] }
+            if sport == "soccer" {
+                // The totals a match is talked about by, in that order, and
+                // ESPN's fractions as the percentages they are.
+                let wanted: [(name: String, label: String, percent: Bool)] = [
+                    ("possessionPct", "Possession", true), ("totalShots", "Shots", false),
+                    ("shotsOnTarget", "Shots on Target", false), ("wonCorners", "Corners", false),
+                    ("saves", "Saves", false), ("foulsCommitted", "Fouls", false),
+                    ("yellowCards", "Yellow Cards", false), ("redCards", "Red Cards", false),
+                    ("offsides", "Offsides", false), ("totalPasses", "Passes", false),
+                    ("passPct", "Pass Accuracy", true)]
+                return wanted.compactMap { want in
+                    guard let stat = statistics.first(where: { string($0["name"]) == want.name }),
+                          let value = string(stat["displayValue"]) else { return nil }
+                    guard want.percent, let number = Double(value) else { return (want.label, value) }
+                    return (want.label, "\(Int((number <= 1 ? number * 100 : number).rounded()))%")
+                }
+            }
             if sport == "baseball" {
                 let wanted: [(group: String, name: String, label: String)] = [
                     ("batting", "hits", "Hits"), ("batting", "homeRuns", "Home Runs"),
@@ -241,6 +312,13 @@ enum GameStatsParser {
         switch sport {
         case "football", "basketball": return number > 4 ? (number == 5 ? "OT" : "\(number - 4)OT") : "Q\(number)"
         case "hockey": return number > 3 ? (number == 4 ? "OT" : "SO") : ordinal(number)
+        case "soccer":
+            switch number {
+            case 1: return "1H"
+            case 2: return "2H"
+            case 3, 4: return "ET"
+            default: return "Pens"
+            }
         case "baseball":
             let side = half?.lowercased()
             let prefix = side == "top" ? "Top " : side == "bottom" ? "Bot " : side == "end" ? "End " : side == "middle" ? "Mid " : ""
@@ -296,6 +374,81 @@ enum GameStatsParser {
         }
         return result.sorted { $0.sequence < $1.sequence }
     }
+
+    /// Soccer's plays are its commentary -- every shot, corner, card and
+    /// change, each with the moment it happened -- and any key event the
+    /// commentary missed. Goals carry no running score, so it is counted.
+    private static func soccerPlays(_ root: [String: Any], away: GameStatsTeam, home: GameStatsTeam) -> [GameStatsPlay] {
+        let keyEvents = root["keyEvents"] as? [[String: Any]] ?? []
+        let goals = Set(keyEvents.filter { $0["scoringPlay"] as? Bool == true }.compactMap { string($0["id"]) })
+        var entries: [(raw: [String: Any], text: String?)] = []
+        var ids = Set<String>()
+        for entry in root["commentary"] as? [[String: Any]] ?? [] {
+            guard let play = entry["play"] as? [String: Any], let id = string(play["id"]),
+                  ids.insert(id).inserted else { continue }
+            entries.append((play, string(entry["text"])))
+        }
+        for event in keyEvents {
+            guard let id = string(event["id"]), ids.insert(id).inserted else { continue }
+            entries.append((event, nil))
+        }
+        let ordered = entries.enumerated()
+            .map { (at: date($0.element.raw["wallclock"]) ?? .distantFuture, offset: $0.offset, entry: $0.element) }
+            .sorted { ($0.at, $0.offset) < ($1.at, $1.offset) }
+            .map(\.entry)
+
+        func side(_ raw: [String: Any]) -> GameStatsSide? {
+            let team = raw["team"] as? [String: Any]
+            if let id = string(team?["id"]) { return id == home.id ? .home : (id == away.id ? .away : nil) }
+            let name = string(team?["displayName"])
+            return name == home.name ? .home : (name == away.name ? .away : nil)
+        }
+        var score = (away: 0, home: 0)
+        var result: [GameStatsPlay] = []
+        for (index, entry) in ordered.enumerated() {
+            let raw = entry.raw
+            guard let id = string(raw["id"]), let text = entry.text ?? string(raw["text"]) else { continue }
+            let kind = string((raw["type"] as? [String: Any])?["type"])?.lowercased() ?? ""
+            let shootout = raw["shootout"] as? Bool == true
+            let scoring = !shootout && (raw["scoringPlay"] as? Bool == true || goals.contains(id))
+            let team = side(raw)
+            if scoring {
+                if let stated = statedScore(text, away: away.name, home: home.name) {
+                    score = stated
+                } else if let team {
+                    // An own goal counts for the other side.
+                    let credited: GameStatsSide = kind.contains("own") ? (team == .away ? .home : .away) : team
+                    if credited == .away { score.away += 1 } else { score.home += 1 }
+                }
+            }
+            let period = raw["period"] as? [String: Any]
+            result.append(GameStatsPlay(
+                id: id, sequence: index, text: text,
+                period: periodLabel(sport: "soccer", number: int(period?["number"]) ?? 0, half: nil),
+                clock: (raw["clock"] as? [String: Any]).flatMap { string($0["displayValue"]) },
+                wallclock: date(raw["wallclock"]), scoring: scoring,
+                awayScore: score.away, homeScore: score.home,
+                teamID: team.map { $0 == .away ? away.id : home.id }, drive: nil))
+        }
+        return result
+    }
+
+    /// "Goal! Leeds United 0, Manchester United 1." The score after a goal,
+    /// as its commentary states it, whichever side it names first.
+    static func statedScore(_ text: String, away: String, home: String) -> (away: Int, home: Int)? {
+        guard !away.isEmpty, !home.isEmpty else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        for (first, second, homeFirst) in [(home, away, true), (away, home, false)] {
+            let pattern = NSRegularExpression.escapedPattern(for: first) + #" (\d+), "#
+                + NSRegularExpression.escapedPattern(for: second) + #" (\d+)"#
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let match = expression.firstMatch(in: text, range: range),
+                  let one = Range(match.range(at: 1), in: text).flatMap({ Int(text[$0]) }),
+                  let two = Range(match.range(at: 2), in: text).flatMap({ Int(text[$0]) }) else { continue }
+            return homeFirst ? (two, one) : (one, two)
+        }
+        return nil
+    }
 }
 
 // MARK: - Holding it back
@@ -316,6 +469,12 @@ struct GameStatsReveal: Equatable, Sendable {
     /// No totals the picture has reached yet: every one fetched so far is
     /// still ahead of it.
     var catchingUp: Bool
+    /// While catching up, how long until the picture reaches the first.
+    var catchingUpFor: Int? = nil
+    /// A scoreboard-only feed's account, as far as the picture has got.
+    var board: GameStatsBoard? = nil
+    /// The same, half a minute before: what a race's order has moved from.
+    var earlierBoard: GameStatsBoard? = nil
 }
 
 /// Everything the feed has said, each held to the moment on the field it
@@ -340,6 +499,8 @@ struct GameStatsTimeline: Sendable {
     private(set) var snapshots: [GameStatsSnapshot] = []
     private var plays: [String: (play: GameStatsPlay, firstSeen: Date)] = [:]
     private var winProbability: [String: Double] = [:]
+    /// Numbers for plays worked out from boards, which come without any.
+    private var nextSequence = 0
 
     var isEmpty: Bool { snapshots.isEmpty }
 
@@ -351,10 +512,22 @@ struct GameStatsTimeline: Sendable {
             // Out of order: a slow reply overtaken by a faster one.
         } else {
             var snapshot = report.snapshot
+            if let board = snapshot.board {
+                snapshot.board = GameStatsBoardChanges.carryingServe(from: snapshots.last?.board, into: board)
+            }
             let latest = report.plays.compactMap(\.wallclock).filter { $0 <= received }.max()
             // Never earlier than the totals before it: the plays it carried
             // can't take the game backwards.
             snapshot.eventTime = max(latest ?? received, snapshots.last?.moment ?? .distantPast)
+            // A board says what happened only against the one before it.
+            if let board = snapshot.board, let previous = snapshots.last {
+                for play in GameStatsBoardChanges.plays(from: previous.board, to: board,
+                                                        between: previous.receivedAt...received,
+                                                        sequence: nextSequence) where plays[play.id] == nil {
+                    plays[play.id] = (play, received)
+                    nextSequence = max(nextSequence, play.sequence + 1)
+                }
+            }
             snapshots.append(snapshot)
         }
         for play in report.plays {
@@ -373,10 +546,11 @@ struct GameStatsTimeline: Sendable {
         }
     }
 
-    /// When a play happened: ESPN's own time for it, or when it first came,
-    /// which is never before it happened.
+    /// When a play may be shown, at a stream with no delay: ESPN's own time
+    /// for it, the fetch it was worked out by, or when it first came --
+    /// never before it happened.
     static func moment(of play: GameStatsPlay, firstSeen: Date) -> Date {
-        play.wallclock ?? firstSeen
+        play.timedMoment ?? firstSeen
     }
 
     /// The game as of `cutoff`: now, less however far the picture is behind
@@ -394,8 +568,22 @@ struct GameStatsTimeline: Sendable {
         if snapshot == nil, let lastPlay {
             status = [lastPlay.period, lastPlay.clock].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         }
+        var waiting: Int?
+        if snapshot == nil, let first = snapshots.first {
+            waiting = max(0, Int(first.moment.timeIntervalSince(cutoff).rounded(.up)))
+        }
+        // A board's sides are its headline's, as of what is shown.
+        var sides = (away: away, home: home)
+        if let snapshot, let board = snapshot.board {
+            let report = GameStatsReport(board: board, receivedAt: snapshot.receivedAt)
+            sides = (report.away, report.home)
+        }
+        var earlier: GameStatsBoard?
+        if case .race? = snapshot?.board {
+            earlier = snapshots.last { $0.moment <= cutoff.addingTimeInterval(-30) }?.board
+        }
         return GameStatsReveal(
-            away: away, home: home,
+            away: sides.away, home: sides.home,
             awayScore: max(snapshot?.awayScore ?? 0, lastPlay?.awayScore ?? 0),
             homeScore: max(snapshot?.homeScore ?? 0, lastPlay?.homeScore ?? 0),
             state: snapshot?.state ?? (lastPlay == nil ? "pre" : "in"),
@@ -404,32 +592,40 @@ struct GameStatsTimeline: Sendable {
             lines: snapshot?.lines ?? [],
             leaders: snapshot?.leaders ?? [],
             homeWinProbability: probability,
-            catchingUp: snapshot == nil)
+            catchingUp: snapshot == nil,
+            catchingUpFor: waiting,
+            board: snapshot?.board,
+            earlierBoard: earlier)
     }
 
-    /// Plays ESPN gives a moment for, oldest first: what syncing steps
-    /// through.
-    var timedPlays: [GameStatsPlay] {
-        plays.values.map { $0.play }.filter { $0.wallclock != nil }
-            .sorted { ($0.wallclock!, $0.sequence) < ($1.wallclock!, $1.sequence) }
+    /// Plays with a moment of their own, oldest first: what syncing steps
+    /// through. `group` keeps to one match or fight on a board of several.
+    func timedPlays(in group: String? = nil) -> [GameStatsPlay] {
+        plays.values.map { $0.play }
+            .filter { $0.timedMoment != nil && (group == nil || $0.group == group) }
+            .sorted { ($0.timedMoment!, $0.sequence) < ($1.timedMoment!, $1.sequence) }
     }
+
+    var timedPlays: [GameStatsPlay] { timedPlays() }
 
     /// The latest play the picture has reached.
-    func latestTimedPlay(at cutoff: Date) -> GameStatsPlay? {
-        timedPlays.last { $0.wallclock! <= cutoff }
+    func latestTimedPlay(at cutoff: Date, in group: String? = nil) -> GameStatsPlay? {
+        timedPlays(in: group).last { $0.timedMoment! <= cutoff }
     }
 
     /// The play after this one, if ESPN has it yet.
-    func timedPlay(after play: GameStatsPlay) -> GameStatsPlay? {
-        let all = timedPlays
+    func timedPlay(after play: GameStatsPlay, in group: String? = nil) -> GameStatsPlay? {
+        let all = timedPlays(in: group)
         guard let index = all.firstIndex(where: { $0.id == play.id }), index + 1 < all.count else { return nil }
         return all[index + 1]
     }
 
     /// The delay that puts the picture at this play now: how long ago it
-    /// happened. Nil for a play ESPN gives no moment for.
+    /// happened. A play worked out from two fetches is reckoned from the
+    /// first, the earliest it could have happened, so that nothing after
+    /// it is shown early. Nil for a play with no moment.
     static func delay(syncingTo play: GameStatsPlay, now: Date) -> TimeInterval? {
-        play.wallclock.map { max(0, now.timeIntervalSince($0)) }
+        (play.wallclock ?? play.seen?.lowerBound).map { max(0, now.timeIntervalSince($0)) }
     }
 }
 
