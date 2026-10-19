@@ -45,6 +45,25 @@ after the picture shows them, and never before.
 On a tennis tournament with several matches on court, the viewer picks the
 match on their screen first. Its plays are the ones synced to.
 
+## The Courts tab
+
+Only the match on the viewer's screen is held. The other courts aren't on
+it, so they show as ESPN has them, as soon as the panel opens, and update
+with every fetch. The match on screen shows as the picture has it. Until
+the picture reaches it, the row shows who is playing and no score. On a
+tournament channel, until the viewer picks a match, any match that could be
+on screen is held: one under way, or one the picture hasn't seen finish.
+
+ESPN's tennis scoreboard has games and sets but no points, so a match moves
+a game at a time.
+
+## Freshness
+
+Every request skips the phone's own cache. ESPN's cache keeps a copy for
+up to ten seconds, and its `max-age` says how long this one has left, so a
+change between two boards is placed after the earlier board's data could
+have been taken, not after it arrived.
+
 Polling: summaries every 10 seconds while live. Tennis scoreboards every 10
 seconds, which matches ESPN's cache. Fight cards and races every 5. Anything
 not live, once a minute.

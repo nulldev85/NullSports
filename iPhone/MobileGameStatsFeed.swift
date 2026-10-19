@@ -101,6 +101,9 @@ struct GameStatsSnapshot: Equatable, Sendable {
     var eventTime: Date? = nil
     /// A scoreboard-only feed's whole account: a draw, a card, a race.
     var board: GameStatsBoard? = nil
+    /// How old the answer may already have been when it came: ESPN serves
+    /// a copy from its cache for up to ten seconds.
+    var staleness: TimeInterval = 0
     /// When these totals may be shown, at a stream with no delay.
     var moment: Date { eventTime ?? receivedAt }
 }
@@ -118,7 +121,7 @@ struct GameStatsReport: Sendable {
 extension GameStatsReport {
     /// A board as a report: its plays are worked out as it is taken in,
     /// against the board before it.
-    init(board: GameStatsBoard, receivedAt: Date) {
+    init(board: GameStatsBoard, receivedAt: Date, staleness: TimeInterval = 0) {
         var away = GameStatsTeam.nobody, home = GameStatsTeam.nobody
         var scores = (away: 0, home: 0)
         let state: String, status: String
@@ -145,7 +148,7 @@ extension GameStatsReport {
         self.init(away: away, home: home,
                   snapshot: GameStatsSnapshot(receivedAt: receivedAt, state: state, period: 0, status: status,
                                               clock: nil, awayScore: scores.away, homeScore: scores.home,
-                                              lines: [], leaders: [], board: board),
+                                              lines: [], leaders: [], board: board, staleness: staleness),
                   plays: [], winProbability: [:])
     }
 }
@@ -475,6 +478,9 @@ struct GameStatsReveal: Equatable, Sendable {
     var board: GameStatsBoard? = nil
     /// The same, half a minute before: what a race's order has moved from.
     var earlierBoard: GameStatsBoard? = nil
+    /// The newest board, ahead of the picture. Only for what is not on the
+    /// viewer's screen: the other courts of a tournament.
+    var latestBoard: GameStatsBoard? = nil
 }
 
 /// Everything the feed has said, each held to the moment on the field it
@@ -519,10 +525,13 @@ struct GameStatsTimeline: Sendable {
             // Never earlier than the totals before it: the plays it carried
             // can't take the game backwards.
             snapshot.eventTime = max(latest ?? received, snapshots.last?.moment ?? .distantPast)
-            // A board says what happened only against the one before it.
+            // A board says what happened only against the one before it:
+            // after that one's account was taken -- which may have been
+            // before it came -- and by the time this one came.
             if let board = snapshot.board, let previous = snapshots.last {
+                let after = min(received, previous.receivedAt.addingTimeInterval(-previous.staleness))
                 for play in GameStatsBoardChanges.plays(from: previous.board, to: board,
-                                                        between: previous.receivedAt...received,
+                                                        between: after...received,
                                                         sequence: nextSequence) where plays[play.id] == nil {
                     plays[play.id] = (play, received)
                     nextSequence = max(nextSequence, play.sequence + 1)
@@ -595,7 +604,8 @@ struct GameStatsTimeline: Sendable {
             catchingUp: snapshot == nil,
             catchingUpFor: waiting,
             board: snapshot?.board,
-            earlierBoard: earlier)
+            earlierBoard: earlier,
+            latestBoard: snapshots.last?.board)
     }
 
     /// Plays with a moment of their own, oldest first: what syncing steps

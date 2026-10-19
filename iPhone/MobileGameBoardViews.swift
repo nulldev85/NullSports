@@ -52,6 +52,9 @@ struct MobileTennisMatchBoard: View {
 struct MobileTennisHeader: View {
     let draw: GameStatsTennisBoard
     let match: GameStatsTennisMatch?
+    /// The picture has yet to reach the draw: who is playing, and nothing
+    /// of how it stands.
+    var catchingUp = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -68,10 +71,15 @@ struct MobileTennisHeader: View {
                 MobileTennisMatchBoard(match: match)
             } else {
                 Text(draw.tournament).font(.inter(18, .bold)).lineLimit(2)
-                Text(draw.live.isEmpty ? "No match on court right now"
-                     : (draw.live.count == 1 ? "1 match on court" : "\(draw.live.count) matches on court"))
-                    .font(.inter(13, .semibold))
-                    .foregroundStyle(draw.live.isEmpty ? LineupPanelStyle.quiet : LineupStyle.liveStatus)
+                if catchingUp {
+                    Text("Held until your stream gets here").font(.inter(13, .semibold))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                } else {
+                    Text(draw.live.isEmpty ? "No match on court right now"
+                         : (draw.live.count == 1 ? "1 match on court" : "\(draw.live.count) matches on court"))
+                        .font(.inter(13, .semibold))
+                        .foregroundStyle(draw.live.isEmpty ? LineupPanelStyle.quiet : LineupStyle.liveStatus)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -84,9 +92,11 @@ struct MobileTennisHeader: View {
     }
 }
 
-/// Every match of the day in the draw: on court, up next, and done.
+/// Every match of the day in the draw: on court, up next, and done. The
+/// other courts as ESPN has them now; the match on screen as the picture
+/// has it -- see `GameStatsTennisBoard.courts`.
 struct MobileTennisCourts: View {
-    let draw: GameStatsTennisBoard
+    let courts: [GameStatsCourt]
     /// The match on the viewer's screen, where one is known.
     let onScreen: String?
     /// Picks the match on screen. Nil on a match's own panel, where the
@@ -94,19 +104,20 @@ struct MobileTennisCourts: View {
     let onPick: ((String) -> Void)?
 
     var body: some View {
-        let live = draw.live
-        let upcoming = draw.matches.filter { $0.state == "pre" }
-        let results = draw.matches.filter { $0.state == "post" }.reversed()
+        let matches = courts.map(\.match)
+        let live = matches.filter { $0.state == "in" }
+        let upcoming = matches.filter { $0.state == "pre" }
+        let results = matches.filter { $0.state == "post" }.reversed()
         LazyVStack(alignment: .leading, spacing: 0) {
-            if onPick != nil, live.count > 1 {
-                Text("Tap the match on your screen. Its plays are the ones synced to.")
+            if onPick != nil, onScreen == nil, live.count > 1 {
+                Text("Tap the match on your screen. Its plays are the ones synced to, and the rest show live.")
                     .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
                     .padding(.horizontal, 16).padding(.top, 12)
             }
             group("ON COURT", Array(live))
             group("UP NEXT", Array(upcoming))
             group("RESULTS", Array(results))
-            if draw.matches.isEmpty {
+            if matches.isEmpty {
                 Text("No singles today.").font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
                     .frame(maxWidth: .infinity).padding(.vertical, 28)
             }

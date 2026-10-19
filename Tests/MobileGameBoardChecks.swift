@@ -178,6 +178,73 @@ struct MobileGameBoardChecks {
         check(timeline.latestTimedPlay(at: fetch2, in: "m2") == nil && timeline.latestTimedPlay(at: fetch2, in: "m1") != nil,
               "Syncing keeps to the match on screen")
 
+        // MARK: The courts list
+
+        // The draw as the picture has it, a minute behind, and as ESPN has
+        // it now. m1 has moved on a game; m3 has finished since; m4 is to
+        // come; m5 finished long ago.
+        func tennisDraw(_ matches: [(String, [(Int, Int)], String)], focus: String? = nil) -> GameStatsTennisBoard {
+            let body = tennisJSON(matches.map { ($0.0, $0.1, nil, $0.2) })
+            // The fixture's matches are on 2026-10-19; the draw is the day's.
+            let day = ISO8601DateFormatter().date(from: "2026-10-19T03:00:00Z")!
+            guard case .tennis(let parsed)? = GameStatsBoardParser.tennis(body, tour: "wta", match: focus,
+                                                                         tournament: focus == nil ? "345-2026" : nil,
+                                                                         receivedAt: day) else {
+                preconditionFailure("A draw is read")
+            }
+            return parsed
+        }
+        let behind = tennisDraw([("m1", [(2, 1)], "in"), ("m2", [(0, 0)], "in"), ("m3", [(5, 3)], "in"), ("m5", [(6, 0), (6, 0)], "post")])
+        let ahead = tennisDraw([("m1", [(3, 1)], "in"), ("m2", [(1, 0)], "in"), ("m3", [(6, 3), (6, 4)], "post"),
+                          ("m4", [], "pre"), ("m5", [(6, 0), (6, 0)], "post")])
+        func row(_ courts: [GameStatsCourt], _ id: String) -> GameStatsCourt { courts.first { $0.id == id }! }
+
+        // The match on screen is known: only it waits for the picture.
+        let watching = GameStatsTennisBoard.courts(latest: ahead, shown: behind, onScreen: "m1")
+        check(watching.map(\.id) == ahead.matches.map(\.id), "Every match of the newest draw is listed")
+        check(row(watching, "m1").held && row(watching, "m1").match.line == "2-1",
+              "The match on screen is as the picture has it")
+        check(!row(watching, "m2").held && row(watching, "m2").match.line == "1-0", "Another court is live")
+        check(!row(watching, "m3").held && row(watching, "m3").match.state == "post",
+              "Another court's result shows when ESPN has it")
+        check(row(watching, "m4").match.state == "pre", "What is still to come is listed")
+
+        // Before the picture has reached anything, the match on screen is
+        // there at once, without its score, and the rest are live.
+        let unreached = GameStatsTennisBoard.courts(latest: ahead, shown: nil, onScreen: "m1")
+        check(row(unreached, "m1").held && row(unreached, "m1").match.sets.isEmpty && row(unreached, "m1").match.heldBack
+                && row(unreached, "m1").match.status == "Held for your stream",
+              "Not yet reached: who is playing, and nothing of the score")
+        check(row(unreached, "m2").match.line == "1-0", "The other courts don't wait")
+
+        // On a tournament, not knowing which match is on screen, any that
+        // could be is held.
+        let unknown = GameStatsTennisBoard.courts(latest: ahead, shown: behind, onScreen: nil)
+        check(row(unknown, "m1").held && row(unknown, "m2").held, "Every match under way could be on screen")
+        check(row(unknown, "m3").held && row(unknown, "m3").match.state == "in" && row(unknown, "m3").match.line == "5-3",
+              "A match the picture hasn't seen finish is held as it was")
+        check(!row(unknown, "m4").held && !row(unknown, "m5").held, "One to come, or long over, has nothing to hold")
+        let unknownOpening = GameStatsTennisBoard.courts(latest: ahead, shown: nil, onScreen: nil)
+        check(row(unknownOpening, "m3").match.state == "in" && row(unknownOpening, "m3").match.sets.isEmpty,
+              "A result the picture can't have reached is withheld, and not told as finished")
+
+        // The newest board comes with every reveal, held or not.
+        var latestLine = GameStatsTimeline()
+        latestLine.ingest(GameStatsReport(board: .tennis(behind), receivedAt: t0))
+        let fresh = latestLine.reveal(at: t0.addingTimeInterval(-60))!
+        check(fresh.board == nil && fresh.latestBoard?.tennis != nil, "The courts can show before the picture gets anywhere")
+
+        // ESPN may hand back a copy up to ten seconds old. A change is placed
+        // after the earlier account was taken, not after it came.
+        check(GameStatsBoardParser.staleness("max-age=7") == 3 && GameStatsBoardParser.staleness("public, max-age=10") == 0
+                && GameStatsBoardParser.staleness(nil) == 10 && GameStatsBoardParser.staleness("max-age=60") == 0,
+              "How old a copy may be, from how long it has left")
+        var aged = GameStatsTimeline()
+        aged.ingest(GameStatsReport(board: draw1, receivedAt: fetch1, staleness: 6))
+        aged.ingest(GameStatsReport(board: draw2, receivedAt: fetch2, staleness: 2))
+        check(aged.timedPlays.first?.seen == fetch1.addingTimeInterval(-6)...fetch2,
+              "The window opens when the earlier account was taken")
+
         // MARK: A fight card
 
         func card(_ bouts: [(id: String, state: String, round: Int, clock: String, winner: Int?, details: [String])]) -> Data {

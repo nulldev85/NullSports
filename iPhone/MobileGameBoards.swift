@@ -60,6 +60,8 @@ struct GameStatsTennisMatch: Identifiable, Equatable, Sendable {
     let detail: String
     let winner: GameStatsSide?
     let start: Date?
+    /// Its score is withheld: the picture has yet to reach it.
+    var heldBack = false
 
     var awaySets: Int { sets.filter { $0.winner == .away }.count }
     /// Every game so far, a tiebreak counting as one.
@@ -81,8 +83,18 @@ struct GameStatsTennisMatch: Identifiable, Equatable, Sendable {
 
     var title: String { "\(away.abbreviation) vs \(home.abbreviation)" }
 
+    /// Who is playing and where, and nothing of how it stands: a match the
+    /// picture has yet to reach.
+    var withheld: GameStatsTennisMatch {
+        GameStatsTennisMatch(id: id, round: round, court: court, away: away, home: home,
+                             awaySeed: awaySeed, homeSeed: homeSeed, sets: [], bestOf: bestOf, serving: nil,
+                             state: state == "pre" ? "pre" : "in", detail: detail, winner: nil, start: start,
+                             heldBack: true)
+    }
+
     /// "Set 2 · 4-2" while it is played, "Final · 7-5 6-4" after.
     var status: String {
+        if heldBack, state != "pre" { return "Held for your stream" }
         switch state {
         case "in":
             guard let current else { return sets.isEmpty ? "Under way" : "Between sets" }
@@ -103,6 +115,36 @@ struct GameStatsTennisBoard: Equatable, Sendable {
 
     var focused: GameStatsTennisMatch? { focus.flatMap { id in matches.first { $0.id == id } } }
     var live: [GameStatsTennisMatch] { matches.filter { $0.state == "in" } }
+
+    /// The day's draw as the courts list shows it.
+    ///
+    /// Only the match on the viewer's screen is the picture's to show. The
+    /// other courts are not on it, so they are shown as ESPN has them now
+    /// -- at once, and live -- rather than held a stream's delay behind for
+    /// nothing. The match on screen is shown as the picture has it, or
+    /// withheld until the picture gets there.
+    ///
+    /// Not knowing which match is on screen, any that could be is held: one
+    /// under way, or one the picture has not yet seen finish.
+    static func courts(latest: GameStatsTennisBoard, shown: GameStatsTennisBoard?,
+                       onScreen: String?) -> [GameStatsCourt] {
+        let reached = Dictionary((shown?.matches ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return latest.matches.map { now in
+            let then = reached[now.id]
+            let held = onScreen.map { $0 == now.id } ?? (now.state != "pre" && then?.state != "post")
+            return GameStatsCourt(match: held ? (then ?? now.withheld) : now, held: held)
+        }
+    }
+}
+
+/// One row of the courts list.
+struct GameStatsCourt: Identifiable, Equatable, Sendable {
+    /// As ESPN has it now, or, held, as the picture has it.
+    let match: GameStatsTennisMatch
+    /// Kept to the picture: it is on the viewer's screen, or could be.
+    let held: Bool
+
+    var id: String { match.id }
 }
 
 // MARK: - A fight card
@@ -231,6 +273,17 @@ enum GameStatsBoardParser {
 
     static func date(_ value: Any?) -> Date? {
         GameStatsParser.date(value) ?? (value as? String).flatMap { minutes.date(from: $0) }
+    }
+
+    /// How old ESPN's copy of a scoreboard may be when it comes. Its cache
+    /// keeps one for ten seconds and says how long this one has left; with
+    /// no word of that, the worst is assumed.
+    static func staleness(_ cacheControl: String?) -> TimeInterval {
+        let lifetime: TimeInterval = 10
+        guard let cacheControl,
+              let range = cacheControl.range(of: #"max-age=(\d+)"#, options: .regularExpression),
+              let left = TimeInterval(cacheControl[range].dropFirst("max-age=".count)) else { return lifetime }
+        return min(lifetime, max(0, lifetime - left))
     }
 
     private static func events(_ data: Data) -> [[String: Any]]? {

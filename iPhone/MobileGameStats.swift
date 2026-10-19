@@ -162,7 +162,7 @@ final class MobileGameStats: ObservableObject {
     /// viewer has to say which is on their screen before it can be synced.
     var needsFocus: Bool {
         guard case .tennis(_, nil, _)? = source, focus == nil,
-              case .tennis(let draw)? = reveal?.board else { return false }
+              let draw = reveal?.latestBoard?.tennis ?? reveal?.board?.tennis else { return false }
         return draw.live.count > 1
     }
 
@@ -227,7 +227,8 @@ final class MobileGameStats: ObservableObject {
     }
 
     private func report(for target: GameStatsTarget) async -> GameStatsReport? {
-        var request = URLRequest(url: target.summaryURL, timeoutInterval: 8)
+        // Never the phone's own copy: a summary is a moment of a live game.
+        var request = URLRequest(url: target.summaryURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
@@ -269,11 +270,14 @@ final class MobileGameStats: ObservableObject {
 
     private func board(_ source: GameStatsSource) async -> GameStatsReport? {
         guard let url = boardURL(source) else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 8)
+        // Never the phone's own copy: it would hand the same answer back for
+        // up to ten seconds, and a change would seem to come later than it did.
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         let received = Date()
+        let staleness = GameStatsBoardParser.staleness(http.value(forHTTPHeaderField: "Cache-Control"))
         let league = game?.league.rawValue ?? ""
         return await Task.detached(priority: .utility) { () -> GameStatsReport? in
             let board: GameStatsBoard?
@@ -288,7 +292,7 @@ final class MobileGameStats: ObservableObject {
             case .summary:
                 board = nil
             }
-            return board.map { GameStatsReport(board: $0, receivedAt: received) }
+            return board.map { GameStatsReport(board: $0, receivedAt: received, staleness: staleness) }
         }.value
     }
 

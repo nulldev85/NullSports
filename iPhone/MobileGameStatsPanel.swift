@@ -74,13 +74,18 @@ struct MobileGameStatsPanel: View {
                     case .box: box(reveal)
                     case .leaders: leaders(reveal)
                     case .courts:
-                        if let draw = reveal.board?.tennis {
+                        // The newest draw, at once: only the match on
+                        // screen waits for the picture.
+                        if let latest = reveal.latestBoard?.tennis {
+                            let onScreen = latest.focus ?? stats.focus
                             // A tournament asks which match is on screen; a
                             // match's own panel already knows.
-                            let pick: ((String) -> Void)? = draw.focus == nil ? { (id: String) in stats.focus = id } : nil
-                            MobileTennisCourts(draw: draw, onScreen: draw.focus ?? stats.focus, onPick: pick)
+                            let pick: ((String) -> Void)? = latest.focus == nil ? { (id: String) in stats.focus = id } : nil
+                            MobileTennisCourts(courts: GameStatsTennisBoard.courts(latest: latest, shown: reveal.board?.tennis,
+                                                                                   onScreen: onScreen),
+                                               onScreen: onScreen, onPick: pick)
                         } else {
-                            message("The courts appear once your stream reaches them.", symbol: "sportscourt")
+                            message("No courts yet.", symbol: "sportscourt")
                         }
                     case .card:
                         if let card = reveal.board?.card {
@@ -124,7 +129,15 @@ struct MobileGameStatsPanel: View {
         case .card(let card)?: MobileFightHeader(card: card)
         case .race(let race)?: MobileRaceHeader(race: race)
         case nil:
-            if game.statsSource?.isBoard == true { waitingHeader } else { scoreboard(reveal) }
+            if let latest = reveal.latestBoard?.tennis {
+                // Not reached yet: who is playing, and nothing of the score.
+                let match = latest.focused ?? stats.focus.flatMap { id in latest.matches.first { $0.id == id } }
+                MobileTennisHeader(draw: latest, match: match?.withheld, catchingUp: true)
+            } else if game.statsSource?.isBoard == true {
+                waitingHeader
+            } else {
+                scoreboard(reveal)
+            }
         }
     }
 
@@ -552,8 +565,11 @@ struct MobileStatsSyncSheet: View {
     private var pickMatch: some View {
         VStack(spacing: 10) {
             Text("Which match is on your screen?").font(.inter(16, .semibold))
-            if let draw = stats.reveal?.board?.tennis {
-                ForEach(draw.live) { match in
+            // Every match that could be on screen, each as the picture has
+            // it or withheld: the one on screen is among them.
+            if let latest = stats.reveal?.latestBoard?.tennis {
+                ForEach(GameStatsTennisBoard.courts(latest: latest, shown: stats.reveal?.board?.tennis, onScreen: nil)
+                    .map(\.match).filter { $0.state == "in" }) { match in
                     Button {
                         stats.focus = match.id
                         begin()
