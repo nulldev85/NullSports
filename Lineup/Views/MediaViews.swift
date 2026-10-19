@@ -5244,6 +5244,8 @@ private struct MediaSourcePicker: View {
                              subtitleIdentityLookup: {
                                  await media.onlineSubtitleIdentity(for: trackedItem)
                              },
+                             trackMemoryShow: item.type == "Episode"
+                                 ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                              seekPreviewLookup: {
                                  await media.seekPreview(for: trackedItem, source: source)
                              },
