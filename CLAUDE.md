@@ -8,6 +8,10 @@ repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
 is live a minute or two later; nothing in this repo deploys it, and it stays up
 while this repo is private.
 
+The page is drawn in the app's own look (Inter, the charcoal ground, panel
+cards with an icon tile and caption, capsule chips; see `Lineup/Design`), so
+anything added to it uses the same classes.
+
 Every merge round into `main` ends with updating that page:
 
 - Add each new feature as an `<article class="entry">` in its section (Sports,
