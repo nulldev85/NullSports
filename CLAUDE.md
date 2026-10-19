@@ -23,8 +23,8 @@ Every merge round into `main` ends with updating that page:
 - On a card for both apps, mark any line true of one app only with
   `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
 - Add the release to the ledger at the top of the Releases list, newest first.
-- Update by hand the eyebrow's date range and the footer's date. The filter
-  and ledger counts recount themselves on load.
+- Update the footer's date by hand. The filter and ledger counts recount
+  themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
 
 The page's Download panel offers the newest official IPA of each app, from the
