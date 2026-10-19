@@ -20,7 +20,9 @@ Every merge round into `main` ends with updating that page:
 - Set `data-platform` (`iphone`, `tv`, or both) and `data-release` to the PR
   number, and list the commits in `.shas`. A feature that reached each app in
   a different release also gets `data-release-iphone` and `data-release-tv`.
+- On a card for both apps, mark any line true of one app only with
+  `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
 - Add the release to the ledger at the top of the Releases list, newest first.
-- Update by hand the tally under the title, the eyebrow's date range and the
-  footer's date. The filter and ledger counts recount themselves on load.
+- Update by hand the eyebrow's date range and the footer's date. The filter
+  and ledger counts recount themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
